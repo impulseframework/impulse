@@ -14,6 +14,14 @@ import "slices"
 // tenants, the roles a person who signs up may be given, which the default role is
 // picked from. An application writes none of it.
 //
+// The same page carries a second choice, whether a person may ask for a link that
+// resets their own password (Set<Auth>SelfServiceReset), which is the password
+// method's and not sign-up's: every auth that declares the password method has that
+// method, whether or not it carries the choice of who may sign up. And it carries what
+// every sign-in asks for (identity_signinsettings.go), which is every auth's, so every
+// auth whose schema holds the sign-in methods table has the list, also one with
+// neither choice.
+//
 // In an application with tenants a person who signs up holds no role of the whole
 // application: they create a tenant of their own, through the create-your-tenant route,
 // which one auth serves (the one whose outlets serve the tenant record). That auth
@@ -109,16 +117,21 @@ func (d *identitySourceData) JudgesRoleChanges() bool { return d.judgesRoleChang
 // file, for an instance that keeps groups, whose changes are judged as the role changes
 // they make, for one whose administrator picks the default role of an open method, for
 // one whose tenant's administrator picks the role everyone from the tenant's directory
-// gets (seatsDirectory), and for one whose tenant gives roles by hand, where the list a
-// role is picked from offers the roles the caller could give (picksRoles).
+// gets (seatsDirectory), for one whose tenant gives roles by hand, where the list a
+// role is picked from offers the roles the caller could give (picksRoles), for one whose
+// people take a role for a set time, which is judged as the role given directly
+// (takesRoles), and for every one whose roles the application gives, whose whole
+// application's role fields pick from the roles the caller could give
+// (givableRoleSources).
 func (i *identityInstance) roleGrantsSource() []identitySourceFile {
 	var needs []identityTable
 	switch {
 	case i.keepsGroups():
 		needs = append(append(identityGroupTables(), identityUsers), identityMemberships)
-	case i.picksDefaultRole():
-		needs = []identityTable{identitySignInMethods, identityMemberships}
-	case i.seatsDirectory(), i.picksRoles():
+	case !i.rolesSynced:
+		// Every other reason is an instance whose roles the application gives:
+		// picksDefaultRole, seatsDirectory, picksRoles and takesRoles each hold only
+		// there. A role taken for a set time is judged as the same role given directly.
 		needs = []identityTable{identityMemberships}
 	default:
 		return nil
@@ -127,18 +140,35 @@ func (i *identityInstance) roleGrantsSource() []identitySourceFile {
 	return []identitySourceFile{{dir: i.methods, name: "grants", template: identityGrantsTemplate, needs: needs}}
 }
 
-// signUpSources are the source files of the sign-up part of an instance's management.
+// signUpSources are the source files of the Sign-in page of an instance's management:
+// the list of the auth's sign-in methods, and what an administrator chooses over it.
+// Every instance whose schema holds the table has the list, since every auth has the
+// sign-in settings the page changes besides (signInSettingsSources); where the
+// instance has nothing of a method to choose, its rows say why. Two things are chosen
+// over the list, each where the instance has it to choose. Who may sign up (the method
+// that opens a sign-in method and the one that makes it invite only again, and without
+// tenants the roles a default role is picked from) is chosen by an instance that
+// carries the choice (choosesSignUp). Whether people reset their own password is
+// chosen by every instance that declares the password method, whether or not it
+// carries the other choice: an auth whose people join a tenant somebody else made has
+// passwords to reset like any other.
 func (r *resourceGenerator) signUpSources(inst *identityInstance) []identitySourceFile {
-	if !inst.choosesSignUp() {
-		return nil
-	}
+	chooses := inst.choosesSignUp()
 	needs := []identityTable{identitySignInMethods}
 	files := []identitySourceFile{
 		{dir: inst.methods, name: fileStem(r.pluralize(inst.auth + signInMethodSuffix)), template: identitySignInMethodListTemplate, needs: needs},
-		{dir: inst.methods, name: fileStem("Open" + inst.auth + "SignUp"), template: identityOpenSignUpTemplate, needs: needs},
-		{dir: inst.methods, name: fileStem("Make" + inst.auth + "InviteOnly"), template: identityMakeInviteOnlyTemplate, needs: needs},
 	}
-	if inst.tenant == nil {
+	if chooses {
+		files = append(files,
+			identitySourceFile{dir: inst.methods, name: fileStem("Open" + inst.auth + "SignUp"), template: identityOpenSignUpTemplate, needs: needs},
+			identitySourceFile{dir: inst.methods, name: fileStem("Make" + inst.auth + "InviteOnly"), template: identityMakeInviteOnlyTemplate, needs: needs},
+		)
+	}
+	// Only an auth that declares the password method has a password to reset.
+	if inst.password {
+		files = append(files, identitySourceFile{dir: inst.methods, name: fileStem("Set" + inst.auth + "SelfServiceReset"), template: identitySetSelfServiceResetTemplate, needs: needs})
+	}
+	if chooses && inst.tenant == nil {
 		files = append(files, identitySourceFile{
 			dir: inst.methods, name: fileStem(r.pluralize(inst.auth + signUpRoleSuffix)), template: identitySignUpRolesTemplate, needs: []identityTable{identitySignInMethods, identityMemberships},
 		})
@@ -170,20 +200,26 @@ type (
 	// opened (the row opens the method for that audience alone, so a registration
 	// widened in code since is invite only until it is opened again), and DefaultRole
 	// names the role such a person is given with their account. A method with no row is
-	// invite only. The sign-in reads the row in its own transaction;
-	// Open{{ .Auth }}SignUp and Make{{ .Auth }}InviteOnly write it, and nothing else does.
+	// invite only. SelfServiceReset, read on the password method's row alone, says a
+	// person may ask at the sign-in page for a link that resets their own password. The
+	// sign-in reads the row in its own transaction; Open{{ .Auth }}SignUp,
+	// Make{{ .Auth }}InviteOnly and Set{{ .Auth }}SelfServiceReset write it, and nothing
+	// else does.
 	//
 	// @resource
 	// @suppress(listHandler)
 	// @suppress(readHandler)
 	// @suppress(patchHandler)
 	// @outlet({{ .Outlets }})
+	// @rowWord(way to sign in, plural: ways to sign in)
 	{{ .SignInMethodRow }} struct {
-		Name        string    ` + "`spanner:\"Name\"`" + `
-		OpenSignUp  bool      ` + "`spanner:\"OpenSignUp\"`" + `
-		OpenedFor   *string   ` + "`spanner:\"OpenedFor\"`" + `
-		DefaultRole *string   ` + "`spanner:\"DefaultRole\"`" + `
-		UpdatedAt   time.Time ` + "`spanner:\"UpdatedAt\"`" + `
+		Name             string    ` + "`spanner:\"Name\"`" + `
+		OpenSignUp       bool      ` + "`spanner:\"OpenSignUp\"`" + `
+		OpenedFor        *string   ` + "`spanner:\"OpenedFor\"`" + `
+		// @roleOf({{ .Auth }})
+		DefaultRole      *string   ` + "`spanner:\"DefaultRole\"`" + `
+		SelfServiceReset bool      ` + "`spanner:\"SelfServiceReset\"`" + `
+		UpdatedAt        time.Time ` + "`spanner:\"UpdatedAt\"`" + `
 	}
 )
 
@@ -200,21 +236,26 @@ func ({{ .SignInMethodRow }}) Config() resource.Config {
 	identitySignInMethodStoreTemplate = `{{ if .Has "signInMethods" }}
 func (store) SignInMethodRows(ctx context.Context, reader resource.ReadOnlyTransaction) ([]identity.SignInMethodRow, error) {
 	query := {{ .ResourcesPackage }}.New{{ .SignInMethodRow }}Query().
-		AddColumns({{ .ResourcesPackage }}.New{{ .SignInMethodRow }}Columns().Name().OpenSignUp().OpenedFor().DefaultRole())
+		AddColumns({{ .ResourcesPackage }}.New{{ .SignInMethodRow }}Columns().Name().OpenSignUp().OpenedFor().DefaultRole().SelfServiceReset())
 	var rows []identity.SignInMethodRow
 	for row, err := range query.List(ctx, reader) {
 		if err != nil {
 			return nil, errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .SignInMethodRow }}Query.List()")
 		}
-		rows = append(rows, identity.SignInMethodRow{Name: row.Data.Name, OpenSignUp: row.Data.OpenSignUp, OpenedFor: row.Data.OpenedFor, DefaultRole: row.Data.DefaultRole})
+		rows = append(rows, identity.SignInMethodRow{
+			Name: row.Data.Name, OpenSignUp: row.Data.OpenSignUp, OpenedFor: row.Data.OpenedFor, DefaultRole: row.Data.DefaultRole,
+			SelfServiceReset: row.Data.SelfServiceReset,
+		})
 	}
 
 	return rows, nil
 }
 
 func (store) SetSignInMethod(ctx context.Context, txn resource.ReadWriteTransaction, row *identity.SignInMethodRow) error {
-	// The row is written whole: created where the method has none, replaced where it
-	// has one, which is read in the transaction. Either write leaves its change event
+	// Who may sign up is written whole: the row is created where the method has none,
+	// and the three columns of the choice are replaced where it has one, which is read
+	// in the transaction. Whether people reset their own password is not this write's
+	// and stands as it is (SetSelfServiceReset). Either write leaves its change event
 	// under the caller, the record of who made the choice and when.
 	_, err := {{ .ResourcesPackage }}.New{{ .SignInMethodRow }}Query().
 		AddColumns({{ .ResourcesPackage }}.New{{ .SignInMethodRow }}Columns().Name()).
@@ -224,7 +265,7 @@ func (store) SetSignInMethod(ctx context.Context, txn resource.ReadWriteTransact
 	case err == nil:
 		patch := {{ .ResourcesPackage }}.New{{ .SignInMethodRow }}UpdatePatch(row.Name).
 			SetOpenSignUp(row.OpenSignUp).SetOpenedFor(row.OpenedFor).SetDefaultRole(row.DefaultRole).SetUpdatedAt(spanner.CommitTimestamp)
-		if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+		if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 			return errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .SignInMethodRow }}UpdatePatch.Buffer()")
 		}
 
@@ -234,7 +275,34 @@ func (store) SetSignInMethod(ctx context.Context, txn resource.ReadWriteTransact
 	}
 	patch := {{ .ResourcesPackage }}.New{{ .SignInMethodRow }}CreatePatch(row.Name).
 		SetOpenSignUp(row.OpenSignUp).SetOpenedFor(row.OpenedFor).SetDefaultRole(row.DefaultRole).SetUpdatedAt(spanner.CommitTimestamp)
-	if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+	if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
+		return errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .SignInMethodRow }}CreatePatch.Buffer()")
+	}
+
+	return nil
+}
+
+func (store) SetSelfServiceReset(ctx context.Context, txn resource.ReadWriteTransaction, name string, on bool) error {
+	// The one field is written, and what else the row says is left as it stands: a
+	// method with no row gets one that is invite only. Either write leaves its change
+	// event under the caller, the record of who made the choice and when.
+	_, err := {{ .ResourcesPackage }}.New{{ .SignInMethodRow }}Query().
+		AddColumns({{ .ResourcesPackage }}.New{{ .SignInMethodRow }}Columns().Name()).
+		SetName(name).
+		Read(ctx, txn)
+	switch {
+	case err == nil:
+		patch := {{ .ResourcesPackage }}.New{{ .SignInMethodRow }}UpdatePatch(name).SetSelfServiceReset(on).SetUpdatedAt(spanner.CommitTimestamp)
+		if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
+			return errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .SignInMethodRow }}UpdatePatch.Buffer()")
+		}
+
+		return nil
+	case !httpio.HasNotFound(err):
+		return errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .SignInMethodRow }}Query.Read()")
+	}
+	patch := {{ .ResourcesPackage }}.New{{ .SignInMethodRow }}CreatePatch(name).SetOpenSignUp(false).SetSelfServiceReset(on).SetUpdatedAt(spanner.CommitTimestamp)
+	if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 		return errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .SignInMethodRow }}CreatePatch.Buffer()")
 	}
 
@@ -252,6 +320,10 @@ func (store) SignInMethodRows(context.Context, resource.ReadOnlyTransaction) ([]
 func (store) SetSignInMethod(_ context.Context, _ resource.ReadWriteTransaction, row *identity.SignInMethodRow) error {
 	return errors.Newf("the schema holds no table {{ .Tables.SignInMethods }}: there is no row to write for the sign-in method %s", row.Name)
 }
+
+func (store) SetSelfServiceReset(_ context.Context, _ resource.ReadWriteTransaction, name string, _ bool) error {
+	return errors.Newf("the schema holds no table {{ .Tables.SignInMethods }}: there is no row to write for the sign-in method %s", name)
+}
 {{ end }}`
 
 	// identitySignUpClientTemplate is the client's half: the hook the auth's package
@@ -267,17 +339,24 @@ func (c *Client) SignedUp() session.SignUpSeatedHook[*spanner.ReadWriteTransacti
 	return c.manager.SignedUp("{{ .Auth }}")
 }
 
-// AnySignInMethodOpen reports whether an administrator has a sign-in method of the
-// {{ .Auth }} auth open to sign-up now, read through reader: the caller's transaction,
-// or the application's client (identity.Manager.AnyMethodOpen). The generated
+// SessionSignInMethodOpen reports whether the sign-in method the session came through is
+// open to sign-up now, read through reader: the caller's transaction, or the
+// application's client (identity.Manager.SessionMethodOpen). The generated
 // create-your-tenant route asks it in the transaction that writes the tenant's row.
-func (c *Client) AnySignInMethodOpen(ctx context.Context, reader resource.ReadOnlyTransaction) (bool, error) {
-	open, err := c.manager.AnyMethodOpen(ctx, reader)
+func (c *Client) SessionSignInMethodOpen(ctx context.Context, reader resource.ReadOnlyTransaction) (bool, error) {
+	open, err := c.manager.SessionMethodOpen(ctx, reader)
 	if err != nil {
-		return false, errors.Wrap(err, "identity.Manager.AnyMethodOpen()")
+		return false, errors.Wrap(err, "identity.Manager.SessionMethodOpen()")
 	}
 
 	return open, nil
+}
+
+// OneTenantPerPerson reports whether the {{ .Auth }} auth's people belong to one tenant
+// each (identity.Manager.OneTenantPerPerson). The generated create-your-tenant route sets
+// its creator's directory on the new tenant only there.
+func (c *Client) OneTenantPerPerson() bool {
+	return c.manager.OneTenantPerPerson()
 }
 {{- end }}
 `
@@ -317,16 +396,21 @@ import (
 // @suppress(readHandler)
 // @outlet({{ .Outlets }})
 // @order(Label asc)
+// @rowWord(way to sign in, plural: ways to sign in)
 type {{ .SignInMethod }} struct {
 	// @primarykey
 	Name                string ` + "`spanner:\"Name\"`" + `
 	Label               string ` + "`spanner:\"Label\"`" + `
 	Admits              string ` + "`spanner:\"Admits\"`" + `
 	OpenSignUp          bool   ` + "`spanner:\"OpenSignUp\"`" + `
+	// @roleOf({{ .Auth }})
 	DefaultRole         string ` + "`spanner:\"DefaultRole\"`" + `
 	DirectoryGivesRoles bool   ` + "`spanner:\"DirectoryGivesRoles\"`" + `
 	OwnRule             bool   ` + "`spanner:\"OwnRule\"`" + `
 	Says                string ` + "`spanner:\"Says\"`" + `
+	// SelfServiceReset says a person may ask at the sign-in page for a link that
+	// resets their own password: the password method's alone.
+	SelfServiceReset bool ` + "`spanner:\"SelfServiceReset\"`" + `
 }
 
 // Resource implements resource.Resourcer.
@@ -349,6 +433,7 @@ func List{{ .SignInMethod }}(ctx context.Context, _ *resource.QuerySet[{{ .SignI
 			method := &{{ .SignInMethod }}{
 				Name: methods[i].Name, Label: methods[i].Label, Admits: methods[i].Admits, OpenSignUp: methods[i].OpenSignUp,
 				DefaultRole: methods[i].DefaultRole, DirectoryGivesRoles: methods[i].DirectoryGivesRoles, OwnRule: methods[i].OwnRule, Says: methods[i].Says,
+				SelfServiceReset: methods[i].SelfServiceReset,
 			}
 			if !yield(method, nil) {
 				return
@@ -390,9 +475,11 @@ import (
 // @suppress(readHandler)
 // @outlet({{ .Outlets }})
 // @order(Name asc)
+// @rowWord(sign-up role)
 type {{ .SignUpRole }} struct {
 	// @primarykey
 	// @attribute(name)
+	// @roleOf({{ .Auth }})
 	Name        string ` + "`spanner:\"Name\"`" + `
 	Description string ` + "`spanner:\"Description\"`" + `
 }
@@ -464,7 +551,7 @@ import (
 // @rpc
 // @outlet({{ .Outlets }})
 // @answers(204)
-// @warning(typed: open)
+// @warning(typed: open)` + identityAccessClass + `
 type Open{{ .Auth }}SignUp struct {
 	// Name is the name the sign-in method is registered under.
 	Name string ` + "`validate:\"required\"`" + `
@@ -507,6 +594,47 @@ func (m *Open{{ .Auth }}SignUp) signUp() *identity.SignUp {
 }
 `
 
+	// identitySetSelfServiceResetTemplate is the method that turns a person's own
+	// password reset on or off.
+	identitySetSelfServiceResetTemplate = `// Code generated by resourcegeneration. DO NOT EDIT.
+// Source: {{ .Source }}
+
+package {{ .Package }}
+
+import (
+	"context"
+
+	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse/resource"
+)
+
+// Set{{ .Auth }}SelfServiceReset says whether a person of the {{ .Auth }} auth may ask at
+// the sign-in page for a link that resets their own password. The choice holds in the
+// running application from the commit on, with no restart: the sign-in page offers
+// "Forgot your password?" while it is on and not while it is off. A link asked for
+// while it was on still works once it is off, until it is used or runs out, and a link
+// an administrator sends is never held to the choice. The change is kept with who made
+// it and when ({{ .SignInMethodRow }}'s change events). The setting decides who can get
+// back into an account from the sign-in page, so the action carries the class access.
+//
+// @rpc
+// @outlet({{ .Outlets }})
+// @answers(204)` + identityAccessClass + `
+type Set{{ .Auth }}SelfServiceReset struct {
+	// On says people may reset their own password.
+	On bool
+}
+
+// Execute buffers the choice into the caller's transaction.
+func (m *Set{{ .Auth }}SelfServiceReset) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error {
+	if err := client.manager.SetSelfServiceReset(ctx, txn, m.On); err != nil {
+		return errors.Wrap(err, "identity.Manager.SetSelfServiceReset()")
+	}
+
+	return nil
+}
+`
+
 	// identityMakeInviteOnlyTemplate is the method that makes a sign-in method invite
 	// only again.
 	identityMakeInviteOnlyTemplate = `// Code generated by resourcegeneration. DO NOT EDIT.
@@ -530,7 +658,7 @@ import (
 //
 // @rpc
 // @outlet({{ .Outlets }})
-// @answers(204)
+// @answers(204)` + identityAccessClass + `
 type Make{{ .Auth }}InviteOnly struct {
 	// Name is the name the sign-in method is registered under.
 	Name string ` + "`validate:\"required\"`" + `

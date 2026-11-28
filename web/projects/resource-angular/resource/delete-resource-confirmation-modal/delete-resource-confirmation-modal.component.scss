@@ -1,0 +1,55 @@
+.question {
+  margin: 0;
+}
+
+// What the method says before it runs, where it warns: the server's words under the
+// question, read as the question is, as the method's own dialog draws a warning with no
+// word to type.
+.warning {
+  margin: 12px 0 0;
+}
+
+.warning-consequence {
+  margin: 0;
+  white-space: pre-line;
+}
+
+// The names the consequence speaks of, where the server lists them: a list of their
+// own under the sentences, which scrolls where it is long.
+.warning-names {
+  max-height: 12em;
+  margin: 8px 0 0;
+  padding-left: 20px;
+  overflow-y: auto;
+}
+
+// A further note the warning carries, under the first sentence and its list.
+.warning-note {
+  margin: 12px 0 0;
+  white-space: pre-line;
+}
+
+// The server's refusal of the delete, under the question it answers.
+.refusal {
+  margin: 12px 0 0;
+  color: var(--mat-sys-error, #b3261e);
+}
+
+// How many records a delete too large for one request has deleted, under the question
+// or under the refusal that stopped it.
+.progress {
+  margin: 12px 0 0;
+}
+
+// The line that says what to type before Delete, under the question; a long name wraps
+// and is read whole.
+.typed-asks {
+  margin: 12px 0 0;
+  overflow-wrap: anywhere;
+}
+
+// The input the text is typed into, as wide as the dialog.
+.typed-name {
+  display: block;
+  margin: 12px 0 0;
+}

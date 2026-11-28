@@ -14,6 +14,7 @@ import (
 	"github.com/impulseframework/impulse/session/sessionstorage"
 	"github.com/impulseframework/impulse/session/signin"
 	"github.com/jackc/pgx/v5"
+	"google.golang.org/api/iterator"
 	"google.golang.org/grpc/codes"
 )
 
@@ -37,13 +38,31 @@ type appDB interface {
 	attemptOutcome(ctx context.Context, t *testing.T, subject string) string
 	// disableUser disables a user.
 	disableUser(ctx context.Context, t *testing.T, userID impulse.UUID)
+	// requirePasswordChange marks a user as one an administrator required a new password
+	// of. The mark is the application's write (its own account management writes the
+	// column); the library reads it and clears it.
+	requirePasswordChange(ctx context.Context, t *testing.T, userID impulse.UUID)
 	// hasUser reports whether a user exists under username, as stored.
 	hasUser(ctx context.Context, t *testing.T, username string) bool
+	// heldWithProvidersWord rewrites the pending sign-ins as a release that kept every
+	// provider's word for an address stored one: the row says the provider verified the
+	// address, and the step waits for the application's own second factor (email-otp),
+	// not for the address.
+	heldWithProvidersWord(ctx context.Context, t *testing.T)
 	// declareTenant writes tenant's declaration: the directories it admits its people
 	// through, and whether through those only.
 	declareTenant(ctx context.Context, t *testing.T, tenant string, directoryOnly bool, directories ...signin.Directory)
 	// seatDirectory gives one of tenant's declared directories a default seat.
 	seatDirectory(ctx context.Context, t *testing.T, tenant string, directory signin.Directory, seat accesstypes.Role)
+	// auditRows reads the Auth's audit log, oldest first.
+	auditRows(ctx context.Context, t *testing.T) []auditRow
+}
+
+// auditRow is a row of the Auth's audit log as a scenario reads it: the act, what it was
+// done to, who acted (a person's account or a process, "" where the row names none), and
+// the value the act set.
+type auditRow struct {
+	Act, SubjectID, SubjectName, ActorUserID, Process, NewValue string
 }
 
 // appRows reads and writes the application's own tables in a sign-in's transaction, the
@@ -134,6 +153,16 @@ func storeTables(t *testing.T) (*sessionstorage.AuthEventsTable, *sessionstorage
 	return events, impersonation
 }
 
+// secondFactorOff writes the sign-in settings row that asks nobody for a second factor,
+// so a scenario's sign-in is decided by the rules it sets up alone.
+func secondFactorOff[Tx any](ctx context.Context, t *testing.T, store *sessionstorage.Auth[Tx]) {
+	t.Helper()
+
+	if err := store.SetRequireSecondFactor(ctx, false, nil); err != nil {
+		t.Fatalf("sessionstorage.Auth.SetRequireSecondFactor(false) error = %v", err)
+	}
+}
+
 var postgresBackend = backend[pgx.Tx]{
 	name: "postgres",
 	newStore: func(ctx context.Context, t *testing.T) (appDB, *sessionstorage.Auth[pgx.Tx]) {
@@ -141,8 +170,10 @@ var postgresBackend = backend[pgx.Tx]{
 
 		db := preparePostgres(ctx, t, postgresSessions, postgresImpersonation, postgresAuth, postgresAppTables)
 		events, impersonation := storeTables(t)
+		store := sessionstorage.NewPostgresAuth(db.Pool, sessionstorage.WithAuthEvents(events), sessionstorage.WithImpersonation(impersonation))
+		secondFactorOff(ctx, t, store)
 
-		return postgresDB{db}, sessionstorage.NewPostgresAuth(db.Pool, sessionstorage.WithAuthEvents(events), sessionstorage.WithImpersonation(impersonation))
+		return postgresDB{db}, store
 	},
 	rows: appRows[pgx.Tx]{
 		addMember: func(ctx context.Context, tx pgx.Tx, userID impulse.UUID, partner string) error {
@@ -225,6 +256,30 @@ func (d postgresDB) username(ctx context.Context, t *testing.T, userID impulse.U
 	return username
 }
 
+func (d postgresDB) auditRows(ctx context.Context, t *testing.T) []auditRow {
+	t.Helper()
+
+	rows, err := d.Query(ctx, `SELECT "Act", "SubjectId", COALESCE("SubjectName", ''), COALESCE("ActorUserId", ''), COALESCE("Process", ''),
+		COALESCE("NewValue", '') FROM "SessionAuditRecords" ORDER BY "CreatedAt"`)
+	if err != nil {
+		t.Fatalf("read the audit log: %v", err)
+	}
+	defer rows.Close()
+	var got []auditRow
+	for rows.Next() {
+		var r auditRow
+		if err := rows.Scan(&r.Act, &r.SubjectID, &r.SubjectName, &r.ActorUserID, &r.Process, &r.NewValue); err != nil {
+			t.Fatalf("read the audit log: %v", err)
+		}
+		got = append(got, r)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("read the audit log: %v", err)
+	}
+
+	return got
+}
+
 func (d postgresDB) attemptOutcome(ctx context.Context, t *testing.T, subject string) string {
 	t.Helper()
 
@@ -245,6 +300,22 @@ func (d postgresDB) disableUser(ctx context.Context, t *testing.T, userID impuls
 
 	if _, err := d.Exec(ctx, `UPDATE "SessionUsers" SET "Disabled" = TRUE WHERE "Id" = $1`, userID); err != nil {
 		t.Fatalf("disable the user: %v", err)
+	}
+}
+
+func (d postgresDB) requirePasswordChange(ctx context.Context, t *testing.T, userID impulse.UUID) {
+	t.Helper()
+
+	if _, err := d.Exec(ctx, `UPDATE "SessionUsers" SET "PasswordChangeRequired" = TRUE WHERE "Id" = $1`, userID); err != nil {
+		t.Fatalf("require a new password of the user: %v", err)
+	}
+}
+
+func (d postgresDB) heldWithProvidersWord(ctx context.Context, t *testing.T) {
+	t.Helper()
+
+	if _, err := d.Exec(ctx, `UPDATE "SessionPendingSignIns" SET "EmailVerified" = TRUE, "Factors" = ARRAY['email-otp']::character varying[]`); err != nil {
+		t.Fatalf("rewrite the pending sign-ins: %v", err)
 	}
 }
 
@@ -288,8 +359,10 @@ var spannerBackend = backend[*spanner.ReadWriteTransaction]{
 
 		db := prepareSpanner(ctx, t, spannerSessions, spannerImpersonation, spannerAuth, spannerAppTables)
 		events, impersonation := storeTables(t)
+		store := sessionstorage.NewSpannerAuth(db.Client, sessionstorage.WithAuthEvents(events), sessionstorage.WithImpersonation(impersonation))
+		secondFactorOff(ctx, t, store)
 
-		return spannerDB{db.Client}, sessionstorage.NewSpannerAuth(db.Client, sessionstorage.WithAuthEvents(events), sessionstorage.WithImpersonation(impersonation))
+		return spannerDB{db.Client}, store
 	},
 	// The hooks write with DML, not mutations: a mutation is buffered until the commit,
 	// so a policy running in the same transaction could not read what a resolver wrote.
@@ -389,6 +462,29 @@ func (d spannerDB) username(ctx context.Context, t *testing.T, userID impulse.UU
 	return username
 }
 
+func (d spannerDB) auditRows(ctx context.Context, t *testing.T) []auditRow {
+	t.Helper()
+
+	iter := d.Single().Query(ctx, spanner.Statement{SQL: `SELECT Act, SubjectId, IFNULL(SubjectName, ''), IFNULL(ActorUserId, ''), IFNULL(Process, ''),
+		IFNULL(NewValue, '') FROM SessionAuditRecords ORDER BY CreatedAt`})
+	defer iter.Stop()
+	var got []auditRow
+	for {
+		row, err := iter.Next()
+		if errors.Is(err, iterator.Done) {
+			return got
+		}
+		if err != nil {
+			t.Fatalf("read the audit log: %v", err)
+		}
+		var r auditRow
+		if err := row.Columns(&r.Act, &r.SubjectID, &r.SubjectName, &r.ActorUserID, &r.Process, &r.NewValue); err != nil {
+			t.Fatalf("read the audit log: %v", err)
+		}
+		got = append(got, r)
+	}
+}
+
 func (d spannerDB) attemptOutcome(ctx context.Context, t *testing.T, subject string) string {
 	t.Helper()
 
@@ -413,6 +509,30 @@ func (d spannerDB) disableUser(ctx context.Context, t *testing.T, userID impulse
 	m := spanner.Update("SessionUsers", []string{"Id", "Disabled"}, []any{userID.String(), true})
 	if _, err := d.Apply(ctx, []*spanner.Mutation{m}); err != nil {
 		t.Fatalf("disable the user: %v", err)
+	}
+}
+
+func (d spannerDB) requirePasswordChange(ctx context.Context, t *testing.T, userID impulse.UUID) {
+	t.Helper()
+
+	m := spanner.Update("SessionUsers", []string{"Id", "PasswordChangeRequired"}, []any{userID.String(), true})
+	if _, err := d.Apply(ctx, []*spanner.Mutation{m}); err != nil {
+		t.Fatalf("require a new password of the user: %v", err)
+	}
+}
+
+func (d spannerDB) heldWithProvidersWord(ctx context.Context, t *testing.T) {
+	t.Helper()
+
+	_, err := d.ReadWriteTransaction(ctx, func(ctx context.Context, tx *spanner.ReadWriteTransaction) error {
+		if _, err := tx.Update(ctx, spanner.Statement{SQL: `UPDATE SessionPendingSignIns SET EmailVerified = TRUE, Factors = ['email-otp'] WHERE TRUE`}); err != nil {
+			return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
+		}
+
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("rewrite the pending sign-ins: %v", err)
 	}
 }
 

@@ -17,6 +17,7 @@ export interface ClientContacts {
   userId?: string;
   clientId?: string;
   displayName?: string;
+  clientName?: string;
 }
 
 export interface ClientRosters {
@@ -35,6 +36,7 @@ export interface Commendations {
   awardedByUserId?: string;
   awardedByName?: string;
   awardedAt?: Date;
+  pilotName?: string;
 }
 
 export interface Consignments {
@@ -46,6 +48,8 @@ export interface Consignments {
   mass?: number;
   expiresOn?: Date;
   releasedAt?: Date;
+  sectorName?: string;
+  clientName?: string;
 }
 
 export interface CrewGroups {
@@ -64,6 +68,7 @@ export interface CrewGroupMembers {
   createdAt?: Date;
   startsAt?: Date;
   endsAt?: Date;
+  groupName?: string;
 }
 
 export interface CrewGroupRoles {
@@ -75,6 +80,7 @@ export interface CrewGroupRoles {
   createdAt?: Date;
   startsAt?: Date;
   endsAt?: Date;
+  groupName?: string;
 }
 
 export interface CrewGroupUsers {
@@ -88,6 +94,156 @@ export interface CrewGroupUsers {
   endsAt?: Date;
 }
 
+export interface CrewHeldRoles {
+  userId: string;
+  username?: string;
+  kind: string;
+  axis: string;
+  domainId: string;
+  role: string;
+  groupId: string;
+  groupName?: string;
+  createdAt?: Date;
+  startsAt?: Date;
+  endsAt?: Date;
+  reason?: string;
+  domainName?: string;
+}
+
+export interface CrewListedGroups {
+  id: string;
+  kind?: string;
+  axis?: string;
+  domainId?: string;
+  name?: string;
+  description?: string;
+  updatedAt?: Date;
+  people?: number;
+  roles?: string[];
+  domainName?: string;
+}
+
+export interface CrewListedGroupRoles {
+  groupId: string;
+  kind: string;
+  axis: string;
+  domainId: string;
+  role: string;
+  createdAt?: Date;
+  startsAt?: Date;
+  endsAt?: Date;
+  losing?: number;
+  domainName?: string;
+}
+
+export interface CrewListedIdentities {
+  id: string;
+  userId?: string;
+  username?: string;
+  method?: string;
+  connection?: string;
+  subject?: string;
+  tenant?: string;
+  emailAtLink?: string;
+  createdAt?: Date;
+  lastUsedAt?: Date;
+  managedByTenant?: boolean;
+  managingTenant?: string;
+}
+
+export interface CrewListedMailLinks {
+  id: string;
+  kind?: string;
+  state?: string;
+  email?: string;
+  name?: string;
+  userId?: string;
+  tenantId?: string;
+  everyTenant?: boolean;
+  roleNames?: string[];
+  invitedByUserId?: string;
+  sentBy?: string;
+  makesTenant?: boolean;
+  createdAt?: Date;
+  expiresAt?: Date;
+  consumedAt?: Date;
+  mailFailedAt?: Date;
+  withdrawnAt?: Date;
+  tenantName?: string;
+}
+
+export interface CrewListedSectors {
+  id: string;
+  name?: string;
+  region?: string;
+  established?: Date;
+  directoryOnly?: boolean;
+  disabled?: boolean;
+  people?: number;
+  since?: Date;
+  directory?: string;
+  administrators?: string[];
+}
+
+export interface CrewListedSessions {
+  id: string;
+  userId?: string;
+  username?: string;
+  name?: string;
+  expired?: boolean;
+  live?: boolean;
+  state?: string;
+  signedInWith?: string;
+  browser?: string;
+  authenticatedAt?: Date;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export interface CrewListedSignInAttempts {
+  name: string;
+  kind?: string;
+  subject?: string;
+  userId?: string;
+  account?: string;
+  failures?: number;
+  failureLimit?: number;
+  state?: string;
+  locked?: boolean;
+  lockedUntil?: Date;
+  windowEndsAt?: Date;
+  updatedAt?: Date;
+}
+
+export interface CrewListedUsers {
+  id: string;
+  username?: string;
+  name?: string;
+  email?: string;
+  emailVerifiedAt?: Date;
+  disabled?: boolean;
+  passwordChangeRequired?: boolean;
+  createdAt?: Date;
+  lastSignInAt?: Date;
+  roles?: string[];
+  lockedUntil?: Date;
+  trustedDevices?: number;
+  managedByTenant?: boolean;
+  managingTenant?: string;
+  managingTenantName?: string;
+}
+
+export interface CrewMissionHolders {
+  recordId: string;
+  memberKind: string;
+  memberId: string;
+  role: string;
+  domainId?: string;
+  name?: string;
+  startsAt?: Date;
+  endsAt?: Date;
+}
+
 export interface CrewRoles {
   kind: string;
   axis: string;
@@ -97,24 +253,14 @@ export interface CrewRoles {
   updatedAt?: Date;
 }
 
-export interface CrewRoleGrants {
-  kind: string;
-  axis: string;
-  domainId: string;
-  role: string;
-  permission: string;
-  resourceName: string;
-  field: string;
-  condition: string;
-  updatedAt?: Date;
-}
-
 export interface CrewSectorGroups {
   id: string;
   domainId?: string;
   name?: string;
   description?: string;
   updatedAt?: Date;
+  people?: number;
+  roles?: string[];
 }
 
 export interface CrewSectorGroupRoles {
@@ -125,6 +271,7 @@ export interface CrewSectorGroupRoles {
   createdAt?: Date;
   startsAt?: Date;
   endsAt?: Date;
+  losing?: number;
 }
 
 export interface CrewSectorGroupUsers {
@@ -137,6 +284,23 @@ export interface CrewSectorGroupUsers {
   createdAt?: Date;
   startsAt?: Date;
   endsAt?: Date;
+}
+
+export interface CrewSectorHeldRoles {
+  domainId?: string;
+  userId: string;
+  username?: string;
+  role: string;
+  everyDomain?: boolean;
+  groupId: string;
+  groupName?: string;
+  globalGroup?: boolean;
+  groupPage?: string;
+  createdAt?: Date;
+  startsAt?: Date;
+  endsAt?: Date;
+  reason?: string;
+  groupPageName?: string;
 }
 
 export interface CrewSectorIdentities {
@@ -153,6 +317,8 @@ export interface CrewSectorIdentities {
   lastUsedAt?: Date;
   heldElsewhere?: boolean;
   heldGlobally?: boolean;
+  managedHere?: boolean;
+  managedByAnotherDirectory?: boolean;
 }
 
 export interface CrewSectorInvitations {
@@ -162,9 +328,12 @@ export interface CrewSectorInvitations {
   name?: string;
   roleNames?: string[];
   invitedByUserId?: string;
+  sentBy?: string;
   createdAt?: Date;
   expiresAt?: Date;
   consumedAt?: Date;
+  withdrawnAt?: Date;
+  state?: string;
   pending?: boolean;
 }
 
@@ -173,16 +342,27 @@ export interface CrewSectorUsers {
   domainId?: string;
   username?: string;
   name?: string;
+  displayName?: string;
   email?: string;
   emailVerifiedAt?: Date;
   disabled?: boolean;
   passwordChangeRequired?: boolean;
   createdAt?: Date;
   lastSignInAt?: Date;
+  roles?: string[];
+  recordsHeld?: number;
+  recordsHeldKind?: string;
+  recordHeldName?: string;
+  lockedUntil?: Date;
   heldElsewhere?: boolean;
   heldGlobally?: boolean;
+  heldHere?: boolean;
+  heldInEveryTenant?: boolean;
+  managedHere?: boolean;
+  managedByAnotherDirectory?: boolean;
   outsideDirectory?: boolean;
   cannotEnter?: string;
+  administratorWithPassword?: boolean;
 }
 
 export interface CrewSectorUserGroupRoles {
@@ -194,6 +374,7 @@ export interface CrewSectorUserGroupRoles {
   role: string;
   globalGroup?: boolean;
   everyDomain?: boolean;
+  createdAt?: Date;
   startsAt?: Date;
   endsAt?: Date;
 }
@@ -207,6 +388,7 @@ export interface CrewSectorUserRoles {
   createdAt?: Date;
   startsAt?: Date;
   endsAt?: Date;
+  reason?: string;
 }
 
 export interface CrewSessions {
@@ -238,6 +420,7 @@ export interface CrewSessionIdentities {
   emailAtLink?: string;
   createdAt?: Date;
   lastUsedAt?: Date;
+  userName?: string;
 }
 
 export interface CrewSessionImpersonations {
@@ -248,6 +431,7 @@ export interface CrewSessionImpersonations {
   sourceSessionId?: string;
   principalKind?: string;
   principalUserId?: string;
+  principalUsername?: string;
   principalRole?: string;
   mask?: string;
   reason?: string;
@@ -264,11 +448,16 @@ export interface CrewSessionMailLinks {
   name?: string;
   userId?: string;
   tenantId?: string;
+  everyTenant?: boolean;
   roleNames?: string[];
   invitedByUserId?: string;
   createdAt?: Date;
   expiresAt?: Date;
   consumedAt?: Date;
+  mailFailedAt?: Date;
+  withdrawnAt?: Date;
+  userName?: string;
+  tenantName?: string;
 }
 
 export interface CrewSessionSignInAttempts {
@@ -292,6 +481,7 @@ export interface CrewSessionTokens {
   lastUsedAt?: Date;
   revokedAt?: Date;
   revokedReason?: string;
+  userName?: string;
 }
 
 export interface CrewSessionTrustedDevices {
@@ -301,6 +491,7 @@ export interface CrewSessionTrustedDevices {
   expiresAt?: Date;
   lastUsedAt?: Date;
   revokedAt?: Date;
+  userName?: string;
 }
 
 export interface CrewSessionUsers {
@@ -315,6 +506,21 @@ export interface CrewSessionUsers {
   lastSignInAt?: Date;
 }
 
+export interface CrewTakenRoles {
+  userId: string;
+  username?: string;
+  name?: string;
+  kind: string;
+  axis: string;
+  domainId: string;
+  role: string;
+  reason?: string;
+  startsAt?: Date;
+  endsAt?: Date;
+  ended?: boolean;
+  domainName?: string;
+}
+
 export interface CrewUserGroupRoles {
   userId: string;
   username?: string;
@@ -324,8 +530,10 @@ export interface CrewUserGroupRoles {
   axis: string;
   domainId: string;
   role: string;
+  createdAt?: Date;
   startsAt?: Date;
   endsAt?: Date;
+  domainName?: string;
 }
 
 export interface CrewUserRoles {
@@ -337,6 +545,7 @@ export interface CrewUserRoles {
   createdAt?: Date;
   startsAt?: Date;
   endsAt?: Date;
+  reason?: string;
 }
 
 export interface DistressCalls {
@@ -349,13 +558,26 @@ export interface DistressCalls {
   filedByUserId?: string;
   filedByName?: string;
   position?: Point;
+  sectorName?: string;
+}
+
+export interface DistressRelays {
+  id: string;
+  sectorId?: string;
+  caseNumber?: string;
+  answersRelayId?: string;
+  message?: string;
+  relayedByName?: string;
+  relayedAt?: Date;
+  sectorName?: string;
+  answersRelayName?: string;
 }
 
 export interface FeeByKinds {
   kindId: string;
   missionCount?: number;
-  totalFee?: number;
-  topFee?: number;
+  totalFee?: string;
+  topFee?: string;
 }
 
 export interface Hangars {
@@ -363,6 +585,7 @@ export interface Hangars {
   sectorId?: string;
   name?: string;
   zone?: string;
+  sectorName?: string;
 }
 
 export interface HangarPasses {
@@ -371,8 +594,112 @@ export interface HangarPasses {
   hangarId?: string;
   userId?: string;
   squadronId?: string;
+  groupId?: string;
   levelId?: string;
   expiresAt?: Date;
+  sectorName?: string;
+  hangarName?: string;
+  userName?: string;
+  squadronName?: string;
+  groupName?: string;
+  levelName?: string;
+}
+
+export interface MembersHeldRoles {
+  userId: string;
+  username?: string;
+  kind: string;
+  axis: string;
+  domainId: string;
+  role: string;
+  groupId: string;
+  groupName?: string;
+  createdAt?: Date;
+  startsAt?: Date;
+  endsAt?: Date;
+  reason?: string;
+}
+
+export interface MembersListedIdentities {
+  id: string;
+  userId?: string;
+  username?: string;
+  method?: string;
+  connection?: string;
+  subject?: string;
+  tenant?: string;
+  emailAtLink?: string;
+  createdAt?: Date;
+  lastUsedAt?: Date;
+  managedByTenant?: boolean;
+  managingTenant?: string;
+}
+
+export interface MembersListedMailLinks {
+  id: string;
+  kind?: string;
+  state?: string;
+  email?: string;
+  name?: string;
+  userId?: string;
+  tenantId?: string;
+  everyTenant?: boolean;
+  roleNames?: string[];
+  invitedByUserId?: string;
+  sentBy?: string;
+  makesTenant?: boolean;
+  createdAt?: Date;
+  expiresAt?: Date;
+  consumedAt?: Date;
+  mailFailedAt?: Date;
+  withdrawnAt?: Date;
+}
+
+export interface MembersListedSessions {
+  id: string;
+  userId?: string;
+  username?: string;
+  name?: string;
+  expired?: boolean;
+  live?: boolean;
+  state?: string;
+  signedInWith?: string;
+  browser?: string;
+  authenticatedAt?: Date;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export interface MembersListedSignInAttempts {
+  name: string;
+  kind?: string;
+  subject?: string;
+  userId?: string;
+  account?: string;
+  failures?: number;
+  failureLimit?: number;
+  state?: string;
+  locked?: boolean;
+  lockedUntil?: Date;
+  windowEndsAt?: Date;
+  updatedAt?: Date;
+}
+
+export interface MembersListedUsers {
+  id: string;
+  username?: string;
+  name?: string;
+  email?: string;
+  emailVerifiedAt?: Date;
+  disabled?: boolean;
+  passwordChangeRequired?: boolean;
+  createdAt?: Date;
+  lastSignInAt?: Date;
+  roles?: string[];
+  lockedUntil?: Date;
+  trustedDevices?: number;
+  managedByTenant?: boolean;
+  managingTenant?: string;
 }
 
 export interface MembersRoles {
@@ -384,16 +711,19 @@ export interface MembersRoles {
   updatedAt?: Date;
 }
 
-export interface MembersRoleGrants {
-  kind: string;
-  axis: string;
-  domainId: string;
+export interface MembersSectorHeldRoles {
+  domainId?: string;
+  userId: string;
+  username?: string;
   role: string;
-  permission: string;
-  resourceName: string;
-  field: string;
-  condition: string;
-  updatedAt?: Date;
+  everyDomain?: boolean;
+  groupId: string;
+  groupName?: string;
+  globalGroup?: boolean;
+  createdAt?: Date;
+  startsAt?: Date;
+  endsAt?: Date;
+  reason?: string;
 }
 
 export interface MembersSectorIdentities {
@@ -410,6 +740,8 @@ export interface MembersSectorIdentities {
   lastUsedAt?: Date;
   heldElsewhere?: boolean;
   heldGlobally?: boolean;
+  managedHere?: boolean;
+  managedByAnotherDirectory?: boolean;
 }
 
 export interface MembersSectorInvitations {
@@ -419,9 +751,12 @@ export interface MembersSectorInvitations {
   name?: string;
   roleNames?: string[];
   invitedByUserId?: string;
+  sentBy?: string;
   createdAt?: Date;
   expiresAt?: Date;
   consumedAt?: Date;
+  withdrawnAt?: Date;
+  state?: string;
   pending?: boolean;
 }
 
@@ -430,14 +765,21 @@ export interface MembersSectorUsers {
   domainId?: string;
   username?: string;
   name?: string;
+  displayName?: string;
   email?: string;
   emailVerifiedAt?: Date;
   disabled?: boolean;
   passwordChangeRequired?: boolean;
   createdAt?: Date;
   lastSignInAt?: Date;
+  roles?: string[];
+  lockedUntil?: Date;
   heldElsewhere?: boolean;
   heldGlobally?: boolean;
+  heldHere?: boolean;
+  heldInEveryTenant?: boolean;
+  managedHere?: boolean;
+  managedByAnotherDirectory?: boolean;
   outsideDirectory?: boolean;
   cannotEnter?: string;
 }
@@ -451,6 +793,7 @@ export interface MembersSectorUserRoles {
   createdAt?: Date;
   startsAt?: Date;
   endsAt?: Date;
+  reason?: string;
 }
 
 export interface MembersSessions {
@@ -482,6 +825,7 @@ export interface MembersSessionIdentities {
   emailAtLink?: string;
   createdAt?: Date;
   lastUsedAt?: Date;
+  userName?: string;
 }
 
 export interface MembersSessionMailLinks {
@@ -491,11 +835,15 @@ export interface MembersSessionMailLinks {
   name?: string;
   userId?: string;
   tenantId?: string;
+  everyTenant?: boolean;
   roleNames?: string[];
   invitedByUserId?: string;
   createdAt?: Date;
   expiresAt?: Date;
   consumedAt?: Date;
+  mailFailedAt?: Date;
+  withdrawnAt?: Date;
+  userName?: string;
 }
 
 export interface MembersSessionSignInAttempts {
@@ -513,6 +861,7 @@ export interface MembersSessionTrustedDevices {
   expiresAt?: Date;
   lastUsedAt?: Date;
   revokedAt?: Date;
+  userName?: string;
 }
 
 export interface MembersSessionUsers {
@@ -536,6 +885,7 @@ export interface MembersUserRoles {
   createdAt?: Date;
   startsAt?: Date;
   endsAt?: Date;
+  reason?: string;
 }
 
 export interface Missions {
@@ -547,7 +897,7 @@ export interface Missions {
   brief?: string;
   briefingTemplateId?: string;
   hazard?: number;
-  fee?: number;
+  fee?: string;
   deadline?: Date;
   requiredCertId?: string;
   bookedByUserId?: string;
@@ -555,19 +905,28 @@ export interface Missions {
   assignedSquadronId?: string;
   statusId?: string;
   notes?: string;
-  settlement?: number;
+  settlement?: string;
+  sectorName?: string;
+  kindName?: string;
+  requiredCertName?: string;
+  statusName?: string;
 }
 
 export interface MissionBoards {
   id: string;
   sectorId?: string;
   title?: string;
-  clientName?: string;
-  squadronName?: string;
+  clientId?: string;
+  squadronId?: string;
   kindId?: string;
   statusId?: string;
+  briefingTemplateId?: string;
   deadline?: Date;
   daysLeft?: number;
+  clientName?: string;
+  squadronName?: string;
+  kindName?: string;
+  statusName?: string;
 }
 
 export interface MissionDocuments {
@@ -582,6 +941,7 @@ export interface MissionDocuments {
   uploadedAt?: Date;
   provenance?: MissionDocuments.Provenance;
   digest?: string;
+  missionName?: string;
 }
 export namespace MissionDocuments {
   export interface Provenance {
@@ -604,36 +964,40 @@ export interface Pilots {
   userId?: string;
   displayName?: string;
   clearance?: number;
-  feeLimit?: number;
+  feeLimit?: string;
+  userName?: string;
 }
 
 export interface PilotAssignments {
   squadronId: string;
   userId: string;
   sectorId?: string;
-  squadronName?: string;
   wingName?: string;
+  squadronName?: string;
 }
 
 export interface PilotCertifications {
   userId: string;
   certificationId: string;
+  certificationName?: string;
 }
 
 export interface Refits {
   id: string;
   shipId?: string;
   statusId?: string;
-  estimate?: number;
+  estimate?: string;
   inspectedAt?: Date;
   openedByUserId?: string;
   openedByName?: string;
   notes?: string;
+  shipName?: string;
+  statusName?: string;
 }
 
 export interface RefitTasks {
-  refitId: string;
   taskNumber: number;
+  refitId: string;
   instructions?: string;
   done?: boolean;
   notes?: string;
@@ -644,7 +1008,9 @@ export interface Sectors {
   name?: string;
   region?: string;
   established?: Date;
+  chartedAt?: Date;
   directoryOnly?: boolean;
+  disabled?: boolean;
 }
 
 export interface SectorDirectories {
@@ -653,6 +1019,8 @@ export interface SectorDirectories {
   method?: string;
   connection?: string;
   defaultSeat?: string;
+  asksSecondFactor?: boolean;
+  sectorName?: string;
 }
 
 export interface SectorPilots {
@@ -673,6 +1041,8 @@ export interface Ships {
   lastRefitAt?: Date;
   updatedAt?: Date;
   cargoBays?: number[];
+  hangarName?: string;
+  className?: string;
 }
 
 export interface ShipClasses {
@@ -681,6 +1051,8 @@ export interface ShipClasses {
   roleId?: string;
   tonnage?: number;
   hardened?: boolean;
+  inService?: boolean;
+  roleName?: string;
 }
 
 export interface Sorties {
@@ -691,13 +1063,15 @@ export interface Sorties {
   launchedAt?: Date;
   returnedAt?: Date;
   debrief?: string;
+  missionName?: string;
+  shipName?: string;
 }
 
 export interface SortieExpenses {
   id: string;
   sortieId?: string;
   category?: string;
-  amount?: number;
+  amount?: string;
   memo?: string;
 }
 
@@ -706,11 +1080,14 @@ export interface Squadrons {
   wingId?: string;
   name?: string;
   callsigns?: string[];
+  wingName?: string;
 }
 
 export interface SquadronMemberships {
   squadronId: string;
   userId: string;
+  squadronName?: string;
+  userName?: string;
 }
 
 export interface SquadronRosters {
@@ -718,14 +1095,15 @@ export interface SquadronRosters {
   userId: string;
   sectorId?: string;
   squadronName?: string;
-  pilotName?: string;
   pilotId?: string;
+  pilotName?: string;
 }
 
 export interface Wings {
   id: string;
   sectorId?: string;
   name?: string;
+  sectorName?: string;
 }
 
 export interface BriefingTemplates {
@@ -734,6 +1112,15 @@ export interface BriefingTemplates {
   audience?: string;
   summary?: string;
   layout?: unknown;
+}
+
+export interface CrewGivableRoles {
+  name: string;
+  description?: string;
+  method?: string;
+  group?: string;
+  domain?: string;
+  everyDomain?: boolean;
 }
 
 export interface CrewInvitedSectors {
@@ -750,6 +1137,68 @@ export interface CrewInvitedSectors {
   expiresAt?: Date;
 }
 
+export interface CrewInvitedSectorRoles {
+  name: string;
+  description?: string;
+}
+
+export interface CrewListedAuditRecords {
+  id: string;
+  at?: Date;
+  act?: string;
+  who?: string;
+  what?: string;
+  doneTo?: string;
+  actorUsername?: string;
+  subjectKind?: string;
+  subjectName?: string;
+  userId?: string;
+  role?: string;
+  tenantId?: string;
+  tenantName?: string;
+  reason?: string;
+}
+
+export interface CrewListedRoleGrants {
+  kind: string;
+  axis: string;
+  domainId: string;
+  role: string;
+  permission: string;
+  resourceName: string;
+  field: string;
+  condition: string;
+  updatedAt?: Date;
+  skipped?: string;
+}
+
+export interface CrewMissionRoles {
+  name: string;
+  description?: string;
+  method?: string;
+  recordId?: string;
+}
+
+export interface CrewRememberLengths {
+  name: string;
+  days?: number;
+}
+
+export interface CrewSectorAuditRecords {
+  id: string;
+  at?: Date;
+  act?: string;
+  who?: string;
+  what?: string;
+  doneTo?: string;
+  actorUsername?: string;
+  subjectKind?: string;
+  subjectName?: string;
+  userId?: string;
+  role?: string;
+  reason?: string;
+}
+
 export interface CrewSectorDirectoryRoles {
   name: string;
   description?: string;
@@ -758,6 +1207,7 @@ export interface CrewSectorDirectoryRoles {
 export interface CrewSectorRoles {
   name: string;
   description?: string;
+  method?: string;
 }
 
 export interface CrewSectorSignInWays {
@@ -769,6 +1219,8 @@ export interface CrewSectorSignInWays {
   through?: string;
   heldElsewhere?: boolean;
   heldGlobally?: boolean;
+  managedHere?: boolean;
+  managedByAnotherDirectory?: boolean;
 }
 
 export interface CrewSignInMethods {
@@ -780,6 +1232,15 @@ export interface CrewSignInMethods {
   directoryGivesRoles?: boolean;
   ownRule?: boolean;
   says?: string;
+  selfServiceReset?: boolean;
+}
+
+export interface CrewSignInSettings {
+  name: string;
+  position?: number;
+  says?: string;
+  requireSecondFactor?: boolean;
+  rememberBrowserDays?: number;
 }
 
 export interface CrewSignInWays {
@@ -791,19 +1252,99 @@ export interface CrewSignInWays {
   through?: string;
 }
 
+export interface CrewTakeLengths {
+  name: string;
+  minutes?: number;
+}
+
+export interface CrewTakeableRoles {
+  name: string;
+  description?: string;
+}
+
 export interface ExpenseManifests {
   missionId: string;
   title?: string;
   sorties?: number;
-  expenses?: number;
+  expenses?: string;
   assignedSquadronId?: string;
+}
+
+export interface MembersListedAuditRecords {
+  id: string;
+  at?: Date;
+  act?: string;
+  who?: string;
+  what?: string;
+  doneTo?: string;
+  actorUsername?: string;
+  subjectKind?: string;
+  subjectName?: string;
+  userId?: string;
+  role?: string;
+  tenantId?: string;
+  tenantName?: string;
+  reason?: string;
+}
+
+export interface MembersListedRoleGrants {
+  kind: string;
+  axis: string;
+  domainId: string;
+  role: string;
+  permission: string;
+  resourceName: string;
+  field: string;
+  condition: string;
+  updatedAt?: Date;
+  skipped?: string;
+}
+
+export interface MembersRememberLengths {
+  name: string;
+  days?: number;
+}
+
+export interface MembersSectorAuditRecords {
+  id: string;
+  at?: Date;
+  act?: string;
+  who?: string;
+  what?: string;
+  doneTo?: string;
+  actorUsername?: string;
+  subjectKind?: string;
+  subjectName?: string;
+  userId?: string;
+  role?: string;
+  reason?: string;
+}
+
+export interface MembersSignInMethods {
+  name: string;
+  label?: string;
+  admits?: string;
+  openSignUp?: boolean;
+  defaultRole?: string;
+  directoryGivesRoles?: boolean;
+  ownRule?: boolean;
+  says?: string;
+  selfServiceReset?: boolean;
+}
+
+export interface MembersSignInSettings {
+  name: string;
+  position?: number;
+  says?: string;
+  requireSecondFactor?: boolean;
+  rememberBrowserDays?: number;
 }
 
 export interface PilotCards {
   userId: string;
   displayName?: string;
   clearance?: number;
-  feeLimit?: number;
+  feeLimit?: string;
   certifications?: string[];
   squadrons?: string[];
   commendations?: number;
@@ -829,8 +1370,8 @@ export interface ServiceLedgers {
   sectorId: string;
   name?: string;
   openMissions?: number;
-  feesOutstanding?: number;
-  settlements?: number;
+  feesOutstanding?: string;
+  settlements?: string;
   lastReturnAt?: Date;
 }
 
@@ -839,12 +1380,16 @@ export interface StandingOrders {
   directive?: string;
 }
 
-/** A feature flag: one declared flag's row, as the feature flags dialog lists it. */
+/**
+ * A feature flag: one declared flag's row, as the Feature flags page lists it. updatedAt
+ * and updatedBy are when the flag was last turned on or off and by whom: null and empty
+ * for a flag nobody has flipped.
+ */
 export interface FeatureFlags {
   name: string;
   description?: string;
   enabled?: boolean;
-  updatedAt?: Date;
+  updatedAt?: Date | null;
   updatedBy?: string;
 }
 
@@ -864,6 +1409,8 @@ const resourceMap = defineResourceMap({
   [Resources.Clients]: {
     route: 'clients',
     live: true,
+    rowWords: { one: 'client', many: 'clients' },
+    nameField: 'name',
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'name', displayType: 'string', required: true, isIndex: true, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
@@ -879,6 +1426,7 @@ const resourceMap = defineResourceMap({
     route: 'client-contacts',
     consolidatedRoute: 'resources',
     live: true,
+    rowWords: { one: 'client contact', many: 'client contacts' },
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'userId', displayType: 'string', required: true, isIndex: true, filterable: 'always', maxLength: 36 },
@@ -886,10 +1434,13 @@ const resourceMap = defineResourceMap({
       { fieldName: 'displayName', displayType: 'string', required: true, isIndex: false, filterable: 'withIndexed', search: ['contains'] },
     ],
     searchFields: ['displayName'],
+    nameFields: [{ fieldName: 'clientName', of: 'clientId', filterable: 'always', search: ['contains', 'startswith', 'endswith'] }],
   },
   [Resources.ClientRosters]: {
     route: 'sectors/{sectorID}/client-rosters',
     live: true,
+    rowWords: { one: 'client', many: 'clients' },
+    nameField: 'name',
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'sectorId', displayType: 'uuid', required: true, isIndex: true, filterable: 'always' },
@@ -905,6 +1456,7 @@ const resourceMap = defineResourceMap({
     feature: 'commendations',
     consolidatedRoute: 'resources',
     live: true,
+    rowWords: { one: 'commendation', many: 'commendations' },
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'pilotId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Pilots },
@@ -913,11 +1465,13 @@ const resourceMap = defineResourceMap({
       { fieldName: 'awardedByName', displayType: 'string', required: false, isIndex: false, readOnly: true },
       { fieldName: 'awardedAt', displayType: 'date', required: false, isIndex: false, readOnly: true },
     ],
+    nameFields: [{ fieldName: 'pilotName', of: 'pilotId', filterable: 'always' }],
   },
   [Resources.Consignments]: {
     route: 'sectors/{sectorID}/consignments',
     consolidatedRoute: 'resources',
     live: true,
+    rowWords: { one: 'consignment', many: 'consignments' },
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'sectorId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Sectors, readOnly: true },
@@ -928,6 +1482,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'expiresOn', displayType: 'civildate', required: true, isIndex: false, filterable: 'withIndexed' },
       { fieldName: 'releasedAt', displayType: 'date', required: false, isIndex: true, filterable: 'always' },
     ],
+    nameFields: [{ fieldName: 'sectorName', of: 'sectorId', filterable: 'always' }, { fieldName: 'clientName', of: 'clientId', filterable: 'always', search: ['contains', 'startswith', 'endswith'] }],
   },
   [Resources.CrewGroups]: {
     route: 'crew-groups',
@@ -935,6 +1490,8 @@ const resourceMap = defineResourceMap({
     updateDisabled: true,
     deleteDisabled: true,
     live: true,
+    rowWords: { one: 'group', many: 'groups' },
+    nameField: 'name',
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'kind', displayType: 'string', required: true, isIndex: true, filterable: 'always', maxLength: 16 },
@@ -952,6 +1509,7 @@ const resourceMap = defineResourceMap({
     updateDisabled: true,
     deleteDisabled: true,
     live: true,
+    rowWords: { one: 'group member', many: 'group members' },
     fields: [
       { fieldName: 'groupId', primaryKey: { ordinalPosition: 0 }, displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.CrewGroups },
       { fieldName: 'userId', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
@@ -959,6 +1517,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
     ],
+    nameFields: [{ fieldName: 'groupName', of: 'groupId', filterable: 'withIndexed' }],
   },
   [Resources.CrewGroupRoles]: {
     route: 'crew-group-roles',
@@ -967,20 +1526,23 @@ const resourceMap = defineResourceMap({
     updateDisabled: true,
     deleteDisabled: true,
     live: true,
+    rowWords: { one: 'group role', many: 'group roles' },
     fields: [
       { fieldName: 'groupId', primaryKey: { ordinalPosition: 0 }, displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.CrewGroups },
       { fieldName: 'kind', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'axis', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'domainId', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'role', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'role', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: false, roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "MissionLead", "MissionObserver", "MusterClerk", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
     ],
+    nameFields: [{ fieldName: 'groupName', of: 'groupId', filterable: 'withIndexed' }],
   },
   [Resources.CrewGroupUsers]: {
     route: 'crew-group-users',
     live: true,
+    rowWords: { one: 'group member', many: 'group members' },
     fields: [
       { fieldName: 'groupId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'userId', primaryKey: { ordinalPosition: 1 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
@@ -988,6 +1550,200 @@ const resourceMap = defineResourceMap({
       { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'groupName', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
+    ],
+  },
+  [Resources.CrewHeldRoles]: {
+    route: 'crew-held-roles',
+    readDisabled: true,
+    live: true,
+    rowWords: { one: 'held role', many: 'held roles' },
+    fields: [
+      { fieldName: 'userId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'kind', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'axis', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'domainId', primaryKey: { ordinalPosition: 3 }, displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Sectors },
+      { fieldName: 'role', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: true, filterable: 'always', roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "MissionLead", "MissionObserver", "MusterClerk", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
+      { fieldName: 'groupId', primaryKey: { ordinalPosition: 5 }, displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.CrewListedGroups },
+      { fieldName: 'groupName', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'reason', displayType: 'string', required: false, isIndex: false },
+    ],
+    nameFields: [{ fieldName: 'domainName', of: 'domainId', filterable: 'always' }],
+  },
+  [Resources.CrewListedGroups]: {
+    route: 'crew-listed-groups',
+    live: true,
+    rowWords: { one: 'group', many: 'groups' },
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'kind', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'axis', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'domainId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Sectors },
+      { fieldName: 'name', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'description', displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'updatedAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'people', displayType: 'number', required: true, isIndex: false },
+      { fieldName: 'roles', displayType: 'string[]', required: true, isIndex: false, sortable: false, roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "MissionLead", "MissionObserver", "MusterClerk", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
+    ],
+    nameFields: [{ fieldName: 'domainName', of: 'domainId', filterable: 'always' }],
+  },
+  [Resources.CrewListedGroupRoles]: {
+    route: 'crew-listed-group-roles',
+    readDisabled: true,
+    live: true,
+    rowWords: { one: 'group role', many: 'group roles' },
+    fields: [
+      { fieldName: 'groupId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'kind', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'axis', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'domainId', primaryKey: { ordinalPosition: 3 }, displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Sectors },
+      { fieldName: 'role', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: true, filterable: 'always', roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "MissionLead", "MissionObserver", "MusterClerk", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
+      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'losing', displayType: 'number', required: true, isIndex: false },
+    ],
+    nameFields: [{ fieldName: 'domainName', of: 'domainId', filterable: 'always' }],
+  },
+  [Resources.CrewListedIdentities]: {
+    route: 'crew-listed-identities',
+    live: true,
+    rowWords: { one: 'sign-in identity', many: 'sign-in identities' },
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'userId', displayType: 'uuid', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'method', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'connection', displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'subject', displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'tenant', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'emailAtLink', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'lastUsedAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'managedByTenant', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'managingTenant', displayType: 'string', required: false, isIndex: true, filterable: 'always' },
+    ],
+  },
+  [Resources.CrewListedMailLinks]: {
+    route: 'crew-listed-mail-links',
+    live: true,
+    rowWords: { one: 'mailed link', many: 'mailed links' },
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'kind', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'state', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'email', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'userId', displayType: 'uuid', required: false, isIndex: false },
+      { fieldName: 'tenantId', displayType: 'enumerated', required: false, isIndex: false, enumeratedResource: Resources.Sectors },
+      { fieldName: 'everyTenant', displayType: 'boolean', required: true, isIndex: false },
+      { fieldName: 'roleNames', displayType: 'string[]', required: true, isIndex: false, sortable: false, roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "MissionLead", "MissionObserver", "MusterClerk", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
+      { fieldName: 'invitedByUserId', displayType: 'uuid', required: false, isIndex: false },
+      { fieldName: 'sentBy', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'makesTenant', displayType: 'boolean', required: true, isIndex: false },
+      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'expiresAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'consumedAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'mailFailedAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'withdrawnAt', displayType: 'date', required: false, isIndex: false },
+    ],
+    nameFields: [{ fieldName: 'tenantName', of: 'tenantId' }],
+  },
+  [Resources.CrewListedSectors]: {
+    route: 'crew-listed-sectors',
+    rowsOf: Resources.Sectors,
+    live: true,
+    rowWords: { one: 'sector', many: 'sectors' },
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'name', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'region', displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'established', displayType: 'civildate', required: true, isIndex: false },
+      { fieldName: 'directoryOnly', displayType: 'boolean', required: true, isIndex: false },
+      { fieldName: 'disabled', displayType: 'boolean', required: true, isIndex: false },
+      { fieldName: 'people', displayType: 'number', required: true, isIndex: false },
+      { fieldName: 'since', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'directory', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'administrators', displayType: 'string[]', required: true, isIndex: false, sortable: false },
+    ],
+  },
+  [Resources.CrewListedSessions]: {
+    route: 'crew-listed-sessions',
+    live: true,
+    rowWords: { one: 'session', many: 'sessions' },
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'userId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', enumeratedResource: Resources.CrewListedUsers },
+      { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'expired', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'live', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'state', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'signedInWith', displayType: 'string', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'browser', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'authenticatedAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'updatedAt', displayType: 'date', required: true, isIndex: true, filterable: 'always' },
+    ],
+  },
+  [Resources.CrewListedSignInAttempts]: {
+    route: 'crew-listed-sign-in-attempts',
+    readDisabled: true,
+    live: true,
+    rowWords: { one: 'failed sign-in', many: 'failed sign-ins' },
+    fields: [
+      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'kind', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'subject', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'userId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', enumeratedResource: Resources.CrewListedUsers },
+      { fieldName: 'account', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'failures', displayType: 'number', required: true, isIndex: false },
+      { fieldName: 'failureLimit', displayType: 'number', required: false, isIndex: false },
+      { fieldName: 'state', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'locked', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'lockedUntil', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'windowEndsAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'updatedAt', displayType: 'date', required: true, isIndex: true, filterable: 'always' },
+    ],
+  },
+  [Resources.CrewListedUsers]: {
+    route: 'crew-listed-users',
+    live: true,
+    rowWords: { one: 'account', many: 'accounts' },
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'name', displayType: 'string', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'email', displayType: 'string', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'emailVerifiedAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'disabled', displayType: 'boolean', required: true, isIndex: false },
+      { fieldName: 'passwordChangeRequired', displayType: 'boolean', required: true, isIndex: false },
+      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'lastSignInAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'roles', displayType: 'string[]', required: true, isIndex: false, sortable: false, roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "MissionLead", "MissionObserver", "MusterClerk", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
+      { fieldName: 'lockedUntil', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'trustedDevices', displayType: 'number', required: true, isIndex: false },
+      { fieldName: 'managedByTenant', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'managingTenant', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', enumeratedResource: Resources.Sectors },
+    ],
+    nameFields: [{ fieldName: 'managingTenantName', of: 'managingTenant', filterable: 'always' }],
+  },
+  [Resources.CrewMissionHolders]: {
+    route: 'sectors/{sectorID}/crew-mission-holders',
+    live: true,
+    rowWords: { one: 'holder', many: 'holders' },
+    fields: [
+      { fieldName: 'recordId', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'memberKind', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'memberId', primaryKey: { ordinalPosition: 2 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'role', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: true, filterable: 'always', roles: ["Archivist", "Armorer", "Assessor", "BookingAgent", "Cadet", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FlightLead", "Harbormaster", "HazardAnalyst", "MissionLead", "MissionObserver", "MusterClerk", "NightWatch", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SectorCrew", "SectorMarshal", "Supercargo", "Veteran", "WingCommander"] },
+      { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'name', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
     ],
@@ -999,61 +1755,50 @@ const resourceMap = defineResourceMap({
     updateDisabled: true,
     deleteDisabled: true,
     live: true,
+    rowWords: { one: 'role', many: 'roles' },
     fields: [
       { fieldName: 'kind', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'axis', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'domainId', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'role', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'description', displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'updatedAt', displayType: 'date', required: true, isIndex: false },
-    ],
-  },
-  [Resources.CrewRoleGrants]: {
-    route: 'crew-role-grants',
-    readDisabled: true,
-    createDisabled: true,
-    updateDisabled: true,
-    deleteDisabled: true,
-    live: true,
-    fields: [
-      { fieldName: 'kind', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
-      { fieldName: 'axis', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'domainId', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'role', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'permission', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'resourceName', primaryKey: { ordinalPosition: 5 }, displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'field', primaryKey: { ordinalPosition: 6 }, displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'condition', primaryKey: { ordinalPosition: 7 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'updatedAt', displayType: 'date', required: true, isIndex: false },
     ],
   },
   [Resources.CrewSectorGroups]: {
     route: 'sectors/{sectorID}/crew-sector-groups',
     live: true,
+    rowWords: { one: 'group', many: 'groups' },
+    nameField: 'name',
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'name', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'description', displayType: 'string', required: true, isIndex: false },
       { fieldName: 'updatedAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'people', displayType: 'number', required: true, isIndex: false },
+      { fieldName: 'roles', displayType: 'string[]', required: true, isIndex: false, sortable: false, roles: ["Archivist", "Armorer", "Assessor", "BookingAgent", "Cadet", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FlightLead", "Harbormaster", "HazardAnalyst", "MissionLead", "MissionObserver", "MusterClerk", "NightWatch", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SectorCrew", "SectorMarshal", "Supercargo", "Veteran", "WingCommander"] },
     ],
   },
   [Resources.CrewSectorGroupRoles]: {
     route: 'sectors/{sectorID}/crew-sector-group-roles',
     live: true,
+    rowWords: { one: 'group role', many: 'group roles' },
     fields: [
       { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'groupId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'groupName', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
-      { fieldName: 'role', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'role', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always', roles: ["Archivist", "Armorer", "Assessor", "BookingAgent", "Cadet", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FlightLead", "Harbormaster", "HazardAnalyst", "MissionLead", "MissionObserver", "MusterClerk", "NightWatch", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SectorCrew", "SectorMarshal", "Supercargo", "Veteran", "WingCommander"] },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'losing', displayType: 'number', required: true, isIndex: false },
     ],
   },
   [Resources.CrewSectorGroupUsers]: {
     route: 'sectors/{sectorID}/crew-sector-group-users',
     live: true,
+    rowWords: { one: 'group member', many: 'group members' },
     fields: [
       { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'groupId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
@@ -1066,9 +1811,32 @@ const resourceMap = defineResourceMap({
       { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
     ],
   },
+  [Resources.CrewSectorHeldRoles]: {
+    route: 'sectors/{sectorID}/crew-sector-held-roles',
+    readDisabled: true,
+    live: true,
+    rowWords: { one: 'held role', many: 'held roles' },
+    fields: [
+      { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'userId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'role', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always', roles: ["Archivist", "Armorer", "Assessor", "BookingAgent", "Cadet", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FlightLead", "Harbormaster", "HazardAnalyst", "MissionLead", "MissionObserver", "MusterClerk", "NightWatch", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SectorCrew", "SectorMarshal", "Supercargo", "Veteran", "WingCommander"] },
+      { fieldName: 'everyDomain', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'groupId', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'groupName', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'globalGroup', displayType: 'boolean', required: true, isIndex: false },
+      { fieldName: 'groupPage', displayType: 'enumerated', required: true, isIndex: false, enumeratedResource: Resources.CrewSectorGroups },
+      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'reason', displayType: 'string', required: false, isIndex: false },
+    ],
+    nameFields: [{ fieldName: 'groupPageName', of: 'groupPage' }],
+  },
   [Resources.CrewSectorIdentities]: {
     route: 'sectors/{sectorID}/crew-sector-identities',
     live: true,
+    rowWords: { one: 'sign-in identity', many: 'sign-in identities' },
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
@@ -1083,56 +1851,77 @@ const resourceMap = defineResourceMap({
       { fieldName: 'lastUsedAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'heldElsewhere', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'heldGlobally', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'managedHere', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'managedByAnotherDirectory', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
     ],
   },
   [Resources.CrewSectorInvitations]: {
     route: 'sectors/{sectorID}/crew-sector-invitations',
     live: true,
+    rowWords: { one: 'invitation', many: 'invitations' },
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'email', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
-      { fieldName: 'roleNames', displayType: 'string[]', required: true, isIndex: false },
+      { fieldName: 'roleNames', displayType: 'string[]', required: true, isIndex: false, sortable: false, roles: ["Archivist", "Armorer", "Assessor", "BookingAgent", "Cadet", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FlightLead", "Harbormaster", "HazardAnalyst", "MissionLead", "MissionObserver", "MusterClerk", "NightWatch", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SectorCrew", "SectorMarshal", "Supercargo", "Veteran", "WingCommander"] },
       { fieldName: 'invitedByUserId', displayType: 'uuid', required: false, isIndex: false },
+      { fieldName: 'sentBy', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'expiresAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'consumedAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'withdrawnAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'state', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'pending', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
     ],
   },
   [Resources.CrewSectorUsers]: {
     route: 'sectors/{sectorID}/crew-sector-users',
     live: true,
+    rowWords: { one: 'person', many: 'people' },
+    nameField: 'displayName',
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'displayName', displayType: 'string', required: true, isIndex: false, filterable: 'withIndexed' },
       { fieldName: 'email', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'emailVerifiedAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'disabled', displayType: 'boolean', required: true, isIndex: false },
       { fieldName: 'passwordChangeRequired', displayType: 'boolean', required: true, isIndex: false },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'lastSignInAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'roles', displayType: 'string[]', required: true, isIndex: false, sortable: false, roles: ["Archivist", "Armorer", "Assessor", "BookingAgent", "Cadet", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FlightLead", "Harbormaster", "HazardAnalyst", "MissionLead", "MissionObserver", "MusterClerk", "NightWatch", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SectorCrew", "SectorMarshal", "Supercargo", "Veteran", "WingCommander"] },
+      { fieldName: 'recordsHeld', displayType: 'number', required: true, isIndex: false },
+      { fieldName: 'recordsHeldKind', displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'recordHeldName', displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'lockedUntil', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'heldElsewhere', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'heldGlobally', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'heldHere', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'heldInEveryTenant', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'managedHere', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'managedByAnotherDirectory', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'outsideDirectory', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'cannotEnter', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'administratorWithPassword', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
     ],
   },
   [Resources.CrewSectorUserGroupRoles]: {
     route: 'sectors/{sectorID}/crew-sector-user-group-roles',
     live: true,
+    rowWords: { one: 'role held through a group', many: 'roles held through a group' },
     fields: [
       { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'userId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'groupId', primaryKey: { ordinalPosition: 1 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'groupName', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
-      { fieldName: 'role', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'role', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: true, filterable: 'always', roles: ["Archivist", "Armorer", "Assessor", "BookingAgent", "Cadet", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FlightLead", "Harbormaster", "HazardAnalyst", "MissionLead", "MissionObserver", "MusterClerk", "NightWatch", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SectorCrew", "SectorMarshal", "Supercargo", "Veteran", "WingCommander"] },
       { fieldName: 'globalGroup', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'everyDomain', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
     ],
@@ -1140,15 +1929,17 @@ const resourceMap = defineResourceMap({
   [Resources.CrewSectorUserRoles]: {
     route: 'sectors/{sectorID}/crew-sector-user-roles',
     live: true,
+    rowWords: { one: 'held role', many: 'held roles' },
     fields: [
       { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'userId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
-      { fieldName: 'role', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'role', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always', roles: ["Archivist", "Armorer", "Assessor", "BookingAgent", "Cadet", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FlightLead", "Harbormaster", "HazardAnalyst", "MissionLead", "MissionObserver", "MusterClerk", "NightWatch", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SectorCrew", "SectorMarshal", "Supercargo", "Veteran", "WingCommander"] },
       { fieldName: 'everyDomain', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'reason', displayType: 'string', required: false, isIndex: false },
     ],
   },
   [Resources.CrewSessions]: {
@@ -1157,9 +1948,10 @@ const resourceMap = defineResourceMap({
     updateDisabled: true,
     deleteDisabled: true,
     live: true,
+    rowWords: { one: 'session', many: 'sessions' },
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
-      { fieldName: 'userId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', enumeratedResource: Resources.CrewSessionUsers },
+      { fieldName: 'userId', displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'username', displayType: 'string', required: true, isIndex: false },
       { fieldName: 'expired', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'authenticatedAt', displayType: 'date', required: false, isIndex: false },
@@ -1174,12 +1966,13 @@ const resourceMap = defineResourceMap({
     updateDisabled: true,
     deleteDisabled: true,
     live: true,
+    rowWords: { one: 'sign-in event', many: 'sign-in events' },
     fields: [
       { fieldName: 'sessionId', primaryKey: { ordinalPosition: 0 }, displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.CrewSessions },
       { fieldName: 'seq', primaryKey: { ordinalPosition: 1 }, displayType: 'number', required: true, isIndex: false },
       { fieldName: 'method', displayType: 'string', required: true, isIndex: false },
       { fieldName: 'connection', displayType: 'string', required: false, isIndex: false },
-      { fieldName: 'idpAmr', displayType: 'string[]', required: false, isIndex: false },
+      { fieldName: 'idpAmr', displayType: 'string[]', required: false, isIndex: false, sortable: false },
       { fieldName: 'occurredAt', displayType: 'date', required: true, isIndex: false },
     ],
   },
@@ -1189,6 +1982,7 @@ const resourceMap = defineResourceMap({
     updateDisabled: true,
     deleteDisabled: true,
     live: true,
+    rowWords: { one: 'sign-in identity', many: 'sign-in identities' },
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'userId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.CrewSessionUsers },
@@ -1200,6 +1994,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'lastUsedAt', displayType: 'date', required: true, isIndex: false },
     ],
+    nameFields: [{ fieldName: 'userName', of: 'userId', filterable: 'always' }],
   },
   [Resources.CrewSessionImpersonations]: {
     route: 'crew-session-impersonations',
@@ -1207,6 +2002,7 @@ const resourceMap = defineResourceMap({
     updateDisabled: true,
     deleteDisabled: true,
     live: true,
+    rowWords: { one: 'impersonation', many: 'impersonations' },
     fields: [
       { fieldName: 'sessionId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'actorUsername', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
@@ -1215,8 +2011,9 @@ const resourceMap = defineResourceMap({
       { fieldName: 'sourceSessionId', displayType: 'uuid', required: false, isIndex: false },
       { fieldName: 'principalKind', displayType: 'string', required: true, isIndex: false, maxLength: 16 },
       { fieldName: 'principalUserId', displayType: 'string', required: false, isIndex: true, filterable: 'always' },
-      { fieldName: 'principalRole', displayType: 'string', required: false, isIndex: false },
-      { fieldName: 'mask', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'principalUsername', displayType: 'string', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'principalRole', displayType: 'string', required: false, isIndex: false, roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "MissionLead", "MissionObserver", "MusterClerk", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
+      { fieldName: 'mask', displayType: 'string', required: false, isIndex: false, sortable: false },
       { fieldName: 'reason', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'startedAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'expiresAt', displayType: 'date', required: true, isIndex: false },
@@ -1230,19 +2027,24 @@ const resourceMap = defineResourceMap({
     updateDisabled: true,
     deleteDisabled: true,
     live: true,
+    rowWords: { one: 'mailed link', many: 'mailed links' },
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'kind', displayType: 'string', required: true, isIndex: true, filterable: 'always', maxLength: 16 },
       { fieldName: 'email', displayType: 'string', required: true, isIndex: false },
       { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'userId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', enumeratedResource: Resources.CrewSessionUsers },
-      { fieldName: 'tenantId', displayType: 'string', required: false, isIndex: true, filterable: 'always' },
-      { fieldName: 'roleNames', displayType: 'string[]', required: false, isIndex: false },
+      { fieldName: 'tenantId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', enumeratedResource: Resources.Sectors },
+      { fieldName: 'everyTenant', displayType: 'boolean', required: false, schemaDefault: false, isIndex: false },
+      { fieldName: 'roleNames', displayType: 'string[]', required: false, isIndex: false, sortable: false, roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "MissionLead", "MissionObserver", "MusterClerk", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
       { fieldName: 'invitedByUserId', displayType: 'uuid', required: false, isIndex: false },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'expiresAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'consumedAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'mailFailedAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'withdrawnAt', displayType: 'date', required: false, isIndex: false },
     ],
+    nameFields: [{ fieldName: 'userName', of: 'userId', filterable: 'always' }, { fieldName: 'tenantName', of: 'tenantId', filterable: 'always' }],
   },
   [Resources.CrewSessionSignInAttempts]: {
     route: 'crew-session-sign-in-attempts',
@@ -1251,6 +2053,7 @@ const resourceMap = defineResourceMap({
     updateDisabled: true,
     deleteDisabled: true,
     live: true,
+    rowWords: { one: 'failed sign-in', many: 'failed sign-ins' },
     fields: [
       { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'failures', displayType: 'number', required: true, isIndex: false },
@@ -1265,6 +2068,7 @@ const resourceMap = defineResourceMap({
     updateDisabled: true,
     deleteDisabled: true,
     live: true,
+    rowWords: { one: 'token', many: 'tokens' },
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'kind', displayType: 'string', required: true, isIndex: false, maxLength: 16 },
@@ -1279,6 +2083,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'revokedAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'revokedReason', displayType: 'string', required: false, isIndex: false, maxLength: 16 },
     ],
+    nameFields: [{ fieldName: 'userName', of: 'userId', filterable: 'always' }],
   },
   [Resources.CrewSessionTrustedDevices]: {
     route: 'crew-session-trusted-devices',
@@ -1286,6 +2091,7 @@ const resourceMap = defineResourceMap({
     updateDisabled: true,
     deleteDisabled: true,
     live: true,
+    rowWords: { one: 'trusted device', many: 'trusted devices' },
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'userId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.CrewSessionUsers },
@@ -1294,6 +2100,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'lastUsedAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'revokedAt', displayType: 'date', required: false, isIndex: false },
     ],
+    nameFields: [{ fieldName: 'userName', of: 'userId', filterable: 'always' }],
   },
   [Resources.CrewSessionUsers]: {
     route: 'crew-session-users',
@@ -1301,21 +2108,44 @@ const resourceMap = defineResourceMap({
     updateDisabled: true,
     deleteDisabled: true,
     live: true,
+    rowWords: { one: 'account', many: 'accounts' },
+    nameField: 'username',
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'email', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'emailVerifiedAt', displayType: 'date', required: false, isIndex: false },
-      { fieldName: 'disabled', displayType: 'boolean', required: false, isIndex: false },
-      { fieldName: 'passwordChangeRequired', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'disabled', displayType: 'boolean', required: false, schemaDefault: false, isIndex: false },
+      { fieldName: 'passwordChangeRequired', displayType: 'boolean', required: false, schemaDefault: false, isIndex: false },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'lastSignInAt', displayType: 'date', required: false, isIndex: false },
     ],
   },
+  [Resources.CrewTakenRoles]: {
+    route: 'crew-taken-roles',
+    readDisabled: true,
+    live: true,
+    rowWords: { one: 'taken role', many: 'taken roles' },
+    fields: [
+      { fieldName: 'userId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'kind', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'axis', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'domainId', primaryKey: { ordinalPosition: 3 }, displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Sectors },
+      { fieldName: 'role', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: true, filterable: 'always', roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "MissionLead", "MissionObserver", "MusterClerk", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
+      { fieldName: 'reason', displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'endsAt', displayType: 'date', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'ended', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+    ],
+    nameFields: [{ fieldName: 'domainName', of: 'domainId', filterable: 'always' }],
+  },
   [Resources.CrewUserGroupRoles]: {
     route: 'crew-user-group-roles',
     live: true,
+    rowWords: { one: 'role held through a group', many: 'roles held through a group' },
     fields: [
       { fieldName: 'userId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
@@ -1323,11 +2153,13 @@ const resourceMap = defineResourceMap({
       { fieldName: 'groupName', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'kind', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'axis', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'domainId', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
-      { fieldName: 'role', primaryKey: { ordinalPosition: 5 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'domainId', primaryKey: { ordinalPosition: 4 }, displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Sectors },
+      { fieldName: 'role', primaryKey: { ordinalPosition: 5 }, displayType: 'string', required: true, isIndex: true, filterable: 'always', roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "MissionLead", "MissionObserver", "MusterClerk", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
+      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
     ],
+    nameFields: [{ fieldName: 'domainName', of: 'domainId', filterable: 'always' }],
   },
   [Resources.CrewUserRoles]: {
     route: 'crew-user-roles',
@@ -1336,21 +2168,24 @@ const resourceMap = defineResourceMap({
     updateDisabled: true,
     deleteDisabled: true,
     live: true,
+    rowWords: { one: 'held role', many: 'held roles' },
     fields: [
       { fieldName: 'kind', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'axis', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'domainId', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'role', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'role', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: false, roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "MissionLead", "MissionObserver", "MusterClerk", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
       { fieldName: 'userId', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'reason', displayType: 'string', required: false, isIndex: false },
     ],
   },
   [Resources.DistressCalls]: {
     route: 'sectors/{sectorID}/distress-calls',
     consolidatedRoute: 'resources',
     live: true,
+    rowWords: { one: 'distress call', many: 'distress calls' },
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'sectorId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Sectors, readOnly: true },
@@ -1361,41 +2196,189 @@ const resourceMap = defineResourceMap({
       { fieldName: 'caseNumber', displayType: 'string', required: false, isIndex: true, filterable: 'always', readOnly: true },
       { fieldName: 'filedByUserId', displayType: 'string', required: false, isIndex: false, readOnly: true },
       { fieldName: 'filedByName', displayType: 'string', required: false, isIndex: false, readOnly: true },
-      { fieldName: 'position', displayType: 'object', required: false, isIndex: false },
+      { fieldName: 'position', displayType: 'object', required: false, isIndex: false, sortable: false },
     ],
+    nameFields: [{ fieldName: 'sectorName', of: 'sectorId', filterable: 'always' }],
+  },
+  [Resources.DistressRelays]: {
+    route: 'sectors/{sectorID}/distress-relays',
+    consolidatedRoute: 'resources',
+    live: true,
+    rowWords: { one: 'distress relay', many: 'distress relays' },
+    nameField: 'message',
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'sectorId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Sectors, readOnly: true },
+      { fieldName: 'caseNumber', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'answersRelayId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', enumeratedResource: Resources.DistressRelays },
+      { fieldName: 'message', displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'relayedByName', displayType: 'string', required: false, isIndex: false, readOnly: true },
+      { fieldName: 'relayedAt', displayType: 'date', required: false, isIndex: true, filterable: 'always', readOnly: true },
+    ],
+    nameFields: [{ fieldName: 'sectorName', of: 'sectorId', filterable: 'always' }, { fieldName: 'answersRelayName', of: 'answersRelayId' }],
   },
   [Resources.FeeByKinds]: {
     route: 'fee-by-kinds',
     live: true,
+    rowWords: { one: 'fee total', many: 'fee totals' },
     fields: [
       { fieldName: 'kindId', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'missionCount', displayType: 'number', required: true, isIndex: false },
-      { fieldName: 'totalFee', displayType: 'number', required: true, isIndex: false },
-      { fieldName: 'topFee', displayType: 'number', required: true, isIndex: false },
+      { fieldName: 'totalFee', displayType: 'number', decimal: true, required: true, isIndex: false },
+      { fieldName: 'topFee', displayType: 'number', decimal: true, required: true, isIndex: false },
     ],
   },
   [Resources.Hangars]: {
     route: 'sectors/{sectorID}/hangars',
     live: true,
+    rowWords: { one: 'hangar', many: 'hangars' },
+    nameField: 'name',
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'sectorId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Sectors, readOnly: true },
       { fieldName: 'name', displayType: 'string', required: true, isIndex: true, filterable: 'always', search: ['startswith'] },
       { fieldName: 'zone', displayType: 'string', required: true, isIndex: false },
     ],
+    nameFields: [{ fieldName: 'sectorName', of: 'sectorId', filterable: 'always' }],
   },
   [Resources.HangarPasses]: {
     route: 'sectors/{sectorID}/hangar-passes',
     consolidatedRoute: 'resources',
     live: true,
+    rowWords: { one: 'hangar pass', many: 'hangar passes' },
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'sectorId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Sectors, readOnly: true },
       { fieldName: 'hangarId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Hangars },
       { fieldName: 'userId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', maxLength: 36, enumeratedResource: Resources.CrewSectorUsers },
       { fieldName: 'squadronId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', enumeratedResource: Resources.Squadrons },
+      { fieldName: 'groupId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', enumeratedResource: Resources.CrewSectorGroups },
       { fieldName: 'levelId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', maxLength: 64, enumeration: [{ id: "run", display: "Run" }, { id: "visit", display: "Visit" }] },
       { fieldName: 'expiresAt', displayType: 'date', required: false, isIndex: false },
+    ],
+    nameFields: [{ fieldName: 'sectorName', of: 'sectorId', filterable: 'always' }, { fieldName: 'hangarName', of: 'hangarId', filterable: 'always', search: ['startswith'] }, { fieldName: 'userName', of: 'userId', filterable: 'withIndexed' }, { fieldName: 'squadronName', of: 'squadronId', filterable: 'always', search: ['contains', 'startswith', 'endswith'] }, { fieldName: 'groupName', of: 'groupId', filterable: 'always' }, { fieldName: 'levelName', of: 'levelId', filterable: 'always' }],
+  },
+  [Resources.MembersHeldRoles]: {
+    route: 'members-held-roles',
+    readDisabled: true,
+    live: true,
+    rowWords: { one: 'held role', many: 'held roles' },
+    fields: [
+      { fieldName: 'userId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'kind', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'axis', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'domainId', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'role', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: true, filterable: 'always', roles: ["ClientAccount", "ClientPortal", "SuperAdministrator"] },
+      { fieldName: 'groupId', primaryKey: { ordinalPosition: 5 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'groupName', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'reason', displayType: 'string', required: false, isIndex: false },
+    ],
+  },
+  [Resources.MembersListedIdentities]: {
+    route: 'members-listed-identities',
+    live: true,
+    rowWords: { one: 'sign-in identity', many: 'sign-in identities' },
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'userId', displayType: 'uuid', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'method', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'connection', displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'subject', displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'tenant', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'emailAtLink', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'lastUsedAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'managedByTenant', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'managingTenant', displayType: 'string', required: false, isIndex: true, filterable: 'always' },
+    ],
+  },
+  [Resources.MembersListedMailLinks]: {
+    route: 'members-listed-mail-links',
+    live: true,
+    rowWords: { one: 'mailed link', many: 'mailed links' },
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'kind', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'state', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'email', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'userId', displayType: 'uuid', required: false, isIndex: false },
+      { fieldName: 'tenantId', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'everyTenant', displayType: 'boolean', required: true, isIndex: false },
+      { fieldName: 'roleNames', displayType: 'string[]', required: true, isIndex: false, sortable: false, roles: ["ClientAccount", "ClientPortal", "SuperAdministrator"] },
+      { fieldName: 'invitedByUserId', displayType: 'uuid', required: false, isIndex: false },
+      { fieldName: 'sentBy', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'makesTenant', displayType: 'boolean', required: true, isIndex: false },
+      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'expiresAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'consumedAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'mailFailedAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'withdrawnAt', displayType: 'date', required: false, isIndex: false },
+    ],
+  },
+  [Resources.MembersListedSessions]: {
+    route: 'members-listed-sessions',
+    live: true,
+    rowWords: { one: 'session', many: 'sessions' },
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'userId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', enumeratedResource: Resources.MembersListedUsers },
+      { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'expired', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'live', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'state', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'signedInWith', displayType: 'string', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'browser', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'authenticatedAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'updatedAt', displayType: 'date', required: true, isIndex: true, filterable: 'always' },
+    ],
+  },
+  [Resources.MembersListedSignInAttempts]: {
+    route: 'members-listed-sign-in-attempts',
+    readDisabled: true,
+    live: true,
+    rowWords: { one: 'failed sign-in', many: 'failed sign-ins' },
+    fields: [
+      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'kind', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'subject', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'userId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', enumeratedResource: Resources.MembersListedUsers },
+      { fieldName: 'account', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'failures', displayType: 'number', required: true, isIndex: false },
+      { fieldName: 'failureLimit', displayType: 'number', required: false, isIndex: false },
+      { fieldName: 'state', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'locked', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'lockedUntil', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'windowEndsAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'updatedAt', displayType: 'date', required: true, isIndex: true, filterable: 'always' },
+    ],
+  },
+  [Resources.MembersListedUsers]: {
+    route: 'members-listed-users',
+    live: true,
+    rowWords: { one: 'account', many: 'accounts' },
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'name', displayType: 'string', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'email', displayType: 'string', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'emailVerifiedAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'disabled', displayType: 'boolean', required: true, isIndex: false },
+      { fieldName: 'passwordChangeRequired', displayType: 'boolean', required: true, isIndex: false },
+      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'lastSignInAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'roles', displayType: 'string[]', required: true, isIndex: false, sortable: false, roles: ["ClientAccount", "ClientPortal", "SuperAdministrator"] },
+      { fieldName: 'lockedUntil', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'trustedDevices', displayType: 'number', required: true, isIndex: false },
+      { fieldName: 'managedByTenant', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'managingTenant', displayType: 'string', required: false, isIndex: true, filterable: 'always' },
     ],
   },
   [Resources.MembersRoles]: {
@@ -1405,6 +2388,7 @@ const resourceMap = defineResourceMap({
     updateDisabled: true,
     deleteDisabled: true,
     live: true,
+    rowWords: { one: 'role', many: 'roles' },
     fields: [
       { fieldName: 'kind', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'axis', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: false },
@@ -1414,28 +2398,30 @@ const resourceMap = defineResourceMap({
       { fieldName: 'updatedAt', displayType: 'date', required: true, isIndex: false },
     ],
   },
-  [Resources.MembersRoleGrants]: {
-    route: 'members-role-grants',
+  [Resources.MembersSectorHeldRoles]: {
+    route: 'sectors/{sectorID}/members-sector-held-roles',
     readDisabled: true,
-    createDisabled: true,
-    updateDisabled: true,
-    deleteDisabled: true,
     live: true,
+    rowWords: { one: 'held role', many: 'held roles' },
     fields: [
-      { fieldName: 'kind', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
-      { fieldName: 'axis', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'domainId', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'role', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'permission', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'resourceName', primaryKey: { ordinalPosition: 5 }, displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'field', primaryKey: { ordinalPosition: 6 }, displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'condition', primaryKey: { ordinalPosition: 7 }, displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'updatedAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'userId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'role', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always', roles: ["ClientPortal"] },
+      { fieldName: 'everyDomain', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'groupId', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'groupName', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'globalGroup', displayType: 'boolean', required: true, isIndex: false },
+      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'reason', displayType: 'string', required: false, isIndex: false },
     ],
   },
   [Resources.MembersSectorIdentities]: {
     route: 'sectors/{sectorID}/members-sector-identities',
     live: true,
+    rowWords: { one: 'sign-in identity', many: 'sign-in identities' },
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
@@ -1450,40 +2436,55 @@ const resourceMap = defineResourceMap({
       { fieldName: 'lastUsedAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'heldElsewhere', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'heldGlobally', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'managedHere', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'managedByAnotherDirectory', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
     ],
   },
   [Resources.MembersSectorInvitations]: {
     route: 'sectors/{sectorID}/members-sector-invitations',
     live: true,
+    rowWords: { one: 'invitation', many: 'invitations' },
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'email', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
-      { fieldName: 'roleNames', displayType: 'string[]', required: true, isIndex: false },
+      { fieldName: 'roleNames', displayType: 'string[]', required: true, isIndex: false, sortable: false, roles: ["ClientPortal"] },
       { fieldName: 'invitedByUserId', displayType: 'uuid', required: false, isIndex: false },
+      { fieldName: 'sentBy', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'expiresAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'consumedAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'withdrawnAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'state', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'pending', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
     ],
   },
   [Resources.MembersSectorUsers]: {
     route: 'sectors/{sectorID}/members-sector-users',
     live: true,
+    rowWords: { one: 'person', many: 'people' },
+    nameField: 'displayName',
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'displayName', displayType: 'string', required: true, isIndex: false, filterable: 'withIndexed' },
       { fieldName: 'email', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'emailVerifiedAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'disabled', displayType: 'boolean', required: true, isIndex: false },
       { fieldName: 'passwordChangeRequired', displayType: 'boolean', required: true, isIndex: false },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'lastSignInAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'roles', displayType: 'string[]', required: true, isIndex: false, sortable: false, roles: ["ClientPortal"] },
+      { fieldName: 'lockedUntil', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'heldElsewhere', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'heldGlobally', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'heldHere', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'heldInEveryTenant', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'managedHere', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'managedByAnotherDirectory', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'outsideDirectory', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'cannotEnter', displayType: 'string', required: false, isIndex: false },
     ],
@@ -1491,15 +2492,17 @@ const resourceMap = defineResourceMap({
   [Resources.MembersSectorUserRoles]: {
     route: 'sectors/{sectorID}/members-sector-user-roles',
     live: true,
+    rowWords: { one: 'held role', many: 'held roles' },
     fields: [
       { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'userId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
-      { fieldName: 'role', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'role', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always', roles: ["ClientPortal"] },
       { fieldName: 'everyDomain', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'reason', displayType: 'string', required: false, isIndex: false },
     ],
   },
   [Resources.MembersSessions]: {
@@ -1508,9 +2511,10 @@ const resourceMap = defineResourceMap({
     updateDisabled: true,
     deleteDisabled: true,
     live: true,
+    rowWords: { one: 'session', many: 'sessions' },
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
-      { fieldName: 'userId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', enumeratedResource: Resources.MembersSessionUsers },
+      { fieldName: 'userId', displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'username', displayType: 'string', required: true, isIndex: false },
       { fieldName: 'expired', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'authenticatedAt', displayType: 'date', required: false, isIndex: false },
@@ -1525,12 +2529,13 @@ const resourceMap = defineResourceMap({
     updateDisabled: true,
     deleteDisabled: true,
     live: true,
+    rowWords: { one: 'sign-in event', many: 'sign-in events' },
     fields: [
       { fieldName: 'sessionId', primaryKey: { ordinalPosition: 0 }, displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.MembersSessions },
       { fieldName: 'seq', primaryKey: { ordinalPosition: 1 }, displayType: 'number', required: true, isIndex: false },
       { fieldName: 'method', displayType: 'string', required: true, isIndex: false },
       { fieldName: 'connection', displayType: 'string', required: false, isIndex: false },
-      { fieldName: 'idpAmr', displayType: 'string[]', required: false, isIndex: false },
+      { fieldName: 'idpAmr', displayType: 'string[]', required: false, isIndex: false, sortable: false },
       { fieldName: 'occurredAt', displayType: 'date', required: true, isIndex: false },
     ],
   },
@@ -1540,6 +2545,7 @@ const resourceMap = defineResourceMap({
     updateDisabled: true,
     deleteDisabled: true,
     live: true,
+    rowWords: { one: 'sign-in identity', many: 'sign-in identities' },
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'userId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.MembersSessionUsers },
@@ -1551,6 +2557,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'lastUsedAt', displayType: 'date', required: true, isIndex: false },
     ],
+    nameFields: [{ fieldName: 'userName', of: 'userId', filterable: 'always' }],
   },
   [Resources.MembersSessionMailLinks]: {
     route: 'members-session-mail-links',
@@ -1558,6 +2565,7 @@ const resourceMap = defineResourceMap({
     updateDisabled: true,
     deleteDisabled: true,
     live: true,
+    rowWords: { one: 'mailed link', many: 'mailed links' },
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'kind', displayType: 'string', required: true, isIndex: true, filterable: 'always', maxLength: 16 },
@@ -1565,12 +2573,16 @@ const resourceMap = defineResourceMap({
       { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'userId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', enumeratedResource: Resources.MembersSessionUsers },
       { fieldName: 'tenantId', displayType: 'string', required: false, isIndex: true, filterable: 'always' },
-      { fieldName: 'roleNames', displayType: 'string[]', required: false, isIndex: false },
+      { fieldName: 'everyTenant', displayType: 'boolean', required: false, schemaDefault: false, isIndex: false },
+      { fieldName: 'roleNames', displayType: 'string[]', required: false, isIndex: false, sortable: false, roles: ["ClientAccount", "ClientPortal", "SuperAdministrator"] },
       { fieldName: 'invitedByUserId', displayType: 'uuid', required: false, isIndex: false },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'expiresAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'consumedAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'mailFailedAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'withdrawnAt', displayType: 'date', required: false, isIndex: false },
     ],
+    nameFields: [{ fieldName: 'userName', of: 'userId', filterable: 'always' }],
   },
   [Resources.MembersSessionSignInAttempts]: {
     route: 'members-session-sign-in-attempts',
@@ -1579,6 +2591,7 @@ const resourceMap = defineResourceMap({
     updateDisabled: true,
     deleteDisabled: true,
     live: true,
+    rowWords: { one: 'failed sign-in', many: 'failed sign-ins' },
     fields: [
       { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'failures', displayType: 'number', required: true, isIndex: false },
@@ -1593,6 +2606,7 @@ const resourceMap = defineResourceMap({
     updateDisabled: true,
     deleteDisabled: true,
     live: true,
+    rowWords: { one: 'trusted device', many: 'trusted devices' },
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'userId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.MembersSessionUsers },
@@ -1601,6 +2615,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'lastUsedAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'revokedAt', displayType: 'date', required: false, isIndex: false },
     ],
+    nameFields: [{ fieldName: 'userName', of: 'userId', filterable: 'always' }],
   },
   [Resources.MembersSessionUsers]: {
     route: 'members-session-users',
@@ -1608,14 +2623,16 @@ const resourceMap = defineResourceMap({
     updateDisabled: true,
     deleteDisabled: true,
     live: true,
+    rowWords: { one: 'account', many: 'accounts' },
+    nameField: 'username',
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'email', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'emailVerifiedAt', displayType: 'date', required: false, isIndex: false },
-      { fieldName: 'disabled', displayType: 'boolean', required: false, isIndex: false },
-      { fieldName: 'passwordChangeRequired', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'disabled', displayType: 'boolean', required: false, schemaDefault: false, isIndex: false },
+      { fieldName: 'passwordChangeRequired', displayType: 'boolean', required: false, schemaDefault: false, isIndex: false },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'lastSignInAt', displayType: 'date', required: false, isIndex: false },
     ],
@@ -1627,21 +2644,25 @@ const resourceMap = defineResourceMap({
     updateDisabled: true,
     deleteDisabled: true,
     live: true,
+    rowWords: { one: 'held role', many: 'held roles' },
     fields: [
       { fieldName: 'kind', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'axis', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'domainId', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'role', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'role', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: false, roles: ["ClientAccount", "ClientPortal", "SuperAdministrator"] },
       { fieldName: 'userId', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'reason', displayType: 'string', required: false, isIndex: false },
     ],
   },
   [Resources.Missions]: {
     route: 'sectors/{sectorID}/missions',
     consolidatedRoute: 'resources',
     live: true,
+    rowWords: { one: 'mission', many: 'missions' },
+    nameField: 'title',
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'sectorId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Sectors, readOnly: true },
@@ -1651,7 +2672,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'brief', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'briefingTemplateId', displayType: 'enumerated', required: false, isIndex: false, maxLength: 64, enumeratedResource: Resources.BriefingTemplates },
       { fieldName: 'hazard', displayType: 'number', required: true, isIndex: false },
-      { fieldName: 'fee', displayType: 'number', required: true, isIndex: false, filterable: 'withIndexed' },
+      { fieldName: 'fee', displayType: 'number', decimal: true, required: true, isIndex: false, filterable: 'withIndexed' },
       { fieldName: 'deadline', displayType: 'date', required: true, isIndex: true, filterable: 'always', masking: 'positional' },
       { fieldName: 'requiredCertId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', maxLength: 64, enumeration: [{ id: "deep_space", display: "Deep space" }, { id: "escort", display: "Escort" }, { id: "hazmat", display: "Hazardous materials" }, { id: "salvage", display: "Salvage" }] },
       { fieldName: 'bookedByUserId', displayType: 'string', required: false, isIndex: false, readOnly: true },
@@ -1659,32 +2680,37 @@ const resourceMap = defineResourceMap({
       { fieldName: 'assignedSquadronId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', enumeratedResource: Resources.Squadrons },
       { fieldName: 'statusId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeration: [{ id: "claimed", display: "Claimed" }, { id: "completed", display: "Completed" }, { id: "failed", display: "Failed" }, { id: "on_hold", display: "On hold" }, { id: "open", display: "Open" }, { id: "stood_down", display: "Stood down" }, { id: "underway", display: "Underway" }], readOnly: true },
       { fieldName: 'notes', displayType: 'string', required: false, isIndex: false },
-      { fieldName: 'settlement', displayType: 'number', required: false, isIndex: false },
+      { fieldName: 'settlement', displayType: 'number', decimal: true, required: false, isIndex: false },
     ],
     searchFields: ['title', 'deadline'],
+    nameFields: [{ fieldName: 'sectorName', of: 'sectorId', filterable: 'always' }, { fieldName: 'kindName', of: 'kindId', filterable: 'always' }, { fieldName: 'requiredCertName', of: 'requiredCertId', filterable: 'always' }, { fieldName: 'statusName', of: 'statusId', filterable: 'always' }],
   },
   [Resources.MissionBoards]: {
     route: 'sectors/{sectorID}/mission-boards',
     rowsOf: Resources.Missions,
     live: true,
+    rowWords: { one: 'mission', many: 'missions' },
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'sectorId', displayType: 'uuid', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'title', displayType: 'string', required: true, isIndex: true, filterable: 'always', search: ['contains'] },
-      { fieldName: 'clientName', displayType: 'string', required: true, isIndex: true, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
-      { fieldName: 'squadronName', displayType: 'string', required: false, isIndex: true, filterable: 'always' },
-      { fieldName: 'kindId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
-      { fieldName: 'statusId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'clientId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.ClientRosters },
+      { fieldName: 'squadronId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', enumeratedResource: Resources.Squadrons },
+      { fieldName: 'kindId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeration: [{ id: "courier", display: "Courier" }, { id: "escort", display: "Escort" }, { id: "rescue", display: "Rescue" }, { id: "salvage", display: "Salvage" }] },
+      { fieldName: 'statusId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeration: [{ id: "claimed", display: "Claimed" }, { id: "completed", display: "Completed" }, { id: "failed", display: "Failed" }, { id: "on_hold", display: "On hold" }, { id: "open", display: "Open" }, { id: "stood_down", display: "Stood down" }, { id: "underway", display: "Underway" }] },
+      { fieldName: 'briefingTemplateId', displayType: 'enumerated', required: false, isIndex: false, filterable: 'withIndexed', enumeratedResource: Resources.BriefingTemplates },
       { fieldName: 'deadline', displayType: 'date', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'daysLeft', displayType: 'number', required: true, isIndex: false, filterable: 'withIndexed' },
     ],
-    searchFields: ['title', 'clientName'],
+    searchFields: ['title'],
+    nameFields: [{ fieldName: 'clientName', of: 'clientId', filterable: 'always', search: ['contains', 'startswith', 'endswith'] }, { fieldName: 'squadronName', of: 'squadronId', filterable: 'always', search: ['contains', 'startswith', 'endswith'] }, { fieldName: 'kindName', of: 'kindId', filterable: 'always' }, { fieldName: 'statusName', of: 'statusId', filterable: 'always' }],
   },
   [Resources.MissionDocuments]: {
     route: 'sectors/{sectorID}/mission-documents',
     consolidatedRoute: 'resources',
     createDisabled: true,
     live: true,
+    rowWords: { one: 'mission document', many: 'mission documents' },
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'missionId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Missions },
@@ -1695,13 +2721,15 @@ const resourceMap = defineResourceMap({
       { fieldName: 'uploadedByUserId', displayType: 'string', required: true, isIndex: false, maxLength: 36 },
       { fieldName: 'uploadedByName', displayType: 'string', required: true, isIndex: false, readOnly: true },
       { fieldName: 'uploadedAt', displayType: 'date', required: true, isIndex: false },
-      { fieldName: 'provenance', displayType: 'object', required: false, isIndex: false },
-      { fieldName: 'digest', displayType: 'bytes', required: true, isIndex: false },
+      { fieldName: 'provenance', displayType: 'object', required: false, isIndex: false, sortable: false },
+      { fieldName: 'digest', displayType: 'bytes', required: true, isIndex: false, sortable: false },
     ],
+    nameFields: [{ fieldName: 'missionName', of: 'missionId', filterable: 'withIndexed', search: ['contains'] }],
   },
   [Resources.OpenMissionsBySquadrons]: {
     route: 'sectors/{sectorID}/open-missions-by-squadrons',
     live: true,
+    rowWords: { one: 'squadron count', many: 'squadron counts' },
     fields: [
       { fieldName: 'squadronId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'squadronName', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
@@ -1714,59 +2742,68 @@ const resourceMap = defineResourceMap({
     route: 'pilots',
     consolidatedRoute: 'resources',
     live: true,
+    rowWords: { one: 'pilot', many: 'pilots' },
+    nameField: 'displayName',
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'userId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', maxLength: 36, enumeratedResource: Resources.CrewSessionUsers },
-      { fieldName: 'displayName', displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'displayName', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'clearance', displayType: 'number', required: true, isIndex: false },
-      { fieldName: 'feeLimit', displayType: 'number', required: true, isIndex: false },
+      { fieldName: 'feeLimit', displayType: 'number', decimal: true, required: true, isIndex: false },
     ],
+    nameFields: [{ fieldName: 'userName', of: 'userId', filterable: 'always' }],
   },
   [Resources.PilotAssignments]: {
     route: 'sectors/{sectorID}/pilot-assignments',
     rowsOf: Resources.SquadronMemberships,
     live: true,
+    rowWords: { one: 'assignment', many: 'assignments' },
     fields: [
       { fieldName: 'squadronId', primaryKey: { ordinalPosition: 0 }, displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', enumeratedResource: Resources.Squadrons },
       { fieldName: 'userId', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'sectorId', displayType: 'uuid', required: true, isIndex: true, filterable: 'always' },
-      { fieldName: 'squadronName', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'wingName', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
     ],
+    nameFields: [{ fieldName: 'squadronName', of: 'squadronId', filterable: 'always', search: ['contains', 'startswith', 'endswith'] }],
   },
   [Resources.PilotCertifications]: {
     route: 'pilot-certifications',
     consolidatedRoute: 'resources',
     live: true,
+    rowWords: { one: 'pilot certification', many: 'pilot certifications' },
     fields: [
       { fieldName: 'userId', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'certificationId', primaryKey: { ordinalPosition: 1 }, displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeration: [{ id: "deep_space", display: "Deep space" }, { id: "escort", display: "Escort" }, { id: "hazmat", display: "Hazardous materials" }, { id: "salvage", display: "Salvage" }] },
     ],
+    nameFields: [{ fieldName: 'certificationName', of: 'certificationId', filterable: 'always' }],
   },
   [Resources.Refits]: {
     route: 'sectors/{sectorID}/refits',
     consolidatedRoute: 'resources',
     live: true,
+    rowWords: { one: 'refit', many: 'refits' },
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'shipId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Ships },
       { fieldName: 'statusId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeration: [{ id: "cleared", display: "Cleared" }, { id: "docked", display: "Docked" }, { id: "flight_test", display: "Flight test" }, { id: "in_refit", display: "In refit" }, { id: "inspected", display: "Inspected" }, { id: "scrapped", display: "Scrapped" }], readOnly: true },
-      { fieldName: 'estimate', displayType: 'number', required: false, isIndex: false },
+      { fieldName: 'estimate', displayType: 'number', decimal: true, required: false, isIndex: false },
       { fieldName: 'inspectedAt', displayType: 'date', required: false, isIndex: false, readOnly: true },
       { fieldName: 'openedByUserId', displayType: 'string', required: false, isIndex: false, readOnly: true },
       { fieldName: 'openedByName', displayType: 'string', required: false, isIndex: false, readOnly: true },
       { fieldName: 'notes', displayType: 'string', required: false, isIndex: false },
     ],
+    nameFields: [{ fieldName: 'shipName', of: 'shipId' }, { fieldName: 'statusName', of: 'statusId', filterable: 'always' }],
   },
   [Resources.RefitTasks]: {
     route: 'sectors/{sectorID}/refit-tasks',
     consolidatedRoute: 'resources',
     live: true,
+    rowWords: { one: 'refit task', many: 'refit tasks' },
     fields: [
-      { fieldName: 'refitId', primaryKey: { ordinalPosition: 0 }, displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Refits },
       { fieldName: 'taskNumber', primaryKey: { ordinalPosition: 1 }, displayType: 'number', required: true, isIndex: false },
+      { fieldName: 'refitId', primaryKey: { ordinalPosition: 0 }, displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Refits },
       { fieldName: 'instructions', displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'done', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'done', displayType: 'boolean', required: false, schemaDefault: false, isIndex: false },
       { fieldName: 'notes', displayType: 'string', required: false, isIndex: false },
     ],
   },
@@ -1775,30 +2812,37 @@ const resourceMap = defineResourceMap({
     consolidatedRoute: 'resources',
     createDisabled: true,
     live: true,
+    rowWords: { one: 'sector', many: 'sectors' },
     nameField: 'name',
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'name', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'region', displayType: 'string', required: true, isIndex: false },
       { fieldName: 'established', displayType: 'civildate', required: true, isIndex: false },
-      { fieldName: 'directoryOnly', displayType: 'boolean', required: false, isIndex: false, readOnly: true },
+      { fieldName: 'chartedAt', displayType: 'date', required: false, isIndex: false, readOnly: true },
+      { fieldName: 'directoryOnly', displayType: 'boolean', required: false, schemaDefault: false, isIndex: false, readOnly: true },
+      { fieldName: 'disabled', displayType: 'boolean', required: false, schemaDefault: false, isIndex: false },
     ],
   },
   [Resources.SectorDirectories]: {
     route: 'sectors/{sectorID}/sector-directories',
     consolidatedRoute: 'resources',
     live: true,
+    rowWords: { one: 'sector directory', many: 'sector directories' },
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'sectorId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Sectors, readOnly: true },
       { fieldName: 'method', displayType: 'string', required: true, isIndex: true, filterable: 'always', readOnly: true },
       { fieldName: 'connection', displayType: 'string', required: true, isIndex: false, readOnly: true },
       { fieldName: 'defaultSeat', displayType: 'string', required: false, isIndex: false, readOnly: true },
+      { fieldName: 'asksSecondFactor', displayType: 'boolean', required: false, schemaDefault: false, isIndex: false, readOnly: true },
     ],
+    nameFields: [{ fieldName: 'sectorName', of: 'sectorId', filterable: 'always' }],
   },
   [Resources.SectorPilots]: {
     route: 'sectors/{sectorID}/sector-pilots',
     live: true,
+    rowWords: { one: 'pilot', many: 'pilots' },
     fields: [
       { fieldName: 'pilotId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'sectorId', displayType: 'uuid', required: true, isIndex: true, filterable: 'always' },
@@ -1812,6 +2856,8 @@ const resourceMap = defineResourceMap({
     route: 'sectors/{sectorID}/ships',
     consolidatedRoute: 'resources',
     live: true,
+    rowWords: { one: 'ship', many: 'ships' },
+    nameField: 'name',
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'hangarId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Hangars },
@@ -1820,26 +2866,32 @@ const resourceMap = defineResourceMap({
       { fieldName: 'name', displayType: 'string', required: true, isIndex: false },
       { fieldName: 'lastRefitAt', displayType: 'date', required: false, isIndex: false, readOnly: true },
       { fieldName: 'updatedAt', displayType: 'date', required: false, isIndex: false, readOnly: true },
-      { fieldName: 'cargoBays', displayType: 'number[]', required: false, isIndex: false },
-      { fieldName: 'transponderKey', displayType: 'string', required: false, isIndex: false, maxLength: 64, writeOnly: true, secret: true },
+      { fieldName: 'cargoBays', displayType: 'number[]', required: false, isIndex: false, sortable: false },
+      { fieldName: 'transponderKey', displayType: 'string', required: false, isIndex: false, sortable: false, maxLength: 64, writeOnly: true, secret: true },
     ],
+    nameFields: [{ fieldName: 'hangarName', of: 'hangarId', filterable: 'always', search: ['startswith'] }, { fieldName: 'className', of: 'classId', filterable: 'always' }],
   },
   [Resources.ShipClasses]: {
     route: 'ship-classes',
     consolidatedRoute: 'resources',
     live: true,
+    rowWords: { one: 'ship class', many: 'ship classes' },
+    nameField: 'designation',
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'designation', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'roleId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', maxLength: 64, enumeration: [{ id: "cutter", display: "Cutter" }, { id: "medevac", display: "Medevac" }, { id: "tender", display: "Tender" }, { id: "tug", display: "Tug" }] },
       { fieldName: 'tonnage', displayType: 'number', required: true, isIndex: false },
       { fieldName: 'hardened', displayType: 'boolean', required: true, isIndex: false },
+      { fieldName: 'inService', displayType: 'boolean', required: false, schemaDefault: true, isIndex: false },
     ],
+    nameFields: [{ fieldName: 'roleName', of: 'roleId', filterable: 'always' }],
   },
   [Resources.Sorties]: {
     route: 'sectors/{sectorID}/sorties',
     consolidatedRoute: 'resources',
     live: true,
+    rowWords: { one: 'sortie', many: 'sorties' },
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'missionId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Missions },
@@ -1849,16 +2901,18 @@ const resourceMap = defineResourceMap({
       { fieldName: 'returnedAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'debrief', displayType: 'string', required: false, isIndex: false },
     ],
+    nameFields: [{ fieldName: 'missionName', of: 'missionId', filterable: 'withIndexed', search: ['contains'] }, { fieldName: 'shipName', of: 'shipId' }],
   },
   [Resources.SortieExpenses]: {
     route: 'sectors/{sectorID}/sortie-expenses',
     consolidatedRoute: 'resources',
     live: true,
+    rowWords: { one: 'sortie expense', many: 'sortie expenses' },
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'sortieId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Sorties },
       { fieldName: 'category', displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'amount', displayType: 'number', required: true, isIndex: false },
+      { fieldName: 'amount', displayType: 'number', decimal: true, required: true, isIndex: false },
       { fieldName: 'memo', displayType: 'string', required: false, isIndex: false },
     ],
   },
@@ -1866,44 +2920,54 @@ const resourceMap = defineResourceMap({
     route: 'sectors/{sectorID}/squadrons',
     consolidatedRoute: 'resources',
     live: true,
+    rowWords: { one: 'squadron', many: 'squadrons' },
+    nameField: 'name',
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'wingId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Wings },
-      { fieldName: 'name', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
-      { fieldName: 'callsigns', displayType: 'string[]', required: false, isIndex: false, maxLength: 16 },
+      { fieldName: 'name', displayType: 'string', required: true, isIndex: true, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
+      { fieldName: 'callsigns', displayType: 'string[]', required: false, isIndex: false, sortable: false, maxLength: 16 },
     ],
+    searchFields: ['name'],
+    nameFields: [{ fieldName: 'wingName', of: 'wingId', filterable: 'always' }],
   },
   [Resources.SquadronMemberships]: {
     route: 'sectors/{sectorID}/squadron-memberships',
     consolidatedRoute: 'resources',
     live: true,
+    rowWords: { one: 'squadron membership', many: 'squadron memberships' },
     fields: [
       { fieldName: 'squadronId', primaryKey: { ordinalPosition: 0 }, displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Squadrons },
       { fieldName: 'userId', primaryKey: { ordinalPosition: 1 }, displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.CrewSectorUsers },
     ],
+    nameFields: [{ fieldName: 'squadronName', of: 'squadronId', filterable: 'always', search: ['contains', 'startswith', 'endswith'] }, { fieldName: 'userName', of: 'userId', filterable: 'withIndexed' }],
   },
   [Resources.SquadronRosters]: {
     route: 'sectors/{sectorID}/squadron-rosters',
     rowsOf: Resources.SquadronMemberships,
     live: true,
+    rowWords: { one: 'squadron membership', many: 'squadron memberships' },
     fields: [
       { fieldName: 'squadronId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'userId', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'sectorId', displayType: 'uuid', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'squadronName', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
-      { fieldName: 'pilotName', displayType: 'string', required: false, isIndex: true, filterable: 'always' },
-      { fieldName: 'pilotId', displayType: 'enumerated', required: false, isIndex: false, enumeratedResource: Resources.Pilots },
+      { fieldName: 'pilotId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', enumeratedResource: Resources.Pilots },
     ],
+    nameFields: [{ fieldName: 'pilotName', of: 'pilotId', filterable: 'always' }],
   },
   [Resources.Wings]: {
     route: 'sectors/{sectorID}/wings',
     consolidatedRoute: 'resources',
     live: true,
+    rowWords: { one: 'wing', many: 'wings' },
+    nameField: 'name',
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'sectorId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Sectors, readOnly: true },
       { fieldName: 'name', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
     ],
+    nameFields: [{ fieldName: 'sectorName', of: 'sectorId', filterable: 'always' }],
   },
   [Resources.BriefingTemplates]: {
     route: 'briefing-templates',
@@ -1911,14 +2975,35 @@ const resourceMap = defineResourceMap({
     createDisabled: true,
     updateDisabled: true,
     deleteDisabled: true,
+    computed: true,
     live: false,
+    rowWords: { one: 'briefing template', many: 'briefing templates' },
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'audience', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'summary', displayType: 'string', required: false, isIndex: false },
-      { fieldName: 'layout', displayType: 'object', required: false, isIndex: false },
+      { fieldName: 'layout', displayType: 'object', required: false, isIndex: false, sortable: false },
     ],
+  },
+  [Resources.CrewGivableRoles]: {
+    route: 'crew-givable-roles',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    computed: true,
+    live: false,
+    rowWords: { one: 'role', many: 'roles' },
+    fields: [
+      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false, roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "MissionLead", "MissionObserver", "MusterClerk", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
+      { fieldName: 'description', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'method', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
+      { fieldName: 'group', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
+      { fieldName: 'domain', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
+      { fieldName: 'everyDomain', displayType: 'boolean', required: false, isIndex: false, filterable: 'always' },
+    ],
+    searchFields: ['method', 'group', 'domain'],
   },
   [Resources.CrewInvitedSectors]: {
     route: 'crew-invited-sectors',
@@ -1926,7 +3011,9 @@ const resourceMap = defineResourceMap({
     createDisabled: true,
     updateDisabled: true,
     deleteDisabled: true,
+    computed: true,
     live: false,
+    rowWords: { one: 'invitation', many: 'invitations' },
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: true, isIndex: false },
       { fieldName: 'email', displayType: 'string', required: false, isIndex: false },
@@ -1935,11 +3022,130 @@ const resourceMap = defineResourceMap({
       { fieldName: 'sectorRegion', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'sectorEstablished', displayType: 'civildate', required: false, isIndex: false },
       { fieldName: 'sectorDirectoryOnly', displayType: 'boolean', required: false, isIndex: false },
-      { fieldName: 'defaultRole', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'defaultRole', displayType: 'string', required: false, isIndex: false, roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "MissionLead", "MissionObserver", "MusterClerk", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
       { fieldName: 'invitedByUserId', displayType: 'uuid', required: false, isIndex: false },
       { fieldName: 'createdAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'expiresAt', displayType: 'date', required: false, isIndex: false },
     ],
+  },
+  [Resources.CrewInvitedSectorRoles]: {
+    route: 'crew-invited-sector-roles',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    computed: true,
+    live: false,
+    rowWords: { one: 'role', many: 'roles' },
+    fields: [
+      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false, roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "MissionLead", "MissionObserver", "MusterClerk", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
+      { fieldName: 'description', displayType: 'string', required: false, isIndex: false },
+    ],
+  },
+  [Resources.CrewListedAuditRecords]: {
+    route: 'crew-listed-audit-records',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    computed: true,
+    live: false,
+    rowWords: { one: 'audit record', many: 'audit records' },
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: true, isIndex: false },
+      { fieldName: 'at', displayType: 'date', required: false, isIndex: false, filterable: 'always' },
+      { fieldName: 'act', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
+      { fieldName: 'who', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'what', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'doneTo', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'actorUsername', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
+      { fieldName: 'subjectKind', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'subjectName', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
+      { fieldName: 'userId', displayType: 'enumerated', required: false, isIndex: false, enumeratedResource: Resources.CrewListedUsers },
+      { fieldName: 'role', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'], roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "MissionLead", "MissionObserver", "MusterClerk", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
+      { fieldName: 'tenantId', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'tenantName', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'reason', displayType: 'string', required: false, isIndex: false },
+    ],
+    searchFields: ['act', 'actorUsername', 'subjectName', 'role'],
+  },
+  [Resources.CrewListedRoleGrants]: {
+    route: 'crew-listed-role-grants',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    computed: true,
+    live: false,
+    rowWords: { one: 'role grant', many: 'role grants' },
+    fields: [
+      { fieldName: 'kind', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'axis', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'domainId', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'role', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'permission', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'resourceName', primaryKey: { ordinalPosition: 5 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'field', primaryKey: { ordinalPosition: 6 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'condition', primaryKey: { ordinalPosition: 7 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'updatedAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'skipped', displayType: 'string', required: false, isIndex: false },
+    ],
+  },
+  [Resources.CrewMissionRoles]: {
+    route: 'sectors/{sectorID}/crew-mission-roles',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    computed: true,
+    live: false,
+    rowWords: { one: 'role', many: 'roles' },
+    fields: [
+      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false, roles: ["Archivist", "Armorer", "Assessor", "BookingAgent", "Cadet", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FlightLead", "Harbormaster", "HazardAnalyst", "MissionLead", "MissionObserver", "MusterClerk", "NightWatch", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SectorCrew", "SectorMarshal", "Supercargo", "Veteran", "WingCommander"] },
+      { fieldName: 'description', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'method', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
+      { fieldName: 'recordId', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
+    ],
+    searchFields: ['method', 'recordId'],
+  },
+  [Resources.CrewRememberLengths]: {
+    route: 'crew-remember-lengths',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    computed: true,
+    live: false,
+    rowWords: { one: 'length of time', many: 'lengths of time' },
+    fields: [
+      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'days', displayType: 'number', required: false, isIndex: false },
+    ],
+  },
+  [Resources.CrewSectorAuditRecords]: {
+    route: 'sectors/{sectorID}/crew-sector-audit-records',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    computed: true,
+    live: false,
+    rowWords: { one: 'audit record', many: 'audit records' },
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: true, isIndex: false },
+      { fieldName: 'at', displayType: 'date', required: false, isIndex: false, filterable: 'always' },
+      { fieldName: 'act', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
+      { fieldName: 'who', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'what', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'doneTo', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'actorUsername', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
+      { fieldName: 'subjectKind', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'subjectName', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
+      { fieldName: 'userId', displayType: 'enumerated', required: false, isIndex: false, enumeratedResource: Resources.CrewListedUsers },
+      { fieldName: 'role', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'], roles: ["Archivist", "Armorer", "Assessor", "BookingAgent", "Cadet", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FlightLead", "Harbormaster", "HazardAnalyst", "MissionLead", "MissionObserver", "MusterClerk", "NightWatch", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SectorCrew", "SectorMarshal", "Supercargo", "Veteran", "WingCommander"] },
+      { fieldName: 'reason', displayType: 'string', required: false, isIndex: false },
+    ],
+    searchFields: ['act', 'actorUsername', 'subjectName', 'role'],
   },
   [Resources.CrewSectorDirectoryRoles]: {
     route: 'sectors/{sectorID}/crew-sector-directory-roles',
@@ -1947,9 +3153,11 @@ const resourceMap = defineResourceMap({
     createDisabled: true,
     updateDisabled: true,
     deleteDisabled: true,
+    computed: true,
     live: false,
+    rowWords: { one: 'role', many: 'roles' },
     fields: [
-      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false, roles: ["Archivist", "Armorer", "Assessor", "BookingAgent", "Cadet", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FlightLead", "Harbormaster", "HazardAnalyst", "MissionLead", "MissionObserver", "MusterClerk", "NightWatch", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SectorCrew", "SectorMarshal", "Supercargo", "Veteran", "WingCommander"] },
       { fieldName: 'description', displayType: 'string', required: false, isIndex: false },
     ],
   },
@@ -1959,11 +3167,15 @@ const resourceMap = defineResourceMap({
     createDisabled: true,
     updateDisabled: true,
     deleteDisabled: true,
+    computed: true,
     live: false,
+    rowWords: { one: 'role', many: 'roles' },
     fields: [
-      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false, roles: ["Archivist", "Armorer", "Assessor", "BookingAgent", "Cadet", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FlightLead", "Harbormaster", "HazardAnalyst", "MissionLead", "MissionObserver", "MusterClerk", "NightWatch", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SectorCrew", "SectorMarshal", "Supercargo", "Veteran", "WingCommander"] },
       { fieldName: 'description', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'method', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
     ],
+    searchFields: ['method'],
   },
   [Resources.CrewSectorSignInWays]: {
     route: 'sectors/{sectorID}/crew-sector-sign-in-ways',
@@ -1971,7 +3183,9 @@ const resourceMap = defineResourceMap({
     createDisabled: true,
     updateDisabled: true,
     deleteDisabled: true,
-    live: false,
+    computed: true,
+    live: true,
+    rowWords: { one: 'way to sign in', many: 'ways to sign in' },
     fields: [
       { fieldName: 'userId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: true, isIndex: false, filterable: 'always' },
       { fieldName: 'way', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: false },
@@ -1981,6 +3195,8 @@ const resourceMap = defineResourceMap({
       { fieldName: 'through', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'heldElsewhere', displayType: 'boolean', required: false, isIndex: false },
       { fieldName: 'heldGlobally', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'managedHere', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'managedByAnotherDirectory', displayType: 'boolean', required: false, isIndex: false },
     ],
   },
   [Resources.CrewSignInMethods]: {
@@ -1989,16 +3205,36 @@ const resourceMap = defineResourceMap({
     createDisabled: true,
     updateDisabled: true,
     deleteDisabled: true,
+    computed: true,
     live: false,
+    rowWords: { one: 'way to sign in', many: 'ways to sign in' },
     fields: [
       { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'label', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'admits', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'openSignUp', displayType: 'boolean', required: false, isIndex: false },
-      { fieldName: 'defaultRole', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'defaultRole', displayType: 'string', required: false, isIndex: false, roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "MissionLead", "MissionObserver", "MusterClerk", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
       { fieldName: 'directoryGivesRoles', displayType: 'boolean', required: false, isIndex: false },
       { fieldName: 'ownRule', displayType: 'boolean', required: false, isIndex: false },
       { fieldName: 'says', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'selfServiceReset', displayType: 'boolean', required: false, isIndex: false },
+    ],
+  },
+  [Resources.CrewSignInSettings]: {
+    route: 'crew-sign-in-settings',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    computed: true,
+    live: false,
+    rowWords: { one: 'sign-in setting', many: 'sign-in settings' },
+    fields: [
+      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'position', displayType: 'number', required: false, isIndex: false },
+      { fieldName: 'says', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'requireSecondFactor', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'rememberBrowserDays', displayType: 'number', required: false, isIndex: false },
     ],
   },
   [Resources.CrewSignInWays]: {
@@ -2007,7 +3243,9 @@ const resourceMap = defineResourceMap({
     createDisabled: true,
     updateDisabled: true,
     deleteDisabled: true,
-    live: false,
+    computed: true,
+    live: true,
+    rowWords: { one: 'way to sign in', many: 'ways to sign in' },
     fields: [
       { fieldName: 'userId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: true, isIndex: false, filterable: 'always' },
       { fieldName: 'way', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: false },
@@ -2017,18 +3255,175 @@ const resourceMap = defineResourceMap({
       { fieldName: 'through', displayType: 'string', required: false, isIndex: false },
     ],
   },
+  [Resources.CrewTakeLengths]: {
+    route: 'crew-take-lengths',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    computed: true,
+    live: false,
+    rowWords: { one: 'length of time', many: 'lengths of time' },
+    fields: [
+      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'minutes', displayType: 'number', required: false, isIndex: false },
+    ],
+  },
+  [Resources.CrewTakeableRoles]: {
+    route: 'crew-takeable-roles',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    computed: true,
+    live: false,
+    rowWords: { one: 'role', many: 'roles' },
+    fields: [
+      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false, roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "MissionLead", "MissionObserver", "MusterClerk", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
+      { fieldName: 'description', displayType: 'string', required: false, isIndex: false },
+    ],
+  },
   [Resources.ExpenseManifests]: {
     route: 'sectors/{sectorID}/expense-manifests',
     createDisabled: true,
     updateDisabled: true,
     deleteDisabled: true,
+    computed: true,
     live: false,
+    rowWords: { one: 'expense manifest', many: 'expense manifests' },
     fields: [
       { fieldName: 'missionId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: true, isIndex: false },
-      { fieldName: 'title', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'title', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
       { fieldName: 'sorties', displayType: 'number', required: false, isIndex: false },
-      { fieldName: 'expenses', displayType: 'number', required: false, isIndex: false },
+      { fieldName: 'expenses', displayType: 'number', decimal: true, required: false, isIndex: false },
       { fieldName: 'assignedSquadronId', displayType: 'uuid', required: false, isIndex: false },
+    ],
+    searchFields: ['title'],
+  },
+  [Resources.MembersListedAuditRecords]: {
+    route: 'members-listed-audit-records',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    computed: true,
+    live: false,
+    rowWords: { one: 'audit record', many: 'audit records' },
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: true, isIndex: false },
+      { fieldName: 'at', displayType: 'date', required: false, isIndex: false, filterable: 'always' },
+      { fieldName: 'act', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
+      { fieldName: 'who', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'what', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'doneTo', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'actorUsername', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
+      { fieldName: 'subjectKind', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'subjectName', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
+      { fieldName: 'userId', displayType: 'enumerated', required: false, isIndex: false, enumeratedResource: Resources.MembersListedUsers },
+      { fieldName: 'role', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'], roles: ["ClientAccount", "ClientPortal", "SuperAdministrator"] },
+      { fieldName: 'tenantId', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'tenantName', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'reason', displayType: 'string', required: false, isIndex: false },
+    ],
+    searchFields: ['act', 'actorUsername', 'subjectName', 'role'],
+  },
+  [Resources.MembersListedRoleGrants]: {
+    route: 'members-listed-role-grants',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    computed: true,
+    live: false,
+    rowWords: { one: 'role grant', many: 'role grants' },
+    fields: [
+      { fieldName: 'kind', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'axis', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'domainId', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'role', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'permission', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'resourceName', primaryKey: { ordinalPosition: 5 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'field', primaryKey: { ordinalPosition: 6 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'condition', primaryKey: { ordinalPosition: 7 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'updatedAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'skipped', displayType: 'string', required: false, isIndex: false },
+    ],
+  },
+  [Resources.MembersRememberLengths]: {
+    route: 'members-remember-lengths',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    computed: true,
+    live: false,
+    rowWords: { one: 'length of time', many: 'lengths of time' },
+    fields: [
+      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'days', displayType: 'number', required: false, isIndex: false },
+    ],
+  },
+  [Resources.MembersSectorAuditRecords]: {
+    route: 'sectors/{sectorID}/members-sector-audit-records',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    computed: true,
+    live: false,
+    rowWords: { one: 'audit record', many: 'audit records' },
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: true, isIndex: false },
+      { fieldName: 'at', displayType: 'date', required: false, isIndex: false, filterable: 'always' },
+      { fieldName: 'act', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
+      { fieldName: 'who', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'what', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'doneTo', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'actorUsername', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
+      { fieldName: 'subjectKind', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'subjectName', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
+      { fieldName: 'userId', displayType: 'enumerated', required: false, isIndex: false, enumeratedResource: Resources.MembersListedUsers },
+      { fieldName: 'role', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'], roles: ["ClientPortal"] },
+      { fieldName: 'reason', displayType: 'string', required: false, isIndex: false },
+    ],
+    searchFields: ['act', 'actorUsername', 'subjectName', 'role'],
+  },
+  [Resources.MembersSignInMethods]: {
+    route: 'members-sign-in-methods',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    computed: true,
+    live: false,
+    rowWords: { one: 'way to sign in', many: 'ways to sign in' },
+    fields: [
+      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'label', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'admits', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'openSignUp', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'defaultRole', displayType: 'string', required: false, isIndex: false, roles: ["ClientAccount", "ClientPortal", "SuperAdministrator"] },
+      { fieldName: 'directoryGivesRoles', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'ownRule', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'says', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'selfServiceReset', displayType: 'boolean', required: false, isIndex: false },
+    ],
+  },
+  [Resources.MembersSignInSettings]: {
+    route: 'members-sign-in-settings',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    computed: true,
+    live: false,
+    rowWords: { one: 'sign-in setting', many: 'sign-in settings' },
+    fields: [
+      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'position', displayType: 'number', required: false, isIndex: false },
+      { fieldName: 'says', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'requireSecondFactor', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'rememberBrowserDays', displayType: 'number', required: false, isIndex: false },
     ],
   },
   [Resources.PilotCards]: {
@@ -2037,14 +3432,16 @@ const resourceMap = defineResourceMap({
     createDisabled: true,
     updateDisabled: true,
     deleteDisabled: true,
+    computed: true,
     live: false,
+    rowWords: { one: 'pilot card', many: 'pilot cards' },
     fields: [
       { fieldName: 'userId', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'displayName', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'clearance', displayType: 'number', required: false, isIndex: false },
-      { fieldName: 'feeLimit', displayType: 'number', required: false, isIndex: false },
-      { fieldName: 'certifications', displayType: 'string[]', required: false, isIndex: false },
-      { fieldName: 'squadrons', displayType: 'string[]', required: false, isIndex: false },
+      { fieldName: 'feeLimit', displayType: 'number', decimal: true, required: false, isIndex: false },
+      { fieldName: 'certifications', displayType: 'string[]', required: false, isIndex: false, sortable: false },
+      { fieldName: 'squadrons', displayType: 'string[]', required: false, isIndex: false, sortable: false },
       { fieldName: 'commendations', displayType: 'number', required: false, isIndex: false, feature: 'commendations' },
     ],
   },
@@ -2053,7 +3450,9 @@ const resourceMap = defineResourceMap({
     createDisabled: true,
     updateDisabled: true,
     deleteDisabled: true,
+    computed: true,
     live: true,
+    rowWords: { one: 'sector hazard board', many: 'sector hazard boards' },
     fields: [
       { fieldName: 'shipId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: true, isIndex: false },
       { fieldName: 'subsystem', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
@@ -2061,7 +3460,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'sectorId', displayType: 'uuid', required: false, isIndex: false },
       { fieldName: 'worstReading', displayType: 'number', required: false, isIndex: false },
       { fieldName: 'recordedAt', displayType: 'date', required: false, isIndex: false },
-      { fieldName: 'recent', displayType: 'object[]', required: false, isIndex: false },
+      { fieldName: 'recent', displayType: 'object[]', required: false, isIndex: false, sortable: false },
     ],
     searchFields: ['subsystem', 'shipName'],
   },
@@ -2071,13 +3470,15 @@ const resourceMap = defineResourceMap({
     createDisabled: true,
     updateDisabled: true,
     deleteDisabled: true,
+    computed: true,
     live: false,
+    rowWords: { one: 'service ledger', many: 'service ledgers' },
     fields: [
       { fieldName: 'sectorId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: true, isIndex: false, filterable: 'always' },
       { fieldName: 'name', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
       { fieldName: 'openMissions', displayType: 'number', required: false, isIndex: false, filterable: 'always' },
-      { fieldName: 'feesOutstanding', displayType: 'number', required: false, isIndex: false },
-      { fieldName: 'settlements', displayType: 'number', required: false, isIndex: false },
+      { fieldName: 'feesOutstanding', displayType: 'number', decimal: true, required: false, isIndex: false },
+      { fieldName: 'settlements', displayType: 'number', decimal: true, required: false, isIndex: false },
       { fieldName: 'lastReturnAt', displayType: 'date', required: false, isIndex: false },
     ],
     searchFields: ['name'],
@@ -2088,7 +3489,9 @@ const resourceMap = defineResourceMap({
     createDisabled: true,
     updateDisabled: true,
     deleteDisabled: true,
+    computed: true,
     live: false,
+    rowWords: { one: 'standing order', many: 'standing orders' },
     fields: [
       { fieldName: 'section', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
       { fieldName: 'directive', displayType: 'string', required: false, isIndex: false },
@@ -2101,6 +3504,7 @@ const resourceMap = defineResourceMap({
     updateDisabled: true,
     deleteDisabled: true,
     live: false,
+    rowWords: { one: 'feature flag', many: 'feature flags' },
     fields: [
       { fieldName: 'name', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true },
       { fieldName: 'description', displayType: 'string', required: true, isIndex: false },
@@ -2139,11 +3543,21 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.CrewGroupMembers]: PermissionScopes.global,
   [Resources.CrewGroupRoles]: PermissionScopes.global,
   [Resources.CrewGroupUsers]: PermissionScopes.global,
+  [Resources.CrewHeldRoles]: PermissionScopes.global,
+  [Resources.CrewListedGroups]: PermissionScopes.global,
+  [Resources.CrewListedGroupRoles]: PermissionScopes.global,
+  [Resources.CrewListedIdentities]: PermissionScopes.global,
+  [Resources.CrewListedMailLinks]: PermissionScopes.global,
+  [Resources.CrewListedSectors]: PermissionScopes.global,
+  [Resources.CrewListedSessions]: PermissionScopes.global,
+  [Resources.CrewListedSignInAttempts]: PermissionScopes.global,
+  [Resources.CrewListedUsers]: PermissionScopes.global,
+  [Resources.CrewMissionHolders]: PermissionScopes.domain,
   [Resources.CrewRoles]: PermissionScopes.global,
-  [Resources.CrewRoleGrants]: PermissionScopes.global,
   [Resources.CrewSectorGroups]: PermissionScopes.domain,
   [Resources.CrewSectorGroupRoles]: PermissionScopes.domain,
   [Resources.CrewSectorGroupUsers]: PermissionScopes.domain,
+  [Resources.CrewSectorHeldRoles]: PermissionScopes.domain,
   [Resources.CrewSectorIdentities]: PermissionScopes.domain,
   [Resources.CrewSectorInvitations]: PermissionScopes.domain,
   [Resources.CrewSectorUsers]: PermissionScopes.domain,
@@ -2158,14 +3572,22 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.CrewSessionTokens]: PermissionScopes.global,
   [Resources.CrewSessionTrustedDevices]: PermissionScopes.global,
   [Resources.CrewSessionUsers]: PermissionScopes.global,
+  [Resources.CrewTakenRoles]: PermissionScopes.global,
   [Resources.CrewUserGroupRoles]: PermissionScopes.global,
   [Resources.CrewUserRoles]: PermissionScopes.global,
   [Resources.DistressCalls]: PermissionScopes.domain,
+  [Resources.DistressRelays]: PermissionScopes.domain,
   [Resources.FeeByKinds]: PermissionScopes.global,
   [Resources.Hangars]: PermissionScopes.domain,
   [Resources.HangarPasses]: PermissionScopes.domain,
+  [Resources.MembersHeldRoles]: PermissionScopes.global,
+  [Resources.MembersListedIdentities]: PermissionScopes.global,
+  [Resources.MembersListedMailLinks]: PermissionScopes.global,
+  [Resources.MembersListedSessions]: PermissionScopes.global,
+  [Resources.MembersListedSignInAttempts]: PermissionScopes.global,
+  [Resources.MembersListedUsers]: PermissionScopes.global,
   [Resources.MembersRoles]: PermissionScopes.global,
-  [Resources.MembersRoleGrants]: PermissionScopes.global,
+  [Resources.MembersSectorHeldRoles]: PermissionScopes.domain,
   [Resources.MembersSectorIdentities]: PermissionScopes.domain,
   [Resources.MembersSectorInvitations]: PermissionScopes.domain,
   [Resources.MembersSectorUsers]: PermissionScopes.domain,
@@ -2199,13 +3621,29 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.SquadronRosters]: PermissionScopes.domain,
   [Resources.Wings]: PermissionScopes.domain,
   [Resources.BriefingTemplates]: PermissionScopes.global,
+  [Resources.CrewGivableRoles]: PermissionScopes.global,
   [Resources.CrewInvitedSectors]: PermissionScopes.global,
+  [Resources.CrewInvitedSectorRoles]: PermissionScopes.global,
+  [Resources.CrewListedAuditRecords]: PermissionScopes.global,
+  [Resources.CrewListedRoleGrants]: PermissionScopes.global,
+  [Resources.CrewMissionRoles]: PermissionScopes.domain,
+  [Resources.CrewRememberLengths]: PermissionScopes.global,
+  [Resources.CrewSectorAuditRecords]: PermissionScopes.domain,
   [Resources.CrewSectorDirectoryRoles]: PermissionScopes.domain,
   [Resources.CrewSectorRoles]: PermissionScopes.domain,
   [Resources.CrewSectorSignInWays]: PermissionScopes.domain,
   [Resources.CrewSignInMethods]: PermissionScopes.global,
+  [Resources.CrewSignInSettings]: PermissionScopes.global,
   [Resources.CrewSignInWays]: PermissionScopes.global,
+  [Resources.CrewTakeLengths]: PermissionScopes.global,
+  [Resources.CrewTakeableRoles]: PermissionScopes.global,
   [Resources.ExpenseManifests]: PermissionScopes.domain,
+  [Resources.MembersListedAuditRecords]: PermissionScopes.global,
+  [Resources.MembersListedRoleGrants]: PermissionScopes.global,
+  [Resources.MembersRememberLengths]: PermissionScopes.global,
+  [Resources.MembersSectorAuditRecords]: PermissionScopes.domain,
+  [Resources.MembersSignInMethods]: PermissionScopes.global,
+  [Resources.MembersSignInSettings]: PermissionScopes.global,
   [Resources.PilotCards]: PermissionScopes.global,
   [Resources.SectorHazardBoards]: PermissionScopes.domain,
   [Resources.ServiceLedgers]: PermissionScopes.global,

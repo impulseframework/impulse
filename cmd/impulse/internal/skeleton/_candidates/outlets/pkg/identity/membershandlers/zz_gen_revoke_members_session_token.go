@@ -42,6 +42,10 @@ func (h *Handlers) RevokeMembersSessionToken() http.HandlerFunc {
 		// write or a read against the caller (Enforce) evaluates the same checker,
 		// scope, and decision instant.
 		ctx = resource.WithCaller(ctx, gate.Caller())
+		// The method's name rides the context too: who made a change
+		// (eventsource.UserEvent) reads it there, so every change record the body writes
+		// names the method.
+		ctx = resource.WithRPC(ctx, "RevokeMembersSessionToken")
 
 		p := (*membersidentity.RevokeMembersSessionToken)(params)
 
@@ -78,10 +82,16 @@ func (h *Handlers) RevokeMembersSessionToken() http.HandlerFunc {
 				SetID(p.TokenID).
 				Read(ctx, txn)
 			if err != nil {
+				if httpio.HasNotFound(err) {
+					// No row has the key. Every row the method cannot reach is
+					// answered alike, so the words never say a row is there.
+					return resource.TargetNotFound("MembersSessionToken", p.TokenID)
+				}
+
 				return errors.Wrap(err, "membersresources.MembersSessionTokenQuery.Read()")
 			}
 			if row == nil {
-				return httpio.NewNotFoundMessagef("MembersSessionToken %s does not exist", p.TokenID)
+				return resource.TargetNotFound("MembersSessionToken", p.TokenID)
 			}
 
 			// A row-referencing condition on the caller's Execute grant
@@ -102,7 +112,7 @@ func (h *Handlers) RevokeMembersSessionToken() http.HandlerFunc {
 				return httpio.NewEncoder(w).Ok(nil)
 			}
 
-			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "spanner.Client.ReadWriteTransaction()"))
+			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "resource.Client.ExecuteFunc()"))
 		}
 
 		live.Publish(ctx, w, h.LiveService(), h.liveDerivations, "", touched)

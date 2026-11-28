@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -33,6 +34,7 @@ type crewUserRoleRead struct {
 	CreatedAt time.Time  `json:"createdAt"`
 	StartsAt  *time.Time `json:"startsAt"`
 	EndsAt    *time.Time `json:"endsAt"`
+	Reason    *string    `json:"reason"`
 }
 
 var crewUserRoleReadSets resource.SetCache[CrewUserRole, crewUserRoleRead]
@@ -49,6 +51,7 @@ type crewUserRoleWrite struct {
 	CreatedAt time.Time  `json:"createdAt"`
 	StartsAt  *time.Time `json:"startsAt"`
 	EndsAt    *time.Time `json:"endsAt"`
+	Reason    *string    `json:"reason"`
 }
 
 var crewUserRoleWriteSets resource.SetCache[CrewUserRole, crewUserRoleWrite]
@@ -213,6 +216,7 @@ func (c *CrewUserRoleColumns) All() *CrewUserRoleColumns {
 		"CreatedAt",
 		"StartsAt",
 		"EndsAt",
+		"Reason",
 	}
 
 	return c
@@ -262,6 +266,12 @@ func (c *CrewUserRoleColumns) StartsAt() *CrewUserRoleColumns {
 
 func (c *CrewUserRoleColumns) EndsAt() *CrewUserRoleColumns {
 	c.fields = append(c.fields, "EndsAt")
+
+	return c
+}
+
+func (c *CrewUserRoleColumns) Reason() *CrewUserRoleColumns {
+	c.fields = append(c.fields, "Reason")
 
 	return c
 }
@@ -384,6 +394,10 @@ func (c *crewUserRoleSort) EndsAt() *CrewUserRoleSort {
 	return c.addField("EndsAt")
 }
 
+func (c *crewUserRoleSort) Reason() *CrewUserRoleSort {
+	return c.addField("Reason")
+}
+
 type CrewUserRoleSort struct {
 	*crewUserRoleSort
 }
@@ -440,11 +454,11 @@ func (p *CrewUserRoleCreatePatch) ToStruct() *CrewUserRole {
 	return p.patchSet.ToStruct()
 }
 
-func (p *CrewUserRoleCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *CrewUserRoleCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *CrewUserRoleCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *CrewUserRoleCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -569,6 +583,26 @@ func (p *CrewUserRoleCreatePatch) EndsAtIsSet() bool {
 	return p.patchSet.IsSet("EndsAt")
 }
 
+func (p *CrewUserRoleCreatePatch) SetReason(v *string) *CrewUserRoleCreatePatch {
+	if v != nil {
+		p.patchSet.Set("Reason", v)
+	} else {
+		p.patchSet.Set("Reason", nil)
+	}
+
+	return p
+}
+
+func (p *CrewUserRoleCreatePatch) Reason() *string {
+	v, _ := p.patchSet.Get("Reason").(*string)
+
+	return v
+}
+
+func (p *CrewUserRoleCreatePatch) ReasonIsSet() bool {
+	return p.patchSet.IsSet("Reason")
+}
+
 // Diff is intended for unit testing, and reports the differences between two values using github.com/google/go-cmp/cmp
 func (p *CrewUserRoleCreatePatch) Diff(got *CrewUserRoleCreatePatch, opts ...cmp.Option) string {
 	return resource.PatchSetDiff(opts...)(p.patchSet, got.patchSet)
@@ -616,11 +650,11 @@ func (p *CrewUserRoleUpdatePatch) ToStruct() *CrewUserRole {
 	return p.patchSet.ToStruct()
 }
 
-func (p *CrewUserRoleUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *CrewUserRoleUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *CrewUserRoleUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *CrewUserRoleUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -749,6 +783,26 @@ func (p *CrewUserRoleUpdatePatch) EndsAtIsSet() bool {
 	return p.patchSet.IsSet("EndsAt")
 }
 
+func (p *CrewUserRoleUpdatePatch) SetReason(v *string) *CrewUserRoleUpdatePatch {
+	if v != nil {
+		p.patchSet.Set("Reason", v)
+	} else {
+		p.patchSet.Set("Reason", nil)
+	}
+
+	return p
+}
+
+func (p *CrewUserRoleUpdatePatch) Reason() *string {
+	v, _ := p.patchSet.Get("Reason").(*string)
+
+	return v
+}
+
+func (p *CrewUserRoleUpdatePatch) ReasonIsSet() bool {
+	return p.patchSet.IsSet("Reason")
+}
+
 // Diff is intended for unit testing, and reports the differences between two values using github.com/google/go-cmp/cmp
 func (p *CrewUserRoleUpdatePatch) Diff(got *CrewUserRoleUpdatePatch, opts ...cmp.Option) string {
 	return resource.PatchSetDiff(opts...)(p.patchSet, got.patchSet)
@@ -782,11 +836,11 @@ func NewCrewUserRoleDeletePatch(kind string, axis string, domainID string, role 
 	return &CrewUserRoleDeletePatch{patchSet: patchSet}
 }
 
-func (p *CrewUserRoleDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *CrewUserRoleDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *CrewUserRoleDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *CrewUserRoleDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

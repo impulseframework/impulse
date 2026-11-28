@@ -20,20 +20,27 @@ import (
 
 func (h *Handlers) MembersTenantUsers() http.HandlerFunc {
 	type membersTenantUser struct {
-		ID                     impulse.UUID `json:"id"                     index:"true" perm:"-"`
-		DomainID               string       `json:"domainId"               index:"true"`
-		Username               string       `json:"username"               index:"true"`
-		Name                   *string      `json:"name"`
-		Email                  *string      `json:"email"`
-		EmailVerifiedAt        *time.Time   `json:"emailVerifiedAt"`
-		Disabled               bool         `json:"disabled"`
-		PasswordChangeRequired bool         `json:"passwordChangeRequired"`
-		CreatedAt              time.Time    `json:"createdAt"`
-		LastSignInAt           *time.Time   `json:"lastSignInAt"`
-		HeldElsewhere          bool         `json:"heldElsewhere"          index:"true"`
-		HeldGlobally           bool         `json:"heldGlobally"           index:"true"`
-		OutsideDirectory       bool         `json:"outsideDirectory"       index:"true"`
-		CannotEnter            *string      `json:"cannotEnter"`
+		ID                        impulse.UUID `json:"id"                        index:"true"        perm:"-"`
+		DomainID                  string       `json:"domainId"                  index:"true"`
+		Username                  string       `json:"username"                  index:"true"`
+		Name                      *string      `json:"name"`
+		DisplayName               string       `json:"displayName"               allow_filter:"true"`
+		Email                     *string      `json:"email"`
+		EmailVerifiedAt           *time.Time   `json:"emailVerifiedAt"`
+		Disabled                  bool         `json:"disabled"`
+		PasswordChangeRequired    bool         `json:"passwordChangeRequired"`
+		CreatedAt                 time.Time    `json:"createdAt"`
+		LastSignInAt              *time.Time   `json:"lastSignInAt"`
+		Roles                     []string     `json:"roles"`
+		LockedUntil               *time.Time   `json:"lockedUntil"`
+		HeldElsewhere             bool         `json:"heldElsewhere"             index:"true"`
+		HeldGlobally              bool         `json:"heldGlobally"              index:"true"`
+		HeldHere                  bool         `json:"heldHere"                  index:"true"`
+		HeldInEveryTenant         bool         `json:"heldInEveryTenant"         index:"true"`
+		ManagedHere               bool         `json:"managedHere"               index:"true"`
+		ManagedByAnotherDirectory bool         `json:"managedByAnotherDirectory" index:"true"`
+		OutsideDirectory          bool         `json:"outsideDirectory"          index:"true"`
+		CannotEnter               *string      `json:"cannotEnter"`
 	}
 
 	type response []map[string]any
@@ -52,8 +59,9 @@ func (h *Handlers) MembersTenantUsers() http.HandlerFunc {
 		}
 
 		// A live list registers before the query runs, so a commit that lands during
-		// the query is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, h.LiveService(), querySet, live.ListSubscription(querySet.Resource(), domain))
+		// the query is not missed; a refused request registers nothing. With it the
+		// request registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, h.LiveService(), querySet, live.ListSubscription(querySet.Resource(), domain))
 
 		res := membersresources.NewMembersTenantUserQueryFromQuerySet(querySet)
 
@@ -92,6 +100,10 @@ func (h *Handlers) MembersTenantUsers() http.HandlerFunc {
 					if !row.Masked("name") {
 						rmap["name"] = rec.Name
 					}
+				case "DisplayName":
+					if !row.Masked("displayName") {
+						rmap["displayName"] = rec.DisplayName
+					}
 				case "Email":
 					if !row.Masked("email") {
 						rmap["email"] = rec.Email
@@ -116,6 +128,14 @@ func (h *Handlers) MembersTenantUsers() http.HandlerFunc {
 					if !row.Masked("lastSignInAt") {
 						rmap["lastSignInAt"] = rec.LastSignInAt
 					}
+				case "Roles":
+					if !row.Masked("roles") {
+						rmap["roles"] = rec.Roles
+					}
+				case "LockedUntil":
+					if !row.Masked("lockedUntil") {
+						rmap["lockedUntil"] = rec.LockedUntil
+					}
 				case "HeldElsewhere":
 					if !row.Masked("heldElsewhere") {
 						rmap["heldElsewhere"] = rec.HeldElsewhere
@@ -123,6 +143,22 @@ func (h *Handlers) MembersTenantUsers() http.HandlerFunc {
 				case "HeldGlobally":
 					if !row.Masked("heldGlobally") {
 						rmap["heldGlobally"] = rec.HeldGlobally
+					}
+				case "HeldHere":
+					if !row.Masked("heldHere") {
+						rmap["heldHere"] = rec.HeldHere
+					}
+				case "HeldInEveryTenant":
+					if !row.Masked("heldInEveryTenant") {
+						rmap["heldInEveryTenant"] = rec.HeldInEveryTenant
+					}
+				case "ManagedHere":
+					if !row.Masked("managedHere") {
+						rmap["managedHere"] = rec.ManagedHere
+					}
+				case "ManagedByAnotherDirectory":
+					if !row.Masked("managedByAnotherDirectory") {
+						rmap["managedByAnotherDirectory"] = rec.ManagedByAnotherDirectory
 					}
 				case "OutsideDirectory":
 					if !row.Masked("outsideDirectory") {
@@ -155,20 +191,27 @@ func (h *Handlers) MembersTenantUsers() http.HandlerFunc {
 
 func (h *Handlers) MembersTenantUser() http.HandlerFunc {
 	type response struct {
-		ID                     impulse.UUID `json:"id"                     index:"true" perm:"-"`
-		DomainID               string       `json:"domainId"`
-		Username               string       `json:"username"`
-		Name                   *string      `json:"name"`
-		Email                  *string      `json:"email"`
-		EmailVerifiedAt        *time.Time   `json:"emailVerifiedAt"`
-		Disabled               bool         `json:"disabled"`
-		PasswordChangeRequired bool         `json:"passwordChangeRequired"`
-		CreatedAt              time.Time    `json:"createdAt"`
-		LastSignInAt           *time.Time   `json:"lastSignInAt"`
-		HeldElsewhere          bool         `json:"heldElsewhere"`
-		HeldGlobally           bool         `json:"heldGlobally"`
-		OutsideDirectory       bool         `json:"outsideDirectory"`
-		CannotEnter            *string      `json:"cannotEnter"`
+		ID                        impulse.UUID `json:"id"                        index:"true" perm:"-"`
+		DomainID                  string       `json:"domainId"`
+		Username                  string       `json:"username"`
+		Name                      *string      `json:"name"`
+		DisplayName               string       `json:"displayName"`
+		Email                     *string      `json:"email"`
+		EmailVerifiedAt           *time.Time   `json:"emailVerifiedAt"`
+		Disabled                  bool         `json:"disabled"`
+		PasswordChangeRequired    bool         `json:"passwordChangeRequired"`
+		CreatedAt                 time.Time    `json:"createdAt"`
+		LastSignInAt              *time.Time   `json:"lastSignInAt"`
+		Roles                     []string     `json:"roles"`
+		LockedUntil               *time.Time   `json:"lockedUntil"`
+		HeldElsewhere             bool         `json:"heldElsewhere"`
+		HeldGlobally              bool         `json:"heldGlobally"`
+		HeldHere                  bool         `json:"heldHere"`
+		HeldInEveryTenant         bool         `json:"heldInEveryTenant"`
+		ManagedHere               bool         `json:"managedHere"`
+		ManagedByAnotherDirectory bool         `json:"managedByAnotherDirectory"`
+		OutsideDirectory          bool         `json:"outsideDirectory"`
+		CannotEnter               *string      `json:"cannotEnter"`
 	}
 
 	decoder := NewQueryDecoder[membersresources.MembersTenantUser, response](h, accesstypes.Read)
@@ -186,8 +229,9 @@ func (h *Handlers) MembersTenantUser() http.HandlerFunc {
 		}
 
 		// A live row registers before the read runs, so a commit that lands during the
-		// read is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, h.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(id)))
+		// read is not missed; a refused request registers nothing. With it the request
+		// registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, h.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(id)))
 
 		res := membersresources.NewMembersTenantUserQueryFromQuerySet(querySet).SetID(id)
 
@@ -215,6 +259,10 @@ func (h *Handlers) MembersTenantUser() http.HandlerFunc {
 				if !row.Masked("name") {
 					rmap["name"] = rec.Name
 				}
+			case "DisplayName":
+				if !row.Masked("displayName") {
+					rmap["displayName"] = rec.DisplayName
+				}
 			case "Email":
 				if !row.Masked("email") {
 					rmap["email"] = rec.Email
@@ -239,6 +287,14 @@ func (h *Handlers) MembersTenantUser() http.HandlerFunc {
 				if !row.Masked("lastSignInAt") {
 					rmap["lastSignInAt"] = rec.LastSignInAt
 				}
+			case "Roles":
+				if !row.Masked("roles") {
+					rmap["roles"] = rec.Roles
+				}
+			case "LockedUntil":
+				if !row.Masked("lockedUntil") {
+					rmap["lockedUntil"] = rec.LockedUntil
+				}
 			case "HeldElsewhere":
 				if !row.Masked("heldElsewhere") {
 					rmap["heldElsewhere"] = rec.HeldElsewhere
@@ -246,6 +302,22 @@ func (h *Handlers) MembersTenantUser() http.HandlerFunc {
 			case "HeldGlobally":
 				if !row.Masked("heldGlobally") {
 					rmap["heldGlobally"] = rec.HeldGlobally
+				}
+			case "HeldHere":
+				if !row.Masked("heldHere") {
+					rmap["heldHere"] = rec.HeldHere
+				}
+			case "HeldInEveryTenant":
+				if !row.Masked("heldInEveryTenant") {
+					rmap["heldInEveryTenant"] = rec.HeldInEveryTenant
+				}
+			case "ManagedHere":
+				if !row.Masked("managedHere") {
+					rmap["managedHere"] = rec.ManagedHere
+				}
+			case "ManagedByAnotherDirectory":
+				if !row.Masked("managedByAnotherDirectory") {
+					rmap["managedByAnotherDirectory"] = rec.ManagedByAnotherDirectory
 				}
 			case "OutsideDirectory":
 				if !row.Masked("outsideDirectory") {

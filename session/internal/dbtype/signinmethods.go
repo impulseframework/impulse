@@ -11,14 +11,17 @@ import "time"
 // nothing; DefaultRole names the role such a person is given with their account, as
 // the application's hook understands it, and holds nothing in an application whose
 // people get their roles in a tenant. A method with no row is invite only, which is
-// what a row with OpenSignUp false says too. UpdatedAt is the database's time at the
-// write.
+// what a row with OpenSignUp false says too. SelfServiceReset is read on the password
+// method's row alone: it says a person may ask at the sign-in page for a link that
+// resets their own password, and a method with no row offers none. UpdatedAt is the
+// database's time at the write.
 type SignInMethod struct {
-	Name        string
-	OpenSignUp  bool
-	OpenedFor   *string
-	DefaultRole *string
-	UpdatedAt   time.Time
+	Name             string
+	OpenSignUp       bool
+	OpenedFor        *string
+	DefaultRole      *string
+	SelfServiceReset bool
+	UpdatedAt        time.Time
 }
 
 // OpenFor reports whether the row opens its method to a person with no account and no
@@ -30,6 +33,12 @@ type SignInMethod struct {
 // row that does not say whom it was opened for.
 func (m *SignInMethod) OpenFor(audience string) bool {
 	return m != nil && m.OpenSignUp && m.OpenedFor != nil && *m.OpenedFor == audience
+}
+
+// ResetsOwnPassword reports whether the row lets a person ask for the link that resets
+// their own password. No row is closed, so a nil row offers none.
+func (m *SignInMethod) ResetsOwnPassword() bool {
+	return m != nil && m.SelfServiceReset
 }
 
 // Role is the role the row gives a person who signs up through its method, "" for

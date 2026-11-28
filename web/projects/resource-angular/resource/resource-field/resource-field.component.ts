@@ -33,10 +33,19 @@ import { NullBooleanFieldComponent } from './fields/nullboolean-field/nullboolea
 import { NumberFieldComponent } from './fields/number-field/number-field.component';
 import { ObjectFieldComponent } from './fields/object-field/object-field.component';
 import { TextFieldComponent } from './fields/text-field/text-field.component';
-import { FieldRenderer, rendererFor } from './renderer';
+import { FieldRenderer, READ_ONLY_RENDERERS, rendererFor } from './renderer';
 
-/** The renderers that present a value and never take one: their field is in view mode whatever the form's mode. */
-const READ_ONLY_RENDERERS: ReadonlySet<FieldRenderer> = new Set<FieldRenderer>(['bytes', 'array', 'object']);
+/**
+ * The store a field and its control read through. It is the nearest one above the field,
+ * the view the field belongs to: each of the library's pages and dialogs provides one. A
+ * page that hosts a field of its own, one input of a form it wrote itself, provides none,
+ * and the field then makes a store of its own, which lives as long as the field does.
+ * Such a store views no row, so it carries no capability envelope; a picker, or a prefix
+ * or suffix that names another resource, reads its rows through it as through any other.
+ */
+function fieldStore(): ResourceStore {
+  return inject(ResourceStore, { skipSelf: true, optional: true }) ?? new ResourceStore();
+}
 
 @Component({
   selector: 'impulse-resource-field',
@@ -57,11 +66,13 @@ const READ_ONLY_RENDERERS: ReadonlySet<FieldRenderer> = new Set<FieldRenderer>([
   templateUrl: './resource-field.component.html',
   styleUrl: './resource-field.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  providers: [{ provide: ResourceStore, useFactory: fieldStore }],
 })
 export class ResourceFieldComponent {
-  // The nearest resource store — the view this field belongs to — carries the viewed
-  // row's capability envelope. Absent outside a resource view (modals, custom hosts).
-  private store = inject(ResourceStore, { optional: true });
+  // The store of the view this field belongs to carries the viewed row's capability
+  // envelope. Outside a resource view (a page's own form) the store is the field's own
+  // and carries none (see fieldStore).
+  private store = inject(ResourceStore);
 
   fieldConfig = input.required<FieldElement>();
   meta = input.required<Meta>();
@@ -100,7 +111,7 @@ export class ResourceFieldComponent {
     if (editMode !== 'edit') {
       return editMode;
     }
-    const editable = this.store?.viewCapabilities()?.Update;
+    const editable = this.store.viewCapabilities()?.Update;
     if (editable && !editable.includes(this.fieldConfig().name)) {
       return 'view';
     }
@@ -117,6 +128,14 @@ export class ResourceFieldComponent {
   hasControl = computed(() => {
     return this.form().get(this.fieldConfig().name) !== null;
   });
+
+  /**
+   * Whether the field says, under its input, that what is typed is never shown again: a
+   * write-only field wherever it is drawn, which is only in a form. The server takes its
+   * value and never returns it, so its input is blank each time the form opens; without
+   * the line a person who typed something and saved takes the blank for a loss.
+   */
+  saysNeverShownAgain = computed(() => this.fieldMeta().writeOnly === true && this.showField());
 
   showField = computed(() => {
     if (!this.hasControl()) {

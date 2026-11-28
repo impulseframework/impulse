@@ -80,10 +80,12 @@ func invitationStands(ctx context.Context, t *testing.T, s *served, id string) b
 // directory: the sign-in fails, the invitation stands, and there is no account, no
 // link and no membership, not even Cinder's default seat, which the same transaction
 // had buffered. The cadet, signed in, accepts by hand: refused, the invitation
-// standing and her browser still carrying it. The ensign creates a login with a
-// password at the link: the sign-in fails and the invitation stands; the login the
-// sign-up made in its own step before the sign-in stays, holding nothing. Once the role
-// exists again each of them accepts the very same invitation and holds the role.
+// standing and her browser still carrying it. The ensign asks for a login with a
+// password at the link and enters the code mailed to the invited address: the sign-in
+// fails, the invitation stands, and no login is made, since the login is made in the
+// transaction that accepts the invitation. Once the role exists again each of them
+// accepts the very same invitation and holds the role, the ensign by signing up again
+// from its link.
 //
 // Demonstrates: auth.invitation, tenancy.default-seat.
 func TestSignInRoles_invitationSpentWithItsRolesOrNotAtAll(t *testing.T) {
@@ -174,7 +176,7 @@ func TestSignInRoles_invitationSpentWithItsRolesOrNotAtAll(t *testing.T) {
 	var refused struct {
 		Message string `json:"message"`
 	}
-	if want := `role "Stevedore" is not a valid role. Please check that the role exists.`; json.Unmarshal(body, &refused) != nil || refused.Message != want {
+	if want := `The role Stevedore does not exist.`; json.Unmarshal(body, &refused) != nil || refused.Message != want {
 		t.Errorf("the cadet's refusal = %s, want the message %q", body, want)
 	}
 	if !invitationStands(ctx, t, s, cadetInvitation) {
@@ -184,15 +186,22 @@ func TestSignInRoles_invitationSpentWithItsRolesOrNotAtAll(t *testing.T) {
 		t.Errorf("the cadet's roles at Anvil after the refused acceptance = %v, want no %s", roles, role)
 	}
 
-	// The ensign creates a login with a password at the link. The sign-up makes the
-	// login in a step of its own and then signs it in, and the sign-in accepts the
-	// invitation: that fails, the invitation stands, and the login stays, holding
-	// nothing and signed in nowhere.
+	// The ensign asks for a login with a password at the link. The link alone makes
+	// nobody: the sign-up waits for the code mailed to the invited address. The code
+	// entered, the sign-in makes the login in the transaction that accepts the
+	// invitation: that fails, so the invitation stands and no login is made.
 	newcomer := fresh()
 	open(newcomer, ensignToken)
 	status, body = newcomer.do(ctx, http.MethodPost, consoleAPI+"/user/invitation/sign-up", jsonBody(t, map[string]string{"username": ensign, "password": signUpPassword}))
+	if status != http.StatusOK || !heldForFactor(t, body) {
+		t.Fatalf("the ensign's sign-up with the role gone: status %d, want 200 held for the code: %s", status, body)
+	}
+	if n := countRowsOf(ctx, t, s, "CrewSessionUsers", "Username", ensign); n != 0 {
+		t.Errorf("CrewSessionUsers holds %d row(s) of the ensign before the code, want none: the link alone makes nobody", n)
+	}
+	status, body = newcomer.enterCode(ctx, ensign)
 	if status != http.StatusNotFound {
-		t.Fatalf("the ensign's sign-up with the role gone: status %d, want 404: %s", status, body)
+		t.Fatalf("the ensign's code with the role gone: status %d, want 404: %s", status, body)
 	}
 	if sess := newcomer.session(ctx); sess["authenticated"] != false {
 		t.Errorf("the ensign's session after the failed sign-up = %v, want none", sess)
@@ -200,8 +209,8 @@ func TestSignInRoles_invitationSpentWithItsRolesOrNotAtAll(t *testing.T) {
 	if !invitationStands(ctx, t, s, ensignInvitation) {
 		t.Error("the ensign's invitation was consumed by a sign-up that gave no role, want it standing")
 	}
-	if n := countRowsOf(ctx, t, s, "CrewSessionUsers", "Username", ensign); n != 1 {
-		t.Errorf("CrewSessionUsers holds %d row(s) of the ensign after the failed sign-up, want the 1 the sign-up made before the sign-in", n)
+	if n := countRowsOf(ctx, t, s, "CrewSessionUsers", "Username", ensign); n != 0 {
+		t.Errorf("CrewSessionUsers holds %d row(s) of the ensign after the failed sign-up, want none: the login is made with the acceptance or not at all", n)
 	}
 	if n := countRowsOf(ctx, t, s, "CrewUserRoles", "UserId", ensign); n != 0 {
 		t.Errorf("CrewUserRoles holds %d row(s) of the ensign after the failed sign-up, want none", n)
@@ -239,10 +248,12 @@ func TestSignInRoles_invitationSpentWithItsRolesOrNotAtAll(t *testing.T) {
 		t.Errorf("the cadet's roles at Anvil = %v, want %s among them", roles, role)
 	}
 
-	// The ensign's login stands, so she signs in with the password she chose, her
-	// browser still carrying the invitation, and the sign-in accepts it.
-	if status, body := newcomer.login(ctx, ensign, signUpPassword); status != http.StatusOK {
-		t.Fatalf("the ensign's password sign-in once the role exists: status %d: %s", status, body)
+	// No login of the ensign's stands, so she opens the link again and signs up with the
+	// password she chose; the code entered, the sign-in makes her login and accepts the
+	// invitation.
+	open(newcomer, ensignToken)
+	if status, body := newcomer.do(ctx, http.MethodPost, consoleAPI+"/user/invitation/sign-up", jsonBody(t, map[string]string{"username": ensign, "password": signUpPassword})); status != http.StatusOK || !heldForFactor(t, body) {
+		t.Fatalf("the ensign's sign-up once the role exists: status %d, want 200 held for the code: %s", status, body)
 	}
 	newcomer.secondFactor(ctx, ensign)
 	if sess := newcomer.session(ctx); sess["authenticated"] != true || sess["username"] != ensign {

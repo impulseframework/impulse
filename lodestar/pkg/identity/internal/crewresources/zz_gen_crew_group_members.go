@@ -11,6 +11,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -20,6 +21,34 @@ func (CrewGroupMember) Resource() accesstypes.Resource {
 
 func (CrewGroupMember) DefaultConfig() resource.Config {
 	return defaultConfig()
+}
+
+// NamedRows names the columns that name a row of another resource the application lists
+// (GroupID): a create or an update sets one only to a row its caller can list, so the
+// library answers any other as a row that is not there.
+func (CrewGroupMember) NamedRows() []resource.NamedRow {
+	return []resource.NamedRow{
+		{Field: "GroupID", Resource: "CrewGroups", Table: "CrewGroups", KeyColumn: "Id"},
+	}
+}
+
+// NameFields names the resource's name fields: beside each id that points to a row with
+// a name, the name of that row, which a list shows, sorts by and filters by. A name is
+// looked up in the pointed-to table by the id; it is no column of this resource.
+func (CrewGroupMember) NameFields() []resource.NameField {
+	return []resource.NameField{
+		{Field: "GroupName", Key: "GroupID", Resource: "CrewGroups", Tag: "name", Table: "CrewGroups", KeyColumn: "Id", NameColumn: "Name", TenantColumn: ""},
+	}
+}
+
+// RecordedNames names the rows a change record of the resource keeps the name of:
+// for each field that points at a row with a name, where the name is read. A
+// tracked write that changes such a field reads the name in its own transaction,
+// and the change record keeps it beside the id.
+func (CrewGroupMember) RecordedNames() []resource.NameField {
+	return []resource.NameField{
+		{Field: "", Key: "GroupID", Resource: "CrewGroups", Tag: "name", Table: "CrewGroups", KeyColumn: "Id", NameColumn: "Name", TenantColumn: ""},
+	}
 }
 
 // crewGroupMemberRead mirrors the wire shape the resource routes list
@@ -360,11 +389,11 @@ func (p *CrewGroupMemberCreatePatch) ToStruct() *CrewGroupMember {
 	return p.patchSet.ToStruct()
 }
 
-func (p *CrewGroupMemberCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *CrewGroupMemberCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *CrewGroupMemberCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *CrewGroupMemberCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -512,11 +541,11 @@ func (p *CrewGroupMemberUpdatePatch) ToStruct() *CrewGroupMember {
 	return p.patchSet.ToStruct()
 }
 
-func (p *CrewGroupMemberUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *CrewGroupMemberUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *CrewGroupMemberUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *CrewGroupMemberUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -654,11 +683,11 @@ func NewCrewGroupMemberDeletePatch(groupID impulse.UUID, userID string) *CrewGro
 	return &CrewGroupMemberDeletePatch{patchSet: patchSet}
 }
 
-func (p *CrewGroupMemberDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *CrewGroupMemberDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *CrewGroupMemberDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *CrewGroupMemberDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

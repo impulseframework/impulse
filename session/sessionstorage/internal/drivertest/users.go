@@ -3,8 +3,6 @@ package drivertest
 import (
 	"bytes"
 	"context"
-	"fmt"
-	"strings"
 	"testing"
 
 	"github.com/impulseframework/impulse"
@@ -14,8 +12,9 @@ import (
 	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
-// testUserAccounts pins the user row as the management of an auth's users reads it: the
-// password change mark travels with the insert, CreatedAt is the database's time at
+// testUserAccounts pins the user row as the management of an auth's users reads it: a
+// user is created under no password change mark, and the mark an application writes is
+// read back; CreatedAt is the database's time at
 // the insert, LastSignInAt is nil before the first sign-in, and the users list orders
 // by username without regard to case, each user as stored.
 func testUserAccounts(ctx context.Context, t *testing.T, h *AuthHarness) {
@@ -26,18 +25,21 @@ func testUserAccounts(ctx context.Context, t *testing.T, h *AuthHarness) {
 		t.Fatal(err)
 	}
 
-	// An operator creates a user with a temporary password: the mark is stored with the
-	// insert, CreatedAt is the commit's time, and there is no sign-in yet.
+	// A seed creates a user with a password: no mark is stored with the insert,
+	// CreatedAt is the commit's time, and there is no sign-in yet. The mark is the
+	// application's write, made when an administrator requires a new password, and the
+	// driver reads it back.
 	w := startWindow(h.ClockLead)
-	pat, err := in.Driver.CreateUser(ctx, &dbtype.InsertSessionUser{Username: "Pat@lakeside.edu", PasswordHash: temporary, PasswordChangeRequired: true}, nil)
+	pat, err := in.Driver.CreateUser(ctx, &dbtype.InsertSessionUser{Username: "Pat@lakeside.edu", PasswordHash: temporary}, nil)
 	w.done()
 	if err != nil {
 		t.Fatalf("CreateUser() error = %v", err)
 	}
-	if !pat.PasswordChangeRequired || pat.LastSignInAt != nil || pat.Username != "Pat@lakeside.edu" {
-		t.Errorf("CreateUser() = %+v, want the mark, the username as given and no sign-in", pat)
+	if pat.PasswordChangeRequired || pat.LastSignInAt != nil || pat.Username != "Pat@lakeside.edu" {
+		t.Errorf("CreateUser() = %+v, want no mark, the username as given and no sign-in", pat)
 	}
 	w.assertStamped(t, "CreateUser().CreatedAt", pat.CreatedAt)
+	h.RequirePasswordChange(ctx, t, in.Raw, pat.ID)
 	alex := createUser(ctx, t, in.Driver, "alex@lakeside.edu")
 	if alex.PasswordChangeRequired || alex.PasswordHash != nil {
 		t.Errorf("CreateUser() of a password-less user = %+v, want no mark", alex)
@@ -51,8 +53,11 @@ func testUserAccounts(ctx context.Context, t *testing.T, h *AuthHarness) {
 	if len(users) != 2 || users[0].ID != alex.ID || users[1].ID != pat.ID {
 		t.Fatalf("Users() = %v, want alex then Pat", usernames(users))
 	}
+	if users[0].PasswordChangeRequired {
+		t.Errorf("Users()[0] = %+v, want alex as stored under no mark: no insert writes one", users[0])
+	}
 	if !users[1].PasswordChangeRequired || !users[1].CreatedAt.Equal(pat.CreatedAt) || users[1].LastSignInAt != nil || !sameHash(users[1].PasswordHash, temporary) {
-		t.Errorf("Users()[1] = %+v, want Pat as created", users[1])
+		t.Errorf("Users()[1] = %+v, want Pat as created, under the mark written since", users[1])
 	}
 
 	// A seed chooses the id of the user it creates: the row carries that id, and an id
@@ -76,85 +81,9 @@ func testUserAccounts(ctx context.Context, t *testing.T, h *AuthHarness) {
 	}
 }
 
-// testPasswordReplaced pins ReplaceUserPassword, the write of an operator's reset and
-// of a password set at the end of a flow of the application's own: the hash and the
-// mark land, cleared for a password the user chose and set for one an operator reset,
-// whatever the row held, and every session of the user ends in the same transaction,
-// no other user's; an unknown user is NotFound; and a replacement whose ending of the
-// sessions fails writes no password, so no failure leaves the new password in place and
-// a session alive. It runs with the impersonation table attached and without it, the
-// two ways the sessions are ended.
-func testPasswordReplaced(ctx context.Context, t *testing.T, h *AuthHarness) {
-	hashes := passwordHashes(t, "temporary", "chosen", "another")
-	temporary, chosen, another := hashes[0], hashes[1], hashes[2]
-
-	for _, impersonation := range []bool{false, true} {
-		t.Run(fmt.Sprintf("impersonation attached: %t", impersonation), func(t *testing.T) {
-			in := h.New(ctx, t, Auth, AuthConfig{Auth: true, Impersonation: impersonation})
-			start := func(user *dbtype.SessionUser) impulse.UUID {
-				t.Helper()
-				id, err := in.Driver.InsertSession(ctx, newInsertSession(user.Username), &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: user.Username, UserID: user.ID})
-				if err != nil {
-					t.Fatalf("InsertSession() error = %v", err)
-				}
-
-				return id
-			}
-			pat, err := in.Driver.CreateUser(ctx, &dbtype.InsertSessionUser{Username: "pat@lakeside.edu", PasswordHash: temporary, PasswordChangeRequired: true}, nil)
-			if err != nil {
-				t.Fatalf("CreateUser() error = %v", err)
-			}
-			other := passwordUser(ctx, t, in.Driver, "other@lakeside.edu")
-			first, second, others := start(pat), start(pat), start(other)
-
-			// A password the user chose: the new hash and the cleared mark land, and the
-			// user's sessions end with them.
-			if err := in.Driver.ReplaceUserPassword(ctx, pat.ID, chosen, false); err != nil {
-				t.Fatalf("ReplaceUserPassword() error = %v", err)
-			}
-			if changed := mustUser(ctx, t, in.Driver, pat.ID); changed.PasswordChangeRequired || !sameHash(changed.PasswordHash, chosen) || !changed.CreatedAt.Equal(pat.CreatedAt) {
-				t.Errorf("User() after the replacement = %+v, want the chosen hash, no mark and the creation time kept", changed)
-			}
-			assertSessionEnded(ctx, t, in.Driver, "the user's first session, after the replacement", first, true)
-			assertSessionEnded(ctx, t, in.Driver, "the user's second session, after the replacement", second, true)
-			assertSessionEnded(ctx, t, in.Driver, "another user's session, after the replacement", others, false)
-
-			// An operator resets it: the mark is set again with the temporary hash, and a
-			// session started since ends.
-			later := start(pat)
-			if err := in.Driver.ReplaceUserPassword(ctx, pat.ID, temporary, true); err != nil {
-				t.Fatalf("ReplaceUserPassword() error = %v", err)
-			}
-			if reset := mustUser(ctx, t, in.Driver, pat.ID); !reset.PasswordChangeRequired || !sameHash(reset.PasswordHash, temporary) {
-				t.Errorf("User() after the reset = %+v, want the temporary hash and the mark", reset)
-			}
-			assertSessionEnded(ctx, t, in.Driver, "the user's session, after the reset", later, true)
-
-			// An unknown user is told so, and nobody's session ends for it.
-			if err := in.Driver.ReplaceUserPassword(ctx, impulse.Must(impulse.NewUUID()), chosen, false); !httpio.HasNotFound(err) {
-				t.Errorf("ReplaceUserPassword() of an unknown user error = %v, want NotFound", err)
-			}
-			assertSessionEnded(ctx, t, in.Driver, "another user's session, after the replacement of an unknown user's password", others, false)
-
-			// The sessions cannot be ended: the password is not written either.
-			const table = "NoSuchTable"
-			if err := in.Driver.SetSessionTableName(table); err != nil {
-				t.Fatalf("SetSessionTableName() error = %v", err)
-			}
-			err = in.Driver.ReplaceUserPassword(ctx, pat.ID, another, false)
-			if err == nil || !strings.Contains(err.Error(), table) {
-				t.Fatalf("ReplaceUserPassword() where the sessions cannot be ended error = %v, want the failure of the sessions table, naming %s", err, table)
-			}
-			if got := mustUser(ctx, t, in.Driver, pat.ID); !sameHash(got.PasswordHash, temporary) || !got.PasswordChangeRequired {
-				t.Errorf("User() after the failed replacement holds another password or mark than before it, want both as they were: the replacement is one transaction")
-			}
-		})
-	}
-}
-
 // assertSessionEnded fails unless the session is ended or stands as want says: a
-// replacement of a password ends its user's sessions in the transaction that writes
-// the password, and no other user's.
+// change of a password ends its user's sessions in the transaction that writes the
+// password, and no other user's.
 func assertSessionEnded(ctx context.Context, t *testing.T, d AuthDriver, what string, id impulse.UUID, want bool) {
 	t.Helper()
 

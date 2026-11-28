@@ -87,20 +87,20 @@ type GroupRoleKey struct {
 // store's to hold: the table's unique index refuses a second group of the name there.
 func NewGroup(scope accesstypes.PolicyScope, name, description string) (GroupRow, error) {
 	if scope.IsEveryDomain() {
-		return GroupRow{}, httpio.NewBadRequestMessage("a group is kept for the whole application or in one tenant, never in every tenant: name the tenant or none")
+		return GroupRow{}, httpio.NewBadRequestMessage("A group is kept for the whole application or in one tenant, never in every tenant. Name the tenant, or none.")
 	}
 	name = strings.TrimSpace(name)
 	switch {
 	case name == "":
-		return GroupRow{}, httpio.NewBadRequestMessage("the group has no name: give it the name people will know it by")
+		return GroupRow{}, httpio.NewBadRequestMessage("The group has no name. Give it the name people will know it by.")
 	case utf8.RuneCountInString(name) > maxGroupName:
-		return GroupRow{}, httpio.NewBadRequestMessagef("the group's name is longer than %d characters: shorten it", maxGroupName)
+		return GroupRow{}, httpio.NewBadRequestMessagef("The group's name is longer than %d characters. Shorten it.", maxGroupName)
 	case strings.ContainsFunc(name, unicode.IsControl):
-		return GroupRow{}, httpio.NewBadRequestMessage("the group's name holds a character that cannot be shown: type the name again")
+		return GroupRow{}, httpio.NewBadRequestMessage("The group's name holds a character that cannot be shown. Type the name again.")
 	}
 	description = strings.TrimSpace(description)
 	if description == "" {
-		return GroupRow{}, httpio.NewBadRequestMessagef("the group %q carries no description; a group carries one or two plain sentences saying who is in it", name)
+		return GroupRow{}, httpio.NewBadRequestMessage("The group has no description. Say who is in it in one or two plain sentences.")
 	}
 	kind, axis, domain := policy.ScopeColumns(scope)
 
@@ -142,13 +142,21 @@ func (k *GroupRoleKey) Scope() (accesstypes.PolicyScope, error) {
 // (groupRoleRefusal), in words a person can act on.
 func refuseGroupRole(kept, scope accesstypes.PolicyScope, role accesstypes.Role) error {
 	if role == accesstypes.SuperAdministrator {
-		return httpio.NewBadRequestMessagef("the %s role is given to a person, never to a group: only a super administrator makes another, one person at a time", string(role))
+		return httpio.NewBadRequestMessagef("The %s role is given to a person, never to a group. Only a super administrator makes another, one person at a time.", roleInWords(role))
 	}
 	if groupRoleRefusal(kept, scope, role) != "" {
-		return httpio.NewBadRequestMessage("a group kept in one tenant holds roles in that tenant alone: give the role there, or give it to a group kept for the whole application")
+		return httpio.NewBadRequestMessage("A group kept in one tenant holds roles in that tenant alone. Give the role there, or give it to a group kept for the whole application.")
 	}
 
 	return nil
+}
+
+// GroupMayHold reports whether a group kept where kept says may hold role in scope: the
+// rule every write of a group's role holds its row to (groupRoleRefusal). A list of the
+// roles to offer a group asks it, so that the list and the write follow one statement
+// of the rule and a role is offered exactly where the write would take it.
+func GroupMayHold(kept, scope accesstypes.PolicyScope, role accesstypes.Role) bool {
+	return groupRoleRefusal(kept, scope, role) == ""
 }
 
 // GroupRole answers the key of the row that says group holds role in scope, for a caller
@@ -167,7 +175,7 @@ func (u *userManager) GroupRole(ctx context.Context, group accesstypes.Group, ke
 		return GroupRoleKey{}, errors.New("access.UserManager.GroupRole(): the reader of the roles table is nil; pass one over the transaction the group's role is written in")
 	}
 	if group == "" {
-		return GroupRoleKey{}, httpio.NewBadRequestMessage("a role is given to a group: the group's id is empty")
+		return GroupRoleKey{}, httpio.NewBadRequestMessage("No group is named. Name the group the role is for.")
 	}
 	if err := refuseGroupRole(kept, scope, role); err != nil {
 		return GroupRoleKey{}, err
@@ -185,7 +193,7 @@ func (u *userManager) GroupRole(ctx context.Context, group accesstypes.Group, ke
 		return GroupRoleKey{}, err
 	}
 	if !found {
-		return GroupRoleKey{}, httpio.NewNotFoundMessagef("role %q is not a valid role. Please check that the role exists.", role)
+		return GroupRoleKey{}, roleNotFound(role)
 	}
 
 	return NewGroupRoleKey(group, scope, role), nil
@@ -212,7 +220,7 @@ func (u *userManager) AddGroup(ctx context.Context, scope accesstypes.PolicyScop
 		return "", err
 	}
 	if taken {
-		return "", httpio.NewConflictMessagef("a group named %q already exists there: choose another name", row.Name)
+		return "", httpio.NewConflictMessagef("A group named %q already exists there. Choose another name.", row.Name)
 	}
 
 	return group.ID, nil
@@ -225,50 +233,33 @@ func (u *userManager) DescribeGroup(ctx context.Context, group accesstypes.Group
 
 	description = strings.TrimSpace(description)
 	if description == "" {
-		return httpio.NewBadRequestMessage("a group carries a description: one or two plain sentences saying who is in it")
+		return httpio.NewBadRequestMessage("The group has no description. Say who is in it in one or two plain sentences.")
 	}
 	found, err := u.store.describeGroup(ctx, group, description)
 	if err != nil {
 		return err
 	}
 	if !found {
-		return httpio.NewNotFoundMessage("the group does not exist")
+		return groupNotFound(group)
 	}
 
 	return nil
 }
 
-// DeleteGroup removes a group that has no member and holds no role. A group that still
-// has either is refused until it is emptied, so nobody loses a role by a group's
-// deletion: the people are removed and the roles taken first, each by its own act. A
-// member or a role whose period has ended gives nobody anything and goes with the group;
-// one whose period has not begun stands in the way like one that counts now.
+// DeleteGroup removes a group with its members and the roles it holds, whatever their
+// periods, in the store's one transaction.
 func (u *userManager) DeleteGroup(ctx context.Context, group accesstypes.Group) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+	u, announce := u.holdAnnouncement()
+	defer announce()
 
-	members, err := u.store.groupUsers(ctx, group)
-	if err != nil {
-		return err
-	}
-	roles, err := u.store.groupRoles(ctx, group)
-	if err != nil {
-		return err
-	}
-	if len(members) > 0 || len(roles) > 0 {
-		return httpio.NewConflictMessagef("the group still has %d member(s) and holds %d role(s): remove its members and take its roles away, then delete it", len(members), len(roles))
-	}
 	deleted, err := u.store.deleteGroup(ctx, group)
-	if errors.Is(err, policy.ErrStillAssigned) {
-		// The listings read what counts now: what stands in the way is a member
-		// or a role whose period has not begun.
-		return httpio.NewConflictMessage("the group has a member or holds a role whose period has not begun yet: remove its members and take its roles away, then delete it")
-	}
 	if err != nil {
 		return err
 	}
 	if !deleted {
-		return httpio.NewNotFoundMessage("the group does not exist")
+		return groupNotFound(group)
 	}
 
 	return nil
@@ -317,6 +308,8 @@ func groupInfos(rows []policy.GroupRow) []GroupInfo {
 func (u *userManager) AddGroupUsers(ctx context.Context, group accesstypes.Group, users ...accesstypes.User) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+	u, announce := u.holdAnnouncement()
+	defer announce()
 
 	return u.assignGroupUsers(ctx, group, accesstypes.Period{}, users...)
 }
@@ -327,13 +320,18 @@ func (u *userManager) assignGroupUsers(ctx context.Context, group accesstypes.Gr
 		return err
 	}
 	if slices.Contains(users, "") {
-		return httpio.NewBadRequestMessage("user cannot be empty string")
+		return httpio.NewBadRequestMessage("No person is named. Name the person to put in the group.")
 	}
 	if err := period.Validate(); err != nil {
-		return httpio.NewBadRequestMessage(err.Error())
+		return httpio.NewBadRequestMessageWithError(err, PeriodNeverCountsMessage)
 	}
 	for _, user := range users {
 		if err := u.store.addGroupUser(ctx, group, user, period); err != nil {
+			if errors.Is(err, policy.ErrNoGroup) {
+				// The group was deleted since requireGroup found it.
+				return groupNotFound(group)
+			}
+
 			return err
 		}
 	}
@@ -345,6 +343,8 @@ func (u *userManager) assignGroupUsers(ctx context.Context, group accesstypes.Gr
 func (u *userManager) DeleteGroupUsers(ctx context.Context, group accesstypes.Group, users ...accesstypes.User) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+	u, announce := u.holdAnnouncement()
+	defer announce()
 
 	for _, user := range users {
 		if err := u.store.deleteGroupUser(ctx, group, user); err != nil {
@@ -371,6 +371,8 @@ func (u *userManager) GroupUsers(ctx context.Context, group accesstypes.Group) (
 func (u *userManager) AddGroupRoles(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, roles ...accesstypes.Role) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+	u, announce := u.holdAnnouncement()
+	defer announce()
 
 	return u.assignGroupRoles(ctx, group, scope, accesstypes.Period{}, roles...)
 }
@@ -383,7 +385,7 @@ func (u *userManager) assignGroupRoles(ctx context.Context, group accesstypes.Gr
 		return err
 	}
 	if err := period.Validate(); err != nil {
-		return httpio.NewBadRequestMessage(err.Error())
+		return httpio.NewBadRequestMessageWithError(err, PeriodNeverCountsMessage)
 	}
 	for _, role := range roles {
 		if err := refuseGroupRole(row.Scope, scope, role); err != nil {
@@ -394,11 +396,11 @@ func (u *userManager) assignGroupRoles(ctx context.Context, group accesstypes.Gr
 			return err
 		}
 		if !found {
-			return httpio.NewNotFoundMessagef("role %q is not a valid role. Please check that the role exists.", role)
+			return roleNotFound(role)
 		}
 	}
 	for _, role := range roles {
-		if err := u.store.addGroupRole(ctx, group, scope, role, period); err != nil {
+		if err := u.giveGroupRole(ctx, group, scope, role, period); err != nil {
 			return err
 		}
 	}
@@ -406,11 +408,34 @@ func (u *userManager) assignGroupRoles(ctx context.Context, group accesstypes.Gr
 	return nil
 }
 
+// giveGroupRole gives group the role in scope for the period: one of the release's
+// default roles by its name, and a custom role only while its row is there. A custom
+// role deleted since the call found it is answered as a role that does not exist, a
+// group deleted since then as a group that does not exist, and nothing is given.
+func (u *userManager) giveGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role, period accesstypes.Period) error {
+	var err error
+	if u.defaults.exists(scope, role) {
+		err = u.store.addGroupRole(ctx, group, scope, role, period)
+	} else {
+		err = u.store.addCustomGroupRole(ctx, group, scope, role, period)
+	}
+	switch {
+	case errors.Is(err, policy.ErrNoRole):
+		return roleNotFound(role)
+	case errors.Is(err, policy.ErrNoGroup):
+		return groupNotFound(group)
+	}
+
+	return err
+}
+
 // DeleteGroupRoles takes the roles group holds in scope away from it. A role the group
 // does not hold there is no error, and the role need not exist any more.
 func (u *userManager) DeleteGroupRoles(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, roles ...accesstypes.Role) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+	u, announce := u.holdAnnouncement()
+	defer announce()
 
 	for _, role := range roles {
 		if err := u.store.deleteGroupRole(ctx, group, scope, role); err != nil {
@@ -445,7 +470,7 @@ func (u *userManager) requireGroup(ctx context.Context, group accesstypes.Group)
 		return nil, err
 	}
 	if !found {
-		return nil, httpio.NewNotFoundMessage("the group does not exist")
+		return nil, groupNotFound(group)
 	}
 
 	return row, nil
@@ -563,6 +588,15 @@ func (m *storeManager) groupUsers(ctx context.Context, group accesstypes.Group) 
 func (m *storeManager) addGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role, period accesstypes.Period) error {
 	if err := m.store.InsertGroupRole(ctx, group, scope, role, period); err != nil {
 		return errors.Wrapf(err, "access.Store.InsertGroupRole(): role %q to group %s", role, group)
+	}
+	m.notifyPolicyChange()
+
+	return nil
+}
+
+func (m *storeManager) addCustomGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role, period accesstypes.Period) error {
+	if err := m.store.InsertCustomGroupRole(ctx, group, scope, role, period); err != nil {
+		return errors.Wrapf(err, "access.Store.InsertCustomGroupRole(): role %q to group %s", role, group)
 	}
 	m.notifyPolicyChange()
 

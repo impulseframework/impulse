@@ -179,7 +179,11 @@ func (w *writer) mailNames(roots []*declared) error {
 	return nil
 }
 
-// mailName writes the brand's name into the auth package's Application constant.
+// mailName writes the brand's name into the auth package's Application constant: in the
+// first file that declares it of the package's Go files the Go tool reads
+// (app.GoToolReads), tests left out. A scratch copy of the auth kept beside it
+// (_scratch.go, .draft.go) sorts before the real file and is no build's, so it is never
+// the file edited.
 func (w *writer) mailName(pkg *app.AuthPackage, r *declared) error {
 	entries, err := os.ReadDir(w.a.Abs(pkg.Dir))
 	if err != nil {
@@ -187,7 +191,7 @@ func (w *writer) mailName(pkg *app.AuthPackage, r *declared) error {
 	}
 	name := strconv.Quote(r.declaration.Name)
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
+		if entry.IsDir() || !app.GoToolReads(entry.Name()) || strings.HasSuffix(entry.Name(), "_test.go") {
 			continue
 		}
 		file := path.Join(pkg.Dir, entry.Name())
@@ -312,7 +316,9 @@ func accessorCall(r *declared) string {
 }
 
 // goSources lists the application's Go files outside the server's package, by absolute
-// path: the files a main handing a brand to the maintenance page is looked for in.
+// path: the files a main handing a brand to the maintenance page is looked for in. They
+// are the Go files the Go tool reads (app.GoToolReads): a call in a scratch file hands
+// the page nothing.
 func goSources(a *app.App) ([]string, error) {
 	var files []string
 	err := filepath.WalkDir(a.Root, func(p string, d fs.DirEntry, walkErr error) error {
@@ -327,7 +333,7 @@ func goSources(a *app.App) ([]string, error) {
 
 			return nil
 		}
-		if strings.HasSuffix(name, ".go") {
+		if app.GoToolReads(name) {
 			files = append(files, p)
 		}
 

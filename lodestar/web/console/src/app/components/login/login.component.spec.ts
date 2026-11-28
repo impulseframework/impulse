@@ -91,6 +91,54 @@ describe('LoginComponent', () => {
     expect(element.querySelector('.impulse-login-message')).toBeNull();
   });
 
+  // On a narrow screen the manifest gives way: it may be as narrow as the screen, so its
+  // cards go down to one column, and a note's words are one text that wraps beside its
+  // icon. A manifest that could not shrink was cut off at both edges of a phone's screen.
+  it('lets the manifest give way to a narrow screen, each note an icon and one text that wraps', () => {
+    const element: HTMLElement = fixture.nativeElement;
+    expect(getComputedStyle(element.querySelector('.manifest') as HTMLElement).minWidth).toBe('0px');
+    const notes = Array.from(element.querySelectorAll('.droid'));
+    expect(notes).toHaveLength(2);
+    for (const note of notes) {
+      expect(Array.from(note.children).map((child) => child.tagName.toLowerCase())).toEqual(['mat-icon', 'span']);
+      const loose = Array.from(note.childNodes).filter(
+        (node) => node.nodeType === Node.TEXT_NODE && node.textContent?.trim(),
+      );
+      expect(loose).toEqual([]);
+    }
+  });
+
+  // The card stays at the top of the screen only where the manifest is beside it, on a
+  // screen wide enough for both, and there the two are never put one under the other. On a
+  // narrower screen the manifest is under the card and the two scroll together: a card
+  // that stayed at the top of a phone's screen lay over the persona buttons as they
+  // scrolled up under it.
+  it('keeps the card at the top of the screen only where the manifest is beside it', () => {
+    const sheet = Array.from(document.querySelectorAll('style'))
+      .map((style) => style.textContent ?? '')
+      .filter((text) => text.includes('.login-card'))
+      .join('\n');
+    const sideBySide = /@media \(min-width:\s*1244px\)\s*\{((?:[^{}]*\{[^{}]*\})*)\s*\}/g;
+    /** What the page's stylesheet declares for `selector`: on every screen, or only where the two are side by side. */
+    const declares = (selector: string, where: 'everywhere' | 'side by side' = 'everywhere'): string => {
+      const rules =
+        where === 'everywhere'
+          ? sheet.replace(/@media[^{]*\{(?:[^{}]*\{[^{}]*\})*\s*\}/g, '')
+          : Array.from(sheet.matchAll(sideBySide))
+              .map(([, held]) => held)
+              .join('\n');
+      return Array.from(rules.matchAll(/([^{}]+)\{([^{}]*)\}/g))
+        .filter(([, named]) => (named ?? '').replace(/\[_ng[^\]]*\]/g, '').trim() === selector)
+        .map(([, , declarations]) => declarations ?? '')
+        .join('\n');
+    };
+
+    expect(declares('.login-card')).not.toContain('position');
+    expect(declares('.login-page')).toMatch(/flex-wrap:\s*wrap/);
+    expect(declares('.login-card', 'side by side')).toMatch(/position:\s*sticky/);
+    expect(declares('.login-page', 'side by side')).toMatch(/flex-wrap:\s*nowrap/);
+  });
+
   it("prefills the component's form from the crew manifest, signing in staying an explicit click", async () => {
     const component = fixture.componentInstance;
     expect(component.decks.length).toBeGreaterThan(1);

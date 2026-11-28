@@ -34,11 +34,11 @@ var errTenantDirectoryUnsupportedDatabase = errors.New("resource: a tenant's dir
 // person can act on, where the index can only say that a unique value exists.
 //
 // A directory is never typed in. It is set from a sign-in: FromSession answers the
-// directory the caller is signed in through, held to the rules, which the directories
-// record's generated create stamps on the row, and Set holds a directory a sign-in
-// names to the rules, for a write made inside that sign-in. The generated
-// New<Record>DirectoryRules supplies the tables and the word for one tenant; an
-// application names none of them.
+// directory the caller is signed in through, held to the rules, which the tenant's
+// generated method that takes a directory (Take<Record>Directory) writes as the tenant's
+// own, and Set holds a directory a sign-in names to the rules, for a write made inside
+// that sign-in. The generated New<Record>DirectoryRules supplies the tables and the word
+// for one tenant; an application names none of them.
 type TenantDirectoryRules struct {
 	table     string
 	keyColumn string
@@ -51,14 +51,27 @@ type TenantDirectoryRules struct {
 	// a password (PasswordsBy): the directory-only switch is turned on by a person who
 	// has one.
 	passwords []CallerPassword
+	// secondFactors answer, one for each auth, whether its sign-in settings ask everyone
+	// for a second factor now (SecondFactorsBy): a tenant vouches for its directory's own
+	// second factor only where the application asks somebody for one.
+	secondFactors []AuthSecondFactor
+	// people are, one for each auth, the readers of the people a tenant seats, the ones
+	// its directory-only switch keeps out and the ones who keep the administrators' way
+	// in, with the tenant's lists of them (CountedBy), for the read of the switch and the
+	// warning that turns it on.
+	people []DirectoryPeople
 }
+
+// defaultTenantWord is what a refusal calls one tenant when the application names no
+// word of its own.
+const defaultTenantWord = "tenant"
 
 // NewTenantDirectoryRules builds the rules over the tenant record's table and key
 // column and its declaration's columns. word is what the refusals call one tenant
 // ("tenant", "sector"), as the application's people say it.
 func NewTenantDirectoryRules(table, keyColumn string, columns *TenantDeclarationColumns, word string) *TenantDirectoryRules {
 	if word == "" {
-		word = "tenant"
+		word = defaultTenantWord
 	}
 
 	return &TenantDirectoryRules{table: table, keyColumn: keyColumn, columns: columns, word: word}
@@ -100,6 +113,30 @@ func (r *TenantDirectoryRules) PasswordsBy(readers ...CallerPassword) *TenantDir
 	return &asked
 }
 
+// SeatedCount counts the people of one auth in tenant's own list of its people, in the
+// caller's transaction: who holds a seat in the tenant itself or in every tenant, and who
+// signs in through the tenant's directory, one row a person, the rows DirectoryOutsiders
+// reads. The generated identity client of each auth whose people a tenant seats supplies
+// it (SeatedCount); an application names none.
+type SeatedCount func(ctx context.Context, txn ReadWriteTransaction, tenant accesstypes.Domain) (int, error)
+
+// CountedBy answers the rules with the application's auths whose people a tenant seats,
+// one entry for each: the readers of whom the directory-only switch keeps out and of who
+// keeps the administrators' way in, how many people the tenant's list holds, and the
+// tenant's lists that decide whether a caller is told who they are (DirectoryPeople). The
+// read of a tenant's sign-in settings (SignInSettings) says the counts from them before
+// anyone turns it on, and the warning that turns it on (DirectoryOnlyWarning) reads the
+// same entries, so the two always say the same number. The generated frames of a tenant's
+// own methods pass each auth's generated identity client's readers. Rules built without
+// entries count nobody: the read says no number, and the warning says who will lose
+// access without one.
+func (r *TenantDirectoryRules) CountedBy(people ...DirectoryPeople) *TenantDirectoryRules {
+	counted := *r
+	counted.people = people
+
+	return &counted
+}
+
 // directoryWords says a directory as the middle of one of the rules' sentences names
 // it (DirectoryWords), and directoryName with its kind before a name (DirectoryName).
 func (r *TenantDirectoryRules) directoryWords(directory signin.Directory) string {
@@ -130,9 +167,9 @@ func SessionDirectory(ctx context.Context) (signin.Directory, error) {
 }
 
 // FromSession answers the directory the caller is signed in through, held to the
-// rules for tenant: the directory the directories record's generated create stamps on
-// the row, so no request types a method or a connection. Every refusal is a Conflict:
-// SessionDirectory's and Set's.
+// rules for tenant: the directory the tenant's generated method that takes a directory
+// (Take<Record>Directory) writes, so no request types a method or a connection. Every
+// refusal is a Conflict: SessionDirectory's and Set's.
 func (r *TenantDirectoryRules) FromSession(ctx context.Context, txn ReadWriteTransaction, tenant accesstypes.Domain) (signin.Directory, error) {
 	directory, err := SessionDirectory(ctx)
 	if err != nil {
@@ -153,7 +190,7 @@ func (r *TenantDirectoryRules) FromSession(ctx context.Context, txn ReadWriteTra
 // organization already has a tenant, which a rule of one tenant per directory cannot
 // keep from being learned; it does not say which.
 func (r *TenantDirectoryRules) Set(ctx context.Context, txn ReadWriteTransaction, tenant accesstypes.Domain, directory signin.Directory) error {
-	if !r.columns.declared() {
+	if !r.columns.hasDirectories() {
 		return errors.New("resource: a tenant's directory rules need the directories record's columns: build them with the generated New<Record>DirectoryRules")
 	}
 	switch {
@@ -192,7 +229,7 @@ func (r *TenantDirectoryRules) Set(ctx context.Context, txn ReadWriteTransaction
 // the writes the rules pass (directoryWrites). A tenant record with no directory-only
 // column removes freely.
 func (r *TenantDirectoryRules) Remove(ctx context.Context, txn ReadWriteTransaction, tenant accesstypes.Domain) error {
-	if !r.columns.declared() || r.columns.DirectoryOnly == "" {
+	if !r.columns.hasDirectories() || r.columns.DirectoryOnly == "" {
 		return nil
 	}
 	statements, err := tenantDirectoryStatements(txn.DBType(), r.table, r.keyColumn, r.columns)

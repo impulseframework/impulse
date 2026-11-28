@@ -1,4 +1,4 @@
-// Demonstrates: @enumerate, @enumerate.plain-column, @enumerate.key-view, @enumerate.enum-table, @enumerate.computed, picker.read-disabled, picker.config-driven, picker.paged, picker.whole, column.referenced-in, virtual.keyed-read.
+// Demonstrates: @enumerate, @enumerate.plain-column, @enumerate.key-view, @enumerate.enum-table, @enumerate.computed, picker.read-disabled, picker.config-driven, picker.paged, picker.whole, virtual.keyed-read.
 package integration
 
 // This suite pins the server side of the enumerated pickers: the resources the
@@ -130,14 +130,14 @@ func TestEnumeratedPickerResources(t *testing.T) {
 	}
 }
 
-// TestPickerReadModes pins the requests the console's pickers and referenced-resource
-// columns make on each read mode, exactly as the library sends them, decided by the
-// maximum page size each source declares. The client roster and the hangars declare
-// one: a picker pages them (the first page with its count and its Link relations, never
-// limit=all, which the server refuses under a maximum) and reads the chosen row by key,
-// and the Ships page's Hangar column resolves a page's keys with one in filter served by
-// the key's index. The hull catalog declares none: a picker and the Class column read it
-// whole with limit=all, unsorted, in one request.
+// TestPickerReadModes pins the requests the console's pickers make on each read mode,
+// exactly as the library sends them, decided by the maximum page size each source
+// declares. The client roster and the hangars declare one: a picker pages them (the
+// first page with its count and its Link relations, never limit=all, which the server
+// refuses under a maximum) and reads the chosen row by key. The hull catalog declares
+// none: a picker reads it whole with limit=all, unsorted, in one request. The Ships
+// page's Hangar column asks neither: each ship's hangar name rides with the page of
+// ships.
 func TestPickerReadModes(t *testing.T) {
 	t.Parallel()
 
@@ -187,19 +187,30 @@ func TestPickerReadModes(t *testing.T) {
 			},
 		},
 		{
-			// One request over the page's hangar keys, a limit of the batch: every match fits.
-			name: "the Ships page's Hangar column resolves a page's hangars with one in filter", user: "marshal",
-			target: sectorPath(anvil, "hangars?filter=id:in:("+hangarAnvilDockID+","+hangarQuarantineID+")&columns=id,name&limit=2"), wantStatus: http.StatusOK, wantRows: 2, wantNoLink: true,
+			// The hangar's name rides with each ship: nothing asks the hangars by the page's keys.
+			name: "the Ships page's Hangar column reads each ship's hangar by name with the page of ships", user: "marshal",
+			target: sectorPath(anvil, "ships?columns=id,hangarId,hangarName&limit=100"), wantStatus: http.StatusOK,
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
-				rows := rowsByID(t, decodeRows(t, respBody), "id")
-				if rows[hangarAnvilDockID]["name"] != "Anvil Dock One" || rows[hangarQuarantineID]["name"] != "Quarantine Bay" {
-					t.Errorf("hangars by key = %v", rows)
+				hangars := map[string]string{hangarAnvilDockID: "Anvil Dock One", hangarQuarantineID: "Quarantine Bay"}
+				berthed := 0
+				for _, ship := range decodeRows(t, respBody) {
+					id, _ := ship["hangarId"].(string)
+					if id == "" {
+						continue
+					}
+					if ship["hangarName"] != hangars[id] {
+						t.Errorf("ship %v in hangar %s shows hangarName %v, want %q", ship["id"], id, ship["hangarName"], hangars[id])
+					}
+					berthed++
+				}
+				if berthed == 0 {
+					t.Errorf("no ship of Anvil is berthed in a hangar; the case needs one: %s", respBody)
 				}
 			},
 		},
 		{
-			name: "the class picker and the Class column read the hull catalog whole, unsorted, with no Link", user: "marshal",
+			name: "the class picker reads the hull catalog whole, unsorted, with no Link", user: "marshal",
 			target: "/console/api/ship-classes?columns=id,designation&limit=all", wantStatus: http.StatusOK, wantRows: 4, wantNoLink: true,
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
@@ -242,8 +253,10 @@ func TestPickerReadModes(t *testing.T) {
 }
 
 // TestCompileBriefing_template compiles on a named template: the request field names
-// the computed catalog, the body validates the id against it, and the hazard-first
-// sheet carries the board whether or not it was asked for.
+// the computed catalog, an id outside it is answered as a row that is not there before
+// the body runs, and the hazard-first sheet carries the board whether or not it was
+// asked for. The seeded archivist in Anvil and the liaison in Cinder, each an Archivist
+// there who also holds BriefingClerk, compile on a named sheet.
 func TestCompileBriefing_template(t *testing.T) {
 	t.Parallel()
 
@@ -251,6 +264,8 @@ func TestCompileBriefing_template(t *testing.T) {
 
 	tests := []struct {
 		name         string
+		user         accesstypes.User
+		sector       string
 		body         string
 		wantStatus   int
 		wantTemplate string
@@ -259,14 +274,23 @@ func TestCompileBriefing_template(t *testing.T) {
 		{name: "an empty template compiles the standard sheet", body: `{}`, wantStatus: http.StatusOK, wantTemplate: "Standard sheet"},
 		{name: "a named template compiles on it", body: `{"templateId":"client-facing"}`, wantStatus: http.StatusOK, wantTemplate: "Client summary"},
 		{name: "the hazard-first sheet folds the board in unasked", body: `{"templateId":"hazard-first","includeHazards":false}`, wantStatus: http.StatusOK, wantTemplate: "Hazard-first sheet", wantHazards: true},
-		{name: "an id outside the catalog is refused", body: `{"templateId":"legacy-9"}`, wantStatus: http.StatusBadRequest},
+		{name: "an id outside the catalog is refused", body: `{"templateId":"legacy-9"}`, wantStatus: http.StatusNotFound},
+		{name: "the archivist compiles on a named sheet in Anvil", user: "archivist", body: `{"templateId":"client-facing"}`, wantStatus: http.StatusOK, wantTemplate: "Client summary"},
+		{name: "the liaison compiles on a named sheet in Cinder", user: "liaison", sector: cinder, body: `{"templateId":"client-facing"}`, wantStatus: http.StatusOK, wantTemplate: "Client summary"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			status, body := doRequestAs(t, h, "marshal", http.MethodPost, sectorPath(anvil, "compile-briefing"), tt.body)
+			user, sector := tt.user, tt.sector
+			if user == "" {
+				user = "marshal"
+			}
+			if sector == "" {
+				sector = anvil
+			}
+			status, body := doRequestAs(t, h, user, http.MethodPost, sectorPath(sector, "compile-briefing"), tt.body)
 			assertStatus(t, status, tt.wantStatus, body)
 			if status != http.StatusOK {
 				return
@@ -328,7 +352,7 @@ func TestEnumeratedMetadata(t *testing.T) {
 		{
 			name: "the keyed view serves a read, so its metadata says nothing of readDisabled",
 			file: "zz_gen_resources.ts",
-			want: "[Resources.ClientRosters]: {\n    route: 'sectors/{sectorID}/client-rosters',\n    live: true,\n    fields: [",
+			want: "[Resources.ClientRosters]: {\n    route: 'sectors/{sectorID}/client-rosters',\n    live: true,\n    rowWords: { one: 'client', many: 'clients' },\n    nameField: 'name',\n    fields: [",
 		},
 		{
 			name: "the keyed view's descriptor lists the read operation beside the list",

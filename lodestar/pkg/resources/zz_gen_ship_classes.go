@@ -11,6 +11,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -22,6 +23,52 @@ func (ShipClass) DefaultConfig() resource.Config {
 	return defaultConfig()
 }
 
+// DeleteTree describes what keeps a ShipClass from being deleted: the kinds with a
+// row directly under a ShipClass that the database does not remove with it, each
+// with the columns that name the ShipClass. A delete of a ShipClass with
+// such a row is refused in a sentence that says what is in the way.
+func (ShipClass) DeleteTree() *resource.DeleteTree {
+	return &resource.DeleteTree{
+		Record: "ShipClasses",
+		Words:  resource.DeleteWords{One: "ship class", Many: "ship classes"},
+		Key:    []string{"Id"},
+		Cost:   resource.DeleteCost{IndexEntries: 2, Files: 0},
+		Under: []resource.DeleteKind{
+			{
+				Resource: "Ships",
+				Words:    resource.DeleteWords{One: "ship", Many: "ships"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 3, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "HangarId", Path: []resource.BindingHop{{Table: "Hangars", JoinColumn: "Id", Column: "SectorId"}}},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"ClassId"}, Table: "ShipClasses", References: []string{"Id"}},
+					},
+				},
+			},
+		},
+	}
+}
+
+// NameFields names the resource's name fields: beside each id that points to a row with
+// a name, the name of that row, which a list shows, sorts by and filters by. A name is
+// looked up in the pointed-to table by the id; it is no column of this resource.
+func (ShipClass) NameFields() []resource.NameField {
+	return []resource.NameField{
+		{Field: "RoleName", Key: "RoleID", Resource: "", Tag: "", Table: "ShipRoles", KeyColumn: "Id", NameColumn: "Description", TenantColumn: ""},
+	}
+}
+
+// RecordedNames names the rows a change record of the resource keeps the name of:
+// for each field that points at a row with a name, where the name is read. A
+// tracked write that changes such a field reads the name in its own transaction,
+// and the change record keeps it beside the id.
+func (ShipClass) RecordedNames() []resource.NameField {
+	return []resource.NameField{
+		{Field: "", Key: "RoleID", Resource: "", Tag: "", Table: "ShipRoles", KeyColumn: "Id", NameColumn: "Description", TenantColumn: ""},
+	}
+}
+
 // shipClassRead mirrors the wire shape the resource routes list
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; shipClassReadSets holds one Set per read operation.
@@ -31,6 +78,7 @@ type shipClassRead struct {
 	RoleID      string       `json:"roleId"`
 	Tonnage     int64        `json:"tonnage"`
 	Hardened    bool         `json:"hardened"`
+	InService   bool         `json:"inService"`
 }
 
 var shipClassReadSets resource.SetCache[ShipClass, shipClassRead]
@@ -44,6 +92,7 @@ type shipClassWrite struct {
 	RoleID      string       `json:"roleId"      sqltype:"STRING(64)"`
 	Tonnage     int64        `json:"tonnage"`
 	Hardened    bool         `json:"hardened"`
+	InService   bool         `json:"inService"`
 }
 
 var shipClassWriteSets resource.SetCache[ShipClass, shipClassWrite]
@@ -169,6 +218,7 @@ func (c *ShipClassColumns) All() *ShipClassColumns {
 		"RoleID",
 		"Tonnage",
 		"Hardened",
+		"InService",
 	}
 
 	return c
@@ -200,6 +250,12 @@ func (c *ShipClassColumns) Tonnage() *ShipClassColumns {
 
 func (c *ShipClassColumns) Hardened() *ShipClassColumns {
 	c.fields = append(c.fields, "Hardened")
+
+	return c
+}
+
+func (c *ShipClassColumns) InService() *ShipClassColumns {
+	c.fields = append(c.fields, "InService")
 
 	return c
 }
@@ -314,6 +370,10 @@ func (c *shipClassSort) Hardened() *ShipClassSort {
 	return c.addField("Hardened")
 }
 
+func (c *shipClassSort) InService() *ShipClassSort {
+	return c.addField("InService")
+}
+
 type ShipClassSort struct {
 	*shipClassSort
 }
@@ -372,11 +432,11 @@ func (p *ShipClassCreatePatch) ToStruct() *ShipClass {
 	return p.patchSet.ToStruct()
 }
 
-func (p *ShipClassCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *ShipClassCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *ShipClassCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *ShipClassCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -465,6 +525,22 @@ func (p *ShipClassCreatePatch) HardenedIsSet() bool {
 	return p.patchSet.IsSet("Hardened")
 }
 
+func (p *ShipClassCreatePatch) SetInService(v bool) *ShipClassCreatePatch {
+	p.patchSet.Set("InService", v)
+
+	return p
+}
+
+func (p *ShipClassCreatePatch) InService() bool {
+	v, _ := p.patchSet.Get("InService").(bool)
+
+	return v
+}
+
+func (p *ShipClassCreatePatch) InServiceIsSet() bool {
+	return p.patchSet.IsSet("InService")
+}
+
 // Diff is intended for unit testing, and reports the differences between two values using github.com/google/go-cmp/cmp
 func (p *ShipClassCreatePatch) Diff(got *ShipClassCreatePatch, opts ...cmp.Option) string {
 	return resource.PatchSetDiff(opts...)(p.patchSet, got.patchSet)
@@ -504,11 +580,11 @@ func (p *ShipClassUpdatePatch) ToStruct() *ShipClass {
 	return p.patchSet.ToStruct()
 }
 
-func (p *ShipClassUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *ShipClassUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *ShipClassUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *ShipClassUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -621,6 +697,22 @@ func (p *ShipClassUpdatePatch) HardenedIsSet() bool {
 	return p.patchSet.IsSet("Hardened")
 }
 
+func (p *ShipClassUpdatePatch) SetInService(v bool) *ShipClassUpdatePatch {
+	p.patchSet.Set("InService", v)
+
+	return p
+}
+
+func (p *ShipClassUpdatePatch) InService() bool {
+	v, _ := p.patchSet.Get("InService").(bool)
+
+	return v
+}
+
+func (p *ShipClassUpdatePatch) InServiceIsSet() bool {
+	return p.patchSet.IsSet("InService")
+}
+
 // Diff is intended for unit testing, and reports the differences between two values using github.com/google/go-cmp/cmp
 func (p *ShipClassUpdatePatch) Diff(got *ShipClassUpdatePatch, opts ...cmp.Option) string {
 	return resource.PatchSetDiff(opts...)(p.patchSet, got.patchSet)
@@ -646,11 +738,11 @@ func NewShipClassDeletePatch(id impulse.UUID) *ShipClassDeletePatch {
 	return &ShipClassDeletePatch{patchSet: patchSet}
 }
 
-func (p *ShipClassDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *ShipClassDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *ShipClassDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *ShipClassDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

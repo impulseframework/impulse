@@ -4,7 +4,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { Frame, inSentence } from './frame';
 import { ShownEntry, ShownGroup } from './menu';
 import { MenuListComponent } from './menu-list.component';
-import { ClosedPlace, Place, PlaceService } from './place.service';
+import { Place, PlaceService, UnavailablePlace } from './place.service';
 
 /** More places than this and the list opens with a box to find one by name. */
 export const findFrom = 8;
@@ -17,11 +17,15 @@ export const findFrom = 8;
  * outside every tenant) names no place: the button asks them to choose one of theirs. A
  * long list opens with a box that narrows it as they type; Enter opens the first match.
  *
- * A tenant the person holds a seat in and cannot enter with this sign-in is listed too,
- * under their places and apart from them: its name with a lock and the server's reason
- * ("Acme admits only people who sign in through its own directory. You signed in with a
- * password."), and nothing to open. The list opens for it even when the person has one
- * place, so a seat is never missing without a word.
+ * A tenant the person holds a seat in and cannot enter is listed too, under their places
+ * and apart from them, headed "Not available": its name with a lock and the server's
+ * reason ("Acme admits only people who sign in through its own directory. You signed in
+ * with a password."), and nothing to open. The list opens for it even when the person has
+ * one place, so a seat is never missing without a word.
+ *
+ * Nothing is drawn until the person's places are known (PlaceService.known): a list of
+ * tenants that has not been read, or could not be, is never shown as a person with one
+ * place or with none to switch to.
  */
 @Component({
   selector: 'impulse-place-switcher',
@@ -31,44 +35,46 @@ export const findFrom = 8;
     @if (listed()) {
       <button
         type="button"
-        class="switcher"
+        class="impulse-place-switcher-place"
         [cdkMenuTriggerFor]="list"
         (cdkMenuOpened)="opened()"
         [attr.aria-label]="
           inPlace() ? 'In ' + place().label + '. Switch to another ' + lower(word.one) : 'Choose a ' + lower(word.one)
         ">
         @if (inPlace()) {
-          <mat-icon class="kind">{{ place().id ? 'domain' : outside.icon }}</mat-icon>
-          <span class="lines">
+          <mat-icon class="impulse-place-switcher-kind">{{ place().id ? 'domain' : outside.icon }}</mat-icon>
+          <span class="impulse-place-switcher-lines">
             @if (place().id) {
-              <span class="caption">{{ word.one }}</span>
+              <span class="impulse-place-switcher-caption">{{ word.one }}</span>
             }
-            <span class="name">{{ place().label }}</span>
+            <span class="impulse-place-switcher-name">{{ place().label }}</span>
           </span>
         } @else {
-          <mat-icon class="kind">swap_horiz</mat-icon>
-          <span class="lines">
-            <span class="name">Choose a {{ lower(word.one) }}</span>
+          <mat-icon class="impulse-place-switcher-kind">swap_horiz</mat-icon>
+          <span class="impulse-place-switcher-lines">
+            <span class="impulse-place-switcher-name">Choose a {{ lower(word.one) }}</span>
           </span>
         }
-        <mat-icon class="chevron">expand_more</mat-icon>
+        <mat-icon class="impulse-place-switcher-chevron">expand_more</mat-icon>
       </button>
-    } @else if (places.places().length === 1) {
-      <span class="switcher alone" [attr.aria-label]="(place().id ? word.one + ': ' : '') + place().label">
-        <mat-icon class="kind">{{ place().id ? 'domain' : outside.icon }}</mat-icon>
-        <span class="lines">
+    } @else if (alone()) {
+      <span
+        class="impulse-place-switcher-place impulse-place-switcher-alone"
+        [attr.aria-label]="(place().id ? word.one + ': ' : '') + place().label">
+        <mat-icon class="impulse-place-switcher-kind">{{ place().id ? 'domain' : outside.icon }}</mat-icon>
+        <span class="impulse-place-switcher-lines">
           @if (place().id) {
-            <span class="caption">{{ word.one }}</span>
+            <span class="impulse-place-switcher-caption">{{ word.one }}</span>
           }
-          <span class="name">{{ place().label }}</span>
+          <span class="impulse-place-switcher-name">{{ place().label }}</span>
         </span>
       </span>
     }
 
     <ng-template #list>
-      <impulse-menu-list class="places" [groups]="groups()">
+      <impulse-menu-list class="impulse-place-switcher-places" [groups]="groups()">
         @if (findable()) {
-          <div class="find">
+          <div class="impulse-place-switcher-find">
             <mat-icon>search</mat-icon>
             <input
               #find
@@ -80,18 +86,18 @@ export const findFrom = 8;
               (input)="filter.set(find.value)"
               (keydown)="findKey($event)" />
           </div>
-          @if (!groups().length && !closed().length) {
-            <div class="none">No {{ lower(word.one) }} has that name</div>
+          @if (!groups().length && !unavailable().length) {
+            <div class="impulse-place-switcher-none">No {{ lower(word.one) }} has that name</div>
           }
         }
-        @if (closed().length) {
-          <div menuListEnd class="closed" role="group" aria-label="Closed to this sign-in">
-            <div class="closed-heading">Closed to this sign-in</div>
-            @for (place of closed(); track place.id) {
-              <div class="closed-place">
-                <mat-icon class="closed-icon">lock</mat-icon>
-                <span class="closed-name">{{ place.label }}</span>
-                <span class="closed-reason">{{ place.reason }}</span>
+        @if (unavailable().length) {
+          <div menuListEnd class="impulse-place-switcher-unavailable" role="group" aria-label="Not available">
+            <div class="impulse-place-switcher-unavailable-heading">Not available</div>
+            @for (place of unavailable(); track place.id) {
+              <div class="impulse-place-switcher-unavailable-place">
+                <mat-icon class="impulse-place-switcher-unavailable-icon">lock</mat-icon>
+                <span class="impulse-place-switcher-unavailable-name">{{ place.label }}</span>
+                <span class="impulse-place-switcher-unavailable-reason">{{ place.reason }}</span>
               </div>
             }
           </div>
@@ -117,24 +123,31 @@ export class PlaceSwitcherComponent {
   readonly inPlace = computed(() => this.places.places().some((place) => place.id === this.place().id));
   /**
    * Whether there is a list to open: more than one place, a way back to the one from a
-   * page in none, or a tenant that is closed to this sign-in, which the list names.
+   * page in none, or a tenant this session cannot enter, which the list names. Never
+   * before the person's places are known: a list of tenants that has not been read, or
+   * could not be, is not a person with no tenant to switch to.
    */
   readonly listed = computed(() => {
+    if (!this.places.known()) {
+      return false;
+    }
     const count = this.places.places().length;
-    return count > 1 || (count === 1 && !this.inPlace()) || this.places.closed().length > 0;
+    return count > 1 || (count === 1 && !this.inPlace()) || this.places.unavailable().length > 0;
   });
+  /** Whether the person has one place and nothing to switch to, once their places are known. */
+  readonly alone = computed(() => this.places.known() && this.places.places().length === 1);
   readonly filter = signal('');
-  readonly findable = computed(() => this.places.places().length + this.places.closed().length >= findFrom);
+  readonly findable = computed(() => this.places.places().length + this.places.unavailable().length >= findFrom);
 
   private matches = computed(() => {
     const words = this.filter().trim().toLowerCase();
     return this.places.places().filter((place) => !words || place.label.toLowerCase().includes(words));
   });
 
-  /** The tenants that are closed to this sign-in, narrowed as the places are. */
-  readonly closed = computed<readonly ClosedPlace[]>(() => {
+  /** The tenants this session cannot enter, narrowed as the places are. */
+  readonly unavailable = computed<readonly UnavailablePlace[]>(() => {
     const words = this.filter().trim().toLowerCase();
-    return this.places.closed().filter((place) => !words || place.label.toLowerCase().includes(words));
+    return this.places.unavailable().filter((place) => !words || place.label.toLowerCase().includes(words));
   });
 
   /** The place outside every tenant apart, then the tenants. */

@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/lodestar/pkg/resources"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/resource"
@@ -17,7 +18,7 @@ const DroidReportRetention = 90 * 24 * time.Hour
 
 // pruneEvent is the event source the prune's deletes are recorded under: the process,
 // since no person makes them.
-var pruneEvent = resource.ProcessEvent("PruneDroidReports")
+var pruneEvent = eventsource.ProcessEvent("PruneDroidReports")
 
 type (
 	// PruneDroidReports is the scheduled method. Every night at 03:30 headquarters time
@@ -28,10 +29,11 @@ type (
 	// token check alone, the stack creates its Cloud Scheduler job from the release file,
 	// and no role names it.
 	//
-	// It takes no input, since the scheduler sends no body, and it runs as the application
-	// over every sector: no caller is stamped, so its read and its deletes are trusted, and
-	// each delete is recorded under the process (resource.ProcessEvent). It answers how
-	// many readings went and the cutoff, which the call's log carries.
+	// It takes no input, since the scheduler sends no body, and it runs as the
+	// application over every sector: no caller is stamped, so its read and its deletes
+	// are trusted, and each delete is recorded under the process
+	// (eventsource.ProcessEvent). It answers how many readings went and the cutoff,
+	// which the call's log carries.
 	//
 	// Demonstrates: @schedule.
 	//

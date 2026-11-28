@@ -5,6 +5,7 @@ import (
 	"iter"
 
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/session/signin"
 	"github.com/impulseframework/impulse/spxscan/spxapi"
 )
@@ -30,14 +31,17 @@ type UserPermissions interface {
 	// tenants lists none.
 	Domains(ctx context.Context) ([]accesstypes.Domain, error)
 
-	// Reaches reports whether the session may enter domain: the tenant's
-	// declaration (TenantDeclarations) admits the way the session was
-	// established, its sign-in's method and connection; or the session's
+	// Reaches reports whether the session may enter domain. A tenant that is
+	// disabled (signin.TenantDeclaration.Disabled) is entered by a session whose
+	// actor is a super administrator and by no other. Any other tenant is entered
+	// when the tenant's declaration (TenantDeclarations) admits the way the session
+	// was established, its sign-in's method and connection; or the session's
 	// actor is a super administrator, who holds the Super Administrator role
 	// and enters every tenant; or the tenant is directory only and the
 	// session is its own administrator's, established with a password and
 	// carrying a second factor. Nobody else is exempt from a tenant's sign-in
-	// settings. It is the generated domain guard's
+	// settings. What the settings alone say of the session, whether or not the
+	// tenant is disabled, is AdmitsSession's answer. It is the generated domain guard's
 	// question before the foothold, and the attenuation behind every other
 	// answer: in a tenant the session does not reach it holds nothing —
 	// every check Denied, an empty digest, no foothold. Whether domain is a
@@ -45,6 +49,29 @@ type UserPermissions interface {
 	// guard asks first. A session composed without declarations reaches
 	// every domain.
 	Reaches(ctx context.Context, domain accesstypes.Domain) (bool, error)
+
+	// HeldDomains lists every tenant the session's person holds: the domains of
+	// the application's roster where the person holds at least one grant,
+	// sorted; never nil. It answers a question about the person, where Domains
+	// answers one about the session: Domains leaves out a tenant the session's
+	// permission mask leaves nothing of, a tenant that is closed to the way the
+	// session signed in and a tenant that is disabled (UnavailableDomains), and the
+	// person holds all three. A rule
+	// that counts a person's tenants asks here, so that no mask a session runs
+	// under makes a tenant not theirs: the generated create-your-tenant route
+	// does, for its rule that a person creates one tenant. In a session that
+	// acts as a person, the person is the one acted as, whose grants the
+	// session runs with. In a session that runs with a role's grants, the
+	// person is the real person behind it and the list is theirs, never the
+	// role's; a session that acts as a role the application runs no sessions
+	// as is refused the answer.
+	//
+	// It is a method of the interface so that every permissions value answers
+	// it: one an application wraps or writes itself cannot leave the question to
+	// the masked list. A type that embeds the composed value passes the call
+	// through by promotion; one that implements the interface itself answers
+	// from the person's grants before any mask, never from Domains.
+	HeldDomains(ctx context.Context) ([]accesstypes.Domain, error)
 }
 
 // UserPermissionChecker is what an application's per-request accessor for a
@@ -117,6 +144,12 @@ type SessionUserChecker interface {
 	// its directory only still admits its own administrators with a password
 	// and a second factor (signin.TenantDeclaration.AdmitsAdministrator).
 	AdministersTenant(ctx context.Context, domain accesstypes.Domain) (bool, error)
+
+	// Auth names the auth whose permission engine the checker answers from, as
+	// the engine was opened (the access package's Client.Auth), empty for an
+	// engine opened under no auth's name. SessionPermissions holds it to the auth
+	// a bound request came through.
+	Auth() string
 }
 
 // RolePermissions is the permission surface of a session that operates as a
@@ -141,6 +174,12 @@ type RolePermissions interface {
 	// HasGrants reports whether the role holds at least one grant in scope.
 	// See UserPermissionChecker.HasGrants.
 	HasGrants(ctx context.Context, scope accesstypes.Scope) (bool, error)
+
+	// Auth names the auth whose permission engine the checker answers from, as
+	// the engine was opened (the access package's Client.Auth), empty for an
+	// engine opened under no auth's name. SessionPermissions holds it to the auth
+	// a bound request came through.
+	Auth() string
 }
 
 // DomainRoster lists the application's tenant domains: the roster the tenant
@@ -204,6 +243,21 @@ type ReadOnlyTransactionCloser interface {
 // Executor interface exposes ability to run a function inside a transaction.
 type Executor interface {
 	ExecuteFunc(ctx context.Context, f func(ctx context.Context, txn ReadWriteTransaction) error) error
+	// ExecuteDeleteFunc is ExecuteFunc for a request that may hold the delete of a record
+	// with rows under it. Where run is DeleteRunAsks, f is first run on a question
+	// transaction: every read made through it goes to one read-only transaction, which
+	// reads the database as it stood at one moment and locks nothing; nothing buffered
+	// through it is written; and of the patches f buffers only a delete that asks first is
+	// run (PatchSet.Buffer does nothing there for any other). An error f returns there, a
+	// refusal or the question a person is asked first, is the answer, and no read-write
+	// transaction was opened. Where f returns none, nothing was asked, and f is run again
+	// as ExecuteFunc runs it: the delete then reads and checks inside its own transaction.
+	// Where run is DeleteRunPlain it is ExecuteFunc. Where run is DeleteRunSave it is
+	// ExecuteFunc with the transaction opened at the repeatable read isolation level (the
+	// request is a save of a delete): its reads lock nothing, and Spanner aborts it only
+	// where another transaction wrote a row it writes. f must start each run from nothing,
+	// as it must for ExecuteFunc, which runs it again when Spanner aborts the transaction.
+	ExecuteDeleteFunc(ctx context.Context, run DeleteRun, f func(ctx context.Context, txn ReadWriteTransaction) error) error
 }
 
 // Reader is an interface that wraps methods for reading resources from a database.
@@ -227,5 +281,5 @@ type PatchSetMetadata interface {
 // Buffer is an interface for types that can buffer their mutations
 // into a transaction. This is used for batching operations.
 type Buffer interface {
-	Buffer(ctx context.Context, txn ReadWriteTransaction, eventSource ...string) error
+	Buffer(ctx context.Context, txn ReadWriteTransaction, eventSource ...eventsource.EventSource) error
 }

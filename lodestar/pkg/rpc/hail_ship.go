@@ -5,6 +5,7 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/lodestar/pkg/resources"
 	"github.com/impulseframework/impulse/resource"
 )
@@ -14,7 +15,7 @@ import (
 // the ship within the sector, through its one-hop join-path tenancy, and evaluates the
 // caller's Execute condition against it (the Pilot's grant carries `hangarZone !=
 // 'quarantine'`); then the body fires the generated NewShipTouch: UpdatedAt bumps and
-// the ship's log records who hailed, while no field of the ship changes. It declares
+// the ship's history records who hailed, while no field of the ship changes. It declares
 // No Content as its one status: a touch has nothing to say, so no body goes on the
 // wire, and the answerless form is the only one that may say so.
 //
@@ -30,7 +31,7 @@ type HailShip struct {
 
 // Execute runs inside the handler's transaction and answers nothing.
 func (m *HailShip) Execute(ctx context.Context, txn resource.ReadWriteTransaction, _ *Client) error {
-	if err := resources.NewShipTouch(m.ShipID).Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+	if err := resources.NewShipTouch(m.ShipID).Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 		return errors.Wrap(err, "resources.ShipTouch.Buffer()")
 	}
 

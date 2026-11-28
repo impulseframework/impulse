@@ -3,9 +3,12 @@ package attempts
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
@@ -164,6 +167,10 @@ func refused(ctx context.Context, t *testing.T, l *Limiter, name string, client 
 	return wait
 }
 
+// TestNormalize pins the key a name's attempts are counted under: a name with an @ in it
+// with its ASCII capitals lowercased and every other character as written, any other in
+// Unicode NFC and case-folded. The letters from outside ASCII are written as escapes so
+// that each is the code point it is named for.
 func TestNormalize(t *testing.T) {
 	t.Parallel()
 
@@ -172,18 +179,131 @@ func TestNormalize(t *testing.T) {
 		in   string
 		want string
 	}{
-		{name: "a name is case-folded", in: "Pat@Lakeside.EDU", want: "pat@lakeside.edu"},
-		{name: "a composed and a decomposed spelling are one name", in: "résumé", want: "résumé"},
+		{name: "an address's ASCII capitals are lowercased", in: "Pat@Lakeside.EDU", want: "pat@lakeside.edu"},
+		{name: "an address keeps the Kelvin sign", in: "\u212Aim@Lakeside.EDU", want: "\u212Aim@lakeside.edu"},
+		{name: "an address keeps the sharp s", in: "stra\u00DFe@lakeside.edu", want: "stra\u00DFe@lakeside.edu"},
+		{name: "an address keeps an accented letter in two code points", in: "jose\u0301@Lakeside.edu", want: "jose\u0301@lakeside.edu"},
+		{name: "an address keeps a capital letter from outside ASCII", in: "\u00C9milie@lakeside.edu", want: "\u00C9milie@lakeside.edu"},
+		{name: "a name with no @ in it is case-folded, the Kelvin sign to a k", in: "\u212Aim", want: "kim"},
+		{name: "a name with no @ in it is case-folded, the sharp s to ss", in: "Stra\u00DFe", want: "strasse"},
+		{name: "a kind's capitals before an address are lowercased", in: "MAIL:\u00C9milie@lakeside.edu", want: "mail:\u00C9milie@lakeside.edu"},
+		{name: "a name with no @ in it is one name in a composed and a decomposed spelling", in: "re\u0301sume\u0301", want: "r\u00E9sum\u00E9"},
 		{name: "a folded name stays as it is", in: "pat", want: "pat"},
+		{name: "a name with no @ in it in Cherokee capitals stays in capitals", in: "\u13A0\u13A1", want: "\u13A0\u13A1"},
+		{name: "a name with no @ in it in Cherokee small letters is folded to the capitals", in: "\uAB70\uAB71", want: "\u13A0\u13A1"},
+		{name: "a name with no @ in it in a Cherokee capital and a small letter is folded to the capitals", in: "\u13A0\uAB71", want: "\u13A0\u13A1"},
+		{name: "a name with no @ in it in a Cherokee capital of the later block stays a capital", in: "\u13F0", want: "\u13F0"},
+		{name: "a name with no @ in it in a Cherokee small letter of the later block is folded to its capital", in: "\u13F8", want: "\u13F0"},
+		{name: "an address keeps Cherokee small letters", in: "\uAB70\uAB71@lakeside.edu", want: "\uAB70\uAB71@lakeside.edu"},
+		{name: "a name with no @ in it in a capital written in two code points is its small letter in one", in: "\u03AA\u0301", want: "\u0390"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			if got := Normalize(tt.in); got != tt.want {
-				t.Errorf("Normalize(%q) = %q, want %q", tt.in, got, tt.want)
+				t.Errorf("Normalize(%+q) = %+q, want %+q", tt.in, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestFoldWide pins the form a username with no @ in it is matched in, which is also the
+// wide reading of an address that the counts of its mail are kept under: normalized
+// (Unicode NFC), case-folded and normalized again, so some addresses that only read alike
+// are one. The letters from outside ASCII are written as escapes so that each is the code
+// point it is named for.
+func TestFoldWide(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "ASCII capitals are lowercased", in: "Pat@Lakeside.EDU", want: "pat@lakeside.edu"},
+		{name: "the Kelvin sign folds to a k", in: "\u212Aim@Lakeside.EDU", want: "kim@lakeside.edu"},
+		{name: "the sharp s folds to ss", in: "stra\u00DFe@lakeside.edu", want: "strasse@lakeside.edu"},
+		{name: "an accented letter in two code points is composed", in: "jose\u0301@Lakeside.edu", want: "jos\u00E9@lakeside.edu"},
+		{name: "a capital letter from outside ASCII is folded", in: "\u00C9milie@lakeside.edu", want: "\u00E9milie@lakeside.edu"},
+		{name: "a name with no @ in it is folded the same way", in: "\u212Aim", want: "kim"},
+		{name: "the sharp s in a name with no @ in it folds to ss", in: "Stra\u00DFe", want: "strasse"},
+		{name: "Cherokee capitals stay capitals", in: "\u13A0\u13A1", want: "\u13A0\u13A1"},
+		{name: "Cherokee small letters fold to the capitals", in: "\uAB70\uAB71", want: "\u13A0\u13A1"},
+		{name: "a Cherokee capital and a small letter fold to the capitals", in: "\u13A0\uAB71", want: "\u13A0\u13A1"},
+		{name: "a Cherokee capital of the later block stays a capital", in: "\u13F0", want: "\u13F0"},
+		{name: "a Cherokee small letter of the later block folds to its capital", in: "\u13F8", want: "\u13F0"},
+		{name: "an address in Cherokee small letters folds to the capitals", in: "\uAB70\uAB71@lakeside.edu", want: "\u13A0\u13A1@lakeside.edu"},
+		{name: "a capital written in two code points folds to its small letter in one", in: "\u03AA\u0301", want: "\u0390"},
+		{name: "a small letter whose folding is three code points is composed again", in: "\u0390", want: "\u0390"},
+		{name: "the sharp s before an accent is composed with it after the folding", in: "\u00DF\u0301", want: "s\u015B"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := FoldWide(tt.in); got != tt.want {
+				t.Errorf("FoldWide(%+q) = %+q, want %+q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestFoldWide_foldedAgain pins that the form FoldWide gives is the same when it is folded
+// again, for every code point alone and for every cased letter followed by each combining
+// mark from U+0300 to U+036F, among which are texts whose folding is not normalized (the
+// sharp s followed by an acute accent): SignInAttemptKey folds a listed name, which is
+// already a key, again, and has to name the row the list shows.
+func TestFoldWide_foldedAgain(t *testing.T) {
+	t.Parallel()
+
+	check := func(text string) {
+		once := FoldWide(text)
+		if twice := FoldWide(once); twice != once {
+			t.Errorf("FoldWide(%+q) = %+q, and folded again %+q", text, once, twice)
+		}
+	}
+	for r := rune(0); r <= utf8.MaxRune; r++ {
+		if !utf8.ValidRune(r) {
+			continue
+		}
+		check(string(r))
+		if !unicode.IsUpper(r) && !unicode.IsLower(r) && !unicode.IsTitle(r) {
+			continue
+		}
+		for mark := rune(0x0300); mark <= 0x036F; mark++ {
+			check(string(r) + string(mark))
+		}
+	}
+}
+
+// TestOwnKey pins what keeps the library's own counts apart from the names people sign in
+// under: a key of the library's is spelled in capitals, so no name normalizes to one,
+// whatever a person types, the key's own text and its capitals among it.
+func TestOwnKey(t *testing.T) {
+	t.Parallel()
+
+	for _, kind := range []string{KindMail, KindCode, KindInvitation, KindInvitationGuess, KindAddressGuess, KindCodeGuess, KindReset, KindFirstPassword} {
+		key := OwnKey(kind, "pat@lakeside.edu")
+		if !IsOwnKey(key) {
+			t.Errorf("IsOwnKey(%q) = false, want the library's own count recognized", key)
+		}
+		for _, typed := range []string{key, strings.ToLower(key), strings.ToUpper(key), " " + key} {
+			name := Normalize(typed)
+			if name == key || IsOwnKey(name) {
+				t.Errorf("a sign-in under the name %q is counted under %q, which is the library's own count %q", typed, name, key)
+			}
+		}
+	}
+	// A name with an @ in it keeps its letters from outside ASCII as written, and the
+	// capitals of a kind before it are lowercased all the same.
+	if typed := "MAIL:\u00c9milie@lakeside.edu"; IsOwnKey(Normalize(typed)) {
+		t.Errorf("a sign-in under the name %+q is counted under %+q, which is one of the library's own counts", typed, Normalize(typed))
+	}
+	for _, name := range []string{"pat", "pat@lakeside.edu", "mail:pat@lakeside.edu", "reset:pat@lakeside.edu", "invitation:0f9a1c2e", "invitation-guess:0f9a1c2e", "address-guess:pat@lakeside.edu", "code-guess:pat@lakeside.edu", "first-password:0f9a1c2e", "MAILROOM", ""} {
+		if IsOwnKey(name) {
+			t.Errorf("IsOwnKey(%q) = true, want a name's count", name)
+		}
 	}
 }
 
@@ -352,6 +472,23 @@ func TestLimiter_NameResetAndCache(t *testing.T) {
 				succeed(ctx, t, l, "sam", Client{})
 				if store.record(Normalize("sam")) != nil {
 					t.Errorf("record after a right password with no failure before it = %v, want none: the attempt was given back", store.record(Normalize("sam")))
+				}
+			},
+		},
+		{
+			name: "a right password for a name that only reads like another leaves the other's count: each has its own",
+			run: func(ctx context.Context, t *testing.T, l *Limiter, store *fakeStore, _ *clock) {
+				// The Kelvin sign (U+212A) for the k: another address, so another name.
+				const kim, alike = "kim@lakeside.edu", "\u212aim@lakeside.edu"
+				fail(ctx, t, l, kim, Client{})
+				fail(ctx, t, l, kim, Client{})
+				fail(ctx, t, l, alike, Client{})
+				succeed(ctx, t, l, alike, Client{})
+				if r := store.record(Normalize(kim)); r == nil || r.Failures != 2 {
+					t.Errorf("record of %+q after a right password for %+q = %+v, want its two failures", kim, alike, r)
+				}
+				if r := store.record(Normalize(alike)); r != nil {
+					t.Errorf("record of %+q after its right password = %+v, want none", alike, r)
 				}
 			},
 		},
@@ -792,6 +929,100 @@ func TestLimiter_TakenAtOnce(t *testing.T) {
 
 			l, store, _ := newLimiter(t)
 			tt.run(t.Context(), t, l, store)
+		})
+	}
+}
+
+// TestLimiter_Count holds the count of requests that are attempts on no name: the client's
+// keys alone, at the client's limit, with the store never asked.
+func TestLimiter_Count(t *testing.T) {
+	t.Parallel()
+
+	clientLimit := ClientMultiple * testLimit.Failures
+
+	tests := []struct {
+		name string
+		run  func(t *testing.T, l *Limiter, store *fakeStore, c *clock)
+	}{
+		{
+			name: "the request that reaches the client's limit is held for the lock, and every later one extends the hold",
+			run: func(t *testing.T, l *Limiter, store *fakeStore, c *clock) {
+				client := Client{Address: "10.0.0.1", Cookie: "tok"}
+				for i := range clientLimit - 1 {
+					if wait := l.Count(client); wait != 0 {
+						t.Fatalf("Count() number %d waits %v, want nothing under the client's limit", i+1, wait)
+					}
+				}
+				if wait := l.Count(client); wait != testLimit.Lock {
+					t.Fatalf("Count() at the client's limit waits %v, want the lock period %v", wait, testLimit.Lock)
+				}
+				c.advance(time.Minute)
+				if wait := l.Count(client); wait != testLimit.Lock {
+					t.Errorf("Count() during the hold waits %v, want the lock period again: the hold is extended", wait)
+				}
+				// Past the end of the first hold, the one the later request extended still holds.
+				c.advance(testLimit.Lock - 30*time.Second)
+				if wait := l.Count(client); wait != testLimit.Lock {
+					t.Errorf("Count() past the first hold's end waits %v, want the extended hold's lock period", wait)
+				}
+				if store.asked() != 0 {
+					t.Errorf("the store was asked %d times, want none", store.asked())
+				}
+			},
+		},
+		{
+			name: "a new window starts the count again",
+			run: func(t *testing.T, l *Limiter, _ *fakeStore, c *clock) {
+				client := Client{Address: "10.0.0.1"}
+				for range clientLimit - 1 {
+					l.Count(client)
+				}
+				c.advance(testLimit.Window)
+				for i := range clientLimit - 1 {
+					if wait := l.Count(client); wait != 0 {
+						t.Fatalf("Count() number %d of the new window waits %v, want nothing: the window's count starts again", i+1, wait)
+					}
+				}
+				if wait := l.Count(client); wait != testLimit.Lock {
+					t.Errorf("Count() at the new window's limit waits %v, want the lock period", wait)
+				}
+			},
+		},
+		{
+			name: "a client with no address and no cookie is never held",
+			run: func(t *testing.T, l *Limiter, _ *fakeStore, _ *clock) {
+				for i := range 3 * clientLimit {
+					if wait := l.Count(Client{}); wait != 0 {
+						t.Fatalf("Count() number %d of a client with no keys waits %v, want nothing", i+1, wait)
+					}
+				}
+			},
+		},
+		{
+			name: "a client held by one limiter's count is free on another, and its sign-in there is taken",
+			run: func(t *testing.T, l *Limiter, store *fakeStore, c *clock) {
+				client := Client{Address: "10.0.0.1", Cookie: "tok"}
+				for range clientLimit {
+					l.Count(client)
+				}
+				if wait := l.Count(client); wait == 0 {
+					t.Fatal("Count() past the client's limit waits nothing, want the hold")
+				}
+				other := New(testLimit, store)
+				other.SetClock(c.now)
+				if wait := other.Count(client); wait != 0 {
+					t.Errorf("Count() on another limiter waits %v, want nothing: the hold is the first limiter's", wait)
+				}
+				take(t.Context(), t, other, "pat", client)
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			l, store, c := newLimiter(t)
+			tt.run(t, l, store, c)
 		})
 	}
 }

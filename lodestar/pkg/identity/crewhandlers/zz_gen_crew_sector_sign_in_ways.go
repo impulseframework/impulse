@@ -19,14 +19,16 @@ import (
 
 func (h *Handlers) CrewSectorSignInWays() http.HandlerFunc {
 	type crewSectorSignInWay struct {
-		UserID        impulse.UUID `json:"userId"        allow_filter:"true" perm:"-"`
-		Way           string       `json:"way"           perm:"-"`
-		Password      bool         `json:"password"`
-		Method        string       `json:"method"`
-		Connection    string       `json:"connection"`
-		Through       string       `json:"through"`
-		HeldElsewhere bool         `json:"heldElsewhere"`
-		HeldGlobally  bool         `json:"heldGlobally"`
+		UserID                    impulse.UUID `json:"userId"                    allow_filter:"true" perm:"-"`
+		Way                       string       `json:"way"                       perm:"-"`
+		Password                  bool         `json:"password"`
+		Method                    string       `json:"method"`
+		Connection                string       `json:"connection"`
+		Through                   string       `json:"through"`
+		HeldElsewhere             bool         `json:"heldElsewhere"`
+		HeldGlobally              bool         `json:"heldGlobally"`
+		ManagedHere               bool         `json:"managedHere"`
+		ManagedByAnotherDirectory bool         `json:"managedByAnotherDirectory"`
 	}
 
 	type response []map[string]any
@@ -50,8 +52,9 @@ func (h *Handlers) CrewSectorSignInWays() http.HandlerFunc {
 		ctx = resource.WithCaller(ctx, querySet.Caller())
 
 		// A live list registers before the query runs, so a commit that lands during
-		// the query is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, h.LiveService(), querySet, live.ListSubscription(querySet.Resource(), domain))
+		// the query is not missed; a refused request registers nothing. With it the
+		// request registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, h.LiveService(), querySet, live.ListSubscription(querySet.Resource(), domain))
 
 		// The handler judges the rows the List function yields by the caller's
 		// grants, where one carries a condition that reads the row, and applies
@@ -86,6 +89,10 @@ func (h *Handlers) CrewSectorSignInWays() http.HandlerFunc {
 					rmap["heldElsewhere"] = rec.HeldElsewhere
 				case "HeldGlobally":
 					rmap["heldGlobally"] = rec.HeldGlobally
+				case "ManagedHere":
+					rmap["managedHere"] = rec.ManagedHere
+				case "ManagedByAnotherDirectory":
+					rmap["managedByAnotherDirectory"] = rec.ManagedByAnotherDirectory
 				}
 			}
 			resp = append(resp, rmap)

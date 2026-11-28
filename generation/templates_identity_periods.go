@@ -25,12 +25,17 @@ func storedPeriod(start, end *time.Time) accesstypes.Period {
 	return period
 }
 
-// SetMembershipPeriod writes both columns, an absent start or end as NULL: the period
-// handed replaces the one the membership had.
-func (store) SetMembershipPeriod(ctx context.Context, txn resource.ReadWriteTransaction, key *access.MembershipKey, period accesstypes.Period) error {
+// SetMembershipPeriod writes both columns of the period and the reason, an absent start
+// or end and an empty reason as NULL: what is handed replaces what the membership had.
+func (store) SetMembershipPeriod(ctx context.Context, txn resource.ReadWriteTransaction, key *access.MembershipKey, period accesstypes.Period, reason string) error {
+	var why *string
+	if reason != "" {
+		why = &reason
+	}
 	patch := {{ .ResourcesPackage }}.New{{ .Membership }}UpdatePatch(key.Kind, key.Axis, key.Domain, string(key.Role), string(key.User)).
 		SetStartsAt(period.StartPtr()).
-		SetEndsAt(period.EndPtr())
+		SetEndsAt(period.EndPtr()).
+		SetReason(why)
 	if err := patch.Buffer(ctx, txn); err != nil {
 		return errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .Membership }}UpdatePatch.Buffer()")
 	}
@@ -39,10 +44,14 @@ func (store) SetMembershipPeriod(ctx context.Context, txn resource.ReadWriteTran
 }
 
 func (store) UserPeriods(ctx context.Context, txn resource.ReadOnlyTransaction, userID impulse.UUID) (*identity.UserPeriods, error) {
-	periods := &identity.UserPeriods{Memberships: map[access.MembershipKey]accesstypes.Period{}, Places: map[access.GroupMemberKey]accesstypes.Period{}}
+	periods := &identity.UserPeriods{
+		Memberships: map[access.MembershipKey]accesstypes.Period{},
+		Places:      map[access.GroupMemberKey]accesstypes.Period{},
+		Reasons:     map[access.MembershipKey]string{},
+	}
 	// The table's index by user leads with the person, the id of their account.
 	memberships := {{ .ResourcesPackage }}.New{{ .Membership }}Query().
-		AddColumns({{ .ResourcesPackage }}.New{{ .Membership }}Columns().Kind().Axis().DomainID().Role().UserID().StartsAt().EndsAt()).
+		AddColumns({{ .ResourcesPackage }}.New{{ .Membership }}Columns().Kind().Axis().DomainID().Role().UserID().StartsAt().EndsAt().Reason()).
 		Where({{ .ResourcesPackage }}.New{{ .Membership }}QueryClause().UserID().Equal(userID.String()))
 	for row, err := range memberships.List(ctx, txn) {
 		if err != nil {
@@ -50,6 +59,9 @@ func (store) UserPeriods(ctx context.Context, txn resource.ReadOnlyTransaction, 
 		}
 		key := access.MembershipKey{Kind: row.Data.Kind, Axis: row.Data.Axis, Domain: row.Data.DomainID, Role: accesstypes.Role(row.Data.Role), User: accesstypes.User(row.Data.UserID)}
 		periods.Memberships[key] = storedPeriod(row.Data.StartsAt, row.Data.EndsAt)
+		if row.Data.Reason != nil && *row.Data.Reason != "" {
+			periods.Reasons[key] = *row.Data.Reason
+		}
 	}
 	{{- if .KeepsGroups }}
 	places := {{ .ResourcesPackage }}.New{{ .GroupMember }}Query().
@@ -113,14 +125,13 @@ func (store) EndedAssignments(ctx context.Context, txn resource.ReadOnlyTransact
 	return memberships, places, nil
 }
 
-// RemoveEnded buffers each removal under the source that says the assignment ended by
-// itself (identity.EndedByItself): it is what a change record of the row holds in place
-// of a person's act.
+// RemoveEnded buffers each removal under the process that says the assignment ended by
+// itself (identity.EndedByItself): nobody made it.
 func (store) RemoveEnded(ctx context.Context, txn resource.ReadWriteTransaction, memberships []access.MembershipKey, places []access.GroupMemberKey) error {
 	for i := range memberships {
 		key := &memberships[i]
 		patch := {{ .ResourcesPackage }}.New{{ .Membership }}DeletePatch(key.Kind, key.Axis, key.Domain, string(key.Role), string(key.User))
-		if err := patch.Buffer(ctx, txn, identity.EndedByItself); err != nil {
+		if err := patch.Buffer(ctx, txn, eventsource.ProcessEvent(identity.EndedByItself)); err != nil {
 			return errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .Membership }}DeletePatch.Buffer()")
 		}
 	}
@@ -130,7 +141,7 @@ func (store) RemoveEnded(ctx context.Context, txn resource.ReadWriteTransaction,
 		if err != nil {
 			return err
 		}
-		if err := {{ .ResourcesPackage }}.New{{ .GroupMember }}DeletePatch(id, string(place.User)).Buffer(ctx, txn, identity.EndedByItself); err != nil {
+		if err := {{ .ResourcesPackage }}.New{{ .GroupMember }}DeletePatch(id, string(place.User)).Buffer(ctx, txn, eventsource.ProcessEvent(identity.EndedByItself)); err != nil {
 			return errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .GroupMember }}DeletePatch.Buffer()")
 		}
 	}
@@ -146,7 +157,7 @@ func (store) RemoveEnded(ctx context.Context, txn resource.ReadWriteTransaction,
 // The schema holds no memberships table for the {{ .Auth }} auth
 // ({{ .Policy.UserRoles }}): nothing has a period, and nothing has ended.
 
-func (store) SetMembershipPeriod(context.Context, resource.ReadWriteTransaction, *access.MembershipKey, accesstypes.Period) error {
+func (store) SetMembershipPeriod(context.Context, resource.ReadWriteTransaction, *access.MembershipKey, accesstypes.Period, string) error {
 	return errNoMemberships
 }
 
@@ -246,4 +257,11 @@ func (store) GroupPeriods(context.Context, resource.ReadOnlyTransaction, impulse
 	// EndsAt is the first instant it no longer counts. Left out, it counts until it is
 	// taken away.
 	EndsAt *time.Time`
+
+	// identityReasonField is the field a method that gives a person a role adds to its
+	// request after the period: why the role is given.
+	identityReasonField = `
+	// Reason says why the role is given: one line of plain text, kept with the role and
+	// shown wherever the person's roles are listed. Left out, the role carries none.
+	Reason *string`
 )

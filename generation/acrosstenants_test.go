@@ -288,6 +288,7 @@ func Test_accumulateResourceRoutes_acrossTenants(t *testing.T) {
 		"GET /api/tenants/{tenantID}/shipments/{shipmentID} Shipment",
 		"PATCH /api/tenants/{tenantID}/shipments PatchShipments",
 		"GET /api/shipments ShipmentsAcrossTenants",
+		"GET /api/tenants/{tenantID}/shipments/{shipmentID}/changes ShipmentChangeHistory",
 	}
 	if diff := cmp.Diff(wantShipment, served(outletRoutes[0].RoutesMap["Shipment"])); diff != "" {
 		t.Errorf("Shipment's routes mismatch (-want +got):\n%s", diff)
@@ -385,7 +386,7 @@ func Test_acrossTenantsHandlerContent(t *testing.T) {
 		// Plain unless the page asks: the one subscription over the set of tenants,
 		// registered before the query, and the refetch's answer cacheable through what
 		// the registration answered, which says when the list is served plain.
-		"liveness := live.SubscribeAcrossTenants(ctx, r, a.LiveService(), querySet)\n\n\t\tres := ",
+		"liveness := live.SubscribeAcrossTenants(ctx, w, r, a.LiveService(), querySet)\n\n\t\tres := ",
 		"liveness.SetCacheControl(w, r)",
 	}, []string{
 		// Never marked cacheable whatever the registration answered.
@@ -458,7 +459,7 @@ func Test_resourceAuthzCases_acrossTenants(t *testing.T) {
 			across = append(across, c)
 		}
 	}
-	want := []authzCase{{Name: "ShipmentsAcrossTenants", Method: "http.MethodGet", URL: "/api/shipments", Permission: "List", AcrossTenants: true}}
+	want := []authzCase{{Name: "ShipmentsAcrossTenants", Method: "http.MethodGet", URL: "/api/shipments", Permission: "List", AcrossTenants: true, OutsideTenantGuard: true}}
 	if diff := cmp.Diff(want, across, cmp.AllowUnexported(authzCase{})); diff != "" {
 		t.Fatalf("the across-tenants cases mismatch (-want +got):\n%s", diff)
 	}

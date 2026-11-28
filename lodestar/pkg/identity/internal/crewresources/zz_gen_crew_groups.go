@@ -12,6 +12,8 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
+	"github.com/impulseframework/impulse/lodestar/pkg/resources"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -21,6 +23,126 @@ func (CrewGroup) Resource() accesstypes.Resource {
 
 func (CrewGroup) DefaultConfig() resource.Config {
 	return defaultConfig()
+}
+
+// DeleteTree describes what a delete of a CrewGroup takes with it and what refuses
+// it: the library's own kinds, and the application's records that name the
+// CrewGroup, taken where their column says so (@deletedWith) and refusing its delete
+// where it does not. The kinds taken are in the order their rows are deleted, deepest
+// first, each with its ways up to the CrewGroup and what the delete of one of its
+// rows costs.
+func (CrewGroup) DeleteTree() *resource.DeleteTree {
+	return &resource.DeleteTree{
+		Record: "CrewGroups",
+		Words:  resource.DeleteWords{One: "group", Many: "groups"},
+		Key:    []string{"Id"},
+		Cost:   resource.DeleteCost{IndexEntries: 1, Files: 0},
+		Taken: []resource.DeleteKind{
+			{
+				Resource: "HangarPasses",
+				Words:    resource.DeleteWords{One: "hangar pass", Many: "hangar passes"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 9, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"GroupId"}, Table: "CrewGroups", References: []string{"Id"}, MayBeEmpty: true},
+					},
+				},
+				AsCaller: true,
+				Rows:     resources.HangarPassTakenRows(),
+			},
+			{
+				Resource: "CrewRecordGroupRoles",
+				Words:    resource.DeleteWords{One: "crew record group role", Many: "crew record group roles"},
+				Key:      []string{"Axis", "DomainId", "Resource", "RecordId", "Role", "GroupId"},
+				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "DomainId"},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"GroupId"}, Table: "CrewGroups", References: []string{"Id"}},
+					},
+				},
+				Trusted: true,
+				Rows:    resource.NewTakenRows(func(*resource.PatchSet[CrewRecordGroupRole], *resource.Caller) {}),
+			},
+			{
+				Resource: "CrewGroupRoles",
+				Words:    resource.DeleteWords{One: "role", Many: "roles"},
+				Key:      []string{"GroupId", "Kind", "Axis", "DomainId", "Role"},
+				Cost:     resource.DeleteCost{IndexEntries: 1, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"GroupId"}, Table: "CrewGroups", References: []string{"Id"}},
+					},
+				},
+				Trusted: true,
+				Rows:    resource.NewTakenRows(func(*resource.PatchSet[CrewGroupRole], *resource.Caller) {}),
+			},
+			{
+				Resource: "CrewGroupMembers",
+				Words:    resource.DeleteWords{One: "member", Many: "members"},
+				Key:      []string{"GroupId", "UserId"},
+				Cost:     resource.DeleteCost{IndexEntries: 1, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"GroupId"}, Table: "CrewGroups", References: []string{"Id"}},
+					},
+				},
+				Trusted: true,
+				Rows:    resource.NewTakenRows(func(*resource.PatchSet[CrewGroupMember], *resource.Caller) {}),
+			},
+		},
+		Under: []resource.DeleteKind{
+			{
+				Resource: "CrewGroupMembers",
+				Words:    resource.DeleteWords{One: "member", Many: "members"},
+				Key:      []string{"GroupId", "UserId"},
+				Cost:     resource.DeleteCost{IndexEntries: 1, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"GroupId"}, Table: "CrewGroups", References: []string{"Id"}},
+					},
+				},
+			},
+			{
+				Resource: "CrewGroupRoles",
+				Words:    resource.DeleteWords{One: "role", Many: "roles"},
+				Key:      []string{"GroupId", "Kind", "Axis", "DomainId", "Role"},
+				Cost:     resource.DeleteCost{IndexEntries: 1, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"GroupId"}, Table: "CrewGroups", References: []string{"Id"}},
+					},
+				},
+			},
+			{
+				Resource: "CrewRecordGroupRoles",
+				Words:    resource.DeleteWords{One: "crew record group role", Many: "crew record group roles"},
+				Key:      []string{"Axis", "DomainId", "Resource", "RecordId", "Role", "GroupId"},
+				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "DomainId"},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"GroupId"}, Table: "CrewGroups", References: []string{"Id"}},
+					},
+				},
+			},
+			{
+				Resource: "HangarPasses",
+				Words:    resource.DeleteWords{One: "hangar pass", Many: "hangar passes"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 9, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"GroupId"}, Table: "CrewGroups", References: []string{"Id"}, MayBeEmpty: true},
+					},
+				},
+				AsCaller: true,
+			},
+		},
+	}
 }
 
 // crewGroupRead mirrors the wire shape the resource routes list
@@ -395,11 +517,11 @@ func (p *CrewGroupCreatePatch) ToStruct() *CrewGroup {
 	return p.patchSet.ToStruct()
 }
 
-func (p *CrewGroupCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *CrewGroupCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *CrewGroupCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *CrewGroupCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -559,11 +681,11 @@ func (p *CrewGroupUpdatePatch) ToStruct() *CrewGroup {
 	return p.patchSet.ToStruct()
 }
 
-func (p *CrewGroupUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *CrewGroupUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *CrewGroupUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *CrewGroupUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -733,11 +855,66 @@ func NewCrewGroupDeletePatch(id impulse.UUID) *CrewGroupDeletePatch {
 	return &CrewGroupDeletePatch{patchSet: patchSet}
 }
 
-func (p *CrewGroupDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+// WithEverythingUnder says the delete takes the rows under the CrewGroup with it:
+// the kinds its description lists as taken, the application's rows that name it in a
+// column that says so (@deletedWith) among them, each through its own delete. It takes
+// the kinds handed to the delete as well (DeleteAlso). Without it, a delete of a
+// CrewGroup that has such rows deletes nothing and is answered with the question a
+// person is asked first (httpio.HasPreconditionRequired). Where the rows cost more than
+// one save takes, the delete takes what fits, deepest first, and Left answers the rows
+// that save deleted: buffer the delete again, in a transaction of its own, until Left
+// answers nil.
+// It is for code that deletes outside a request, and every save of such a delete asks
+// everything again before it takes a row: a request's delete goes on the token its
+// question gave (WithDeleteToken).
+func (p *CrewGroupDeletePatch) WithEverythingUnder() *CrewGroupDeletePatch {
+	p.patchSet.DeleteEverythingUnder()
+
+	return p
+}
+
+// WithDeleteToken says the delete takes the rows under the CrewGroup on the token
+// its question gave (resource.PatchSet.DeleteWithToken): it takes them only where the
+// token holds, and is answered with the question again where it does not.
+func (p *CrewGroupDeletePatch) WithDeleteToken(token string) *CrewGroupDeletePatch {
+	p.patchSet.DeleteWithToken(token)
+
+	return p
+}
+
+// Left is what the delete says once it is buffered (resource.DeleteLeft): the rows the
+// save deleted where rows are left under the CrewGroup, which stands until a save
+// takes the last of them; nil where the delete finished, the CrewGroup with it.
+func (p *CrewGroupDeletePatch) Left() *resource.DeleteLeft {
+	return p.patchSet.DeleteLeft()
+}
+
+// DeleteAlso hands the delete kinds of row it takes with the CrewGroup that its
+// description does not list (resource.TakenKind): the question counts them, the check
+// before the delete asks them, and each round takes what fits of them after the kinds
+// the description lists and before the CrewGroup.
+func (p *CrewGroupDeletePatch) DeleteAlso(kinds ...resource.TakenKind) *CrewGroupDeletePatch {
+	p.patchSet.DeleteAlso(kinds...)
+
+	return p
+}
+
+// WithLibraryRowsAlone says the delete leaves the application's rows that name the
+// CrewGroup out: none is counted, asked about or taken, and none refuses the delete
+// (resource.PatchSet.DeleteLibraryRowsAlone). A CrewGroup deleted with its tenant is
+// deleted so, the tenant's delete having taken the application's rows under the tenant
+// already.
+func (p *CrewGroupDeletePatch) WithLibraryRowsAlone() *CrewGroupDeletePatch {
+	p.patchSet.DeleteLibraryRowsAlone()
+
+	return p
+}
+
+func (p *CrewGroupDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *CrewGroupDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *CrewGroupDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

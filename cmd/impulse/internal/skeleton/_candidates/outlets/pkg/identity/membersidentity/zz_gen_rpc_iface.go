@@ -9,18 +9,20 @@ type Method interface {
 	Method() accesstypes.Resource
 	AddMembersGroupMember | AddMembersTenantGroupMember | AssignMembersRole |
 		AssignMembersTenantRole | CreateMembersGroup | CreateMembersTenantGroup |
-		CreateMembersTenantUser | CreateMembersUser | DeleteMembersGroup |
-		DeleteMembersTenantGroup | DeleteMembersTenantUser | DeleteMembersUser |
-		DescribeMembersGroup | DescribeMembersTenantGroup | DisableMembersTenantUser |
-		DisableMembersUser | EnableMembersTenantUser | EnableMembersUser | EndMembersSession |
-		EndMembersTenantUserSessions | EndMembersUserSessions | GiveMembersGroupRole |
-		GiveMembersTenantGroupRole | InviteMembersTenantUser | InviteMembersUser |
-		RemoveMembersGroupMember | RemoveMembersRole | RemoveMembersTenantGroupMember |
-		RemoveMembersTenantRole | RenameMembersTenantUser | RenameMembersUser |
+		DeleteMembersGroup | DeleteMembersTenantGroup | DeleteMembersTenantUser |
+		DeleteMembersUser | DescribeMembersGroup | DescribeMembersTenantGroup |
+		DisableMembersTenantUser | DisableMembersUser | EnableMembersTenantUser |
+		EnableMembersUser | EndMembersSession | EndMembersTenantUserSessions |
+		EndMembersUserSessions | GiveMembersGroupRole | GiveMembersTenantGroupRole |
+		InviteMembersTenantUser | InviteMembersUser | RemoveMembersGroupMember |
+		RemoveMembersRole | RemoveMembersTenantGroupMember | RemoveMembersTenantRole |
+		RemoveMembersTenantUser | RenameMembersTenantUser | RenameMembersUser |
+		RequireMembersSecondFactor | ResendMembersInvitation | ResendMembersTenantInvitation |
 		RevokeMembersSessionToken | RevokeMembersTenantUserTrustedDevices |
-		RevokeMembersUserTrustedDevices | SetMembersTenantUserEmail | SetMembersTenantUserName |
-		SetMembersUserEmail | SetMembersUserName | TakeMembersGroupRole |
-		TakeMembersTenantGroupRole | UnlinkMembersSessionIdentity |
+		RevokeMembersUserTrustedDevices | SetMembersRememberedBrowsers |
+		SetMembersTenantUserEmail | SetMembersTenantUserName | SetMembersUserEmail |
+		SetMembersUserName | StopRequiringMembersSecondFactor | TakeMembersGroupRole |
+		TakeMembersRole | TakeMembersTenantGroupRole | UnlinkMembersSessionIdentity |
 		UnlinkMembersTenantSessionIdentity | UnlockMembersSignIn | WithdrawMembersInvitation |
 		WithdrawMembersTenantInvitation
 }

@@ -228,6 +228,19 @@ func Test_identityInstance_refuseListNamesTaken(t *testing.T) {
 			tenant:  &identityTenant{name: "User"},
 			wantErr: "the tenant record User gives a list a tenant keeps of the auth's people the name CrewUserRole",
 		},
+		{
+			// A record named Listed names a tenant's people as the whole application's
+			// accounts are named (CrewListedUser), and its groups as the groups listed with
+			// what each holds are (CrewListedGroup), which is the name found first.
+			name:    "a record named Listed names a tenant's people and groups as the lists of what each holds are named",
+			tenant:  &identityTenant{name: "Listed"},
+			wantErr: "the tenant record Listed gives a list a tenant keeps of the auth's people the name CrewListedGroup",
+		},
+	}
+	// The whole application's accounts list is among the names a tenant's list must not
+	// take, so a record named Listed is refused for its people's list as for its groups'.
+	if names := (&identityInstance{auth: "Crew"}).holdingNames(); !slices.Contains(names, "Crew"+listedUserSuffix) {
+		t.Errorf("holdingNames() = %v, want one that is the accounts list's name, CrewListedUser", names)
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -327,10 +340,10 @@ func Test_identityInstance_lists(t *testing.T) {
 		want   []string
 	}{
 		{name: "no tenant record", tables: []identityTable{identityUsers, identityMemberships, identityMailLinks}},
-		{name: "every table", tenant: ship, tables: []identityTable{identityUsers, identityMemberships, identityMailLinks}, want: []string{"CrewShipUser", "CrewShipUserRole", "CrewShipInvitation"}},
-		{name: "no mail links", tenant: ship, tables: []identityTable{identityUsers, identityMemberships}, want: []string{"CrewShipUser", "CrewShipUserRole"}},
+		{name: "every table", tenant: ship, tables: []identityTable{identityUsers, identityMemberships, identityMailLinks}, want: []string{"CrewShipUser", "CrewShipUserRole", "CrewShipHeldRole", "CrewShipInvitation"}},
+		{name: "no mail links", tenant: ship, tables: []identityTable{identityUsers, identityMemberships}, want: []string{"CrewShipUser", "CrewShipUserRole", "CrewShipHeldRole"}},
 		{name: "no memberships: nobody holds a role in a tenant", tenant: ship, tables: []identityTable{identityUsers, identityMailLinks}, want: []string{"CrewShipInvitation"}},
-		{name: "identity links: the identities of the tenant's people", tenant: ship, tables: []identityTable{identityUsers, identityMemberships, identityIdentities}, want: []string{"CrewShipUser", "CrewShipUserRole", "CrewShipIdentity"}},
+		{name: "identity links: the identities of the tenant's people", tenant: ship, tables: []identityTable{identityUsers, identityMemberships, identityIdentities}, want: []string{"CrewShipUser", "CrewShipUserRole", "CrewShipHeldRole", "CrewShipIdentity"}},
 		{name: "identity links and no memberships: no people to list the identities of", tenant: ship, tables: []identityTable{identityUsers, identityIdentities}},
 	}
 	for _, tt := range tests {
@@ -374,14 +387,14 @@ func Test_identityInstance_tenantMethodSources(t *testing.T) {
 			name:   "a password auth with every table",
 			inst:   identityInstance{tenant: ship, password: true},
 			tables: every,
-			want: slices.Concat(account, []string{"require_crew_ship_password_change", "set_crew_ship_temporary_password"}, named,
-				[]string{"create_crew_ship_user", "assign_crew_ship_role", "remove_crew_ship_role", "invite_crew_ship_user", "withdraw_crew_ship_invitation"}),
+			want: slices.Concat(account, []string{"require_crew_ship_password_change", "send_crew_ship_user_password_reset_link"}, named,
+				[]string{"assign_crew_ship_role", "remove_crew_ship_user", "remove_crew_ship_role", "invite_crew_ship_user", "withdraw_crew_ship_invitation", "resend_crew_ship_invitation"}),
 		},
 		{
-			name:   "a directory that admits its own: nobody is created by hand, and no password is set",
+			name:   "a directory that admits its own: no password is changed or reset",
 			inst:   identityInstance{tenant: ship},
 			tables: every,
-			want:   slices.Concat(account, named, []string{"assign_crew_ship_role", "remove_crew_ship_role", "invite_crew_ship_user", "withdraw_crew_ship_invitation"}),
+			want:   slices.Concat(account, named, []string{"assign_crew_ship_role", "remove_crew_ship_user", "remove_crew_ship_role", "invite_crew_ship_user", "withdraw_crew_ship_invitation", "resend_crew_ship_invitation"}),
 		},
 		{
 			name:   "a directory that writes the roles: a tenant gives, takes and invites nothing",
@@ -393,14 +406,14 @@ func Test_identityInstance_tenantMethodSources(t *testing.T) {
 			name:   "usernames that are the addresses: no rename, and no address set by hand",
 			inst:   identityInstance{tenant: ship, password: true, usernameIsEmail: true},
 			tables: every,
-			want: slices.Concat(account, []string{"require_crew_ship_password_change", "set_crew_ship_temporary_password"},
-				[]string{"create_crew_ship_user", "assign_crew_ship_role", "remove_crew_ship_role", "invite_crew_ship_user", "withdraw_crew_ship_invitation"}),
+			want: slices.Concat(account, []string{"require_crew_ship_password_change", "send_crew_ship_user_password_reset_link"},
+				[]string{"assign_crew_ship_role", "remove_crew_ship_user", "remove_crew_ship_role", "invite_crew_ship_user", "withdraw_crew_ship_invitation", "resend_crew_ship_invitation"}),
 		},
 		{
 			name:   "no mail links: nothing is invited or withdrawn",
 			inst:   identityInstance{tenant: ship},
 			tables: []identityTable{identityUsers, identityMemberships, identitySessions, identityTrustedDevices},
-			want:   slices.Concat(account, named, []string{"assign_crew_ship_role", "remove_crew_ship_role"}),
+			want:   slices.Concat(account, named, []string{"assign_crew_ship_role", "remove_crew_ship_user", "remove_crew_ship_role"}),
 		},
 		{
 			name:   "identity links: an identity of the tenant's people is unlinked",
@@ -460,12 +473,13 @@ func Test_identityTenantUsersTemplate_accountColumns(t *testing.T) {
 	if len(account) == 0 {
 		t.Fatal("no field found in identityUsersTemplate: the pattern no longer reads the template")
 	}
-	listed := columns(identityTenantUsersTemplate, "DomainID", "HeldElsewhere", "HeldGlobally", "OutsideDirectory", "CannotEnter")
+	listed := columns(identityTenantUsersTemplate, "DomainID", "DisplayName", "Roles", "RecordsHeld", "RecordsHeldKind", "RecordHeldName", "LockedUntil", "HeldElsewhere", "HeldGlobally", "HeldHere", "HeldInEveryTenant", "ManagedHere", "ManagedByAnotherDirectory", "OutsideDirectory", "CannotEnter", "AdministratorWithPassword")
 	if diff := cmp.Diff(account, listed); diff != "" {
 		t.Errorf("the people's list against the users declaration (-declaration +list):\n%s", diff)
 	}
-	// Every column of the list is selected under its own name.
-	for _, column := range columns(identityTenantUsersTemplate) {
+	// Every column of the list is selected under its own name; the lock's is written by
+	// identitySourceData.LockedUntil, which selects it AS LockedUntil.
+	for _, column := range columns(identityTenantUsersTemplate, "LockedUntil") {
 		name := column[strings.LastIndex(column, " ")+1:]
 		if !strings.Contains(identityTenantUsersTemplate, " AS "+name) {
 			t.Errorf("the people's query selects nothing AS %s", name)
@@ -595,6 +609,8 @@ func Test_tenantRecordIn_label(t *testing.T) {
 	}{
 		{name: "no label: the record's name in words", record: "Customer", tenant: "@tenant", wantWord: "customer"},
 		{name: "a record of two words", record: "ServiceArea", tenant: "@tenant", wantWord: "service area"},
+		{name: "a record whose name ends in a plural acronym keeps its letters", record: "PartnerAPIs", tenant: "@tenant", wantWord: "partner APIs"},
+		{name: "a record named by a plural acronym alone keeps it as written", record: "FAQs", tenant: "@tenant", wantWord: "FAQs"},
 		{name: "a label of two words", record: "Tenant", tenant: `@tenant(label: "Service district")`, wantLabel: "Service district", wantWord: "service district"},
 		{name: "a label that opens with an initialism keeps it", record: "Tenant", tenant: `@tenant(label: "HQ unit")`, wantLabel: "HQ unit", wantWord: "HQ unit"},
 	}

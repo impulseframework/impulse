@@ -1,4 +1,10 @@
-<svg [attr.viewBox]="'0 0 ' + width + ' ' + height" class="graph" role="img" aria-label="Mission graph">
+<svg
+  [attr.viewBox]="'0 0 ' + width() + ' ' + height()"
+  class="graph"
+  [class.down]="down()"
+  [style.max-width.px]="down() ? width() : null"
+  role="img"
+  aria-label="Mission graph">
   <defs>
     <marker
       id="arrow"
@@ -19,9 +25,9 @@
       (keydown.enter)="emit(edge)"
       [attr.tabindex]="edge.live ? 0 : -1"
       [attr.role]="edge.live ? 'button' : null"
-      [attr.aria-label]="edge.method">
+      [attr.aria-label]="edge.words">
       <path [attr.d]="edge.path" marker-end="url(#arrow)" />
-      <text [attr.x]="edge.labelX" [attr.y]="edge.labelY">{{ edge.method }}</text>
+      <text [attr.x]="edge.labelX" [attr.y]="edge.labelY">{{ edge.words }}</text>
     </g>
   }
   @for (node of nodes(); track node.state) {

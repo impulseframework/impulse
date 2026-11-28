@@ -11,9 +11,20 @@ import {
   isListedMatch,
   joinDateTime,
   operatorsFor,
+  withChoice,
   withoutOrphanedCompanions,
 } from './grid-filter.util';
-import { ColumnFilter, ColumnFilterability, ColumnFilterInputs, ColumnSearches, FilterControl, FilterInput } from './grid-types';
+import {
+  ColumnFilter,
+  ColumnFilterability,
+  ColumnFilterChoices,
+  ColumnFilterInputs,
+  ColumnSearches,
+  FilterChoice,
+  FilterControl,
+  FilterInput,
+  FilterValueInput,
+} from './grid-types';
 
 // The grid's filters as the server sees them: which fields a grammar string names, when
 // a companion column may join, which operators a column's menu offers, and how the
@@ -61,6 +72,8 @@ describe('isComplete', () => {
   const cases: { name: string; filter: ColumnFilter; want: boolean }[] = [
     { name: 'a value for a comparison', filter: filter('title', 'eq', 'Convoy'), want: true },
     { name: 'no value for a comparison', filter: filter('title', 'eq', '  '), want: false },
+    { name: 'a value in a list', filter: filter('statusId', 'in', 'open, held'), want: true },
+    { name: 'no value in a list of commas alone', filter: filter('statusId', 'in', ' , ,'), want: false },
     { name: 'a null test needs none', filter: filter('notes', 'isnull'), want: true },
   ];
 
@@ -281,4 +294,57 @@ describe('the date and time controls', () => {
       expect(fitsInput(tt.value, tt.input)).toBe(tt.want);
     });
   }
+});
+
+// A column whose field takes one of a fixed set of values: its menu offers the names, one
+// to pick or each to tick, and the filter holds the values the server filters by.
+describe('a column whose field takes fixed values', () => {
+  const statuses: FilterChoice[] = [
+    { value: 'claimed', label: 'Claimed' },
+    { value: 'on_hold', label: 'On hold' },
+    { value: 'open', label: 'Open' },
+  ];
+  const choices: ColumnFilterChoices = { statusId: statuses };
+  const inputs: ColumnFilterInputs = { expiresOn: 'date' };
+
+  const controls: { name: string; column: string; operator: ColumnFilter['operator']; want: FilterValueInput }[] = [
+    { name: 'offers one name to pick under Equals', column: 'statusId', operator: 'eq', want: 'choice' },
+    { name: 'offers one name to pick under a comparison of order', column: 'statusId', operator: 'gte', want: 'choice' },
+    { name: 'offers each name to tick under One of', column: 'statusId', operator: 'in', want: 'choices' },
+    { name: 'offers each name to tick under None of', column: 'statusId', operator: 'notin', want: 'choices' },
+    { name: 'takes a text match as typed text: it matches the stored value', column: 'statusId', operator: 'contains', want: 'text' },
+    { name: 'leaves a date column its date control', column: 'expiresOn', operator: 'eq', want: 'date' },
+    { name: 'leaves a list on any other column typed', column: 'title', operator: 'in', want: 'text' },
+  ];
+
+  for (const tt of controls) {
+    it(tt.name, () => {
+      expect(filterInputFor(tt.column, inputs, tt.operator, choices)).toBe(tt.want);
+    });
+  }
+
+  const fits: { name: string; value: string; input: FilterValueInput; want: boolean }[] = [
+    { name: 'a pick shows a value it offers', value: 'on_hold', input: 'choice', want: true },
+    { name: 'a pick shows nothing chosen', value: '', input: 'choice', want: true },
+    { name: 'a pick cannot show a list', value: 'claimed,open', input: 'choice', want: false },
+    { name: 'a pick cannot show a value it does not offer', value: 'ope', input: 'choice', want: false },
+    { name: 'a list to tick shows the values it offers', value: 'claimed, open', input: 'choices', want: true },
+    { name: 'a list to tick shows nothing ticked', value: '', input: 'choices', want: true },
+    { name: 'a list to tick cannot show a value it does not offer', value: 'claimed, ope', input: 'choices', want: false },
+  ];
+
+  for (const tt of fits) {
+    it(tt.name, () => {
+      expect(fitsInput(tt.value, tt.input, statuses)).toBe(tt.want);
+    });
+  }
+
+  it('holds the ticked values in the order the menu offers them, whatever order they were ticked in', () => {
+    const open = withChoice('', statuses, 'open', true);
+    expect(open).toBe('open');
+    const both = withChoice(open, statuses, 'claimed', true);
+    expect(both).toBe('claimed,open');
+    expect(withChoice(both, statuses, 'open', false)).toBe('claimed');
+    expect(withChoice('claimed', statuses, 'claimed', false)).toBe('');
+  });
 });

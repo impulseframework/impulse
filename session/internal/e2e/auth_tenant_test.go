@@ -20,13 +20,16 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-playground/errors/v5"
+	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/azure"
 	"github.com/impulseframework/impulse/session/google"
 	"github.com/impulseframework/impulse/session/internal/oidctest"
+	"github.com/impulseframework/impulse/session/mail"
 	"github.com/impulseframework/impulse/session/sessioninfo"
+	"github.com/impulseframework/impulse/session/sessionstorage"
 	"github.com/impulseframework/impulse/session/signin"
 )
 
@@ -86,19 +89,39 @@ func (r *tenantRoles) onlyIn(user accesstypes.User, tenant accesstypes.Domain) b
 	return len(r.held[user][own]) > 0
 }
 
-// seat grants each seat as a membership in its tenant, held by the user's account, and
-// records what was granted under the name the scenarios read.
+// seat grants each seat as a membership in its tenant, held by the user's account,
+// where the account holds nothing in the tenant yet, as an application's hook gives a
+// seat it is handed at every sign-in through the directory, and records what was
+// granted under the name the scenarios read.
 func (r *tenantRoles) seat(userID impulse.UUID, username string, seats []signin.DirectorySeat) {
+	user := accesstypes.User(userID.String())
 	for _, s := range seats {
-		r.grant(accesstypes.User(userID.String()), accesstypes.DomainPolicyScope(s.Tenant), s.Role)
+		scope := accesstypes.DomainPolicyScope(s.Tenant)
+		if r.holdsIn(user, scope) {
+			continue
+		}
+		r.grant(user, scope, s.Role)
+		r.record(username, s)
 	}
+}
+
+// holdsIn reports whether user holds a role in scope.
+func (r *tenantRoles) holdsIn(user accesstypes.User, scope accesstypes.PolicyScope) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return len(r.held[user][scope]) > 0
+}
+
+// record records that the hook granted username seat.
+func (r *tenantRoles) record(username string, seat signin.DirectorySeat) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	if r.seated == nil {
 		r.seated = make(map[string][]signin.DirectorySeat)
 	}
-	r.seated[username] = append(r.seated[username], seats...)
+	r.seated[username] = append(r.seated[username], seat)
 }
 
 // seatsOf reads the seats the hook granted username, nil for none.
@@ -160,6 +183,7 @@ type tenantApp[Tx any] struct {
 	*authApp[Tx]
 	entra, google *oidctest.FakeIDP
 	roles         *tenantRoles
+	store         *sessionstorage.Auth[Tx]
 }
 
 func newTenantApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx], opts ...signin.TenantPolicyOption) *tenantApp[Tx] {
@@ -171,7 +195,9 @@ func newTenantApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx], opt
 	entraIDP := oidctest.NewFakeEntra(t, "entra-client")
 	googleIDP := oidctest.NewFakeIDP(t, "google-client")
 
+	recorder := &mail.Recorder{}
 	auth, err := session.NewAuth[appSessionData, appUserData](withCustomData(t, store, h), cookieKey, session.NoSuperAdministrators(),
+		session.MailSettings{Sender: recorder, Application: "Lakeside", LoginURL: "https://app.example/login"},
 		session.WithIdentityLinked(h.identityLinked), session.WithPendingHook(h.pendingHook))
 	if err != nil {
 		t.Fatalf("session.NewAuth() error = %v", err)
@@ -211,8 +237,8 @@ func newTenantApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx], opt
 	t.Cleanup(server.Close)
 
 	return &tenantApp[Tx]{
-		authApp: &authApp[Tx]{db: db, rows: be.rows, server: server, api: auth.API(), hooks: h},
-		entra:   entraIDP, google: googleIDP, roles: roles,
+		authApp: &authApp[Tx]{db: db, rows: be.rows, server: server, api: auth.API(), hooks: h, mail: recorder},
+		entra:   entraIDP, google: googleIDP, roles: roles, store: store,
 	}
 }
 
@@ -232,12 +258,15 @@ func (a *tenantApp[Tx]) grant(ctx context.Context, t *testing.T, username string
 	a.roles.grant(accesstypes.User(id.String()), scope, roles...)
 }
 
-// entraSignIn runs an Entra round trip with claims in b and returns where the callback
-// sent the browser.
+// entraSignIn runs an Entra round trip with claims in b and returns where the completed
+// sign-in sent the browser. Entra does not vouch for an address, so a person the policy
+// lets through whose account holds no confirmed one is held for a mailed code first: the
+// helper answers it with the address in claims, as the person would. A sign-in the
+// policy refuses is not held, and is returned as the callback answered it.
 func (a *tenantApp[Tx]) entraSignIn(ctx context.Context, b *browser, claims map[string]any) *url.URL {
 	b.t.Helper()
 
-	return b.oidcSignIn(ctx, a.entra, "/entra", claims)
+	return a.throughAddressHold(ctx, b, b.oidcSignIn(ctx, a.entra, "/entra", claims), claims)
 }
 
 // googleSignIn runs a Google round trip with claims in b and returns where the
@@ -318,6 +347,10 @@ func runTenantPolicySeams[Tx any](t *testing.T, be backend[Tx]) {
 			run:  seamTenantStaff[Tx],
 		},
 		{
+			name: "the store answers the directories an account signs in through with the tenants that declare each, read by the Auth's directory reader; a nil reader and an account with no link answer none",
+			run:  seamTenantUserDirectories[Tx],
+		},
+		{
 			name: "an account created ahead that has never signed in is linked through the directory of the one tenant it belongs to and through no other: its name through another directory is refused as a stranger's, a global role's holder included",
 			run:  seamTenantFirstLink[Tx],
 		},
@@ -350,7 +383,9 @@ func seamDirectoryDefaultSeat[Tx any](ctx context.Context, t *testing.T, be back
 	a.db.seatDirectory(ctx, t, tenantLakeside, lakesideWorkspace, "Member")
 	a.db.seatDirectory(ctx, t, tenantLakeside, lakesideEntra, "Member")
 	a.db.declareTenant(ctx, t, tenantRiverside, false, lakesideWorkspace)
-	want := []signin.DirectorySeat{{Tenant: tenantLakeside, Role: "Member"}}
+	// Each seat names the directory the person signed in through.
+	want := []signin.DirectorySeat{{Tenant: tenantLakeside, Role: "Member", Directory: lakesideWorkspace}}
+	wantEntra := []signin.DirectorySeat{{Tenant: tenantLakeside, Role: "Member", Directory: lakesideEntra}}
 
 	// The Workspace stranger: created, seated in lakeside alone (riverside declares
 	// the directory without a seat), and admitted by the policy on that membership.
@@ -365,11 +400,12 @@ func seamDirectoryDefaultSeat[Tx any](ctx context.Context, t *testing.T, be back
 	entra := a.browser(t)
 	assertRedirect(t, a.entraSignIn(ctx, entra, azureClaims(azureTenant, "oid-sam", "sam@lakeside.edu")), "/home", url.Values{})
 	signedInAs(ctx, t, entra, "sam@lakeside.edu")
-	if got := a.roles.seatsOf("sam@lakeside.edu"); !slices.Equal(got, want) {
-		t.Errorf("seats granted to the Entra stranger = %v, want %v", got, want)
+	if got := a.roles.seatsOf("sam@lakeside.edu"); !slices.Equal(got, wantEntra) {
+		t.Errorf("seats granted to the Entra stranger = %v, want %v", got, wantEntra)
 	}
 
-	// A second sign-in finds the link and seats nothing more.
+	// A second sign-in finds the link and hands the hook the seat again, which gives
+	// nothing more: the person holds it.
 	again := a.browser(t)
 	assertRedirect(t, a.googleSignIn(ctx, again, googleClaims("sub-pat", "pat@lakeside.edu")), "/home", url.Values{})
 	if got := a.roles.seatsOf("pat@lakeside.edu"); !slices.Equal(got, want) {
@@ -416,10 +452,38 @@ func seamTenantAdmitted[Tx any](ctx context.Context, t *testing.T, be backend[Tx
 	assertRedirect(t, a.entraSignIn(ctx, b, azureClaims(azureTenant, "oid-pat", "pat@lakeside.edu")), "/home", url.Values{})
 	v := signedInAs(ctx, t, b, "pat@lakeside.edu")
 	// The fake Entra asserts mfa in every token: the session records the evidence
-	// after the sign-in's own event.
-	assertEventsSeen(t, v, "azure:"+azureTenant, "attested-by-evidence:"+azureTenant)
+	// after the sign-in's own event, and then the code that confirmed Pat's address.
+	assertEventsSeen(t, v, "azure:"+azureTenant, "attested-by-evidence:"+azureTenant, "email-code")
 
 	a.assertPasswordSignIn(ctx, t, "kim@lakeside.edu", http.StatusOK, "")
+}
+
+// seamTenantUserDirectories is the scenario "the store answers the directories an account signs in through".
+func seamTenantUserDirectories[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
+	a := newTenantApp(ctx, t, be)
+	a.db.declareTenant(ctx, t, tenantLakeside, false, lakesideEntra)
+	kim := a.seed(ctx, t, "kim@lakeside.edu")
+	a.grant(ctx, t, "pat@lakeside.edu", accesstypes.DomainPolicyScope(tenantLakeside), member...)
+	assertRedirect(t, a.entraSignIn(ctx, a.browser(t), azureClaims(azureTenant, "oid-pat", "pat@lakeside.edu")), "/home", url.Values{})
+	pat, err := a.api.UserByUsername(ctx, "pat@lakeside.edu")
+	if err != nil {
+		t.Fatalf("UserByUsername(pat) error = %v", err)
+	}
+
+	want := []sessioninfo.UserDirectory{{Method: lakesideEntra.Method, Connection: lakesideEntra.Connection, Tenants: []accesstypes.Domain{tenantLakeside}}}
+	got, err := a.store.UserDirectories(ctx, pat.ID, be.rows.directoryLookup)
+	if err != nil {
+		t.Fatalf("UserDirectories(pat) error = %v", err)
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("UserDirectories(pat) (-want +got):\n%s", diff)
+	}
+	if got, err := a.store.UserDirectories(ctx, pat.ID, nil); err != nil || len(got) != 0 {
+		t.Errorf("UserDirectories(pat) with no reader = %v, %v, want none", got, err)
+	}
+	if got, err := a.store.UserDirectories(ctx, kim, be.rows.directoryLookup); err != nil || len(got) != 0 {
+		t.Errorf("UserDirectories(kim), a password and no link, = %v, %v, want none", got, err)
+	}
 }
 
 // seamTenantConnectionNotInTenant is the scenario "a sign-in through a directory is refused only when every tenant of the person is directory only and none has it".

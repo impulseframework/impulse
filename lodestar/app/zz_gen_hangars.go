@@ -11,6 +11,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/lodestar/pkg/resources"
 	"github.com/impulseframework/impulse/lodestar/pkg/router"
@@ -21,10 +22,11 @@ import (
 
 func (a *App) Hangars() http.HandlerFunc {
 	type hangar struct {
-		ID       impulse.UUID `json:"id"       index:"true" perm:"-"`
-		SectorID impulse.UUID `json:"sectorId" index:"true"`
-		Name     string       `json:"name"     index:"true" search:"lower=Name_Lower"`
-		Zone     string       `json:"zone"`
+		ID         impulse.UUID `json:"id"         index:"true"      perm:"-"`
+		SectorID   impulse.UUID `json:"sectorId"   index:"true"`
+		Name       string       `json:"name"       index:"true"      search:"lower=Name_Lower"`
+		Zone       string       `json:"zone"`
+		SectorName *string      `json:"sectorName" nameof:"SectorID" index:"true"`
 	}
 
 	type response []map[string]any
@@ -43,8 +45,9 @@ func (a *App) Hangars() http.HandlerFunc {
 		}
 
 		// A live list registers before the query runs, so a commit that lands during
-		// the query is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, a.LiveService(), querySet, live.ListSubscription(querySet.Resource(), domain))
+		// the query is not missed; a refused request registers nothing. With it the
+		// request registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, a.LiveService(), querySet, live.ListSubscription(querySet.Resource(), domain))
 
 		res := resources.NewHangarQueryFromQuerySet(querySet)
 
@@ -63,7 +66,7 @@ func (a *App) Hangars() http.HandlerFunc {
 			if !page.Add(row) {
 				break
 			}
-			rec := (*hangar)(&row.Data)
+			rec := &row.Data
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
@@ -83,6 +86,11 @@ func (a *App) Hangars() http.HandlerFunc {
 					if !row.Masked("zone") {
 						rmap["zone"] = rec.Zone
 					}
+				}
+			}
+			for _, name := range querySet.Names() {
+				if looked := row.Name(name.Field); looked != nil {
+					rmap[name.JSONName] = *looked
 				}
 			}
 			if capabilities := row.Capabilities(); capabilities != nil {
@@ -106,10 +114,11 @@ func (a *App) Hangars() http.HandlerFunc {
 
 func (a *App) Hangar() http.HandlerFunc {
 	type response struct {
-		ID       impulse.UUID `json:"id"       index:"true"              perm:"-"`
-		SectorID impulse.UUID `json:"sectorId"`
-		Name     string       `json:"name"     search:"lower=Name_Lower"`
-		Zone     string       `json:"zone"`
+		ID         impulse.UUID `json:"id"         index:"true"              perm:"-"`
+		SectorID   impulse.UUID `json:"sectorId"`
+		Name       string       `json:"name"       search:"lower=Name_Lower"`
+		Zone       string       `json:"zone"`
+		SectorName *string      `json:"sectorName" nameof:"SectorID"`
 	}
 
 	decoder := NewQueryDecoder[resources.Hangar, response](a, accesstypes.Read)
@@ -127,8 +136,9 @@ func (a *App) Hangar() http.HandlerFunc {
 		}
 
 		// A live row registers before the read runs, so a commit that lands during the
-		// read is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, a.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(id)))
+		// read is not missed; a refused request registers nothing. With it the request
+		// registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, a.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(id)))
 
 		res := resources.NewHangarQueryFromQuerySet(querySet).SetID(id)
 
@@ -136,7 +146,7 @@ func (a *App) Hangar() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		rec := (*response)(&row.Data)
+		rec := &row.Data
 		rmap := make(map[string]any)
 		for _, field := range querySet.Fields() {
 			switch string(field) {
@@ -156,6 +166,11 @@ func (a *App) Hangar() http.HandlerFunc {
 				if !row.Masked("zone") {
 					rmap["zone"] = rec.Zone
 				}
+			}
+		}
+		for _, name := range querySet.Names() {
+			if looked := row.Name(name.Field); looked != nil {
+				rmap[name.JSONName] = *looked
 			}
 		}
 		if capabilities := row.Capabilities(); capabilities != nil {
@@ -188,13 +203,28 @@ func (a *App) PatchHangars() http.HandlerFunc {
 		domain := httpio.Param[accesstypes.Domain](r, router.Domain)
 
 		var resp response
-		eventSource := resource.UserEvent(ctx)
+		eventSource := eventsource.UserEvent(ctx)
+
+		// The rows deleted by each of the request's deletes that left rows under its record,
+		// summed: the answer is a 202 with it where one left any.
+		var left *resource.DeleteLeft
+
+		// A remove that does not bring the token its question gave asks first: the request
+		// is then run with no read-write transaction open, and one is opened only where
+		// there was nothing to ask. A request that holds nothing but removes that bring
+		// their tokens is a save of a delete, and its transaction is opened at repeatable
+		// read (resource.Executor.ExecuteDeleteFunc).
+		deleteRun, err := resource.DeleteRunOf(r)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
 
 		// The rows the transaction writes are collected for the live pages, published
 		// once the commit lands and before the answer.
 		ctx, touched := resource.CollectTouchedRows(ctx)
-		if err := a.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		if err := a.ResourceClient().ExecuteDeleteFunc(ctx, deleteRun, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 			resp = response{}
+			left = nil
 			r, err := resource.CloneRequest(r)
 			if err != nil {
 				return errors.Wrap(err, "resource.CloneRequest()")
@@ -227,8 +257,15 @@ func (a *App) PatchHangars() http.HandlerFunc {
 					}
 				case resource.OperationDelete:
 					id := httpio.Param[impulse.UUID](op.Req, "id")
-					if err := resources.NewHangarDeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
+					patch := resources.NewHangarDeletePatchFromPatchSet(id, patchSet)
+					if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 						return errors.Wrap(err, "resources.HangarDeletePatch.Buffer()")
+					}
+					if taken := patch.Left(); taken != nil {
+						if left == nil {
+							left = &resource.DeleteLeft{}
+						}
+						left.Deleted += taken.Deleted
 					}
 				}
 			}
@@ -238,7 +275,47 @@ func (a *App) PatchHangars() http.HandlerFunc {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		live.Publish(ctx, w, a.LiveService(), liveDerivations, domain, touched)
+		if left != nil {
+			// A delete that took what fits one save answers the rows it deleted: the same
+			// request, sent again, goes on.
+			return httpio.NewEncoder(w).StatusCodeWithBody(http.StatusAccepted, left)
+		}
 
 		return httpio.NewEncoder(w).Ok(resp)
+	})
+}
+
+// HangarChangeHistory answers a page of one hangar's change records, newest first, to whoever may read the record, with the fields they may see on it. It answers 404 while the resource does not track its changes.
+func (a *App) HangarChangeHistory() http.HandlerFunc {
+	type response struct {
+		ID         impulse.UUID `json:"id"         index:"true"              perm:"-"`
+		SectorID   impulse.UUID `json:"sectorId"`
+		Name       string       `json:"name"       search:"lower=Name_Lower"`
+		Zone       string       `json:"zone"`
+		SectorName *string      `json:"sectorName" nameof:"SectorID"`
+	}
+
+	decoder := NewQueryDecoder[resources.Hangar, response](a, accesstypes.Read)
+
+	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := tracer.Start(r.Context())
+		defer span.End()
+
+		id := httpio.Param[impulse.UUID](r, router.HangarID)
+
+		domain := httpio.Param[accesstypes.Domain](r, router.Domain)
+		history, err := decoder.DecodeChangeHistory(r, a.UserPermissions(r), accesstypes.DomainScope(domain))
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		resources.NewHangarQueryFromQuerySet(history.QuerySet()).SetID(id)
+
+		page, err := history.Read(ctx, a.ResourceClient())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok(page)
 	})
 }

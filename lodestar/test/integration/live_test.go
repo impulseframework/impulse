@@ -354,7 +354,7 @@ func TestLivePages_writeAnswer(t *testing.T) {
 	}
 	fake := live.NewFake()
 	h := newTestAppWithLive(db, grants{
-		accesstypes.List:    {"Ships", "Clients", "MissionBoards"},
+		accesstypes.List:    {"Ships", "Clients", "MissionBoards", fieldResource("MissionBoards", "clientId"), fieldResource("ClientRosters", "name")},
 		accesstypes.Read:    {"Ships"},
 		accesstypes.Execute: {"StartFlightTest", "PassFlightTest"},
 		accesstypes.Update:  slices.Concat(withFields("Missions", "brief"), withFields("Clients", "insured"), withFields("Ships", "cargoBays")),
@@ -417,16 +417,19 @@ func TestLivePages_writeAnswer(t *testing.T) {
 			method: http.MethodPatch,
 			target: consoleAPI + "/resources",
 			body:   fmt.Sprintf(`[{"op":"patch","path":%q,"value":{"brief":"Reroute through the Anvil lanes."}}]`, opPath(anvil, "missions/"+missionHaulerID)),
-			want:   []live.ChangeDocument{{Kind: live.ListChange, Resource: "MissionBoards", Domain: anvil}},
+			want: []live.ChangeDocument{
+				{Kind: live.ListChange, Resource: "MissionBoards", Domain: anvil},
+				{Kind: live.ResourceChange, Resource: "ClientRosters"},
+			},
 		},
 		{
-			name:   "a resource's own patch route: a client is insured, the clients she holds and every mission board, wholesale",
+			name:   "a resource's own patch route: a client is insured, the clients she holds and the client rosters her board's names are read from, wholesale",
 			method: http.MethodPatch,
 			target: consoleAPI + "/clients",
 			body:   fmt.Sprintf(`[{"op":"patch","path":"/%s","value":{"insured":true}}]`, clientMeridianID),
 			want: []live.ChangeDocument{
 				{Kind: live.ListChange, Resource: "Clients"},
-				{Kind: live.ResourceChange, Resource: "MissionBoards"},
+				{Kind: live.ResourceChange, Resource: "ClientRosters"},
 			},
 		},
 	}
@@ -506,8 +509,10 @@ const (
 // TestLivePages_derivedResources plays the publish through the virtual and computed
 // resources: a mission's write reaches the mission board, whose rows are Missions' rows
 // (@rowsOf), under the mission's own key and as the sector's list, exactly as Missions'
-// own subscribers are reached; a client's write, a table the board reads otherwise and a
-// global one, reaches every board subscriber in every sector as one resource document;
+// own subscribers are reached, and the client rosters the board's names are read from,
+// which count a client's missions; a client's write, a global table the rosters read,
+// reaches every subscriber of the rosters in every sector as one resource document, a
+// board that shows its clients by name among them;
 // a ship's write reaches the hazard board, a computed resource that declares Ships with
 // @changedBy, in its sector alone; and the expense manifests, a computed resource that
 // declares nothing although its body reads Missions, hear nothing at all.
@@ -521,7 +526,7 @@ func TestLivePages_derivedResources(t *testing.T) {
 	}
 	fake := live.NewFake()
 	h := newTestAppWithLive(db, grants{
-		accesstypes.List:   {"MissionBoards", "ExpenseManifests", "SectorHazardBoards"},
+		accesstypes.List:   {"MissionBoards", "ExpenseManifests", "SectorHazardBoards", fieldResource("MissionBoards", "clientId"), fieldResource("ClientRosters", "name")},
 		accesstypes.Read:   {"MissionBoards"},
 		accesstypes.Update: slices.Concat(withFields("Missions", "brief"), withFields("Clients", "insured"), withFields("Ships", "cargoBays")),
 	}, fake)
@@ -548,7 +553,9 @@ func TestLivePages_derivedResources(t *testing.T) {
 	wantSubscriptions := []string{
 		fmt.Sprintf("%s|%s|MissionBoards||%s", principalID(liveDispatcher), liveTabBoards, anvil),
 		fmt.Sprintf("%s|%s|MissionBoards|%s|", principalID(liveDispatcher), liveTabBoards, missionHaulerID),
+		fmt.Sprintf("%s|%s|ClientRosters||%s", principalID(liveDispatcher), liveTabBoards, anvil),
 		fmt.Sprintf("%s|%s|MissionBoards||%s", principalID(liveBastionPilot), liveTabBastion, bastion),
+		fmt.Sprintf("%s|%s|ClientRosters||%s", principalID(liveBastionPilot), liveTabBastion, bastion),
 		fmt.Sprintf("%s|%s|SectorHazardBoards||%s", principalID(liveBastionPilot), liveTabBastion, bastion),
 		fmt.Sprintf("%s|%s|ExpenseManifests||%s", principalID(liveQuartermaster), liveTabBoards, anvil),
 		fmt.Sprintf("%s|%s|SectorHazardBoards||%s", principalID(liveAnalyst), liveTabBoards, anvil),
@@ -565,12 +572,13 @@ func TestLivePages_derivedResources(t *testing.T) {
 		want   map[accesstypes.User][]string
 	}{
 		{
-			name:   "the Hauler's brief is rewritten: the board's row and the sector's list, as Missions' own; the manifests, undeclared, hear nothing",
+			name:   "the Hauler's brief is rewritten: the board's row and the sector's list, as Missions' own, and the client rosters the board's names are read from; the manifests, undeclared, hear nothing",
 			target: "/console/api/resources",
 			body:   fmt.Sprintf(`[{"op":"patch","path":%q,"value":{"brief":"Reroute through the Anvil lanes."}}]`, opPath(anvil, "missions/"+missionHaulerID)),
 			want: map[accesstypes.User][]string{
 				liveDispatcher: {
 					"list|MissionBoards||" + anvil + "|false",
+					"resource|ClientRosters|||false",
 					"row|MissionBoards|" + missionHaulerID + "||false",
 				},
 				liveBastionPilot:  {},
@@ -579,16 +587,16 @@ func TestLivePages_derivedResources(t *testing.T) {
 			},
 		},
 		{
-			name:   "a client is insured: Clients is global, so every board in every sector is told once, wholesale",
+			name:   "a client is insured: Clients is global, so the client rosters are told once in every sector, wholesale, and a board that shows its clients by name hears it there",
 			target: "/console/api/clients",
 			body:   fmt.Sprintf(`[{"op":"patch","path":"/%s","value":{"insured":true}}]`, clientMeridianID),
 			want: map[accesstypes.User][]string{
 				liveDispatcher: {
 					"list|MissionBoards||" + anvil + "|false",
-					"resource|MissionBoards|||false",
+					"resource|ClientRosters|||false",
 					"row|MissionBoards|" + missionHaulerID + "||false",
 				},
-				liveBastionPilot:  {"resource|MissionBoards|||false"},
+				liveBastionPilot:  {"resource|ClientRosters|||false"},
 				liveQuartermaster: {},
 				liveAnalyst:       {},
 			},
@@ -600,10 +608,10 @@ func TestLivePages_derivedResources(t *testing.T) {
 			want: map[accesstypes.User][]string{
 				liveDispatcher: {
 					"list|MissionBoards||" + anvil + "|false",
-					"resource|MissionBoards|||false",
+					"resource|ClientRosters|||false",
 					"row|MissionBoards|" + missionHaulerID + "||false",
 				},
-				liveBastionPilot:  {"resource|MissionBoards|||false"},
+				liveBastionPilot:  {"resource|ClientRosters|||false"},
 				liveQuartermaster: {},
 				liveAnalyst:       {"resource|SectorHazardBoards|||false"},
 			},

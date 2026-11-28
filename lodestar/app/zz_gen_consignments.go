@@ -29,6 +29,8 @@ func (a *App) Consignments() http.HandlerFunc {
 		Mass        float64      `json:"mass"        allow_filter:"true"`
 		ExpiresOn   civil.Date   `json:"expiresOn"   allow_filter:"true"`
 		ReleasedAt  *time.Time   `json:"releasedAt"  index:"true"`
+		SectorName  *string      `json:"sectorName"  nameof:"SectorID"   index:"true"`
+		ClientName  *string      `json:"clientName"  nameof:"ClientID"   index:"true" search:"token=Name_Search;index=ClientsSearch;role=text;anchors=prefix,suffix;contains"`
 	}
 
 	type response []map[string]any
@@ -47,8 +49,9 @@ func (a *App) Consignments() http.HandlerFunc {
 		}
 
 		// A live list registers before the query runs, so a commit that lands during
-		// the query is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, a.LiveService(), querySet, live.ListSubscription(querySet.Resource(), domain))
+		// the query is not missed; a refused request registers nothing. With it the
+		// request registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, a.LiveService(), querySet, live.ListSubscription(querySet.Resource(), domain))
 
 		res := resources.NewConsignmentQueryFromQuerySet(querySet)
 
@@ -67,7 +70,7 @@ func (a *App) Consignments() http.HandlerFunc {
 			if !page.Add(row) {
 				break
 			}
-			rec := (*consignment)(&row.Data)
+			rec := &row.Data
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
@@ -105,6 +108,11 @@ func (a *App) Consignments() http.HandlerFunc {
 					}
 				}
 			}
+			for _, name := range querySet.Names() {
+				if looked := row.Name(name.Field); looked != nil {
+					rmap[name.JSONName] = *looked
+				}
+			}
 			if capabilities := row.Capabilities(); capabilities != nil {
 				rmap[resource.CapabilitiesProperty] = capabilities
 			}
@@ -126,7 +134,7 @@ func (a *App) Consignments() http.HandlerFunc {
 
 func (a *App) Consignment() http.HandlerFunc {
 	type response struct {
-		ID          impulse.UUID `json:"id"          index:"true" perm:"-"`
+		ID          impulse.UUID `json:"id"          index:"true"      perm:"-"`
 		SectorID    impulse.UUID `json:"sectorId"`
 		ClientID    impulse.UUID `json:"clientId"`
 		BondCode    string       `json:"bondCode"    index:"true"`
@@ -134,6 +142,8 @@ func (a *App) Consignment() http.HandlerFunc {
 		Mass        float64      `json:"mass"`
 		ExpiresOn   civil.Date   `json:"expiresOn"`
 		ReleasedAt  *time.Time   `json:"releasedAt"`
+		SectorName  *string      `json:"sectorName"  nameof:"SectorID"`
+		ClientName  *string      `json:"clientName"  nameof:"ClientID"`
 	}
 
 	decoder := NewQueryDecoder[resources.Consignment, response](a, accesstypes.Read)
@@ -151,8 +161,9 @@ func (a *App) Consignment() http.HandlerFunc {
 		}
 
 		// A live row registers before the read runs, so a commit that lands during the
-		// read is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, a.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(id)))
+		// read is not missed; a refused request registers nothing. With it the request
+		// registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, a.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(id)))
 
 		res := resources.NewConsignmentQueryFromQuerySet(querySet).SetID(id)
 
@@ -160,7 +171,7 @@ func (a *App) Consignment() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		rec := (*response)(&row.Data)
+		rec := &row.Data
 		rmap := make(map[string]any)
 		for _, field := range querySet.Fields() {
 			switch string(field) {
@@ -198,11 +209,56 @@ func (a *App) Consignment() http.HandlerFunc {
 				}
 			}
 		}
+		for _, name := range querySet.Names() {
+			if looked := row.Name(name.Field); looked != nil {
+				rmap[name.JSONName] = *looked
+			}
+		}
 		if capabilities := row.Capabilities(); capabilities != nil {
 			rmap[resource.CapabilitiesProperty] = capabilities
 		}
 		live.SetCacheControl(w, r)
 
 		return httpio.NewEncoder(w).Ok(rmap)
+	})
+}
+
+// ConsignmentChangeHistory answers a page of one consignment's change records, newest first, to whoever may read the record, with the fields they may see on it. It answers 404 while the resource does not track its changes.
+func (a *App) ConsignmentChangeHistory() http.HandlerFunc {
+	type response struct {
+		ID          impulse.UUID `json:"id"          index:"true"      perm:"-"`
+		SectorID    impulse.UUID `json:"sectorId"`
+		ClientID    impulse.UUID `json:"clientId"`
+		BondCode    string       `json:"bondCode"    index:"true"`
+		Description string       `json:"description"`
+		Mass        float64      `json:"mass"`
+		ExpiresOn   civil.Date   `json:"expiresOn"`
+		ReleasedAt  *time.Time   `json:"releasedAt"`
+		SectorName  *string      `json:"sectorName"  nameof:"SectorID"`
+		ClientName  *string      `json:"clientName"  nameof:"ClientID"`
+	}
+
+	decoder := NewQueryDecoder[resources.Consignment, response](a, accesstypes.Read)
+
+	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := tracer.Start(r.Context())
+		defer span.End()
+
+		id := httpio.Param[impulse.UUID](r, router.ConsignmentID)
+
+		domain := httpio.Param[accesstypes.Domain](r, router.Domain)
+		history, err := decoder.DecodeChangeHistory(r, a.UserPermissions(r), accesstypes.DomainScope(domain))
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		resources.NewConsignmentQueryFromQuerySet(history.QuerySet()).SetID(id)
+
+		page, err := history.Read(ctx, a.ResourceClient())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok(page)
 	})
 }

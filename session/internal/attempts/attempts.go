@@ -20,11 +20,13 @@ import (
 	"container/list"
 	"context"
 	"crypto/sha256"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
+	"github.com/impulseframework/impulse/session/internal/util"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/unicode/norm"
 )
@@ -112,11 +114,99 @@ func (l *Limiter) SetClock(now func() time.Time) {
 	l.now = now
 }
 
-// Normalize returns name as the key its attempts are counted under: Unicode NFC and
-// case-folded, as the users table normalizes usernames, so a name spelled in another
-// case is the same name.
+// FoldWide returns text normalized (Unicode NFC), in Unicode's full case folding and
+// normalized again: the form the users table matches a username with no @ in it by, and
+// the wide reading of an address that the counts of its mail are kept under, which takes
+// some addresses that only read alike for one. The folding of a normalized text is not
+// always normalized: a capital iota with dialytika followed by a combining acute accent
+// (U+03AA U+0301) folds to two code points that compose to the small letter in one
+// (U+0390). Without the second normalization the capital so written and its small letter
+// would be two names, and a key folded again would be another key. cases.Fold gives a
+// Cherokee letter in its other case, where Unicode's case folding, which the stores
+// apply, gives the capital for a capital and a small letter alike; the small letters are
+// put back to their capitals (cherokeeCapital), so the form is the stores' and folding it
+// again changes nothing. The first normalization composes (NFC) where Unicode's canonical
+// caseless matching decomposes (NFD). The two differ only for a text that holds a Greek
+// iota subscript (U+0345, alone or within a letter; the Unicode Standard, 3.13): a small
+// alpha with a circumflex and the iota under it (U+1FB7) and the capital that carries the
+// iota, followed by the circumflex (U+1FBC U+0342), are two names here and one name
+// there. The stores compute this same form, so the key and the table agree on such names.
+func FoldWide(text string) string {
+	return norm.NFC.String(strings.Map(cherokeeCapital, cases.Fold().String(norm.NFC.String(text))))
+}
+
+// cherokeeCapital is r as its capital when r is a small Cherokee letter, and r otherwise.
+func cherokeeCapital(r rune) rune {
+	switch {
+	case r >= 0xAB70 && r <= 0xABBF:
+		return r - 0xAB70 + 0x13A0
+	case r >= 0x13F8 && r <= 0x13FD:
+		return r - 8
+	default:
+		return r
+	}
+}
+
+// Normalize returns name as the key its attempts are counted under: name as the users
+// table normalizes usernames, so a name the table takes for another's is counted with
+// it and a name the table tells apart has a count of its own. A name with an @ in it
+// reads as an email address and has its ASCII capital letters lowercased and every
+// other character as written (util.LowerASCII); any other name is in Unicode NFC and
+// case-folded (FoldWide). The key agrees with the table for every character that both
+// the library's Unicode tables (golang.org/x/text) and the database's know. A cased
+// letter or a combining mark added to Unicode since the older of the two is folded, or
+// put in its order among the marks on a letter, by one and not by the other: where the
+// library's tables are the newer, two usernames that differ only by the case of such a
+// letter or the order of such a mark are two accounts with one count, and a right
+// password for either clears what was counted against the other; where the database's
+// are the newer, one username has a count for each such spelling.
 func Normalize(name string) string {
-	return cases.Fold().String(norm.NFC.String(name))
+	if strings.Contains(name, "@") {
+		return util.LowerASCII(name)
+	}
+
+	return FoldWide(name)
+}
+
+// The kinds of count the library keeps in the sign-in attempts table beside the names
+// people sign in under: the mail an address is sent, the sign-in codes an address is
+// sent, the codes sent to accept one invitation, the codes entered to accept one
+// invitation, the codes entered for an address a person typed at the sign-in code's
+// step, the codes entered for an account's own sign-in code, the password reset links
+// an address is sent, and the guesses at the code of an account's first password. Each
+// is kept under its kind, a colon, and what it counts (OwnKey).
+//
+// A kind is spelled in capitals, and that is what keeps the counts apart from the
+// names: a name is counted under its normalized form (Normalize), which holds no
+// ASCII capital, so nothing a person types at a sign-in is ever one of these keys. A
+// stranger who fails to sign in under the text of a key counts against a name nobody
+// holds, and never closes an address to its mail or an account to its first password.
+const (
+	KindMail            = "MAIL"
+	KindCode            = "CODE"
+	KindInvitation      = "INVITATION"
+	KindInvitationGuess = "INVITATION-GUESS"
+	KindAddressGuess    = "ADDRESS-GUESS"
+	KindCodeGuess       = "CODE-GUESS"
+	KindReset           = "RESET"
+	KindFirstPassword   = "FIRST-PASSWORD"
+)
+
+// OwnKey returns the key of one of the library's own counts: kind, then what the count
+// is for, as the caller normalized it.
+func OwnKey(kind, of string) string {
+	return kind + ":" + of
+}
+
+// IsOwnKey reports whether key is one of the library's own counts and no name's.
+func IsOwnKey(key string) bool {
+	for _, kind := range []string{KindMail, KindCode, KindInvitation, KindInvitationGuess, KindAddressGuess, KindCodeGuess, KindReset, KindFirstPassword} {
+		if strings.HasPrefix(key, kind+":") {
+			return true
+		}
+	}
+
+	return false
 }
 
 // Attempt is an attempt whose place under the limit was taken before its password was
@@ -303,6 +393,19 @@ func (l *Limiter) countClient(client Client, now time.Time) time.Duration {
 	}
 
 	return max(wait, 0)
+}
+
+// Count counts one request by client that is an attempt on no name, as a sign-in attempt
+// counts against the client's keys, and returns how long the client is then held, zero
+// while it is not: the request that reaches the client's limit (ClientMultiple times the
+// limit's failures within its window) holds the client for the lock period, and one during
+// the hold extends it. It asks the store nothing, and a client with no address and no cookie
+// is never held.
+func (l *Limiter) Count(client Client) time.Duration {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	return l.countClient(client, l.now())
 }
 
 // takeClient counts taken against the client's keys before its password is compared,

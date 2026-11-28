@@ -15,10 +15,10 @@ import (
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session/azure"
 	"github.com/impulseframework/impulse/session/google"
+	"github.com/impulseframework/impulse/session/internal/mockstore"
 	"github.com/impulseframework/impulse/session/internal/workos"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage"
-	"github.com/impulseframework/impulse/session/sessionstorage/mock/mock_sessionstorage"
 	"github.com/impulseframework/impulse/session/signin"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -30,7 +30,7 @@ import (
 // Entra registration is registered and not listed. The store is its own mock: the
 // shared fixture's answers every read of a user's identities with none, and these tests
 // say what the user is linked to.
-func signInMeansAuth(t *testing.T) (*Auth[NoCustomData, NoCustomData, mockTx], *mock_sessionstorage.MockAuthStore[mockTx]) {
+func signInMeansAuth(t *testing.T) (*Auth[NoCustomData, NoCustomData, mockTx], *mockstore.AuthStore[mockTx]) {
 	t.Helper()
 
 	a, store := directoriesAuth(t)
@@ -51,9 +51,10 @@ func signInMeansList(path, fleet, lakeside string) *MethodList {
 			{Name: "river-entra", Label: "Riverside", Path: "/api/user/river-entra/login"},
 			{Name: "workos", Label: "Single sign-on", Path: "/api/user/workos/login"},
 		},
-		ChangePassword: "/api/user/password/change",
-		RemovePassword: "/api/user/password/remove",
-		SignInMeans:    path,
+		ChangePassword:   "/api/user/password/change",
+		PasswordStrength: "/api/user/password/strength",
+		RemovePassword:   "/api/user/password/remove",
+		SignInMeans:      path,
 	}
 }
 
@@ -61,7 +62,7 @@ func signInMeansList(path, fleet, lakeside string) *MethodList {
 // registrations alone, the Google one taking the Workspace "fleet", the Entra ones the
 // tenants tenantLake ("lakeside-entra"), tenantRiver ("river-entra") and tenantOther
 // ("unlisted-entra"), and the WorkOS one, which cannot tell one connection from another.
-func directoriesAuth(t *testing.T) (*Auth[NoCustomData, NoCustomData, mockTx], *mock_sessionstorage.MockAuthStore[mockTx]) {
+func directoriesAuth(t *testing.T) (*Auth[NoCustomData, NoCustomData, mockTx], *mockstore.AuthStore[mockTx]) {
 	t.Helper()
 
 	a, _, store := directoriesAuthWithPassword(t)
@@ -72,10 +73,10 @@ func directoriesAuth(t *testing.T) (*Auth[NoCustomData, NoCustomData, mockTx], *
 // directoriesAuthWithPassword is directoriesAuth with its password method, whose
 // handlers a test serves. The store gives every attempt its place under the limit and
 // holds no name.
-func directoriesAuthWithPassword(t *testing.T) (*Auth[NoCustomData, NoCustomData, mockTx], *PasswordMethod, *mock_sessionstorage.MockAuthStore[mockTx]) {
+func directoriesAuthWithPassword(t *testing.T) (*Auth[NoCustomData, NoCustomData, mockTx], *PasswordMethod, *mockstore.AuthStore[mockTx]) {
 	t.Helper()
 
-	store := mock_sessionstorage.NewMockAuthStore[mockTx](gomock.NewController(t))
+	store := mockstore.NewAuthStore[mockTx](gomock.NewController(t))
 	store.EXPECT().CustomUserDataType().Return(nil).AnyTimes()
 	store.EXPECT().SetUsernameIsEmail(gomock.Any()).AnyTimes()
 	store.EXPECT().SignInAttempts(gomock.Any(), gomock.Any()).Return(nil, httpio.NewNotFoundMessage("no sign-in attempts recorded")).AnyTimes()
@@ -84,7 +85,10 @@ func directoriesAuthWithPassword(t *testing.T) (*Auth[NoCustomData, NoCustomData
 			return &sessionstorage.SignInAttempts{Name: name, Failures: 1, Counted: true}, nil
 		}).AnyTimes()
 	store.EXPECT().ClearSignInAttempts(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-	a, err := NewAuth[NoCustomData, NoCustomData](store, cookieKey, NoSuperAdministrators())
+	// No reset link stands for anybody, so a password that is written or removed has none
+	// to withdraw.
+	store.EXPECT().LiveMailLinks(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	a, err := NewAuth[NoCustomData, NoCustomData](store, cookieKey, NoSuperAdministrators(), quietMail())
 	if err != nil {
 		t.Fatalf("NewAuth() error = %v", err)
 	}
@@ -152,8 +156,9 @@ func TestAuth_signsInThrough(t *testing.T) {
 }
 
 // TestAuthAPI_SignInMeans pins what a user is said to sign in with: whether they hold a
-// password, and the listed sign-in methods their identity links sign in through, by the
-// label each button carries and in the page's order.
+// password, the listed sign-in methods their identity links sign in through, by the
+// label each button carries and in the page's order, and whether a link came through an
+// organization's directory, so the address is the directory's.
 func TestAuthAPI_SignInMeans(t *testing.T) {
 	t.Parallel()
 
@@ -176,7 +181,7 @@ func TestAuthAPI_SignInMeans(t *testing.T) {
 			name:     "a person with a password and a link",
 			password: true,
 			links:    []*sessionstorage.SessionIdentity{link(sessioninfo.MethodGoogle, "fleet")},
-			want:     &SignInMeans{Password: true, Directories: []LinkedDirectory{fleetGoogle}},
+			want:     &SignInMeans{Password: true, Directories: []LinkedDirectory{fleetGoogle}, DirectoryAddress: true},
 		},
 		{
 			name:     "a person with a password alone",
@@ -186,7 +191,7 @@ func TestAuthAPI_SignInMeans(t *testing.T) {
 		{
 			name:  "a person with a link alone",
 			links: []*sessionstorage.SessionIdentity{link(sessioninfo.MethodGoogle, "fleet")},
-			want:  &SignInMeans{Directories: []LinkedDirectory{fleetGoogle}},
+			want:  &SignInMeans{Directories: []LinkedDirectory{fleetGoogle}, DirectoryAddress: true},
 		},
 		{
 			name:     "links of two methods answer in the page's order, each method once however many links carry it, and the registration the page does not list is left out",
@@ -194,19 +199,19 @@ func TestAuthAPI_SignInMeans(t *testing.T) {
 			links: []*sessionstorage.SessionIdentity{
 				link(sessioninfo.MethodAzure, tenantLake), link(sessioninfo.MethodGoogle, "fleet"), link(sessioninfo.MethodGoogle, "other"),
 			},
-			want: &SignInMeans{Password: true, Directories: []LinkedDirectory{fleetGoogle, lakeside}},
+			want: &SignInMeans{Password: true, Directories: []LinkedDirectory{fleetGoogle, lakeside}, DirectoryAddress: true},
 		},
 		{
 			name:     "a link of a method the page offers no button for names nothing",
 			password: true,
 			links:    []*sessionstorage.SessionIdentity{link(sessioninfo.MethodOIDC, "okta")},
-			want:     &SignInMeans{Password: true, Directories: []LinkedDirectory{}},
+			want:     &SignInMeans{Password: true, Directories: []LinkedDirectory{}, DirectoryAddress: true},
 		},
 		{
 			name:     "of two registrations of one method, a link names the one that takes its connection",
 			password: true,
 			links:    []*sessionstorage.SessionIdentity{link(sessioninfo.MethodAzure, tenantRiver)},
-			want:     &SignInMeans{Password: true, Directories: []LinkedDirectory{riverside}},
+			want:     &SignInMeans{Password: true, Directories: []LinkedDirectory{riverside}, DirectoryAddress: true},
 		},
 		{
 			name:     "a link whose connection no listed registration takes names nothing: a tenant listed nowhere, the tenant of the unlisted registration, a Workspace not named",
@@ -214,12 +219,18 @@ func TestAuthAPI_SignInMeans(t *testing.T) {
 			links: []*sessionstorage.SessionIdentity{
 				link(sessioninfo.MethodAzure, "44444444-4444-4444-4444-444444444444"), link(sessioninfo.MethodAzure, tenantOther), link(sessioninfo.MethodGoogle, "other"),
 			},
-			want: &SignInMeans{Password: true, Directories: []LinkedDirectory{}},
+			want: &SignInMeans{Password: true, Directories: []LinkedDirectory{}, DirectoryAddress: true},
 		},
 		{
 			name:  "a method that cannot tell connections apart answers its registration for any link of it",
 			links: []*sessionstorage.SessionIdentity{link(sessioninfo.MethodWorkOS, "conn_anything")},
-			want:  &SignInMeans{Directories: []LinkedDirectory{sso}},
+			want:  &SignInMeans{Directories: []LinkedDirectory{sso}, DirectoryAddress: true},
+		},
+		{
+			name:     "a Google account in no Workspace is no organization's directory, so the address is the person's own to change",
+			password: true,
+			links:    []*sessionstorage.SessionIdentity{link(sessioninfo.MethodGoogle, signin.GoogleAnyAccountConnection)},
+			want:     &SignInMeans{Password: true, Directories: []LinkedDirectory{}},
 		},
 	}
 	for _, tt := range tests {
@@ -256,8 +267,8 @@ func TestAuthAPI_SignInMeans(t *testing.T) {
 
 // TestAuth_SignInMeans pins the handler a person's account page reads from: it answers
 // for the session's user and nobody else, validates the session itself, and writes
-// whether a password is held and the labels of the linked directory sign-ins, never the
-// hash.
+// whether a password is held, the labels of the linked directory sign-ins and whether
+// the address is a directory's, never the hash.
 func TestAuth_SignInMeans(t *testing.T) {
 	t.Parallel()
 
@@ -291,7 +302,7 @@ func TestAuth_SignInMeans(t *testing.T) {
 		if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
 			t.Fatalf("json.Unmarshal() error = %v", err)
 		}
-		want := map[string]any{"password": true, "directories": []any{map[string]any{"name": "google", "label": "Fleet Google"}}}
+		want := map[string]any{"password": true, "directories": []any{map[string]any{"name": "google", "label": "Fleet Google"}}, "directoryAddress": true, "passwordDisabled": false}
 		if diff := cmp.Diff(want, got); diff != "" {
 			t.Errorf("SignInMeans() answer mismatch (-want +got):\n%s", diff)
 		}
@@ -313,7 +324,7 @@ func TestAuth_SignInMeans(t *testing.T) {
 
 		rr := httptest.NewRecorder()
 		a.SignInMeans().ServeHTTP(rr, request())
-		if rr.Code != http.StatusOK || strings.TrimSpace(rr.Body.String()) != `{"password":false,"directories":[]}` {
+		if rr.Code != http.StatusOK || strings.TrimSpace(rr.Body.String()) != `{"password":false,"directories":[],"directoryAddress":false,"passwordDisabled":false}` {
 			t.Errorf("SignInMeans() = %d %s, want 200 with no password and an empty list", rr.Code, rr.Body.String())
 		}
 	})
@@ -457,7 +468,7 @@ func TestAuth_Methods_signInMeans(t *testing.T) {
 
 	t.Run("the list names the route, and the answer carries it", func(t *testing.T) {
 		t.Parallel()
-		got := answered(t, &MethodList{Methods: password, ChangePassword: "/api/user/password/change", SignInMeans: "/api/user/sign-in-means"})
+		got := answered(t, &MethodList{Methods: password, ChangePassword: "/api/user/password/change", PasswordStrength: "/api/user/password/strength", SignInMeans: "/api/user/sign-in-means"})
 		if got["signInMeans"] != "/api/user/sign-in-means" {
 			t.Errorf("Methods() answered signInMeans = %v, want the route", got["signInMeans"])
 		}
@@ -465,7 +476,7 @@ func TestAuth_Methods_signInMeans(t *testing.T) {
 
 	t.Run("a list that names no route answers none", func(t *testing.T) {
 		t.Parallel()
-		if got := answered(t, &MethodList{Methods: password, ChangePassword: "/api/user/password/change"}); got["signInMeans"] != nil {
+		if got := answered(t, &MethodList{Methods: password, ChangePassword: "/api/user/password/change", PasswordStrength: "/api/user/password/strength"}); got["signInMeans"] != nil {
 			t.Errorf("Methods() answered signInMeans = %v, want none", got["signInMeans"])
 		}
 	})
@@ -475,7 +486,7 @@ func TestAuth_Methods_signInMeans(t *testing.T) {
 		a := registerThree(t)
 
 		recovered := registrationPanic(func() {
-			a.Methods(&MethodList{Methods: password, ChangePassword: "/password", SignInMeans: "https://evil.example/means"})
+			a.Methods(&MethodList{Methods: password, ChangePassword: "/password", PasswordStrength: "/password/strength", SignInMeans: "https://evil.example/means"})
 		})
 		if msg, _ := recovered.(string); !strings.Contains(msg, "sign-in means route") {
 			t.Errorf("Methods() panic = %v, want it to name the sign-in means route", recovered)

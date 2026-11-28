@@ -8,21 +8,47 @@ export interface FieldPointer {
 
 export interface DeleteMembersSectorUserConfig {
   userId: string | FieldPointer;
+  everythingUnder: boolean | FieldPointer;
+  token: string | FieldPointer;
 }
 export interface DeleteMembersSectorUser {
   userId: string;
+  everythingUnder: boolean;
+  token: string;
+}
+/** The result DeleteMembersSectorUser answers with. */
+export interface DeleteMembersSectorUserResult {
+  deleted: number;
 }
 /** The statuses DeleteMembersSectorUser declares; the method chooses one per response. */
-export type DeleteMembersSectorUserStatus = 204;
+export type DeleteMembersSectorUserStatus = 202 | 204;
+/** The answer DeleteMembersSectorUser resolves with: the status the method chose and its typed result. */
+export interface DeleteMembersSectorUserAnswer {
+  status: DeleteMembersSectorUserStatus;
+  result: DeleteMembersSectorUserResult;
+}
 
 export interface DeleteMembersUserConfig {
   userId: string | FieldPointer;
+  everythingUnder: boolean | FieldPointer;
+  token: string | FieldPointer;
 }
 export interface DeleteMembersUser {
   userId: string;
+  everythingUnder: boolean;
+  token: string;
+}
+/** The result DeleteMembersUser answers with. */
+export interface DeleteMembersUserResult {
+  deleted: number;
 }
 /** The statuses DeleteMembersUser declares; the method chooses one per response. */
-export type DeleteMembersUserStatus = 204;
+export type DeleteMembersUserStatus = 202 | 204;
+/** The answer DeleteMembersUser resolves with: the status the method chose and its typed result. */
+export interface DeleteMembersUserAnswer {
+  status: DeleteMembersUserStatus;
+  result: DeleteMembersUserResult;
+}
 
 export interface DisableMembersSectorUserConfig {
   userId: string | FieldPointer;
@@ -109,6 +135,11 @@ export interface RenameMembersUser {
 /** The statuses RenameMembersUser declares; the method chooses one per response. */
 export type RenameMembersUserStatus = 204;
 
+export interface RequireMembersSecondFactorConfig {}
+export interface RequireMembersSecondFactor {}
+/** The statuses RequireMembersSecondFactor declares; the method chooses one per response. */
+export type RequireMembersSecondFactorStatus = 204;
+
 export interface RevokeMembersSectorUserTrustedDevicesConfig {
   userId: string | FieldPointer;
 }
@@ -127,16 +158,28 @@ export interface RevokeMembersUserTrustedDevices {
 /** The statuses RevokeMembersUserTrustedDevices declares; the method chooses one per response. */
 export type RevokeMembersUserTrustedDevicesStatus = 204;
 
+export interface SetMembersRememberedBrowsersConfig {
+  length: string | FieldPointer;
+}
+export interface SetMembersRememberedBrowsers {
+  length: string;
+}
+/** The statuses SetMembersRememberedBrowsers declares; the method chooses one per response. */
+export type SetMembersRememberedBrowsersStatus = 204;
+
 export interface SetMembersSectorUserEmailConfig {
   userId: string | FieldPointer;
-  email?: string | FieldPointer;
+  email: string | FieldPointer;
 }
 export interface SetMembersSectorUserEmail {
   userId: string;
-  email?: string;
+  email: string;
 }
-/** The statuses SetMembersSectorUserEmail declares; the method chooses one per response. */
-export type SetMembersSectorUserEmailStatus = 204;
+/** The result SetMembersSectorUserEmail answers with. */
+export interface SetMembersSectorUserEmailResult {
+  sent: boolean;
+  reason: string;
+}
 
 export interface SetMembersSectorUserNameConfig {
   userId: string | FieldPointer;
@@ -151,14 +194,17 @@ export type SetMembersSectorUserNameStatus = 204;
 
 export interface SetMembersUserEmailConfig {
   userId: string | FieldPointer;
-  email?: string | FieldPointer;
+  email: string | FieldPointer;
 }
 export interface SetMembersUserEmail {
   userId: string;
-  email?: string;
+  email: string;
 }
-/** The statuses SetMembersUserEmail declares; the method chooses one per response. */
-export type SetMembersUserEmailStatus = 204;
+/** The result SetMembersUserEmail answers with. */
+export interface SetMembersUserEmailResult {
+  sent: boolean;
+  reason: string;
+}
 
 export interface SetMembersUserNameConfig {
   userId: string | FieldPointer;
@@ -177,6 +223,11 @@ export interface StandDownMissionConfig {
 export interface StandDownMission {
   missionId: string;
 }
+
+export interface StopRequiringMembersSecondFactorConfig {}
+export interface StopRequiringMembersSecondFactor {}
+/** The statuses StopRequiringMembersSecondFactor declares; the method chooses one per response. */
+export type StopRequiringMembersSecondFactorStatus = 204;
 
 export interface UnlinkMembersSectorSessionIdentityConfig {
   identityId: string | FieldPointer;
@@ -225,6 +276,12 @@ export interface SetFeatureResult {
 export interface RPCFieldMeta {
   fieldName: string;
   displayType: ValidRPCTypes;
+  /**
+   * Set on a decimal field, and on a list of decimals: its display type is number, which
+   * chooses the number control, and its value is text in JSON, so a form sends what the
+   * person typed as a string and no digit is lost.
+   */
+  decimal?: true;
   /** The resource whose rows a picker for this field lists; absent when the values are fixed (see enumeration). */
   enumeratedResource?: Resource;
   /** The fixed values of an enumeration table the field names; the picker renders them without a request. */
@@ -264,6 +321,14 @@ export interface MethodTransition {
 export interface MethodTarget {
   resource: Resource;
   key: Record<string, string>;
+  /**
+   * The request fields of the key whose empty text is a value of the key, such as the
+   * group of a role a person holds directly: a text field the method does not declare
+   * required. A row that holds the empty text there is named by it, and it is sent as it
+   * is. Every other part of the key holds a value on every row, and a row that holds
+   * none there is refused. Absent where no part of the key may be empty.
+   */
+  mayBeEmpty?: string[];
 }
 
 export interface MethodMeta {
@@ -273,6 +338,15 @@ export interface MethodMeta {
   transition?: MethodTransition;
   /** The row the method runs against; absent on a method with no target row. */
   target?: MethodTarget;
+  /**
+   * The resources whose rows offer a method that names no target row (@callerEnters naming
+   * them): a page fills the method's request from such a row, and the row's Execute answer lists
+   * the method only for a caller who holds its grant and whose session enters every tenant the
+   * row names. The answer is not the whole of the method's judgment: the call may still be
+   * refused for a reason of the method's own. Absent on a method no row answers for, which is
+   * offered wherever its grant is held.
+   */
+  offeredOn?: Resource[];
   /** Set when the method answers with a result body; absent methods resolve with nothing. */
   answers?: true;
   /** The statuses the method declares with @answers; a listed 4xx is the method's own answer, not a refusal by the frame. */
@@ -287,10 +361,13 @@ export interface MethodMeta {
   dryRun?: true;
   /**
    * Set on a method that warns before it runs (@warning): the server writes what the
-   * call will do (asked with X-Warning, nothing saved), and a dialog shows it in the
-   * warning style and holds its confirm button until the person has typed the word.
+   * call will do (asked with X-Warning, nothing saved), and a dialog shows it and holds
+   * its confirm button until the server has answered. `typed` is the word the method has
+   * a person type first, where it declares one (@warning(typed: word)): the dialog then
+   * shows the server's words in the warning style and holds the button until the word
+   * is typed too.
    */
-  warning?: { typed: string };
+  warning?: { typed?: string };
   fields: RPCFieldMeta[];
 }
 
@@ -300,19 +377,25 @@ const methodMap: MethodMap = {
   [Methods.DeleteMembersSectorUser]: {
     route: 'delete-members-sector-user',
     target: { resource: Resources.MembersSectorUsers, key: { userId: 'id' } },
-    statuses: [204],
+    answers: true,
+    statuses: [202, 204],
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
+      { fieldName: 'everythingUnder', displayType: 'boolean' },
+      { fieldName: 'token', displayType: 'string' },
     ],
   },
   [Methods.DeleteMembersUser]: {
     route: 'delete-members-user',
-    target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
-    statuses: [204],
+    target: { resource: Resources.MembersListedUsers, key: { userId: 'id' } },
+    answers: true,
+    statuses: [202, 204],
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
+      { fieldName: 'everythingUnder', displayType: 'boolean' },
+      { fieldName: 'token', displayType: 'string' },
     ],
   },
   [Methods.DisableMembersSectorUser]: {
@@ -326,7 +409,7 @@ const methodMap: MethodMap = {
   },
   [Methods.DisableMembersUser]: {
     route: 'disable-members-user',
-    target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.MembersListedUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -344,7 +427,7 @@ const methodMap: MethodMap = {
   },
   [Methods.EnableMembersUser]: {
     route: 'enable-members-user',
-    target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.MembersListedUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -362,16 +445,17 @@ const methodMap: MethodMap = {
   },
   [Methods.EndMembersSession]: {
     route: 'end-members-session',
-    target: { resource: Resources.MembersSessions, key: { sessionId: 'id' } },
+    target: { resource: Resources.MembersListedSessions, key: { sessionId: 'id' } },
     statuses: [204],
     dryRun: true,
+    warning: {},
     fields: [
       { fieldName: 'sessionId', displayType: 'uuid' },
     ],
   },
   [Methods.EndMembersUserSessions]: {
     route: 'end-members-user-sessions',
-    target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.MembersListedUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -390,13 +474,19 @@ const methodMap: MethodMap = {
   },
   [Methods.RenameMembersUser]: {
     route: 'rename-members-user',
-    target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.MembersListedUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
       { fieldName: 'username', displayType: 'string', required: true },
     ],
+  },
+  [Methods.RequireMembersSecondFactor]: {
+    route: 'require-members-second-factor',
+    statuses: [204],
+    dryRun: true,
+    fields: [],
   },
   [Methods.RevokeMembersSectorUserTrustedDevices]: {
     route: 'revoke-members-sector-user-trusted-devices',
@@ -409,21 +499,29 @@ const methodMap: MethodMap = {
   },
   [Methods.RevokeMembersUserTrustedDevices]: {
     route: 'revoke-members-user-trusted-devices',
-    target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.MembersListedUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
     ],
   },
-  [Methods.SetMembersSectorUserEmail]: {
-    route: 'set-members-sector-user-email',
-    target: { resource: Resources.MembersSectorUsers, key: { userId: 'id' } },
+  [Methods.SetMembersRememberedBrowsers]: {
+    route: 'set-members-remembered-browsers',
     statuses: [204],
     dryRun: true,
     fields: [
+      { fieldName: 'length', displayType: 'enumerated', enumeratedResource: Resources.MembersRememberLengths, required: true },
+    ],
+  },
+  [Methods.SetMembersSectorUserEmail]: {
+    route: 'set-members-sector-user-email',
+    target: { resource: Resources.MembersSectorUsers, key: { userId: 'id' } },
+    answers: true,
+    dryRun: true,
+    fields: [
       { fieldName: 'userId', displayType: 'uuid' },
-      { fieldName: 'email', displayType: 'string', optional: true },
+      { fieldName: 'email', displayType: 'string', required: true },
     ],
   },
   [Methods.SetMembersSectorUserName]: {
@@ -438,17 +536,17 @@ const methodMap: MethodMap = {
   },
   [Methods.SetMembersUserEmail]: {
     route: 'set-members-user-email',
-    target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
-    statuses: [204],
+    target: { resource: Resources.MembersListedUsers, key: { userId: 'id' } },
+    answers: true,
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
-      { fieldName: 'email', displayType: 'string', optional: true },
+      { fieldName: 'email', displayType: 'string', required: true },
     ],
   },
   [Methods.SetMembersUserName]: {
     route: 'set-members-user-name',
-    target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.MembersListedUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -465,6 +563,13 @@ const methodMap: MethodMap = {
       { fieldName: 'missionId', displayType: 'uuid' },
     ],
   },
+  [Methods.StopRequiringMembersSecondFactor]: {
+    route: 'stop-requiring-members-second-factor',
+    statuses: [204],
+    dryRun: true,
+    warning: { typed: 'stop' },
+    fields: [],
+  },
   [Methods.UnlinkMembersSectorSessionIdentity]: {
     route: 'unlink-members-sector-session-identity',
     target: { resource: Resources.MembersSectorIdentities, key: { identityId: 'id' } },
@@ -476,7 +581,7 @@ const methodMap: MethodMap = {
   },
   [Methods.UnlinkMembersSessionIdentity]: {
     route: 'unlink-members-session-identity',
-    target: { resource: Resources.MembersSessionIdentities, key: { identityId: 'id' } },
+    target: { resource: Resources.MembersListedIdentities, key: { identityId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -485,7 +590,7 @@ const methodMap: MethodMap = {
   },
   [Methods.UnlockMembersSignIn]: {
     route: 'unlock-members-sign-in',
-    target: { resource: Resources.MembersSessionSignInAttempts, key: { name: 'name' } },
+    target: { resource: Resources.MembersListedSignInAttempts, key: { name: 'name' } },
     statuses: [204],
     dryRun: true,
     fields: [

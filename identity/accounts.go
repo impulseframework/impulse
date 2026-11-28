@@ -7,9 +7,12 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/access"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
+	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/tracer"
 )
 
@@ -19,9 +22,12 @@ import (
 // role, which carry the actor's own name). Nothing the person holds follows the name:
 // the permission store names a person by the id of their account, so the roles stay
 // where they are. A name another user holds is a Conflict; the same name in another
-// case is the person's own. A super administrator is renamed by a super administrator
-// alone, since the name is what the person signs in with
-// (requireSuperAdministratorFor).
+// case is the person's own. The name is a typed one, held to sessioninfo.UsernameRefusal.
+// An administrator's rename is not held to the rule of a person's own choice, that a name
+// with an @ in it is their own confirmed address: an administrator gives an account the
+// name its directory will send, and is who renames an account that holds a name it
+// should not. A super administrator is renamed by a super administrator alone, since the
+// name is what the person signs in with (requireSuperAdministratorFor).
 //
 // Shared rule: the session library's ChangeSessionUserUsername, which renames the user,
 // the live sessions and the standing records in one transaction of its own.
@@ -29,16 +35,22 @@ func (m *Manager) RenameUser(ctx context.Context, txn resource.ReadWriteTransact
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	if err := m.refuseImpersonatorAsSubject(ctx, userID, "rename your own account"); err != nil {
+		return err
+	}
 	name := strings.TrimSpace(username)
 	if name == "" {
-		return httpio.NewBadRequestMessage("a username is required")
+		return httpio.NewBadRequestMessage("The username is empty. Type a username.")
+	}
+	if err := sessioninfo.UsernameRefusal(name); err != nil {
+		return err
 	}
 	old, found, err := m.store.Username(ctx, txn, userID)
 	if err != nil {
 		return errors.Wrap(err, "identity.Store.Username()")
 	}
 	if !found {
-		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+		return accountNotFound(userID)
 	}
 	if err := m.requireSuperAdministratorFor(ctx, txn, userID, "renames a super administrator"); err != nil {
 		return err
@@ -54,7 +66,7 @@ func (m *Manager) RenameUser(ctx context.Context, txn resource.ReadWriteTransact
 		return errors.Wrap(err, "identity.Store.UserID()")
 	}
 	if held && holder != userID {
-		return httpio.NewConflictMessagef("a user named %q already exists", name)
+		return httpio.NewConflictMessageWithError(errors.Newf("a user named %q already exists", name), "Another account already has this username. Choose another.")
 	}
 
 	// Everything is read before anything is buffered: the sessions that carry the
@@ -79,7 +91,7 @@ func (m *Manager) RenameUser(ctx context.Context, txn resource.ReadWriteTransact
 			sessions = append(sessions, record.SessionID)
 		}
 	}
-	if err := m.store.UpdateUser(ctx, txn, userID, &UserChange{Username: &name, Disabled: nil, PasswordChangeRequired: nil, Email: nil, Name: nil}); err != nil {
+	if err := m.store.UpdateUser(ctx, txn, userID, &UserChange{Username: &name, Disabled: nil, PasswordChangeRequired: nil, Name: nil}); err != nil {
 		return errors.Wrap(err, "identity.Store.UpdateUser()")
 	}
 	for _, id := range sessions {
@@ -92,149 +104,242 @@ func (m *Manager) RenameUser(ctx context.Context, txn resource.ReadWriteTransact
 			return errors.Wrap(err, "identity.Store.RenameImpersonationActor()")
 		}
 	}
+	// The row names the account by its new username, and keeps the old one beside it.
+	renamed := accountRecord(auditlog.ActUsernameChanged, userID, name)
+	renamed.OldValue, renamed.NewValue = old, name
 
-	return nil
+	return m.record(ctx, txn, renamed)
 }
 
-// DeleteUser buffers the removal of a user, in the caller's transaction: every session
-// they hold is ended, their identity links, every membership they hold and their place
-// in every group go, then the row, and the permission engine is told once the
-// transaction has committed. Nobody
-// deletes themselves: the person acting, the real person behind the session, is refused
-// their own account, and a session that views as someone else the account it views as
-// (refuseOwnAccount). A super
-// administrator's account is deleted by a super administrator alone, and the last one
-// who can sign in by nobody (requireSuperAdministrator, refuseLastSuperAdministrator).
+// DeleteUser buffers the removal of a user, in the caller's transaction. The row's
+// delete is asked first: it takes with it the application's rows that name the account
+// in a column that says so (@deletedWith). They go on the permission the request was let
+// in by, with no grant asked on them: every row for a request made for the whole
+// application, and for one made under a tenant's address the rows of that tenant and of
+// each other tenant in which the person holds the same permission, a row of any other
+// tenant or of none refusing the delete. Asked without everythingUnder of an account that
+// has such a row, it deletes nothing and answers the question a person is asked first,
+// with their counts, and so it does asked with it where the request's token
+// (resource.DeleteTokenFrom) does not hold; where they are more than one save holds, it
+// answers the rows the save deleted, and the account stands whole, with its sessions and
+// its ways to sign in, until a save takes the last of them. Called where no token was
+// declared, by a job or by a method that declares no @deleteToken, it takes them on
+// code's word, every save asking everything again
+// (resource.PatchSet.DeleteEverythingUnder). Once the row goes, every session the person
+// holds is ended, and their identity links, every membership they hold, every role they
+// hold on a record that has not ended and their place in every group go with it, and the
+// permission engine is told once the transaction has committed. The save that deletes the
+// row writes the row of the account's delete, done to the account by the username the
+// transaction read; what goes with the account has no row of its own. Nobody deletes
+// themselves: the person acting, the real person behind the session, is refused their own
+// account, and a session that views as someone else the account it views as
+// (refuseOwnAccount). In a session that acts as someone else the refusal of the real
+// person's own account is the one DisableUser and EnableUser give there, in the same
+// sentence form and with the same log line. A super administrator's account is deleted by
+// a super administrator alone, and the last one who can sign in by nobody
+// (requireSuperAdministrator, refuseLastSuperAdministrator).
 //
 // Shared rule: the session library's DeleteSessionUser; the memberships are the user
 // management's, which removes every one the person holds with the account.
-func (m *Manager) DeleteUser(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) error {
-	ctx, span := tracer.Start(ctx)
-	defer span.End()
-
-	_, found, err := m.store.Username(ctx, txn, userID)
-	if err != nil {
-		return errors.Wrap(err, "identity.Store.Username()")
-	}
-	if !found {
-		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
-	}
-	if err := m.refuseOwnAccount(ctx, userID, "delete"); err != nil {
-		return err
-	}
-	// The account's roles go with it, the Super Administrator role among them: only a
-	// super administrator removes another, and never the last one who can sign in.
-	super, err := m.holdsSuperAdministrator(ctx, txn, userID)
-	if err != nil {
-		return err
-	}
-	if super {
-		if err := m.requireSuperAdministrator(ctx, txn, "deletes a super administrator's account, since the role goes with it"); err != nil {
-			return err
-		}
-		if err := m.refuseLastSuperAdministrator(ctx, txn, userID, "delete their account"); err != nil {
-			return err
-		}
-	}
-	if err := m.requireEnteringFor(ctx, txn, userID); err != nil {
-		return err
-	}
-	held, err := m.store.Memberships(ctx, txn, userID)
-	if err != nil {
-		return errors.Wrap(err, "identity.Store.Memberships()")
-	}
-	if err := m.deleteAccount(ctx, txn, userID); err != nil {
-		return err
-	}
-	for _, key := range held {
-		if err := m.store.DeleteMembership(ctx, txn, &key); err != nil {
-			return errors.Wrap(err, "identity.Store.DeleteMembership()")
-		}
-	}
-	inGroups, err := m.removeGroupPlaces(ctx, txn, userID)
-	if err != nil {
-		return err
-	}
-	if len(held) > 0 || inGroups {
-		return m.policyChangesAtCommit(txn)
-	}
-
-	return nil
-}
-
-// SetTemporaryPassword buffers a password an operator chose for a user, in the caller's
-// transaction: the person must change it before anything else is served, every session
-// they hold is ended, and the count of failed sign-ins kept under their name is
-// cleared, so a person locked out signs in with the new password at once. The hash is
-// the session library's, made by the password method's hasher. A super administrator's
-// password is set by a super administrator alone: whoever sets it signs in as them
-// (requireSuperAdministratorFor).
-//
-// Shared rule: the session library's ResetSessionUserPassword, which does the same in
-// commits of its own.
-func (m *Manager) SetTemporaryPassword(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, password string) error {
+func (m *Manager) DeleteUser(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, everythingUnder bool) (*resource.DeleteLeft, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	username, found, err := m.store.Username(ctx, txn, userID)
 	if err != nil {
-		return errors.Wrap(err, "identity.Store.Username()")
+		return nil, errors.Wrap(err, "identity.Store.Username()")
 	}
 	if !found {
-		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+		return nil, accountNotFound(userID)
 	}
-	if err := m.requireSuperAdministratorFor(ctx, txn, userID, "sets a super administrator's password"); err != nil {
-		return err
+	if err := m.refuseOwnAccount(ctx, userID, "delete"); err != nil {
+		return nil, err
+	}
+	// The account's roles go with it, the Super Administrator role among them: only a
+	// super administrator removes another, and never the last one who can sign in.
+	super, err := m.holdsSuperAdministrator(ctx, txn, userID)
+	if err != nil {
+		return nil, err
+	}
+	if super {
+		if err := m.requireSuperAdministrator(ctx, txn, "deletes a super administrator's account, since the role goes with it"); err != nil {
+			return nil, err
+		}
+		if err := m.refuseLastSuperAdministrator(ctx, txn, userID, "delete their account"); err != nil {
+			return nil, err
+		}
 	}
 	if err := m.requireEnteringFor(ctx, txn, userID); err != nil {
-		return err
+		return nil, err
 	}
-	hash, err := m.sessions.HashPassword(password)
+	// Everything is read before anything is buffered: a buffered write is not read back.
+	held, err := m.store.Memberships(ctx, txn, userID)
 	if err != nil {
-		return errors.Wrap(err, "identity.SessionAPI.HashPassword()")
+		return nil, errors.Wrap(err, "identity.Store.Memberships()")
 	}
-	// The sessions are read before anything is buffered: they are the ones live now.
-	if err := m.endUserSessions(ctx, txn, userID); err != nil {
-		return err
+	onRecords, err := m.store.RecordMemberships(ctx, txn, userID)
+	if err != nil {
+		return nil, errors.Wrap(err, "identity.Store.RecordMemberships()")
 	}
-	if err := m.store.SetPassword(ctx, txn, userID, hash, true); err != nil {
-		return errors.Wrap(err, "identity.Store.SetPassword()")
+	links, err := m.store.Identities(ctx, txn, userID)
+	if err != nil {
+		return nil, errors.Wrap(err, "identity.Store.Identities()")
 	}
-	if err := m.store.ClearAttempts(ctx, txn, session.SignInAttemptName(username)); err != nil {
-		return errors.Wrap(err, "identity.Store.ClearAttempts()")
+	endings, err := m.sessionEndings(ctx, txn, userID)
+	if err != nil {
+		return nil, err
+	}
+	left, err := m.store.DeleteUser(ctx, txn, userID, everythingUnder)
+	if err != nil {
+		return nil, errors.Wrap(err, "identity.Store.DeleteUser()")
+	}
+	if left != nil {
+		// The row stands until a save takes the last row that goes with it, and the
+		// account with it, whole.
+		return left, nil
+	}
+	if err := m.endSessions(ctx, txn, endings); err != nil {
+		return nil, err
+	}
+	if err := m.deleteAccountHoldings(ctx, txn, links, held, onRecords); err != nil {
+		return nil, err
+	}
+	inGroups, err := m.removeGroupPlaces(ctx, txn, userID)
+	if err != nil {
+		return nil, err
+	}
+	if err := m.record(ctx, txn, accountRecord(auditlog.ActAccountDeleted, userID, username)); err != nil {
+		return nil, err
+	}
+	if len(held) > 0 || len(onRecords) > 0 || inGroups {
+		return nil, m.policyChangesAtCommit(txn)
+	}
+
+	return nil, nil
+}
+
+// deleteAccountHoldings buffers the deletion of what goes with an account once its row is
+// gone (DeleteUser): its identity links, its memberships and its roles on records.
+func (m *Manager) deleteAccountHoldings(ctx context.Context, txn resource.ReadWriteTransaction, links []Link, held []access.MembershipKey, onRecords []access.RecordMembershipKey) error {
+	for _, link := range links {
+		if err := m.store.DeleteIdentity(ctx, txn, link.ID); err != nil {
+			return errors.Wrap(err, "identity.Store.DeleteIdentity()")
+		}
+	}
+	for i := range held {
+		if err := m.store.DeleteMembership(ctx, txn, &held[i]); err != nil {
+			return errors.Wrap(err, "identity.Store.DeleteMembership()")
+		}
+	}
+	for i := range onRecords {
+		if err := m.store.DeleteRecordMembership(ctx, txn, &onRecords[i]); err != nil {
+			return errors.Wrap(err, "identity.Store.DeleteRecordMembership()")
+		}
 	}
 
 	return nil
 }
 
+// resetLinksEndAtCommit registers the withdrawal of the user's standing password reset
+// links for after the commit of a transaction that writes or removes their password: a
+// link mailed for the password before does not reset the one after.
+func (m *Manager) resetLinksEndAtCommit(txn resource.ReadWriteTransaction, userID impulse.UUID) error {
+	return m.noticeAfterCommit(txn, "the withdrawal of the password reset links of user "+userID.String(), func(ctx context.Context) error {
+		return m.sessions.EndPasswordResetLinks(ctx, userID)
+	})
+}
+
+// SendPasswordResetLink has a link that resets a user's password mailed to the address
+// they confirmed, once the caller's transaction commits. Nothing about the account
+// changes when it is sent: the password it has signs the person in, and their sessions
+// stand, until the link is used. The message says who asked: an administrator of the
+// tenant the request was checked in, or of the application. sent is told how the
+// mailing went, once the transaction has committed: whether the link was mailed and,
+// where it was not, why, in a sentence for the administrator who asked (the account has
+// no password to reset or no confirmed address, its password is disabled by its
+// organization's sign-in settings, or the address was mailed too often).
+//
+// The link goes to the person's own mailbox and to nowhere the caller names, so it is
+// the caller's to send for whoever the role file lets them manage; an account of
+// another auth, and no account, are NotFound. A super administrator's account is acted
+// on by a super administrator alone, and sending its holder a reset link is acting on
+// it: anybody else is refused (requireSuperAdministratorFor).
+//
+// Shared rule: the session library's SendPasswordReset, which counts the message
+// against the limit on reset links to an address, the person's own requests with it.
+func (m *Manager) SendPasswordResetLink(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, sent func(sent bool, reason string)) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := m.refuseImpersonatorAsSubject(ctx, userID, "send yourself a password reset link"); err != nil {
+		return err
+	}
+	if _, found, err := m.store.Username(ctx, txn, userID); err != nil {
+		return errors.Wrap(err, "identity.Store.Username()")
+	} else if !found {
+		return accountNotFound(userID)
+	}
+	if err := m.requireSuperAdministratorFor(ctx, txn, userID, "sends a super administrator a password reset link"); err != nil {
+		return err
+	}
+	by := askedBy(ctx)
+
+	return m.mailAfterCommit(txn, "the password reset link of user "+userID.String(), sent, func(ctx context.Context) error {
+		return m.sessions.SendPasswordReset(ctx, userID, by)
+	})
+}
+
 // RevokeTrustedDevices buffers an administrator's reset of a user's second factor, in
 // the caller's transaction: every browser the person asked to be remembered is
 // forgotten, so their next sign-in from any of them asks for the factor. The sessions
-// that stand are not touched (EndUserSessions ends them).
+// that stand are not touched (EndUserSessions ends them). Once the transaction has
+// committed the person is told, at the address they confirmed, that their sign-in was
+// reset.
 //
 // Shared rule: the session library's ResetFactors.
 func (m *Manager) RevokeTrustedDevices(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	if err := m.refuseImpersonatorAsSubject(ctx, userID, "revoke your own trusted devices"); err != nil {
+		return err
+	}
 	devices, err := m.store.TrustedDevices(ctx, txn, userID)
 	if err != nil {
 		return errors.Wrap(err, "identity.Store.TrustedDevices()")
 	}
-	for _, id := range devices {
-		if err := m.store.RevokeTrustedDevice(ctx, txn, id); err != nil {
-			return errors.Wrap(err, "identity.Store.RevokeTrustedDevice()")
+	// A person with no browser remembered has nothing forgotten, and no row says so.
+	if len(devices) > 0 {
+		subject, err := m.accountSubject(ctx, txn, userID)
+		if err != nil {
+			return err
+		}
+		for _, id := range devices {
+			if err := m.store.RevokeTrustedDevice(ctx, txn, id); err != nil {
+				return errors.Wrap(err, "identity.Store.RevokeTrustedDevice()")
+			}
+		}
+		if err := m.recordAct(ctx, txn, auditlog.ActBrowsersForgotten, subject); err != nil {
+			return err
 		}
 	}
 
-	return nil
+	return m.noticeAfterCommit(txn, "the notice of a second factor reset to user "+userID.String(), func(ctx context.Context) error {
+		return m.sessions.NoticeFactorReset(ctx, userID)
+	})
 }
 
 // UnlockSignIn buffers the removal of the count of failed sign-ins kept under a name,
 // in the caller's transaction, and with it the lock the count earned: once it commits,
 // the name may sign in again. The name is what was typed into the username field,
-// whether or not a user holds it, and is keyed as the session library keys it
-// (session.SignInAttemptName); a name with no count is no error.
+// whether or not a user holds it, and is keyed as the session library keys it; a name
+// with no count is no error. The table also keeps the session library's own counts (the
+// mail an address was sent, its sign-in codes, its reset links, the wrong sign-in codes
+// entered for an account, the guesses at a first password's code) under keys no name
+// folds to, and a row of one, named as the list shows it, is cleared the same way
+// (session.SignInAttemptKey). Clearing the row of the wrong codes entered for an
+// account (CODE-GUESS: and the account's id) is how an administrator lets an account
+// whose sign-in codes are spent take codes again.
 //
 // Each instance of the application trusts what it remembers of a name for a few
 // seconds, a lock included, so the lock is gone from every instance within that time
@@ -246,9 +351,12 @@ func (m *Manager) UnlockSignIn(ctx context.Context, txn resource.ReadWriteTransa
 	defer span.End()
 
 	if strings.TrimSpace(name) == "" {
-		return httpio.NewBadRequestMessage("a name is required: the name the failed sign-ins are counted under")
+		return httpio.NewBadRequestMessage("No name is given. Give the name the failed sign-ins are counted under.")
 	}
-	if err := m.store.ClearAttempts(ctx, txn, session.SignInAttemptName(name)); err != nil {
+	if err := m.refuseImpersonatorsName(ctx, txn, name); err != nil {
+		return err
+	}
+	if err := m.store.ClearAttempts(ctx, txn, session.SignInAttemptKey(name)); err != nil {
 		return errors.Wrap(err, "identity.Store.ClearAttempts()")
 	}
 

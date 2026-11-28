@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/resource"
 )
 
 type (
@@ -20,6 +21,7 @@ type (
 	// @outlet(default)
 	// @order(CreatedAt desc)
 	// @page(default: 25, max: 200)
+	// @rowWord(sign-in identity)
 	CrewSessionIdentity struct {
 		ID          impulse.UUID `spanner:"Id"`
 		UserID      impulse.UUID `spanner:"UserId"`
@@ -32,3 +34,10 @@ type (
 		LastUsedAt  time.Time    `spanner:"LastUsedAt"`
 	}
 )
+
+// TenantsToEnter names the sectors the person administers: a caller whose session
+// does not enter one of them is not offered the methods that change how the person signs
+// in or whether their account stands.
+func (CrewSessionIdentity) TenantsToEnter() resource.TenantsToEnter {
+	return crewSessionUserTenantsToEnter("UserId")
+}

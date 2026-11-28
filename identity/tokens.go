@@ -5,7 +5,7 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
-	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session/sessionstorage"
 	"github.com/impulseframework/impulse/tracer"
@@ -33,7 +33,13 @@ func (m *Manager) RevokeToken(ctx context.Context, txn resource.ReadWriteTransac
 		return errors.Wrap(err, "identity.Store.Token()")
 	}
 	if !found || token.Revoked || !token.ExpiresAt.After(m.now()) {
-		return httpio.NewNotFoundMessage("no live token")
+		return tokenNotFound(tokenID)
+	}
+	if token.UserID.IsNil() {
+		return errors.Newf("identity.Store.Token() answered the token %s with no owner: a Store's Token fills Token.UserID with the account the token signs in as", tokenID)
+	}
+	if err := m.refuseImpersonatorAsSubject(ctx, token.UserID, "revoke a token of your own"); err != nil {
+		return err
 	}
 	targets := []impulse.UUID{tokenID}
 	if token.FamilyID != nil {
@@ -41,11 +47,16 @@ func (m *Manager) RevokeToken(ctx context.Context, txn resource.ReadWriteTransac
 			return errors.Wrap(err, "identity.Store.FamilyTokens()")
 		}
 	}
+	subject, err := m.accountSubject(ctx, txn, token.UserID)
+	if err != nil {
+		return err
+	}
 	for _, id := range targets {
 		if err := m.store.RevokeToken(ctx, txn, id, revokedByHand); err != nil {
 			return errors.Wrap(err, "identity.Store.RevokeToken()")
 		}
 	}
 
-	return nil
+	// One row for the act, however many tokens of the family went with it.
+	return m.recordAct(ctx, txn, auditlog.ActTokenRevoked, subject)
 }

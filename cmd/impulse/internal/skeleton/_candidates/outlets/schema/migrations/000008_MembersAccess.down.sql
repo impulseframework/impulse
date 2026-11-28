@@ -1,3 +1,11 @@
+DROP INDEX MembersRecordGroupRolesByGroupId;
+
+DROP TABLE MembersRecordGroupRoles;
+
+DROP INDEX MembersRecordUserRolesByUserId;
+
+DROP TABLE MembersRecordUserRoles;
+
 DROP INDEX MembersGroupRolesByScope;
 
 DROP TABLE MembersGroupRoles;

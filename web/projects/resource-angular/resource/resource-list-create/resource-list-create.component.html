@@ -18,7 +18,7 @@
               class="exp-panel-add-element-btn"
               color="accent"
               (click)="createResource($event)"
-              matTooltip="{{ config().createButtonLabel }}"
+              [matTooltip]="createLabel()"
               matTooltipPosition="above">
               <mat-icon color="accent">add_circle</mat-icon>
             </button>
@@ -36,29 +36,39 @@
 }
 
 <ng-template #resourceComponents>
-  @if (create()) {
-    <impulse-resource-create
-      [resourceConfig]="createConfig()"
-      [parentData]="parentData() ?? {}"
-      [loadCreatedResource]="config().loadCreatedResource"
-      (complete)="makeCreatePatches()">
-    </impulse-resource-create>
+  <!-- The lists the page names above its own: each a list of its own, with its own rows. -->
+  @for (over of above(); track $index) {
+    <impulse-resource-list-create
+      class="above"
+      [resourceConfig]="over"
+      [isRootList]="false"
+      [compoundResourceComponent]="compoundResourceComponent()">
+    </impulse-resource-list-create>
   }
 
-  @if (listReady()) {
+  @if (listReady() && listAsked()) {
     <impulse-resource-list
       #list
       [viewRoute]="rootConfig().routeData.route"
       [resourceConfig]="config()"
       [filter]="filter()"
-      [hideCreateButton]="create()"
+      [hideCreateButton]="false"
       [relatedData]="parentData()"
       [parentId]="parentId()"
-      [linkCreateType]="createLinkType()"
       [isRootList]="isRootList()"
-      (createMode)="create.set($event)"
+      (createRequested)="openCreate()"
       (methodRan)="methodRan()"
       [compoundResourceComponent]="compoundResourceComponent()">
     </impulse-resource-list>
+  }
+
+  <!-- The lists the page names under its own: each a list of its own, with its own rows. -->
+  @for (under of below(); track $index) {
+    <impulse-resource-list-create
+      class="below"
+      [resourceConfig]="under"
+      [isRootList]="false"
+      [compoundResourceComponent]="compoundResourceComponent()">
+    </impulse-resource-list-create>
   }
 </ng-template>

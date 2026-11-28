@@ -40,6 +40,14 @@ func Test_typescriptResourcesTemplate_optionalFields(t *testing.T) {
 			}
 		}
 	})
+	named := fixtureResource(t, structs, "Widget", func(res *resourceInfo) {
+		for _, f := range res.Fields {
+			f.typescriptType = "string"
+			if f.Name() == "ListedName" {
+				res.RowNameField = f
+			}
+		}
+	})
 	publishedView := fixtureResource(t, structs, "Widget", func(res *resourceInfo) {
 		res.IsVirtual = true
 		res.published = &publishedSet{Root: "Widgets", Tables: []string{"Gizmos"}}
@@ -72,8 +80,10 @@ func Test_typescriptResourcesTemplate_optionalFields(t *testing.T) {
 			wantNotContains: []string{
 				"  id?: string;",
 				"  name: string;",
-				// A resource that is not the tenant record says no field its rows are called by.
+				// A resource that declares neither @name nor @tenantName says no field its rows are called by.
 				"nameField",
+				// A table's sorts and filters run over what the caller may see: it is not marked computed.
+				"    computed: true,",
 			},
 		},
 		{
@@ -85,6 +95,15 @@ func Test_typescriptResourcesTemplate_optionalFields(t *testing.T) {
 			// The record is keyed by an id: a picker over it and a page that names a row's
 			// tenant show this field.
 			wantContains: []string{"    live: true,\n    nameField: 'name',\n    fields: ["},
+		},
+		{
+			name: "a resource's metadata says which field its rows are known by, the field marked @name",
+			data: tsResourcesData{
+				Resources: []*resourceInfo{named},
+				GenPrefix: "zz_gen",
+			},
+			// A picker over it shows and lists its rows by this field, by wire name.
+			wantContains: []string{"    live: true,\n    nameField: 'listedName',\n    fields: ["},
 		},
 		{
 			name: "computed resource interface fields are optional except primary keys",
@@ -99,6 +118,8 @@ func Test_typescriptResourcesTemplate_optionalFields(t *testing.T) {
 				"{ fieldName: 'name', displayType: 'string', required: false, isIndex: false }",
 				// No publish reaches a computed resource yet: its pages stay plain by default.
 				"    live: false,\n    fields: [",
+				// Its handler orders and filters the rows by their real values: the metadata says it is computed.
+				"    deleteDisabled: true,\n    computed: true,\n    live: false,\n    fields: [",
 			},
 			wantNotContains: []string{
 				"  id?: string;",
@@ -112,7 +133,7 @@ func Test_typescriptResourcesTemplate_optionalFields(t *testing.T) {
 				GenPrefix: "zz_gen",
 			},
 			wantContains:    []string{"    live: false,\n    fields: ["},
-			wantNotContains: []string{"live: true"},
+			wantNotContains: []string{"live: true", "    computed: true,"},
 		},
 		{
 			name: "a virtual resource whose tables are known says its changes are published",
@@ -121,7 +142,7 @@ func Test_typescriptResourcesTemplate_optionalFields(t *testing.T) {
 				GenPrefix: "zz_gen",
 			},
 			wantContains:    []string{"    live: true,\n    fields: ["},
-			wantNotContains: []string{"live: false"},
+			wantNotContains: []string{"live: false", "    computed: true,"},
 		},
 	}
 
@@ -488,8 +509,9 @@ func Test_typescriptMethodsTemplate_arrays(t *testing.T) {
 // Test_typescriptMethodsTemplate_target pins the row a method runs against in its
 // metadata: the target's resource and the request field that carries the row's key, for
 // a plain @target and for a transition alike, with the resource names imported for
-// either; a method with no target row names none, and a file of such methods imports no
-// resource name.
+// either; a method that names no row and is offered on the rows of resources names them,
+// in the order written, and imports the resource names too; a method with no target row
+// and no rows names none, and a file of such methods imports no resource name.
 func Test_typescriptMethodsTemplate_target(t *testing.T) {
 	t.Parallel()
 
@@ -517,6 +539,11 @@ func Test_typescriptMethodsTemplate_target(t *testing.T) {
 		{TargetField: "UserID", RootPKField: "UserID"},
 		{TargetField: "HeldRole", RootPKField: "Role"},
 	}}
+	held := &rpcTarget{RootStruct: "Widget", RootResource: "Widgets", Keys: []rpcTargetKey{
+		{TargetField: "UserID", RootPKField: "UserID"},
+		{TargetField: "HeldRole", RootPKField: "Role"},
+		{TargetField: "GroupID", RootPKField: "GroupID", MayBeEmpty: true},
+	}}
 
 	tests := []struct {
 		name    string
@@ -536,6 +563,16 @@ func Test_typescriptMethodsTemplate_target(t *testing.T) {
 			name:   "a target keyed by two columns names each request field with the row's field it carries",
 			method: &rpcMethodInfo{Struct: structs["DoSomething"], Fields: []*rpcField{field()}, Target: compound},
 			want:   []string{"target: { resource: Resources.Widgets, key: { userId: 'userId', heldRole: 'role' } },"},
+			// No part of this key may be empty, and the metadata lists none.
+			wantNot: []string{"mayBeEmpty: ["},
+		},
+		{
+			name:   "a part of the key that may be empty is listed by its request field",
+			method: &rpcMethodInfo{Struct: structs["DoSomething"], Fields: []*rpcField{field()}, Target: held},
+			want: []string{
+				"target: { resource: Resources.Widgets, key: { userId: 'userId', heldRole: 'role', groupId: 'groupId' }, mayBeEmpty: ['groupId'] },",
+				"  mayBeEmpty?: string[];",
+			},
 		},
 		{
 			name: "a transition names its target too",
@@ -549,10 +586,23 @@ func Test_typescriptMethodsTemplate_target(t *testing.T) {
 			},
 		},
 		{
+			name: "a method that names no row names the resources whose rows offer it, in the order written",
+			method: &rpcMethodInfo{Struct: structs["DoSomething"], Fields: []*rpcField{field()}, OfferedOn: []rpcOfferingRow{
+				{RootStruct: "Widget", RootResource: "Widgets"},
+				{RootStruct: "Gadget", RootResource: "Gadgets"},
+			}},
+			want: []string{
+				"offeredOn: [Resources.Widgets, Resources.Gadgets],",
+				"import { Methods, Resources } from './zz_gen_constants';",
+				"  offeredOn?: Resource[];",
+			},
+			wantNot: []string{"target: { resource:"},
+		},
+		{
 			name:    "no target row",
 			method:  &rpcMethodInfo{Struct: structs["DoSomething"], Fields: []*rpcField{field()}},
 			want:    []string{"import { Methods } from './zz_gen_constants';"},
-			wantNot: []string{"target: { resource:", "Resources."},
+			wantNot: []string{"target: { resource:", "Resources.", "offeredOn: ["},
 		},
 		{
 			name: "a request field a grant's condition may read is named as the condition reads it",
@@ -577,6 +627,22 @@ func Test_typescriptMethodsTemplate_target(t *testing.T) {
 			name:    "a method that runs outside a transaction says nothing of a dry run, which it refuses",
 			method:  &rpcMethodInfo{Struct: structs["DoSomething"], Fields: []*rpcField{field()}, Form: rpcFormClient},
 			wantNot: []string{"dryRun: true"},
+		},
+		{
+			name:   "a method that warns with a typed word carries the word",
+			method: &rpcMethodInfo{Struct: structs["DoSomething"], Fields: []*rpcField{field()}, Form: rpcFormTxn, Warning: &rpcWarning{Typed: "open"}},
+			want:   []string{"    dryRun: true,\n    warning: { typed: 'open' },\n    fields: [", "  warning?: { typed?: string };"},
+		},
+		{
+			name:    "a method that warns with no typed word carries a warning without one",
+			method:  &rpcMethodInfo{Struct: structs["DoSomething"], Fields: []*rpcField{field()}, Form: rpcFormTxn, Warning: &rpcWarning{}},
+			want:    []string{"    dryRun: true,\n    warning: {},\n    fields: [", "  warning?: { typed?: string };"},
+			wantNot: []string{"typed: ''"},
+		},
+		{
+			name:    "a method that does not warn carries no warning",
+			method:  &rpcMethodInfo{Struct: structs["DoSomething"], Fields: []*rpcField{field()}, Form: rpcFormTxn},
+			wantNot: []string{"    warning: {"},
 		},
 	}
 	for _, tt := range tests {

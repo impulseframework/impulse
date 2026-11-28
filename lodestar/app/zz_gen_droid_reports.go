@@ -21,13 +21,15 @@ import (
 
 func (a *App) DroidReports() http.HandlerFunc {
 	type droidReport struct {
-		ID         impulse.UUID     `json:"id"         index:"true" perm:"-"`
+		ID         impulse.UUID     `json:"id"         index:"true"      perm:"-"`
 		SectorID   impulse.UUID     `json:"sectorId"   index:"true"`
 		ShipID     impulse.UUID     `json:"shipId"     index:"true"`
 		Subsystem  string           `json:"subsystem"`
 		Reading    float64          `json:"reading"`
 		RecordedAt time.Time        `json:"recordedAt"`
 		Frame      *telemetry.Frame `json:"frame"`
+		SectorName *string          `json:"sectorName" nameof:"SectorID" index:"true"`
+		ShipName   *string          `json:"shipName"   nameof:"ShipID"`
 	}
 
 	type response []map[string]any
@@ -46,8 +48,9 @@ func (a *App) DroidReports() http.HandlerFunc {
 		}
 
 		// A live list registers before the query runs, so a commit that lands during
-		// the query is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, a.LiveService(), querySet, live.ListSubscription(querySet.Resource(), domain))
+		// the query is not missed; a refused request registers nothing. With it the
+		// request registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, a.LiveService(), querySet, live.ListSubscription(querySet.Resource(), domain))
 
 		res := resources.NewDroidReportQueryFromQuerySet(querySet)
 
@@ -66,7 +69,7 @@ func (a *App) DroidReports() http.HandlerFunc {
 			if !page.Add(row) {
 				break
 			}
-			rec := (*droidReport)(&row.Data)
+			rec := &row.Data
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
@@ -98,6 +101,11 @@ func (a *App) DroidReports() http.HandlerFunc {
 					if !row.Masked("frame") {
 						rmap["frame"] = rec.Frame
 					}
+				}
+			}
+			for _, name := range querySet.Names() {
+				if looked := row.Name(name.Field); looked != nil {
+					rmap[name.JSONName] = *looked
 				}
 			}
 			if capabilities := row.Capabilities(); capabilities != nil {

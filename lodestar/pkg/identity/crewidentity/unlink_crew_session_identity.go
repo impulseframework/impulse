@@ -18,11 +18,16 @@ import (
 // one identity of a person per transaction: a second in the same one does not see the
 // first.
 //
+// A row offers it only to a caller whose session enters every sector the person
+// administers (@callerEnters); the method refuses anyone else.
+//
 // @rpc
+// @callerEnters
 // @outlet(default)
 // @answers(204)
+// @class(credential)
 type UnlinkCrewSessionIdentity struct {
-	// @target(CrewSessionIdentity)
+	// @target(CrewListedIdentity)
 	IdentityID impulse.UUID
 }
 

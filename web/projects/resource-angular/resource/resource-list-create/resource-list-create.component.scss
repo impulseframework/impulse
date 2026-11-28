@@ -1,6 +1,23 @@
+@use '../../styles/headings';
+
+// A list that waits for a row is left out of the page while it has none, with no gap where it would be.
+:host([hidden]) {
+  display: none;
+}
+
 .page-container {
   position: relative;
   margin: 10px 0 0 0;
+}
+
+// The title of the panel a list that folds away is drawn in, a section of the page, and
+// the header it is in, which grows with a title of two lines.
+.title {
+  @include headings.panel-title;
+}
+
+mat-expansion-panel-header {
+  @include headings.panel-header;
 }
 
 .exp-panel-add-element-btn {

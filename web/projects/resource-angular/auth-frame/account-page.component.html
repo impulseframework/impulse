@@ -1,0 +1,505 @@
+<section class="impulse-account-page-content">
+  <h1>Your account</h1>
+  @if (acting()) {
+    <p class="impulse-account-page-acting">You are acting as this person, so nothing here can be changed.</p>
+  }
+
+  @if (account.answered()) {
+    <div class="impulse-account-page-lines">
+      @if (account.usernameLine()) {
+        <div class="impulse-account-page-line impulse-account-page-username">
+          <div class="impulse-account-page-key">Username</div>
+          @if (opened() === 'username') {
+            <form class="impulse-account-page-form" (ngSubmit)="saveUsername()">
+              <mat-form-field appearance="outline" subscriptSizing="dynamic">
+                <mat-label>Username</mat-label>
+                <input
+                  matInput
+                  name="username"
+                  [(ngModel)]="usernameText"
+                  autocomplete="username"
+                  autocapitalize="none"
+                  spellcheck="false"
+                  [attr.maxlength]="usernameMaxLength" />
+              </mat-form-field>
+              <p class="impulse-account-page-say" role="status">{{ usernameSay() }}</p>
+              @if (refusal(); as words) {
+                <p class="impulse-account-page-refusal" role="alert">{{ words }}</p>
+              }
+              <div class="impulse-account-page-acts">
+                <button
+                  mat-flat-button
+                  type="submit"
+                  class="impulse-account-page-save"
+                  [disabled]="busy() || !usernameSavable()">
+                  Save
+                </button>
+                <button
+                  mat-button
+                  type="button"
+                  class="impulse-account-page-cancel"
+                  [disabled]="busy()"
+                  (click)="cancel()">
+                  Cancel
+                </button>
+              </div>
+            </form>
+          } @else {
+            <span class="impulse-account-page-value">{{ username() }}</span>
+            @if (account.holdsPassword()) {
+              <span class="impulse-account-page-hint">You sign in with this.</span>
+            }
+            @if (said()?.line === 'username') {
+              <p class="impulse-account-page-said" role="status">{{ said()?.sentence }}</p>
+            }
+            @if (changes().username) {
+              <button
+                mat-icon-button
+                type="button"
+                class="impulse-account-page-edit"
+                aria-label="Change your username"
+                [disabled]="busy()"
+                (click)="open('username')">
+                <mat-icon>edit</mat-icon>
+              </button>
+            }
+          }
+        </div>
+      }
+
+      <div class="impulse-account-page-line impulse-account-page-name">
+        <div class="impulse-account-page-key">Name</div>
+        @if (opened() === 'name') {
+          <form class="impulse-account-page-form" (ngSubmit)="saveName()">
+            <mat-form-field appearance="outline" subscriptSizing="dynamic">
+              <mat-label>Name</mat-label>
+              <input
+                matInput
+                name="personName"
+                [(ngModel)]="nameText"
+                autocomplete="name"
+                [attr.maxlength]="nameMaxLength" />
+            </mat-form-field>
+            @if (refusal(); as words) {
+              <p class="impulse-account-page-refusal" role="alert">{{ words }}</p>
+            }
+            <div class="impulse-account-page-acts">
+              <button mat-flat-button type="submit" class="impulse-account-page-save" [disabled]="busy()">Save</button>
+              <button
+                mat-button
+                type="button"
+                class="impulse-account-page-cancel"
+                [disabled]="busy()"
+                (click)="cancel()">
+                Cancel
+              </button>
+            </div>
+          </form>
+        } @else {
+          @if (personName(); as name) {
+            <span class="impulse-account-page-value">{{ name }}</span>
+          } @else {
+            <span class="impulse-account-page-value impulse-account-page-unset">Not set</span>
+          }
+          <span class="impulse-account-page-hint">Shown to other people in place of your username.</span>
+          @if (said()?.line === 'name') {
+            <p class="impulse-account-page-said" role="status">{{ said()?.sentence }}</p>
+          }
+          @if (changes().name) {
+            <button
+              mat-icon-button
+              type="button"
+              class="impulse-account-page-edit"
+              aria-label="Change your name"
+              [disabled]="busy()"
+              (click)="open('name')">
+              <mat-icon>edit</mat-icon>
+            </button>
+          }
+        }
+      </div>
+
+      <div class="impulse-account-page-line impulse-account-page-email">
+        <div class="impulse-account-page-key">Email</div>
+        @if (opened() === 'email') {
+          <form class="impulse-account-page-form" (ngSubmit)="sendLink()">
+            <mat-form-field appearance="outline" subscriptSizing="dynamic">
+              <mat-label>{{ confirmed() ? 'New email address' : 'Email address' }}</mat-label>
+              <input matInput name="email" type="email" [(ngModel)]="emailText" autocomplete="email" required />
+            </mat-form-field>
+            <p class="impulse-account-page-hint">
+              @if (account.usernameIsEmail()) {
+                We mail a link to the new address. When you open it, you sign in with the new address from then on.
+              } @else {
+                We mail a link to the new address. Nothing changes until you open it.
+              }
+            </p>
+            @if (refusal(); as words) {
+              <p class="impulse-account-page-refusal" role="alert">{{ words }}</p>
+            }
+            <div class="impulse-account-page-acts">
+              <button mat-flat-button type="submit" class="impulse-account-page-save" [disabled]="busy() || mailHeld()">
+                Send the link
+              </button>
+              <button
+                mat-button
+                type="button"
+                class="impulse-account-page-cancel"
+                [disabled]="busy()"
+                (click)="cancel()">
+                Cancel
+              </button>
+            </div>
+          </form>
+        } @else {
+          @if (address(); as email) {
+            <span class="impulse-account-page-value">
+              {{ email }}
+              <span class="impulse-account-page-chip">{{ confirmed() ? 'Confirmed' : 'Not confirmed' }}</span>
+            </span>
+          } @else {
+            <span class="impulse-account-page-value impulse-account-page-unset">Not set</span>
+          }
+          <span class="impulse-account-page-hint">{{ emailHint() }}</span>
+          @if (said()?.line === 'email') {
+            <p class="impulse-account-page-said" role="status">{{ said()?.sentence }}</p>
+          }
+          @if (changes().email) {
+            <button
+              mat-icon-button
+              type="button"
+              class="impulse-account-page-edit"
+              [attr.aria-label]="address() ? 'Change your email address' : 'Add an email address'"
+              [disabled]="busy()"
+              (click)="open('email')">
+              <mat-icon>edit</mat-icon>
+            </button>
+          }
+        }
+      </div>
+
+      @if (passwordLine()) {
+        <div class="impulse-account-page-line impulse-account-page-password">
+          <div class="impulse-account-page-key">Password</div>
+          @if (opened() === 'password' && account.firstPassword()) {
+            @if (codeSentTo(); as codeEmail) {
+              <form class="impulse-account-page-form" (ngSubmit)="setFirstPassword()">
+                <p class="impulse-account-page-say" role="status">We mailed a code to {{ codeEmail }}.</p>
+                <mat-form-field appearance="outline" subscriptSizing="dynamic">
+                  <mat-label>Code from the mail</mat-label>
+                  <input
+                    matInput
+                    name="firstPasswordCode"
+                    [(ngModel)]="firstPasswordCode"
+                    inputmode="numeric"
+                    autocomplete="one-time-code"
+                    maxlength="6"
+                    required />
+                </mat-form-field>
+                <impulse-new-password
+                  label="Password"
+                  [username]="sessionDetails().username"
+                  [personName]="sessionDetails().name"
+                  [email]="sessionDetails().email"
+                  [(password)]="newPassword" />
+                <p class="impulse-account-page-hint">
+                  You keep signing in through {{ keptSignIns() }}. The password is a second way in.
+                </p>
+                @if (refusal(); as words) {
+                  <p class="impulse-account-page-refusal" role="alert">{{ words }}</p>
+                }
+                <div class="impulse-account-page-acts">
+                  <button
+                    mat-flat-button
+                    type="submit"
+                    class="impulse-account-page-save"
+                    [disabled]="busy() || !firstPasswordSettable()">
+                    Set the password
+                  </button>
+                  <button
+                    mat-stroked-button
+                    type="button"
+                    class="impulse-account-page-first-again"
+                    [disabled]="busy()"
+                    (click)="mailFirstPasswordCode()">
+                    Mail me a new code
+                  </button>
+                  <button
+                    mat-button
+                    type="button"
+                    class="impulse-account-page-cancel"
+                    [disabled]="busy()"
+                    (click)="cancel()">
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            } @else {
+              <div class="impulse-account-page-form">
+                <p class="impulse-account-page-hint">
+                  To make sure it is you, we mail a code to the address on your account before you choose a password.
+                </p>
+                @if (refusal(); as words) {
+                  <p class="impulse-account-page-refusal" role="alert">{{ words }}</p>
+                }
+                <div class="impulse-account-page-acts">
+                  <button
+                    mat-flat-button
+                    type="button"
+                    class="impulse-account-page-first-code"
+                    [disabled]="busy()"
+                    (click)="mailFirstPasswordCode()">
+                    Mail me a code
+                  </button>
+                  <button
+                    mat-button
+                    type="button"
+                    class="impulse-account-page-cancel"
+                    [disabled]="busy()"
+                    (click)="cancel()">
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            }
+          } @else if (opened() === 'password') {
+            <form class="impulse-account-page-form" (ngSubmit)="changePassword()">
+              <mat-form-field appearance="outline" subscriptSizing="dynamic">
+                <mat-label>Current password</mat-label>
+                <input
+                  matInput
+                  name="oldPassword"
+                  [type]="oldPasswordShown() ? 'text' : 'password'"
+                  [(ngModel)]="oldPassword"
+                  autocomplete="current-password"
+                  required />
+                <button
+                  matSuffix
+                  mat-icon-button
+                  type="button"
+                  class="impulse-account-page-show"
+                  [attr.aria-label]="oldPasswordShown() ? 'Hide the password' : 'Show the password'"
+                  [attr.aria-pressed]="oldPasswordShown()"
+                  (click)="toggleOldPassword()">
+                  <mat-icon>{{ oldPasswordShown() ? 'visibility_off' : 'visibility' }}</mat-icon>
+                </button>
+              </mat-form-field>
+              <impulse-new-password
+                label="New password"
+                [username]="sessionDetails().username"
+                [personName]="sessionDetails().name"
+                [email]="sessionDetails().email"
+                [(password)]="newPassword" />
+              <p class="impulse-account-page-hint">Changing it signs you out of every other browser.</p>
+              @if (refusal(); as words) {
+                <p class="impulse-account-page-refusal" role="alert">{{ words }}</p>
+              }
+              @if (askingRemoval()) {
+                <p class="impulse-account-page-remove-ask">Remove your password? {{ removalConsequence() }}</p>
+                <div class="impulse-account-page-acts">
+                  <button
+                    mat-flat-button
+                    type="button"
+                    class="impulse-account-page-remove-confirm"
+                    [disabled]="busy()"
+                    (click)="removePassword()">
+                    Remove password
+                  </button>
+                  <button
+                    mat-stroked-button
+                    type="button"
+                    class="impulse-account-page-remove-keep"
+                    [disabled]="busy()"
+                    (click)="keepPassword()">
+                    Keep password
+                  </button>
+                </div>
+              } @else {
+                <div class="impulse-account-page-acts">
+                  <button
+                    mat-flat-button
+                    type="submit"
+                    class="impulse-account-page-save"
+                    [disabled]="busy() || oldPassword() === '' || !strongEnough()">
+                    Change password
+                  </button>
+                  <button
+                    mat-button
+                    type="button"
+                    class="impulse-account-page-cancel"
+                    [disabled]="busy()"
+                    (click)="cancel()">
+                    Cancel
+                  </button>
+                </div>
+                @if (account.removePassword()) {
+                  <p class="impulse-account-page-hint">
+                    If you also sign in another way, you can do without a password.
+                  </p>
+                  <div class="impulse-account-page-acts">
+                    <button
+                      mat-stroked-button
+                      type="button"
+                      class="impulse-account-page-remove"
+                      [disabled]="busy() || oldPassword() === ''"
+                      (click)="askToRemovePassword()">
+                      Remove your password
+                    </button>
+                  </div>
+                }
+              }
+            </form>
+          } @else {
+            @if (account.holdsPassword()) {
+              <span class="impulse-account-page-value" role="img" aria-label="Hidden">••••••••••</span>
+            } @else {
+              <span class="impulse-account-page-value impulse-account-page-unset">None</span>
+            }
+            @if (account.firstPassword()) {
+              <span class="impulse-account-page-hint">You can choose one.</span>
+            }
+            @if (said()?.line === 'password') {
+              <p class="impulse-account-page-said" role="status">{{ said()?.sentence }}</p>
+            }
+            @if (changes().password) {
+              <button
+                mat-icon-button
+                type="button"
+                class="impulse-account-page-edit"
+                [attr.aria-label]="account.firstPassword() ? 'Choose a password' : 'Change your password'"
+                [disabled]="busy()"
+                (click)="open('password')">
+                <mat-icon>edit</mat-icon>
+              </button>
+            }
+          }
+        </div>
+      }
+
+      @if (account.otherSignIns().length > 0) {
+        <div class="impulse-account-page-line impulse-account-page-sign-in">
+          <div class="impulse-account-page-key">Sign-in</div>
+          <span class="impulse-account-page-value">Through {{ signInThrough() }}</span>
+          <span class="impulse-account-page-hint">{{ signInHint() }}</span>
+        </div>
+      }
+    </div>
+  }
+
+  @if (tenantsShown()) {
+    <section class="impulse-account-page-tenants">
+      <h2>{{ tenantsHeading() }}</h2>
+      @if (tenantsFailed()) {
+        <p class="impulse-account-page-tenants-failed" role="alert">
+          We could not read your {{ tenantsWord }}. Reload the page to try again.
+        </p>
+      } @else {
+        @if (tenants().length > 0) {
+          <ul class="impulse-account-page-tenant-list">
+            @for (tenant of tenants(); track tenant.domain) {
+              <li class="impulse-account-page-tenant">
+                <div class="impulse-account-page-tenant-what">
+                  <span class="impulse-account-page-tenant-name">{{ tenant.name }}</span>
+                  <span class="impulse-account-page-tenant-roles">
+                    {{ tenant.roles.length > 0 ? tenant.roles.join(', ') : 'No role' }}
+                  </span>
+                  @if (tenant.refusal) {
+                    <span class="impulse-account-page-tenant-refusal">{{ tenant.refusal }}</span>
+                  }
+                </div>
+                @if (!tenant.refusal) {
+                  <button
+                    mat-button
+                    type="button"
+                    class="impulse-account-page-leave"
+                    [attr.aria-label]="'Leave ' + tenant.name"
+                    [disabled]="busy()"
+                    (click)="leave(tenant)">
+                    Leave
+                  </button>
+                }
+              </li>
+            }
+          </ul>
+        }
+        @if (tenantsSaid()) {
+          <p class="impulse-account-page-tenants-said" role="status">{{ tenantsSaid() }}</p>
+        }
+      }
+    </section>
+  }
+
+  @if (signedInRead()) {
+    <section class="impulse-account-page-signed-in">
+      <h2>Where you are signed in</h2>
+      @if (signedInFailed()) {
+        <p class="impulse-account-page-sessions-failed" role="alert">
+          We could not read where you are signed in. Reload the page to try again.
+        </p>
+      } @else {
+        <ul class="impulse-account-page-sessions">
+          @for (session of sessions(); track session.id) {
+            <li class="impulse-account-page-session" [class.impulse-account-page-session-current]="session.current">
+              <mat-icon aria-hidden="true">{{ session.phone ? 'smartphone' : 'computer' }}</mat-icon>
+              <div class="impulse-account-page-session-what">
+                <span class="impulse-account-page-session-name">
+                  {{ browserName(session) }}
+                  @if (session.current) {
+                    <span class="impulse-account-page-chip">This browser</span>
+                  }
+                </span>
+                <span class="impulse-account-page-session-when">{{ sessionWhen(session) }}</span>
+              </div>
+              @if (!session.current) {
+                <button
+                  mat-button
+                  type="button"
+                  class="impulse-account-page-sign-out"
+                  [attr.aria-label]="
+                    session.browser === undefined ? 'Sign out of that browser' : 'Sign out of ' + session.browser
+                  "
+                  [disabled]="busy()"
+                  (click)="signOut(session)">
+                  Sign out
+                </button>
+              } @else if (account.browser()) {
+                <button
+                  mat-button
+                  type="button"
+                  class="impulse-account-page-forget"
+                  aria-label="Forget this browser"
+                  [disabled]="busy()"
+                  (click)="forgetBrowser()">
+                  Forget
+                </button>
+              }
+            </li>
+          }
+        </ul>
+        <div class="impulse-account-page-acts">
+          <button
+            mat-stroked-button
+            type="button"
+            class="impulse-account-page-sign-out-others"
+            [disabled]="busy() || otherSessions() === 0"
+            (click)="signOutOthers()">
+            {{ otherSessions() === 0 ? 'You are signed in nowhere else' : 'Sign out everywhere else' }}
+          </button>
+          @if (account.forgetBrowsers() && rememberedBrowsers() > 0) {
+            <button
+              mat-stroked-button
+              type="button"
+              class="impulse-account-page-forget-all"
+              [disabled]="busy()"
+              (click)="forgetAllBrowsers()">
+              Forget all remembered browsers
+            </button>
+          }
+        </div>
+        @if (sessionsSaid()) {
+          <p class="impulse-account-page-sessions-said" role="status">{{ sessionsSaid() }}</p>
+        }
+      }
+    </section>
+  }
+</section>

@@ -11,6 +11,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -20,6 +21,180 @@ func (Hangar) Resource() accesstypes.Resource {
 
 func (Hangar) DefaultConfig() resource.Config {
 	return defaultConfig()
+}
+
+// TenantBinding is the row's way to its tenant: the library writes the tenant on every
+// change record of the row, whoever writes the row.
+func (Hangar) TenantBinding() resource.TenantBinding {
+	return resource.TenantBinding{Field: "SectorID"}
+}
+
+// DeleteTree describes what a delete of a Hangar takes with it and what refuses
+// it (@deleteCascade). The kinds taken are in the order their rows are deleted, deepest
+// first, each with its ways up to the Hangar and what the delete of one of its
+// rows costs. The kinds under Under are the ones with a row directly under a Hangar
+// that the database does not remove with it.
+func (Hangar) DeleteTree() *resource.DeleteTree {
+	return &resource.DeleteTree{
+		Record: "Hangars",
+		Words:  resource.DeleteWords{One: "hangar", Many: "hangars"},
+		Key:    []string{"Id"},
+		Cost:   resource.DeleteCost{IndexEntries: 4, Files: 0},
+		Tenant: &resource.DomainBindingData{Column: "SectorId"},
+		Taken: []resource.DeleteKind{
+			{
+				Resource: "RefitTasks",
+				Words:    resource.DeleteWords{One: "refit task", Many: "refit tasks"},
+				Key:      []string{"Id", "TaskNumber"},
+				Cost:     resource.DeleteCost{IndexEntries: 0, Files: 1},
+				Tenant:   &resource.DomainBindingData{Column: "Id", Path: []resource.BindingHop{{Table: "Refits", JoinColumn: "Id", Column: "ShipId"}, {Table: "Ships", JoinColumn: "Id", Column: "HangarId"}, {Table: "Hangars", JoinColumn: "Id", Column: "SectorId"}}},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"Id"}, Table: "Refits", References: []string{"Id"}},
+						{Columns: []string{"ShipId"}, Table: "Ships", References: []string{"Id"}},
+						{Columns: []string{"HangarId"}, Table: "Hangars", References: []string{"Id"}},
+					},
+				},
+				Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[RefitTask], caller *resource.Caller) {
+					patch := &RefitTaskDeletePatch{patchSet: patchSet}
+					if !caller.IsZero() {
+						patch.Enforce(caller)
+					}
+				}),
+			},
+			{
+				Resource: "Refits",
+				Words:    resource.DeleteWords{One: "refit", Many: "refits"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "ShipId", Path: []resource.BindingHop{{Table: "Ships", JoinColumn: "Id", Column: "HangarId"}, {Table: "Hangars", JoinColumn: "Id", Column: "SectorId"}}},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"ShipId"}, Table: "Ships", References: []string{"Id"}},
+						{Columns: []string{"HangarId"}, Table: "Hangars", References: []string{"Id"}},
+					},
+				},
+				Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[Refit], caller *resource.Caller) {
+					patch := &RefitDeletePatch{patchSet: patchSet}
+					if !caller.IsZero() {
+						patch.Enforce(caller)
+					}
+				}),
+			},
+			{
+				Resource: "Ships",
+				Words:    resource.DeleteWords{One: "ship", Many: "ships"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 3, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "HangarId", Path: []resource.BindingHop{{Table: "Hangars", JoinColumn: "Id", Column: "SectorId"}}},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"HangarId"}, Table: "Hangars", References: []string{"Id"}},
+					},
+				},
+				Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[Ship], caller *resource.Caller) {
+					patch := &ShipDeletePatch{patchSet: patchSet}
+					if !caller.IsZero() {
+						patch.Enforce(caller)
+					}
+				}),
+			},
+			{
+				Resource: "HangarPasses",
+				Words:    resource.DeleteWords{One: "hangar pass", Many: "hangar passes"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 9, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"HangarId", "SectorId"}, Table: "Hangars", References: []string{"Id", "SectorId"}},
+					},
+				},
+				Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[HangarPass], caller *resource.Caller) {
+					patch := &HangarPassDeletePatch{patchSet: patchSet}
+					if !caller.IsZero() {
+						patch.Enforce(caller)
+						patchSet.RegisterDeleteCheckFunc(func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+							return RefuseImpersonatorAsHangarPassSubject(ctx, txn, resource.OperationDelete, patchSet.PrimaryKey(), patchSet)
+						})
+					}
+				}),
+			},
+		},
+		RefusedBy: []resource.DeleteKind{
+			{
+				Resource: "Sorties",
+				Words:    resource.DeleteWords{One: "sortie", Many: "sorties"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "MissionId", Path: []resource.BindingHop{{Table: "Missions", JoinColumn: "Id", Column: "SectorId"}}},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"ShipId"}, Table: "Ships", References: []string{"Id"}},
+						{Columns: []string{"HangarId"}, Table: "Hangars", References: []string{"Id"}},
+					},
+				},
+			},
+			{
+				Resource: "DroidReports",
+				Words:    resource.DeleteWords{One: "droid report", Many: "droid reports"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"ShipId"}, Table: "Ships", References: []string{"Id"}},
+						{Columns: []string{"HangarId"}, Table: "Hangars", References: []string{"Id"}},
+					},
+				},
+			},
+		},
+		Under: []resource.DeleteKind{
+			{
+				Resource: "HangarPasses",
+				Words:    resource.DeleteWords{One: "hangar pass", Many: "hangar passes"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 9, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"HangarId", "SectorId"}, Table: "Hangars", References: []string{"Id", "SectorId"}},
+					},
+				},
+			},
+			{
+				Resource: "Ships",
+				Words:    resource.DeleteWords{One: "ship", Many: "ships"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 3, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "HangarId", Path: []resource.BindingHop{{Table: "Hangars", JoinColumn: "Id", Column: "SectorId"}}},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"HangarId"}, Table: "Hangars", References: []string{"Id"}},
+					},
+				},
+			},
+		},
+	}
+}
+
+// NameFields names the resource's name fields: beside each id that points to a row with
+// a name, the name of that row, which a list shows, sorts by and filters by. A name is
+// looked up in the pointed-to table by the id; it is no column of this resource.
+func (Hangar) NameFields() []resource.NameField {
+	return []resource.NameField{
+		{Field: "SectorName", Key: "SectorID", Resource: "Sectors", Tag: "name", Table: "Sectors", KeyColumn: "Id", NameColumn: "Name", TenantColumn: ""},
+	}
+}
+
+// RecordedNames names the rows a change record of the resource keeps the name of:
+// for each field that points at a row with a name, where the name is read. A
+// tracked write that changes such a field reads the name in its own transaction,
+// and the change record keeps it beside the id.
+func (Hangar) RecordedNames() []resource.NameField {
+	return []resource.NameField{
+		{Field: "", Key: "SectorID", Resource: "Sectors", Tag: "name", Table: "Sectors", KeyColumn: "Id", NameColumn: "Name", TenantColumn: ""},
+	}
 }
 
 // hangarRead mirrors the wire shape the resource routes list
@@ -361,11 +536,11 @@ func (p *HangarCreatePatch) ToStruct() *Hangar {
 	return p.patchSet.ToStruct()
 }
 
-func (p *HangarCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *HangarCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *HangarCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *HangarCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -477,11 +652,11 @@ func (p *HangarUpdatePatch) ToStruct() *Hangar {
 	return p.patchSet.ToStruct()
 }
 
-func (p *HangarUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *HangarUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *HangarUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *HangarUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -603,11 +778,54 @@ func NewHangarDeletePatch(id impulse.UUID) *HangarDeletePatch {
 	return &HangarDeletePatch{patchSet: patchSet}
 }
 
-func (p *HangarDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+// WithEverythingUnder says the delete takes the rows under the Hangar with it:
+// every row of the kinds its @deleteCascade lists as taken, each deleted as its own
+// delete would delete it. It takes the kinds handed to the delete as well (DeleteAlso).
+// Without it, a delete of a Hangar that has such rows
+// deletes nothing and is answered with the question a person is asked first
+// (httpio.HasPreconditionRequired). Where the rows cost more than one save takes, the
+// delete takes what fits, deepest first, and Left answers the rows that save deleted:
+// buffer the delete again, in a transaction of its own, until Left answers nil.
+// It is for code that deletes outside a request, and every save of such a delete asks
+// everything again before it takes a row: a request's delete goes on the token its
+// question gave (WithDeleteToken).
+func (p *HangarDeletePatch) WithEverythingUnder() *HangarDeletePatch {
+	p.patchSet.DeleteEverythingUnder()
+
+	return p
+}
+
+// WithDeleteToken says the delete takes the rows under the Hangar on the token
+// its question gave (resource.PatchSet.DeleteWithToken): it takes them only where the
+// token holds, and is answered with the question again where it does not.
+func (p *HangarDeletePatch) WithDeleteToken(token string) *HangarDeletePatch {
+	p.patchSet.DeleteWithToken(token)
+
+	return p
+}
+
+// Left is what the delete says once it is buffered (resource.DeleteLeft): the rows the
+// save deleted where rows are left under the Hangar, which stands until a save
+// takes the last of them; nil where the delete finished, the Hangar with it.
+func (p *HangarDeletePatch) Left() *resource.DeleteLeft {
+	return p.patchSet.DeleteLeft()
+}
+
+// DeleteAlso hands the delete kinds of row it takes with the Hangar that its
+// description does not list (resource.TakenKind): the question counts them, the check
+// before the delete asks them, and each round takes what fits of them after the kinds
+// the description lists and before the Hangar.
+func (p *HangarDeletePatch) DeleteAlso(kinds ...resource.TakenKind) *HangarDeletePatch {
+	p.patchSet.DeleteAlso(kinds...)
+
+	return p
+}
+
+func (p *HangarDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *HangarDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *HangarDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

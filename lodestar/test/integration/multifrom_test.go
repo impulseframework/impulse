@@ -9,7 +9,6 @@ package integration
 import (
 	"fmt"
 	"net/http"
-	"strings"
 	"testing"
 
 	"cloud.google.com/go/spanner"
@@ -34,6 +33,8 @@ func TestMultiFromTransitions(t *testing.T) {
 		key        string
 		wantStatus int
 		wantState  string
+		// wantSaid is the whole sentence a refused caller is told.
+		wantSaid string
 	}{
 		{
 			name:       "stand down from open",
@@ -70,6 +71,7 @@ func TestMultiFromTransitions(t *testing.T) {
 			key:        missionConvoyID,
 			wantStatus: http.StatusForbidden,
 			wantState:  "underway",
+			wantSaid:   "You may not do this to this mission.",
 		},
 		{
 			name:       "scrap from inspected",
@@ -106,6 +108,7 @@ func TestMultiFromTransitions(t *testing.T) {
 			key:        refitLanternID,
 			wantStatus: http.StatusForbidden,
 			wantState:  "docked",
+			wantSaid:   "You may not do this to this refit.",
 		},
 	}
 
@@ -121,8 +124,10 @@ func TestMultiFromTransitions(t *testing.T) {
 			if status != tt.wantStatus {
 				t.Fatalf("status = %d, want %d: %s", status, tt.wantStatus, body)
 			}
-			if tt.wantStatus == http.StatusForbidden && !strings.Contains(string(body), "may not run against") {
-				t.Errorf("refusal must name the transition: %s", body)
+			if tt.wantStatus == http.StatusForbidden {
+				if got := refusalMessage(t, body); got != tt.wantSaid {
+					t.Errorf("refusal = %q, want %q: the record in a person's words, and neither the method nor the row", got, tt.wantSaid)
+				}
 			}
 			if got := readColumn[string](ctx, t, db, tt.table, spanner.Key{tt.key}, "StatusId"); got != tt.wantState {
 				t.Errorf("StatusId = %q, want %q", got, tt.wantState)

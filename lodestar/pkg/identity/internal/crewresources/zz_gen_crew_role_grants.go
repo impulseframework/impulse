@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -491,11 +492,11 @@ func (p *CrewRoleGrantCreatePatch) ToStruct() *CrewRoleGrant {
 	return p.patchSet.ToStruct()
 }
 
-func (p *CrewRoleGrantCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *CrewRoleGrantCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *CrewRoleGrantCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *CrewRoleGrantCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -651,11 +652,11 @@ func (p *CrewRoleGrantUpdatePatch) ToStruct() *CrewRoleGrant {
 	return p.patchSet.ToStruct()
 }
 
-func (p *CrewRoleGrantUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *CrewRoleGrantUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *CrewRoleGrantUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *CrewRoleGrantUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -801,11 +802,11 @@ func NewCrewRoleGrantDeletePatch(kind string, axis string, domainID string, role
 	return &CrewRoleGrantDeletePatch{patchSet: patchSet}
 }
 
-func (p *CrewRoleGrantDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *CrewRoleGrantDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *CrewRoleGrantDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *CrewRoleGrantDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

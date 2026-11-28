@@ -6,7 +6,7 @@
 // A box that reads as a control: "Tenant" over the open tenant's name, and a down arrow
 // when there is another to choose. With one tenant the box stays, without the arrow, so
 // the tenant is always named in the same place.
-.switcher {
+.impulse-place-switcher-place {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -35,7 +35,7 @@
     outline-offset: -1px;
   }
 
-  &.alone {
+  &.impulse-place-switcher-alone {
     cursor: default;
 
     &:hover {
@@ -45,7 +45,7 @@
   }
 }
 
-.lines {
+.impulse-place-switcher-lines {
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
@@ -53,14 +53,14 @@
   min-width: 0;
 }
 
-.caption {
+.impulse-place-switcher-caption {
   font-size: 10.5px;
   line-height: 1;
   letter-spacing: 0.02em;
   color: var(--mat-sys-on-surface-variant);
 }
 
-.name {
+.impulse-place-switcher-name {
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
@@ -71,13 +71,13 @@
 }
 
 @media (max-width: 599.98px) {
-  .switcher {
+  .impulse-place-switcher-place {
     min-width: 0;
   }
 }
 
-.kind,
-.chevron {
+.impulse-place-switcher-kind,
+.impulse-place-switcher-chevron {
   flex: none;
   width: 18px;
   height: 18px;
@@ -86,7 +86,7 @@
 }
 
 // The find box sits inside the list's panel, above the first group.
-.find {
+.impulse-place-switcher-find {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -122,21 +122,21 @@
   }
 }
 
-.none {
+.impulse-place-switcher-none {
   padding: 8px 10px;
   font-size: 13px;
   color: var(--mat-sys-on-surface-variant);
 }
 
-// The tenants that are closed to this sign-in sit under the person's places, apart from
+// The tenants this session cannot enter sit under the person's places, apart from
 // them: each named, with a lock and the reason the server gives, and nothing to open.
-.closed {
+.impulse-place-switcher-unavailable {
   margin-top: 4px;
   padding: 0 6px 6px 10px;
   border-top: 1px solid var(--mat-sys-outline-variant);
 }
 
-.closed-heading {
+.impulse-place-switcher-unavailable-heading {
   padding: 10px 0 4px 26px;
   font-size: 11px;
   font-weight: 500;
@@ -145,7 +145,7 @@
   color: var(--mat-sys-on-surface-variant);
 }
 
-.closed-place {
+.impulse-place-switcher-unavailable-place {
   display: grid;
   grid-template-columns: 18px minmax(0, 1fr);
   column-gap: 8px;
@@ -153,7 +153,7 @@
   padding: 4px 0;
 }
 
-.closed-icon {
+.impulse-place-switcher-unavailable-icon {
   grid-row: 1 / span 2;
   width: 18px;
   height: 18px;
@@ -162,7 +162,7 @@
   color: var(--mat-sys-on-surface-variant);
 }
 
-.closed-name {
+.impulse-place-switcher-unavailable-name {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -170,7 +170,7 @@
   line-height: 18px;
 }
 
-.closed-reason {
+.impulse-place-switcher-unavailable-reason {
   grid-column: 2;
   font-size: 12px;
   line-height: 1.35;

@@ -40,6 +40,10 @@ func (a *App) CrewGroup() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewGroup()
 }
 
+func (a *App) CrewGroupChangeHistory() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewGroupChangeHistory()
+}
+
 func (a *App) CrewGroupMembers() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewGroupMembers()
 }
@@ -56,12 +60,76 @@ func (a *App) CrewGroupUser() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewGroupUser()
 }
 
-func (a *App) CrewRoles() http.HandlerFunc {
-	return crewhandlers.New(a, liveDerivations).CrewRoles()
+func (a *App) CrewHeldRoles() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewHeldRoles()
 }
 
-func (a *App) CrewRoleGrants() http.HandlerFunc {
-	return crewhandlers.New(a, liveDerivations).CrewRoleGrants()
+func (a *App) CrewListedGroups() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewListedGroups()
+}
+
+func (a *App) CrewListedGroup() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewListedGroup()
+}
+
+func (a *App) CrewListedGroupRoles() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewListedGroupRoles()
+}
+
+func (a *App) CrewListedIdentities() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewListedIdentities()
+}
+
+func (a *App) CrewListedIdentity() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewListedIdentity()
+}
+
+func (a *App) CrewListedMailLinks() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewListedMailLinks()
+}
+
+func (a *App) CrewListedMailLink() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewListedMailLink()
+}
+
+func (a *App) CrewListedSectors() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewListedSectors()
+}
+
+func (a *App) CrewListedSector() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewListedSector()
+}
+
+func (a *App) CrewListedSessions() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewListedSessions()
+}
+
+func (a *App) CrewListedSession() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewListedSession()
+}
+
+func (a *App) CrewListedSignInAttempts() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewListedSignInAttempts()
+}
+
+func (a *App) CrewListedUsers() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewListedUsers()
+}
+
+func (a *App) CrewListedUser() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewListedUser()
+}
+
+func (a *App) CrewMissionHolders() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewMissionHolders()
+}
+
+func (a *App) CrewMissionHolder() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewMissionHolder()
+}
+
+func (a *App) CrewRoles() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewRoles()
 }
 
 func (a *App) CrewSectorGroups() http.HandlerFunc {
@@ -86,6 +154,10 @@ func (a *App) CrewSectorGroupUsers() http.HandlerFunc {
 
 func (a *App) CrewSectorGroupUser() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewSectorGroupUser()
+}
+
+func (a *App) CrewSectorHeldRoles() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewSectorHeldRoles()
 }
 
 func (a *App) CrewSectorIdentities() http.HandlerFunc {
@@ -136,6 +208,10 @@ func (a *App) CrewSession() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewSession()
 }
 
+func (a *App) CrewSessionChangeHistory() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewSessionChangeHistory()
+}
+
 func (a *App) CrewSessionAuthEvents() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewSessionAuthEvents()
 }
@@ -148,6 +224,10 @@ func (a *App) CrewSessionIdentity() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewSessionIdentity()
 }
 
+func (a *App) CrewSessionIdentityChangeHistory() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewSessionIdentityChangeHistory()
+}
+
 func (a *App) CrewSessionImpersonations() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewSessionImpersonations()
 }
@@ -156,12 +236,20 @@ func (a *App) CrewSessionImpersonation() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewSessionImpersonation()
 }
 
+func (a *App) CrewSessionImpersonationChangeHistory() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewSessionImpersonationChangeHistory()
+}
+
 func (a *App) CrewSessionMailLinks() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewSessionMailLinks()
 }
 
 func (a *App) CrewSessionMailLink() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewSessionMailLink()
+}
+
+func (a *App) CrewSessionMailLinkChangeHistory() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewSessionMailLinkChangeHistory()
 }
 
 func (a *App) CrewSessionSignInAttempts() http.HandlerFunc {
@@ -176,6 +264,10 @@ func (a *App) CrewSessionToken() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewSessionToken()
 }
 
+func (a *App) CrewSessionTokenChangeHistory() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewSessionTokenChangeHistory()
+}
+
 func (a *App) CrewSessionTrustedDevices() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewSessionTrustedDevices()
 }
@@ -184,12 +276,24 @@ func (a *App) CrewSessionTrustedDevice() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewSessionTrustedDevice()
 }
 
+func (a *App) CrewSessionTrustedDeviceChangeHistory() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewSessionTrustedDeviceChangeHistory()
+}
+
 func (a *App) CrewSessionUsers() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewSessionUsers()
 }
 
 func (a *App) CrewSessionUser() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewSessionUser()
+}
+
+func (a *App) CrewSessionUserChangeHistory() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewSessionUserChangeHistory()
+}
+
+func (a *App) CrewTakenRoles() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewTakenRoles()
 }
 
 func (a *App) CrewUserGroupRoles() http.HandlerFunc {
@@ -204,8 +308,36 @@ func (a *App) CrewUserRoles() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewUserRoles()
 }
 
+func (a *App) CrewGivableRoles() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewGivableRoles()
+}
+
 func (a *App) CrewInvitedSectors() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewInvitedSectors()
+}
+
+func (a *App) CrewInvitedSectorRoles() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewInvitedSectorRoles()
+}
+
+func (a *App) CrewListedAuditRecords() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewListedAuditRecords()
+}
+
+func (a *App) CrewListedRoleGrants() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewListedRoleGrants()
+}
+
+func (a *App) CrewMissionRoles() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewMissionRoles()
+}
+
+func (a *App) CrewRememberLengths() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewRememberLengths()
+}
+
+func (a *App) CrewSectorAuditRecords() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewSectorAuditRecords()
 }
 
 func (a *App) CrewSectorDirectoryRoles() http.HandlerFunc {
@@ -224,8 +356,20 @@ func (a *App) CrewSignInMethods() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewSignInMethods()
 }
 
+func (a *App) CrewSignInSettings() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewSignInSettings()
+}
+
 func (a *App) CrewSignInWays() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewSignInWays()
+}
+
+func (a *App) CrewTakeLengths() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewTakeLengths()
+}
+
+func (a *App) CrewTakeableRoles() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewTakeableRoles()
 }
 
 func (a *App) AddCrewGroupMember() http.HandlerFunc {
@@ -250,14 +394,6 @@ func (a *App) CreateCrewGroup() http.HandlerFunc {
 
 func (a *App) CreateCrewSectorGroup() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CreateCrewSectorGroup()
-}
-
-func (a *App) CreateCrewSectorUser() http.HandlerFunc {
-	return crewhandlers.New(a, liveDerivations).CreateCrewSectorUser()
-}
-
-func (a *App) CreateCrewUser() http.HandlerFunc {
-	return crewhandlers.New(a, liveDerivations).CreateCrewUser()
 }
 
 func (a *App) DeleteCrewGroup() http.HandlerFunc {
@@ -320,6 +456,14 @@ func (a *App) GiveCrewGroupRole() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).GiveCrewGroupRole()
 }
 
+func (a *App) GiveCrewGroupRoleOnMission() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).GiveCrewGroupRoleOnMission()
+}
+
+func (a *App) GiveCrewRoleOnMission() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).GiveCrewRoleOnMission()
+}
+
 func (a *App) GiveCrewSectorGroupRole() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).GiveCrewSectorGroupRole()
 }
@@ -368,6 +512,10 @@ func (a *App) RemoveCrewSectorRole() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).RemoveCrewSectorRole()
 }
 
+func (a *App) RemoveCrewSectorUser() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).RemoveCrewSectorUser()
+}
+
 func (a *App) RenameCrewSectorUser() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).RenameCrewSectorUser()
 }
@@ -380,8 +528,20 @@ func (a *App) RequireCrewPasswordChange() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).RequireCrewPasswordChange()
 }
 
+func (a *App) RequireCrewSecondFactor() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).RequireCrewSecondFactor()
+}
+
 func (a *App) RequireCrewSectorPasswordChange() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).RequireCrewSectorPasswordChange()
+}
+
+func (a *App) ResendCrewInvitation() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).ResendCrewInvitation()
+}
+
+func (a *App) ResendCrewSectorInvitation() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).ResendCrewSectorInvitation()
 }
 
 func (a *App) RevokeCrewSectorUserTrustedDevices() http.HandlerFunc {
@@ -396,8 +556,16 @@ func (a *App) RevokeCrewUserTrustedDevices() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).RevokeCrewUserTrustedDevices()
 }
 
-func (a *App) SetCrewSectorTemporaryPassword() http.HandlerFunc {
-	return crewhandlers.New(a, liveDerivations).SetCrewSectorTemporaryPassword()
+func (a *App) SendCrewSectorUserPasswordResetLink() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).SendCrewSectorUserPasswordResetLink()
+}
+
+func (a *App) SendCrewUserPasswordResetLink() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).SendCrewUserPasswordResetLink()
+}
+
+func (a *App) SetCrewRememberedBrowsers() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).SetCrewRememberedBrowsers()
 }
 
 func (a *App) SetCrewSectorUserEmail() http.HandlerFunc {
@@ -408,8 +576,8 @@ func (a *App) SetCrewSectorUserName() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).SetCrewSectorUserName()
 }
 
-func (a *App) SetCrewTemporaryPassword() http.HandlerFunc {
-	return crewhandlers.New(a, liveDerivations).SetCrewTemporaryPassword()
+func (a *App) SetCrewSelfServiceReset() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).SetCrewSelfServiceReset()
 }
 
 func (a *App) SetCrewUserEmail() http.HandlerFunc {
@@ -420,8 +588,24 @@ func (a *App) SetCrewUserName() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).SetCrewUserName()
 }
 
+func (a *App) StopRequiringCrewSecondFactor() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).StopRequiringCrewSecondFactor()
+}
+
 func (a *App) TakeCrewGroupRole() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).TakeCrewGroupRole()
+}
+
+func (a *App) TakeCrewGroupRoleOnMission() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).TakeCrewGroupRoleOnMission()
+}
+
+func (a *App) TakeCrewRole() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).TakeCrewRole()
+}
+
+func (a *App) TakeCrewRoleOnMission() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).TakeCrewRoleOnMission()
 }
 
 func (a *App) TakeCrewSectorGroupRole() http.HandlerFunc {
@@ -470,12 +654,52 @@ var _ = map[bool]struct{}{false: {}, members.TablePrefix == membersidentity.Tabl
 // would take every caller for a person of another auth.
 var _ = map[bool]struct{}{false: {}, members.Name == membersidentity.AuthName: {}}
 
+func (a *App) MembersHeldRoles() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersHeldRoles()
+}
+
+func (a *App) MembersListedIdentities() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersListedIdentities()
+}
+
+func (a *App) MembersListedIdentity() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersListedIdentity()
+}
+
+func (a *App) MembersListedMailLinks() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersListedMailLinks()
+}
+
+func (a *App) MembersListedMailLink() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersListedMailLink()
+}
+
+func (a *App) MembersListedSessions() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersListedSessions()
+}
+
+func (a *App) MembersListedSession() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersListedSession()
+}
+
+func (a *App) MembersListedSignInAttempts() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersListedSignInAttempts()
+}
+
+func (a *App) MembersListedUsers() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersListedUsers()
+}
+
+func (a *App) MembersListedUser() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersListedUser()
+}
+
 func (a *App) MembersRoles() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).MembersRoles()
 }
 
-func (a *App) MembersRoleGrants() http.HandlerFunc {
-	return membershandlers.New(a, liveDerivations).MembersRoleGrants()
+func (a *App) MembersSectorHeldRoles() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersSectorHeldRoles()
 }
 
 func (a *App) MembersSectorIdentities() http.HandlerFunc {
@@ -518,6 +742,10 @@ func (a *App) MembersSession() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).MembersSession()
 }
 
+func (a *App) MembersSessionChangeHistory() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersSessionChangeHistory()
+}
+
 func (a *App) MembersSessionAuthEvents() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).MembersSessionAuthEvents()
 }
@@ -530,12 +758,20 @@ func (a *App) MembersSessionIdentity() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).MembersSessionIdentity()
 }
 
+func (a *App) MembersSessionIdentityChangeHistory() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersSessionIdentityChangeHistory()
+}
+
 func (a *App) MembersSessionMailLinks() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).MembersSessionMailLinks()
 }
 
 func (a *App) MembersSessionMailLink() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).MembersSessionMailLink()
+}
+
+func (a *App) MembersSessionMailLinkChangeHistory() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersSessionMailLinkChangeHistory()
 }
 
 func (a *App) MembersSessionSignInAttempts() http.HandlerFunc {
@@ -550,6 +786,10 @@ func (a *App) MembersSessionTrustedDevice() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).MembersSessionTrustedDevice()
 }
 
+func (a *App) MembersSessionTrustedDeviceChangeHistory() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersSessionTrustedDeviceChangeHistory()
+}
+
 func (a *App) MembersSessionUsers() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).MembersSessionUsers()
 }
@@ -558,8 +798,36 @@ func (a *App) MembersSessionUser() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).MembersSessionUser()
 }
 
+func (a *App) MembersSessionUserChangeHistory() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersSessionUserChangeHistory()
+}
+
 func (a *App) MembersUserRoles() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).MembersUserRoles()
+}
+
+func (a *App) MembersListedAuditRecords() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersListedAuditRecords()
+}
+
+func (a *App) MembersListedRoleGrants() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersListedRoleGrants()
+}
+
+func (a *App) MembersRememberLengths() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersRememberLengths()
+}
+
+func (a *App) MembersSectorAuditRecords() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersSectorAuditRecords()
+}
+
+func (a *App) MembersSignInMethods() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersSignInMethods()
+}
+
+func (a *App) MembersSignInSettings() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersSignInSettings()
 }
 
 func (a *App) DeleteMembersSectorUser() http.HandlerFunc {
@@ -606,12 +874,20 @@ func (a *App) RenameMembersUser() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).RenameMembersUser()
 }
 
+func (a *App) RequireMembersSecondFactor() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).RequireMembersSecondFactor()
+}
+
 func (a *App) RevokeMembersSectorUserTrustedDevices() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).RevokeMembersSectorUserTrustedDevices()
 }
 
 func (a *App) RevokeMembersUserTrustedDevices() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).RevokeMembersUserTrustedDevices()
+}
+
+func (a *App) SetMembersRememberedBrowsers() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).SetMembersRememberedBrowsers()
 }
 
 func (a *App) SetMembersSectorUserEmail() http.HandlerFunc {
@@ -628,6 +904,10 @@ func (a *App) SetMembersUserEmail() http.HandlerFunc {
 
 func (a *App) SetMembersUserName() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).SetMembersUserName()
+}
+
+func (a *App) StopRequiringMembersSecondFactor() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).StopRequiringMembersSecondFactor()
 }
 
 func (a *App) UnlinkMembersSectorSessionIdentity() http.HandlerFunc {

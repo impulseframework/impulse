@@ -7,12 +7,13 @@
 // palette's theme on html, the look where no choice was made, and every palette's color
 // tokens under html[data-palette='<id>']; ThemeService (provideTheme in app.config.ts,
 // which names the same ids) sets that attribute from the person's choice, and
-// color-scheme on html from their light or dark, which flips every token since mat.theme
-// emits both values of each. The first palette is the brand's: impulse brand generates it
-// from the primary color brand.json declares (Angular Material's theme-color schematic,
-// written beside this file as _theme-colors.scss) and puts it here, and writes the
-// manifest's theme_color and background_color and index.html's theme-color from the same
-// declaration, which carry the colors as literals.
+// color-scheme on html from their light, dark or device setting (`light dark`, under
+// which the browser draws whichever the device is set to), which flips every token since
+// mat.theme emits both values of each. The first palette is the brand's: impulse brand
+// generates it from the primary color brand.json declares (Angular Material's theme-color
+// schematic, written beside this file as _theme-colors.scss) and puts it here, and writes
+// the manifest's theme_color and background_color and index.html's theme-color from the
+// same declaration, which carry the colors as literals.
 @use '@angular/material' as mat;
 @use '@impulseframework/resource-angular/theme';
 @use '@impulseframework/resource-angular/palettes';
@@ -42,8 +43,8 @@ html {
 // no literal color (cmd/generate's TestWebStylesheetsCarryNoLiteralColor refuses one). Each
 // that colors text or a line is a light-dark pair, as mat.theme's tokens are, so it keeps its
 // contrast in the person's light or dark: amber for a hazard, a selection and a refusal the
-// server explained, green for a nominal reading and a probe the server allowed, teal for the
-// ship's log and a live transition. The highlight is a fill under its own dark text, and the
+// server explained, green for a nominal reading and a probe the server allowed, teal for a
+// live transition. The highlight is a fill under its own dark text, and the
 // view-as banner a band under its own white text, the same in both.
 html {
   --lodestar-amber: light-dark(#a5640a, #f2b544);

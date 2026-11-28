@@ -82,6 +82,7 @@ linters:
           - github.com/aws
           - github.com/bits-and-blooms/bloom/v3
           - github.com/casbin
+          - github.com/ccojocar/zxcvbn-go
           - github.com/cenkalti
           - github.com/cloudspannerecosystem/memefish
           - github.com/coreos/go-oidc
@@ -207,10 +208,23 @@ linters:
       - .WithMessagef(
       - .Cause(
       - .RetryableError(
+      - dbtype.AccountNotFound(
+      - dbtype.UsernameNotFound(
+      - dbtype.EmailNotFound(
+      - dbtype.SessionNotFound(
+      - dbtype.SignInIdentityNotFound(
+      - dbtype.SignInIdentityNotLinked(
+      - dbtype.TokenNotFound(
+      - dbtype.RefreshTokenNotFound(
+      - dbtype.DeviceCodeNotPending(
+      - dbtype.DeviceCodeNotRedeemable(
+      - dbtype.MailLinkNotLive(
+      - sessioninfo.ImpersonatorRefusal(
       - sessioninfo.NewLoginRefusal(
       - sessioninfo.NewTooManyAttemptsRefusal(
       - sessioninfo.NewTooManyAttemptsRefusalSaying(
       - sessioninfo.NewTooManyEmailsRefusal(
+      - sessioninfo.UsernameRefusal(
       - signinflow.Refusal(
       - .WithDescription(
       - .WithParent(
@@ -309,6 +323,29 @@ linters:
     - linters:
       - goconst
       path: accesstypes/(.*/)?decision\.go
+    # MaskRefusal is a value: the Refuse constructors answer one, Refusing and a kind's
+    # declaration take them in a list, and a refusal is never changed once it is made.
+    # What it leaves alone made it larger than the limit; a pointer would let a caller
+    # change a refusal a mask was built from.
+    - linters:
+      - gocritic
+      path: accesstypes/(.*/)?permissionmask\.go
+      text: 'hugeParam: (r|refusal) is heavy'
+    # EventSource is a value: UserEvent, ProcessEvent and UserProcessEvent answer one, a
+    # tracked write takes them in a list, and a value is never changed once it is made.
+    # The nine things it says of who made a change made it larger than the limit; a pointer
+    # would let a write change who another write's change record names.
+    - linters:
+      - gocritic
+      path: (eventsource/(eventsource|stored_test)|resource/(patchset|feature|delete_rounds_spanner_test|change_history_read_test)|identity/audit|session/(audit|auth_invitation|auth_reset))\.go
+      text: 'hugeParam: (e|eventSource|source) is heavy'
+    # CollectionData is the literal a generated collection file writes and hands
+    # MustNewGeneratedCollection; where each auth keeps the roles held on records made it
+    # larger than the limit. A pointer would change every generated collection file.
+    - linters:
+      - gocritic
+      path: resource/generated_collection\.go
+      text: 'hugeParam: data is heavy'
     - linters:
       - bodyclose
       - funlen
@@ -382,12 +419,25 @@ linters:
       text: Test_prepareIdentity
     - linters:
       - paralleltest
-      path: generation/identity_(groups|periods)_test\.go
+      path: generation/identity_(givable|groups|periods|holdings|mailfailed|place|callerenters|ownaccount|record_roles)_test\.go
       text: Test_prepareIdentity
     - linters:
       - paralleltest
       path: generation/identity_invitedtenant_test\.go
       text: Test_prepareIdentity
+    - linters:
+      - paralleltest
+      path: generation/identity_roles_test\.go
+      text: Test_extractAndGenerateRPC_retiredGrants
+    - linters:
+      - paralleltest
+      path: generation/identity_classes_test\.go
+      text: Test_prepareIdentity
+    - linters:
+      - paralleltest
+      - tparallel
+      path: session/internal/e2e/impersonation_mask_test\.go
+      text: TestImpersonationMask_storedAndEnforced
     - linters:
       - funlen
       path: resource/(.*/)?resourceset\.go
@@ -399,6 +449,14 @@ linters:
       - wrapcheck
       path: resource/(.*/)?upload\.go
       text: io.Reader
+    # The identity tests' stand-in for the session library's API is built as a value in some
+    # forty places, and its methods take it by value; the session timeout it holds made it as
+    # large as the limit. A copy in a test costs nothing, and a pointer receiver would make
+    # each value the tests build of it stop meeting the interface.
+    - linters:
+      - gocritic
+      path: identity/identity_test\.go
+      text: 'hugeParam: s is heavy'
     - linters:
       - gocritic
       path: resource/(.*/)?query_decoder_test\.go

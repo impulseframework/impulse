@@ -34,6 +34,7 @@ type membersTenantUserGroupRoleRead struct {
 	Role        string       `json:"role"        perm:"-"`
 	GlobalGroup bool         `json:"globalGroup"`
 	EveryDomain bool         `json:"everyDomain"`
+	CreatedAt   time.Time    `json:"createdAt"`
 	StartsAt    *time.Time   `json:"startsAt"`
 	EndsAt      *time.Time   `json:"endsAt"`
 }
@@ -176,6 +177,7 @@ func (c *MembersTenantUserGroupRoleColumns) All() *MembersTenantUserGroupRoleCol
 		"Role",
 		"GlobalGroup",
 		"EveryDomain",
+		"CreatedAt",
 		"StartsAt",
 		"EndsAt",
 	}
@@ -227,6 +229,12 @@ func (c *MembersTenantUserGroupRoleColumns) GlobalGroup() *MembersTenantUserGrou
 
 func (c *MembersTenantUserGroupRoleColumns) EveryDomain() *MembersTenantUserGroupRoleColumns {
 	c.fields = append(c.fields, "EveryDomain")
+
+	return c
+}
+
+func (c *MembersTenantUserGroupRoleColumns) CreatedAt() *MembersTenantUserGroupRoleColumns {
+	c.fields = append(c.fields, "CreatedAt")
 
 	return c
 }
@@ -383,6 +391,10 @@ func (c *membersTenantUserGroupRoleSort) GlobalGroup() *MembersTenantUserGroupRo
 
 func (c *membersTenantUserGroupRoleSort) EveryDomain() *MembersTenantUserGroupRoleSort {
 	return c.addField("EveryDomain")
+}
+
+func (c *membersTenantUserGroupRoleSort) CreatedAt() *MembersTenantUserGroupRoleSort {
+	return c.addField("CreatedAt")
 }
 
 func (c *membersTenantUserGroupRoleSort) StartsAt() *MembersTenantUserGroupRoleSort {

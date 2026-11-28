@@ -207,6 +207,22 @@ type (
 	// @rpc
 	// @warning(typed: open)
 	WarningOtherClient struct{}
+
+	// @rpc
+	// @warning
+	WarningBare struct{}
+
+	// @rpc
+	// @warning
+	WarningBareNoMethod struct{}
+
+	// @rpc
+	// @warning(typed: Open)
+	WarningCapitalWord struct{}
+
+	// @rpc
+	// @warning(word: open)
+	WarningOtherKey struct{}
 )
 
 func (Verdict) HTTPStatus() int { return 200 }
@@ -370,4 +386,95 @@ func (*WarningOtherClient) Execute(context.Context, resource.ReadWriteTransactio
 }
 func (*WarningOtherClient) Warning(context.Context, resource.ReadWriteTransaction, *OtherClient) (*resource.Warning, error) {
 	return nil, nil
+}
+func (*WarningBare) Execute(context.Context, resource.ReadWriteTransaction, *Client) error {
+	return nil
+}
+func (*WarningBare) Warning(context.Context, resource.ReadWriteTransaction, *Client) (*resource.Warning, error) {
+	return nil, nil
+}
+func (*WarningBareNoMethod) Execute(context.Context, resource.ReadWriteTransaction, *Client) error {
+	return nil
+}
+func (*WarningCapitalWord) Execute(context.Context, resource.ReadWriteTransaction, *Client) error {
+	return nil
+}
+func (*WarningCapitalWord) Warning(context.Context, resource.ReadWriteTransaction, *Client) (*resource.Warning, error) {
+	return nil, nil
+}
+func (*WarningOtherKey) Execute(context.Context, resource.ReadWriteTransaction, *Client) error {
+	return nil
+}
+func (*WarningOtherKey) Warning(context.Context, resource.ReadWriteTransaction, *Client) (*resource.Warning, error) {
+	return nil, nil
+}
+
+// The @deleteToken shapes: the one accepted, and each refused.
+type (
+	// @rpc
+	DeleteTokenForm struct {
+		ID string
+		// @deleteToken
+		Token string
+	}
+
+	// @rpc
+	DeleteTokenTwice struct {
+		// @deleteToken
+		Token string
+		// @deleteToken
+		Again string
+	}
+
+	// @rpc
+	DeleteTokenNotText struct {
+		// @deleteToken
+		Token []byte
+	}
+
+	// @rpc
+	DeleteTokenOtherName struct {
+		// @deleteToken
+		Key string
+	}
+
+	// @rpc
+	DeleteTokenClientForm struct {
+		// @deleteToken
+		Token string
+	}
+
+	// @rpc
+	// @upload(max: 5MB)
+	DeleteTokenUpload struct {
+		// @deleteToken
+		Token string
+	}
+
+	// @rpc
+	// @schedule("30 3 * * *")
+	DeleteTokenScheduled struct {
+		// @deleteToken
+		Token string
+	}
+)
+
+func (*DeleteTokenForm) Execute(context.Context, resource.ReadWriteTransaction, *Client) error {
+	return nil
+}
+func (*DeleteTokenTwice) Execute(context.Context, resource.ReadWriteTransaction, *Client) error {
+	return nil
+}
+func (*DeleteTokenNotText) Execute(context.Context, resource.ReadWriteTransaction, *Client) error {
+	return nil
+}
+func (*DeleteTokenOtherName) Execute(context.Context, resource.ReadWriteTransaction, *Client) error {
+	return nil
+}
+func (*DeleteTokenClientForm) Execute(context.Context, resource.Client, *Client) error { return nil }
+func (*DeleteTokenUpload) Execute(context.Context, resource.ReadWriteTransaction, resource.Files, *Client) error {
+	return nil
+}
+func (*DeleteTokenScheduled) Execute(context.Context, resource.ReadWriteTransaction, *Client) error {
+	return nil
 }

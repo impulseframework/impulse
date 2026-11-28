@@ -5,6 +5,7 @@ import {
   ClientBase,
   createClient,
   PermissionDigest,
+  PermissionDigestState,
   Resource,
   TransportRequest,
   TransportResponse,
@@ -18,8 +19,10 @@ import {
   field,
   FieldMeta,
   FieldName,
+  FieldSort,
   RESOURCE_META,
   ResourceMeta,
+  RPCFieldMeta,
 } from '@impulseframework/resource-angular/types';
 
 import { ResourceStore } from '../../../resource-store.service';
@@ -172,6 +175,14 @@ describe('EnumeratedFieldComponent over a paged source', () => {
   const alsoSealedWing = 'w-sealed-too';
   /** A wing whose read fails for a reason that is no permission's. */
   const brokenWing = 'w-broken';
+  // What the server says of a read it refuses, as it says it (the scope, the person's id,
+  // the permission and the resource), and of one that failed. None of it is for the screen:
+  // it is written to the console, once, for whoever looks into it.
+  const readRefusal = 'scope (global), user (3f2a9c1e-7b64-4d1a-9e0c-5a8d2b7f6c13) does not have (Read) on [Wings]';
+  const listRefusal = 'scope (global), user (3f2a9c1e-7b64-4d1a-9e0c-5a8d2b7f6c13) does not have (List) on [Wings]';
+  const failure = 'spanner: code = "Unavailable", desc = "the session pool is closed"';
+  const serverWords =
+    /scope \(|user \(|3f2a9c1e|does not have|\((Read|List)\)|\[Wings\]|spanner|Unavailable|session pool/;
   const closedSource = 'You do not have access to this list, so only the id is shown.';
   const nothingToChoose = 'You do not have access to this list, so nothing can be chosen here.';
   const closedRecord = 'You do not have access to this record, so only its id is shown.';
@@ -182,6 +193,20 @@ describe('EnumeratedFieldComponent over a paged source', () => {
   let digest: PermissionDigest;
   /** Whether the server refuses the list of wings as not permitted. */
   let listRefused: boolean;
+  /** Whether the list of wings fails, for a reason that is no permission's. */
+  let listFails: boolean;
+  let consoleError: ReturnType<typeof vi.spyOn>;
+  /**
+   * What was written to the console, each line as a console prints it: the resource's name
+   * where the words keep its place (%s), and the server's own message of the error written
+   * after them.
+   */
+  const written = (): string[] =>
+    consoleError.mock.calls.map(([words, ...values]: unknown[]) => {
+      const error = values.pop();
+      const line = values.reduce<string>((text, value) => text.replace('%s', () => String(value)), String(words));
+      return `${line} ${error instanceof Error ? error.message : ''}`;
+    });
 
   const server = (request: TransportRequest): TransportResponse => {
     const path = request.url.split('?')[0];
@@ -193,14 +218,17 @@ describe('EnumeratedFieldComponent over a paged source', () => {
       return { status: 200, body: wingRows[key] };
     }
     if (key === sealedWing || key === alsoSealedWing) {
-      return { status: 403, body: { message: 'you may not read Wings here' } };
+      return { status: 403, body: { message: readRefusal } };
     }
     if (key === brokenWing) {
-      return { status: 500, body: { message: 'the database is away' } };
+      return { status: 500, body: { message: failure } };
+    }
+    if (path === '/api/wings' && listFails) {
+      return { status: 500, body: { message: failure } };
     }
     if (path === '/api/wings') {
       return listRefused
-        ? { status: 403, body: { message: 'you may not list Wings here' } }
+        ? { status: 403, body: { message: listRefusal } }
         : { status: 200, body: Object.values(wingRows), headers: { 'total-count': '2' } };
     }
     return { status: 404, body: { message: `unscripted ${request.method} ${request.url}` } };
@@ -243,6 +271,8 @@ describe('EnumeratedFieldComponent over a paged source', () => {
   beforeEach(async () => {
     digest = {};
     listRefused = false;
+    listFails = false;
+    consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     transport = scriptedTransport(server);
     await TestBed.configureTestingModule({
       imports: [EnumeratedFieldComponent],
@@ -272,6 +302,10 @@ describe('EnumeratedFieldComponent over a paged source', () => {
     fixture.componentRef.setInput('form', formOver('w-1'));
     fixture.detectChanges();
     await settle();
+  });
+
+  afterEach(() => {
+    consoleError.mockRestore();
   });
 
   it('reads the chosen row once at load and shows its display', () => {
@@ -329,7 +363,7 @@ describe('EnumeratedFieldComponent over a paged source', () => {
     expect(readOnly()).toBe(sealedWing);
     expect(text()).toContain(closedRecord);
     // Never the server's words, which name the permission and the resource.
-    expect(text()).not.toContain('you may not read Wings here');
+    expect(text()).not.toMatch(serverWords);
     expect(text()).not.toContain('not available to you');
 
     fixture.componentRef.setInput('editMode', 'edit');
@@ -343,7 +377,7 @@ describe('EnumeratedFieldComponent over a paged source', () => {
       'w-2',
     ]);
     expect(text()).toContain(closedRecord);
-    expect(text()).not.toContain('you may not read Wings here');
+    expect(text()).not.toMatch(serverWords);
     // Nothing more is asked for that value, and leaving the field alone keeps it.
     fixture.componentRef.setInput('editMode', 'view');
     await settle();
@@ -493,7 +527,7 @@ describe('EnumeratedFieldComponent over a paged source', () => {
     expect(picks()).toBe(false);
     expect(readOnly()).toBe('w-1');
     expect(text()).toContain(closedSource);
-    expect(text()).not.toContain('you may not list Wings here');
+    expect(text()).not.toMatch(serverWords);
 
     fixture.componentRef.setInput('editMode', 'view');
     await settle();
@@ -507,19 +541,83 @@ describe('EnumeratedFieldComponent over a paged source', () => {
     expect(form.dirty).toBe(false);
   });
 
-  // A failure that is no permission's keeps the words the picker always had for it.
-  it('says a failed read that is no refusal of permission in the words it always had, and stays a picker', async () => {
+  // A failure that is no permission's is said in the picker's own words too: what the
+  // server said of it goes to the console, once, and none of it to the screen.
+  it('says a failed read that is no refusal of permission in words of its own, writes what the server said to the console, and stays a picker', async () => {
     fixture.componentRef.setInput('form', formOver(brokenWing));
     await settle();
 
     expect(readOnly()).toBe(brokenWing);
-    expect(text()).toContain('This picker could not be loaded: the database is away');
+    expect(text()).toContain('This record could not be loaded, so only its id is shown.');
     expect(text()).not.toContain('You do not have access');
+    expect(text()).not.toMatch(serverWords);
+    fixture.detectChanges();
+    await settle();
+    expect(written()).toEqual([`Wings: the record a picker shows could not be loaded: ${failure}`]);
 
     fixture.componentRef.setInput('editMode', 'edit');
     await settle();
     expect(picks()).toBe(true);
     expect(wingLists()).toBe(1);
+    expect(text()).not.toMatch(serverWords);
+    // The list was read meanwhile: the record's failure, still there, is not written again.
+    expect(written()).toEqual([`Wings: the record a picker shows could not be loaded: ${failure}`]);
+  });
+
+  it('writes each failure once, though the other read of the picker fails after it', async () => {
+    listFails = true;
+    fixture.componentRef.setInput('form', formOver(brokenWing));
+    await settle();
+    expect(written()).toEqual([`Wings: the record a picker shows could not be loaded: ${failure}`]);
+
+    // The field is edited: the list is asked for now, and fails too.
+    fixture.componentRef.setInput('editMode', 'edit');
+    await settle();
+    expect(wingLists()).toBe(1);
+    expect(written()).toEqual([
+      `Wings: the record a picker shows could not be loaded: ${failure}`,
+      `Wings: the list a picker offers could not be loaded: ${failure}`,
+    ]);
+    expect(text()).not.toMatch(serverWords);
+  });
+
+  it("writes each line's words as they stand, with the resource's name after them: a name is never itself read as words to print", async () => {
+    listFails = true;
+    fixture.componentRef.setInput('form', formOver(brokenWing));
+    await settle();
+    fixture.componentRef.setInput('editMode', 'edit');
+    await settle();
+
+    expect(consoleError.mock.calls.map(([words, resource]: unknown[]) => [words, resource])).toEqual([
+      ['%s: the record a picker shows could not be loaded:', 'Wings'],
+      ['%s: the list a picker offers could not be loaded:', 'Wings'],
+    ]);
+  });
+
+  it('says a list of options that failed in words of its own, as a picker with nothing to choose from, and writes what the server said to the console', async () => {
+    listFails = true;
+    fixture.componentRef.setInput('editMode', 'edit');
+    await settle();
+
+    // The picker is drawn, over the row the field holds: it shows no id, and offers nothing.
+    expect(picks()).toBe(true);
+    expect(text()).toContain('This list could not be loaded, so nothing can be chosen here.');
+    expect(text()).not.toContain('id is shown');
+    expect(text()).not.toContain('You do not have access');
+    expect(text()).not.toMatch(serverWords);
+    expect(written()).toEqual([`Wings: the list a picker offers could not be loaded: ${failure}`]);
+  });
+
+  it('writes what the server said of a read it refused to the console, once, and none of it to the screen', async () => {
+    fixture.componentRef.setInput('form', formOver(sealedWing));
+    await settle();
+
+    expect(readOnly()).toBe(sealedWing);
+    expect(text()).toContain(closedRecord);
+    expect(text()).not.toMatch(serverWords);
+    fixture.detectChanges();
+    await settle();
+    expect(written()).toEqual([`Wings: the record a picker shows could not be loaded: ${readRefusal}`]);
   });
 });
 
@@ -570,11 +668,34 @@ describe('EnumeratedFieldComponent over a source read whole that the person may 
     [piers]: { route: 'piers', fields: [idField, nameField] },
   };
   const closedSource = 'You do not have access to this list, so only the id is shown.';
+  const failedSource = 'This list could not be loaded, so only the id is shown.';
+  // What the server says of a list it refuses as not permitted, of one it will not serve
+  // the way it was asked for, and of one that failed, each as the server says it. None of
+  // it is for the screen: it is written to the console, once, for whoever looks into it.
+  const said: Record<number, string> = {
+    403: 'scope (global), user (3f2a9c1e-7b64-4d1a-9e0c-5a8d2b7f6c13) does not have (List) on [Docks]',
+    400: 'Docks serves at most 50 rows per page and declares no order; add a sort',
+    500: 'spanner: code = "Unavailable", desc = "the session pool is closed"',
+  };
+  const serverWords =
+    /scope \(|user \(|3f2a9c1e|does not have|\(List\)|\[Docks\]|50 rows|declares no order|add a sort|spanner|Unavailable|session pool/;
 
   let fixture: ComponentFixture<EnumeratedFieldComponent>;
   let transport: ScriptedTransport;
   let digest: PermissionDigest;
   let listStatus: number;
+  let consoleError: ReturnType<typeof vi.spyOn>;
+  /**
+   * What was written to the console, each line as a console prints it: the resource's name
+   * where the words keep its place (%s), and the server's own message of the error written
+   * after them.
+   */
+  const written = (): string[] =>
+    consoleError.mock.calls.map(([words, ...values]: unknown[]) => {
+      const error = values.pop();
+      const line = values.reduce<string>((text, value) => text.replace('%s', () => String(value)), String(words));
+      return `${line} ${error instanceof Error ? error.message : ''}`;
+    });
 
   const server = (request: TransportRequest): TransportResponse => {
     const path = request.url.split('?')[0];
@@ -584,7 +705,7 @@ describe('EnumeratedFieldComponent over a source read whole that the person may 
     if (path === '/api/docks' || path === '/api/piers') {
       return listStatus === 200
         ? { status: 200, body: [{ id: 'd-1', name: 'North Dock' }] }
-        : { status: listStatus, body: { message: 'the server said no in words of its own' } };
+        : { status: listStatus, body: { message: said[listStatus] } };
     }
     return { status: 404, body: { message: `unscripted ${request.method} ${request.url}` } };
   };
@@ -602,10 +723,10 @@ describe('EnumeratedFieldComponent over a source read whole that the person may 
   const readOnly = (): string | undefined => element().querySelector<HTMLInputElement>('input[readonly]')?.value;
   const picks = (): boolean => element().querySelector('mat-select') !== null;
 
-  /** Draws the field over the stored key, as a form that is read or edited. */
-  const draw = async (source: FieldMeta, mode: 'view' | 'edit'): Promise<FormGroup> => {
+  /** Draws the field over the stored key, or over nothing, as a form that is read or edited. */
+  const draw = async (source: FieldMeta, mode: 'view' | 'edit', stored: string | null = 'd-1'): Promise<FormGroup> => {
     const name = source.fieldName as FieldName;
-    const form = new FormGroup({ [name]: new FormControl<string | null>('d-1') });
+    const form = new FormGroup({ [name]: new FormControl<string | null>(stored) });
     fixture = TestBed.createComponent(EnumeratedFieldComponent);
     fixture.componentRef.setInput('meta', metas[hangars]);
     fixture.componentRef.setInput('fieldMeta', source);
@@ -628,6 +749,7 @@ describe('EnumeratedFieldComponent over a source read whole that the person may 
   beforeEach(async () => {
     digest = {};
     listStatus = 200;
+    consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     transport = scriptedTransport(server);
     await TestBed.configureTestingModule({
       imports: [EnumeratedFieldComponent],
@@ -640,6 +762,10 @@ describe('EnumeratedFieldComponent over a source read whole that the person may 
         ResourceStore,
       ],
     }).compileComponents();
+  });
+
+  afterEach(() => {
+    consoleError.mockRestore();
   });
 
   it('lists the source and shows the name where nothing says the person may not', async () => {
@@ -674,22 +800,55 @@ describe('EnumeratedFieldComponent over a source read whole that the person may 
     expect(picks()).toBe(false);
     expect(readOnly()).toBe('d-1');
     expect(text()).toContain(closedSource);
-    expect(text()).not.toContain('the server said no in words of its own');
+    expect(text()).not.toMatch(serverWords);
 
     fixture.componentRef.setInput('editMode', 'view');
     await settle();
     fixture.componentRef.setInput('editMode', 'edit');
     await settle();
     expect(lists('docks')).toBe(1);
+    // What the server said is in the console, once, for whoever looks into it.
+    expect(written()).toEqual([`Docks: the list a picker offers could not be loaded: ${said[403]}`]);
   });
 
-  it('says a list that failed for another reason in the words it always had', async () => {
+  it('says a list that failed for another reason in words of its own, with what the field shows, and writes what the server said to the console', async () => {
     listStatus = 500;
     await draw(dockField, 'view');
 
     expect(readOnly()).toBe('d-1');
-    expect(text()).toContain('This picker could not be loaded: the server said no in words of its own');
+    expect(text()).toContain(failedSource);
     expect(text()).not.toContain('You do not have access');
+    expect(text()).not.toMatch(serverWords);
+    expect(written()).toEqual([`Docks: the list a picker offers could not be loaded: ${said[500]}`]);
+  });
+
+  it('says the same of a list the server will not serve the way the picker asked for it', async () => {
+    listStatus = 400;
+    await draw(dockField, 'view');
+
+    expect(readOnly()).toBe('d-1');
+    expect(text()).toContain(failedSource);
+    expect(text()).not.toMatch(serverWords);
+    expect(written()).toEqual([`Docks: the list a picker offers could not be loaded: ${said[400]}`]);
+  });
+
+  it('says that nothing can be chosen where the field is edited: the picker is drawn there, and shows no id', async () => {
+    listStatus = 500;
+    await draw(dockField, 'edit');
+
+    expect(picks()).toBe(true);
+    expect(text()).toContain('This list could not be loaded, so nothing can be chosen here.');
+    expect(text()).not.toContain('id is shown');
+    expect(text()).not.toMatch(serverWords);
+  });
+
+  it('says the same where the form is read and the field holds nothing: there is no id to show', async () => {
+    listStatus = 500;
+    await draw(dockField, 'view', null);
+
+    expect(text()).toContain('This list could not be loaded, so nothing can be chosen here.');
+    expect(text()).not.toContain('id is shown');
+    expect(text()).not.toMatch(serverWords);
   });
 
   it('asks a source the generated API does not describe, whatever the digest holds: the digest has no word of it', async () => {
@@ -705,11 +864,15 @@ describe('EnumeratedFieldComponent over a source read whole that the person may 
 // A picker the page gave no display of its own, as a method's dialog draws one from the
 // metadata alone. Over a record keyed by an id that says which field its rows are called
 // by (the tenant record's name), it lists and shows names; over any other source it shows
-// the key, which reads well where the key is the row's name.
+// the key, which reads well where the key is the row's name, and in words where the
+// source's metadata says the key holds a role's name.
 describe('EnumeratedFieldComponent with no display of its own', () => {
   const methods = 'Methods' as Resource;
   const sectors = 'Sectors' as Resource;
   const roles = 'Roles' as Resource;
+  const titles = 'Titles' as Resource;
+  const crewRoles = 'CrewRoles' as Resource;
+  const callsigns = 'Callsigns' as Resource;
   const source = (resource: Resource, route: string, keys: string[]): ApiDescriptor['resources'][string] => ({
     resource,
     property: route,
@@ -721,12 +884,29 @@ describe('EnumeratedFieldComponent with no display of its own', () => {
     page: { default: 25, max: 200 },
     order: [{ field: 'name', direction: 'asc' }],
   });
+  /** A source with no maximum page size, read whole in one request. */
+  const wholeSource = (resource: Resource, route: string): ApiDescriptor['resources'][string] => ({
+    resource,
+    property: route,
+    route,
+    scope: 'global',
+    consolidated: false,
+    keys: ['name'],
+    operations: ['list', 'read'],
+    order: [{ field: 'name', direction: 'asc' }],
+  });
   const descriptor: ApiDescriptor = {
     permissionDigestRoute: 'permission-digest',
     userDomainsRoute: 'user-domains',
     features: { route: 'features' },
     methods: {},
-    resources: { [sectors]: source(sectors, 'sectors', ['id']), [roles]: source(roles, 'roles', ['name']) },
+    resources: {
+      [sectors]: source(sectors, 'sectors', ['id']),
+      [roles]: source(roles, 'roles', ['name']),
+      [titles]: source(titles, 'titles', ['name']),
+      [crewRoles]: wholeSource(crewRoles, 'crewroles'),
+      [callsigns]: wholeSource(callsigns, 'callsigns'),
+    },
   };
   const picker = (fieldName: string, resource: Resource): FieldMeta => ({
     fieldName,
@@ -735,8 +915,25 @@ describe('EnumeratedFieldComponent with no display of its own', () => {
     isIndex: false,
     enumeratedResource: resource,
   });
+  // A request field that names a role declares the name a grant's condition reads it by;
+  // here over a source whose metadata says nothing of roles.
+  const givenRole: RPCFieldMeta = {
+    fieldName: 'givenRole',
+    displayType: 'enumerated',
+    enumeratedResource: titles,
+    attribute: 'role',
+  };
   const metas: Record<string, ResourceMeta> = {
-    [methods]: { route: 'methods', fields: [picker('domain', sectors), picker('role', roles)] },
+    [methods]: {
+      route: 'methods',
+      fields: [
+        picker('domain', sectors),
+        picker('role', roles),
+        picker('title', titles),
+        picker('crewRole', crewRoles),
+        picker('callsign', callsigns),
+      ],
+    },
     [sectors]: {
       route: 'sectors',
       nameField: 'name',
@@ -745,8 +942,41 @@ describe('EnumeratedFieldComponent with no display of its own', () => {
         { fieldName: 'name', displayType: 'string', required: true, isIndex: true },
       ],
     },
+    // The source's key field holds a role's name: the metadata lists the roles it may hold.
     [roles]: {
       route: 'roles',
+      fields: [
+        {
+          fieldName: 'name',
+          primaryKey: { ordinalPosition: 0 },
+          displayType: 'string',
+          required: true,
+          isIndex: true,
+          roles: ['Cadet', 'SectorMarshal'],
+        },
+      ],
+    },
+    [titles]: {
+      route: 'titles',
+      fields: [
+        { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: true },
+      ],
+    },
+    [crewRoles]: {
+      route: 'crewroles',
+      fields: [
+        {
+          fieldName: 'name',
+          primaryKey: { ordinalPosition: 0 },
+          displayType: 'string',
+          required: true,
+          isIndex: true,
+          roles: ['Cadet'],
+        },
+      ],
+    },
+    [callsigns]: {
+      route: 'callsigns',
       fields: [
         { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: true },
       ],
@@ -759,7 +989,10 @@ describe('EnumeratedFieldComponent with no display of its own', () => {
       { id: anvil, name: 'Anvil' },
       { id: bastion, name: 'Bastion' },
     ],
-    roles: [{ name: 'Cadet' }, { name: 'Marshal' }],
+    roles: [{ name: 'Cadet' }, { name: 'SectorMarshal' }],
+    titles: [{ name: 'Cadet' }, { name: 'SectorMarshal' }],
+    crewroles: [{ name: 'Cadet' }],
+    callsigns: [{ name: 'Cadet' }],
   };
 
   let fixture: ComponentFixture<EnumeratedFieldComponent>;
@@ -804,7 +1037,9 @@ describe('EnumeratedFieldComponent with no display of its own', () => {
     fixture.componentRef.setInput('meta', metas[methods]);
     fixture.componentRef.setInput(
       'fieldMeta',
-      metas[methods].fields.find((candidate) => candidate.fieldName === fieldName),
+      fieldName === givenRole.fieldName
+        ? givenRole
+        : metas[methods].fields.find((candidate) => candidate.fieldName === fieldName),
     );
     fixture.componentRef.setInput('fieldConfig', field({ name: fieldName as FieldName, label: 'Picked' }));
     fixture.componentRef.setInput('editMode', 'view');
@@ -840,8 +1075,25 @@ describe('EnumeratedFieldComponent with no display of its own', () => {
   });
 
   it('over a source that names no field, shows the key', async () => {
-    await pickerOver('role', 'Cadet');
-    expect(fixture.componentInstance.singleEnumDisplayText()).toBe('Cadet');
+    await pickerOver('title', 'SectorMarshal');
+    expect(fixture.componentInstance.singleEnumDisplayText()).toBe('SectorMarshal');
+
+    fixture.componentRef.setInput('editMode', 'edit');
+    await settle();
+    expect(lastPage()).toBe('GET /api/titles?columns=name&count=true');
+    expect(
+      (fixture.componentInstance.availableEnumOptions() ?? [])
+        .filter((option) => option.id !== null)
+        .map((option) => [option.id, option.display]),
+    ).toEqual([
+      ['Cadet', 'Cadet'],
+      ['SectorMarshal', 'SectorMarshal'],
+    ]);
+  });
+
+  it("over a source whose key field holds a role's name, shows each role in words and stores its key", async () => {
+    await pickerOver('role', 'SectorMarshal');
+    expect(fixture.componentInstance.singleEnumDisplayText()).toBe('Sector marshal');
 
     fixture.componentRef.setInput('editMode', 'edit');
     await settle();
@@ -852,7 +1104,335 @@ describe('EnumeratedFieldComponent with no display of its own', () => {
         .map((option) => [option.id, option.display]),
     ).toEqual([
       ['Cadet', 'Cadet'],
-      ['Marshal', 'Marshal'],
+      ['SectorMarshal', 'Sector marshal'],
+    ]);
+  });
+
+  // A key the source answers no row for is shown by itself. Where the source's key field
+  // holds a role's name it reads in words all the same, so a role reads the same with a row
+  // and without one; over a source that declares nothing it reads as stored.
+  it('over a source read whole whose rows do not hold the chosen role, shows the role in words', async () => {
+    await pickerOver('crewRole', 'NightShiftLead');
+    const picker = fixture.componentInstance;
+    expect(picker.singleEnumDisplayText()).toBe('Night shift lead');
+    expect(picker.singleEnumValue()).toEqual([{ id: 'NightShiftLead', display: 'Night shift lead' }]);
+    expect(picker.getDisplayText('NightShiftLead')).toBe('Night shift lead');
+  });
+
+  it('over a paged source whose row of the chosen role cannot be read, shows the role in words', async () => {
+    await pickerOver('role', 'NightShiftLead');
+    const picker = fixture.componentInstance;
+    expect(picker.singleEnumDisplayText()).toBe('Night shift lead');
+    expect(picker.singleEnumValue()).toEqual([{ id: 'NightShiftLead', display: 'Night shift lead' }]);
+    expect(picker.getDisplayText('NightShiftLead')).toBe('Night shift lead');
+  });
+
+  it('over a source read whole that declares nothing, shows a key it holds no row for as stored', async () => {
+    await pickerOver('callsign', 'NightShiftLead');
+    const picker = fixture.componentInstance;
+    expect(picker.singleEnumDisplayText()).toBe('NightShiftLead');
+    expect(picker.singleEnumValue()).toEqual([{ id: 'NightShiftLead', display: 'NightShiftLead' }]);
+    expect(picker.getDisplayText('NightShiftLead')).toBe('NightShiftLead');
+  });
+
+  it('over a paged source that declares nothing, shows a key whose row cannot be read as stored', async () => {
+    await pickerOver('title', 'NightShiftLead');
+    const picker = fixture.componentInstance;
+    expect(picker.singleEnumDisplayText()).toBe('NightShiftLead');
+    expect(picker.singleEnumValue()).toEqual([{ id: 'NightShiftLead', display: 'NightShiftLead' }]);
+    expect(picker.getDisplayText('NightShiftLead')).toBe('NightShiftLead');
+  });
+
+  it('for a request field that names a role, over a source that declares nothing, shows the key as stored', async () => {
+    await pickerOver('givenRole', 'SectorMarshal');
+    expect(fixture.componentInstance.singleEnumDisplayText()).toBe('SectorMarshal');
+
+    fixture.componentRef.setInput('editMode', 'edit');
+    await settle();
+    expect(lastPage()).toBe('GET /api/titles?columns=name&count=true');
+    expect(
+      (fixture.componentInstance.availableEnumOptions() ?? [])
+        .filter((option) => option.id !== null)
+        .map((option) => [option.id, option.display]),
+    ).toEqual([
+      ['Cadet', 'Cadet'],
+      ['SectorMarshal', 'SectorMarshal'],
+    ]);
+  });
+});
+
+// A form drawn from the metadata alone shows and picks a row by what the source says its
+// rows are known by (the metadata's nameField, from the field marked @name on any
+// resource, not the tenant record alone): read, edited, and on a new row. Over a source
+// that declares none the picker shows and lists the keys as stored, in the source's order,
+// narrowed by what is typed and paged where the source is paged. A page that configures a
+// display keeps it.
+describe('EnumeratedFieldComponent over a source that says what its rows are known by, and one that does not', () => {
+  const ships = 'Ships' as Resource;
+  const hangars = 'Hangars' as Resource;
+  const codes = 'Codes' as Resource;
+  const descriptor: ApiDescriptor = {
+    permissionDigestRoute: 'permission-digest',
+    userDomainsRoute: 'user-domains',
+    features: { route: 'features' },
+    methods: {},
+    resources: {
+      [hangars]: {
+        resource: hangars,
+        property: 'hangars',
+        route: 'hangars',
+        scope: 'global',
+        consolidated: false,
+        keys: ['id'],
+        operations: ['list', 'read'],
+        page: { default: 25, max: 200 },
+        order: [{ field: 'name', direction: 'asc' }],
+      },
+      // Two rows a page, so the third is on the next.
+      [codes]: {
+        resource: codes,
+        property: 'codes',
+        route: 'codes',
+        scope: 'global',
+        consolidated: false,
+        keys: ['code'],
+        operations: ['list', 'read'],
+        page: { default: 2, max: 200 },
+        order: [{ field: 'code', direction: 'asc' }],
+      },
+    },
+  };
+  const picker = (fieldName: string, resource: Resource): FieldMeta => ({
+    fieldName,
+    displayType: 'enumerated',
+    required: false,
+    isIndex: true,
+    enumeratedResource: resource,
+  });
+  const metas: Record<string, ResourceMeta> = {
+    [ships]: { route: 'ships', fields: [picker('hangarId', hangars), picker('code', codes)] },
+    [hangars]: {
+      route: 'hangars',
+      nameField: 'name',
+      fields: [
+        { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true },
+        { fieldName: 'name', displayType: 'string', required: true, isIndex: true },
+        { fieldName: 'zone', displayType: 'string', required: true, isIndex: false },
+      ],
+    },
+    [codes]: {
+      route: 'codes',
+      fields: [
+        {
+          fieldName: 'code',
+          primaryKey: { ordinalPosition: 0 },
+          displayType: 'string',
+          required: true,
+          isIndex: true,
+          search: ['contains'],
+        },
+      ],
+      searchFields: ['code'],
+    },
+  };
+  const anvil = 'a1111111-1111-4111-8111-111111111111';
+  const bastion = 'b2222222-2222-4222-8222-222222222222';
+  const hangarRows = [
+    { id: anvil, name: 'Anvil Deck', zone: 'North' },
+    { id: bastion, name: 'Bastion Deck', zone: 'South' },
+  ];
+  const codeRows = [{ code: 'AL-1' }, { code: 'BR-2' }, { code: 'BR-7' }];
+
+  let fixture: ComponentFixture<EnumeratedFieldComponent>;
+  let transport: ScriptedTransport;
+  /** The global permission digest the server answers, where a case loads one. */
+  let digest: PermissionDigest;
+
+  // Hangars answer whole pages; codes answer two rows a page, the next behind a cursor,
+  // and the box keeps the codes that hold the typed text.
+  const server = (request: TransportRequest): TransportResponse => {
+    const url = new URL(request.url, 'http://host.example');
+    if (url.pathname === '/api/permission-digest') {
+      return { status: 200, body: digest };
+    }
+    const [, route, key] = url.pathname.match(/^\/api\/([a-z]+)(?:\/(.+))?$/) ?? [];
+    if (route === 'hangars') {
+      if (key) {
+        const row = hangarRows.find((candidate) => candidate.id === key);
+        return row ? { status: 200, body: row } : { status: 404, body: { message: 'not found' } };
+      }
+      return { status: 200, body: hangarRows, headers: { 'total-count': String(hangarRows.length) } };
+    }
+    if (route === 'codes') {
+      if (key) {
+        const row = codeRows.find((candidate) => candidate.code === key);
+        return row ? { status: 200, body: row } : { status: 404, body: { message: 'not found' } };
+      }
+      const typed =
+        url.searchParams
+          .get('filter')
+          ?.match(/^\*:search:"(.*)"$/)?.[1]
+          ?.toLowerCase() ?? '';
+      const matched = codeRows.filter((row) => row.code.toLowerCase().includes(typed));
+      const start = url.searchParams.get('cursor') === 'two' ? 2 : 0;
+      const headers: Record<string, string> = { 'total-count': String(matched.length) };
+      if (start + 2 < matched.length) {
+        headers['link'] = `</api/codes?columns=code&count=true&cursor=two>; rel="next"`;
+      }
+      return { status: 200, body: matched.slice(start, start + 2), headers };
+    }
+    return { status: 404, body: { message: `unscripted ${request.method} ${request.url}` } };
+  };
+
+  const settle = async (): Promise<void> => {
+    for (let i = 0; i < 10; i++) {
+      TestBed.tick();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    fixture.detectChanges();
+  };
+
+  /**
+   * The picker over one field of the ship, holding the value, as a form drawn from the
+   * metadata draws it unless a config is given; with the digest loaded first where one is
+   * given, as the page's guard has by the time a form is drawn.
+   */
+  const pickerOver = async (
+    fieldName: string,
+    value: string | null,
+    editMode: 'view' | 'edit',
+    config?: Parameters<typeof enumeratedConfig>[0],
+    entries?: PermissionDigest,
+  ): Promise<void> => {
+    transport = scriptedTransport(server);
+    await TestBed.configureTestingModule({
+      imports: [EnumeratedFieldComponent],
+      providers: [
+        provideResourceTesting({
+          transport,
+          client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }),
+        }),
+        { provide: RESOURCE_META, useValue: (resource: Resource): ResourceMeta => metas[resource] },
+        ResourceStore,
+      ],
+    }).compileComponents();
+    if (entries) {
+      digest = entries;
+      await TestBed.inject<ClientBase>(RESOURCE_CLIENT).permissions.loadDigest();
+    }
+    fixture = TestBed.createComponent(EnumeratedFieldComponent);
+    fixture.componentRef.setInput('meta', metas[ships]);
+    fixture.componentRef.setInput(
+      'fieldMeta',
+      metas[ships].fields.find((candidate) => candidate.fieldName === fieldName),
+    );
+    fixture.componentRef.setInput(
+      'fieldConfig',
+      field({
+        name: fieldName as FieldName,
+        label: 'Picked',
+        ...(config ? { enumeratedConfig: enumeratedConfig(config) } : {}),
+      }),
+    );
+    fixture.componentRef.setInput('editMode', editMode);
+    fixture.componentRef.setInput('showField', true);
+    fixture.componentRef.setInput('form', new FormGroup({ [fieldName]: new FormControl<string | null>(value) }));
+    fixture.detectChanges();
+    await settle();
+  };
+
+  const requests = (): string[] => transport.requests.map((request) => `${request.method} ${request.url}`);
+
+  /** The options the picker offers, less the empty choice. */
+  const offered = (): (string | null)[][] =>
+    (fixture.componentInstance.availableEnumOptions() ?? [])
+      .filter((option) => option.id !== null)
+      .map((option) => [option.id, option.display]);
+
+  it('over a source whose metadata names its name field, shows the chosen row by its name and lists names, read, edited and new', async () => {
+    await pickerOver('hangarId', anvil, 'view');
+    expect(fixture.componentInstance.singleEnumDisplayText()).toBe('Anvil Deck');
+    // Read, the chosen row is asked for by its key, and no list.
+    expect(requests().map((request) => request.split('?')[0])).toEqual([`GET /api/hangars/${anvil}`]);
+
+    fixture.componentRef.setInput('editMode', 'edit');
+    await settle();
+    // The name is asked for beside the key, though the page configured no display.
+    expect(requests().at(-1)).toBe('GET /api/hangars?columns=id%2Cname&count=true');
+    expect(offered()).toEqual([
+      [anvil, 'Anvil Deck'],
+      [bastion, 'Bastion Deck'],
+    ]);
+
+    TestBed.resetTestingModule();
+    await pickerOver('hangarId', null, 'edit');
+    expect(requests()).toEqual(['GET /api/hangars?columns=id%2Cname&count=true']);
+    expect(offered()).toEqual([
+      [anvil, 'Anvil Deck'],
+      [bastion, 'Bastion Deck'],
+    ]);
+  });
+
+  it('over a source whose name the person may not list, shows the chosen row by its key and lists the keys, read and edited', async () => {
+    // The digest lets the person list the hangars and their zone, and not their name.
+    await pickerOver('hangarId', anvil, 'view', undefined, {
+      Hangars: { List: 'granted', Read: 'granted' },
+      'Hangars.zone': { List: 'granted' },
+    });
+    expect(fixture.componentInstance.singleEnumDisplayText()).toBe(anvil);
+
+    fixture.componentRef.setInput('editMode', 'edit');
+    await settle();
+    // The list is not asked for the name, which the server would refuse.
+    expect(requests().at(-1)).toBe('GET /api/hangars?columns=id&count=true');
+    expect(offered()).toEqual([
+      [anvil, anvil],
+      [bastion, bastion],
+    ]);
+  });
+
+  it('over a source that declares no name, shows and lists the keys as stored, in its order, narrowed by what is typed and paged', async () => {
+    // The page asks for narrowing by typing and names no display.
+    await pickerOver('code', 'BR-2', 'view', { viewDisplay: [], searchable: true });
+    expect(fixture.componentInstance.singleEnumDisplayText()).toBe('BR-2');
+
+    fixture.componentRef.setInput('editMode', 'edit');
+    await settle();
+    const component = fixture.componentInstance;
+    // No sort is sent: the source's declared order sorts the page.
+    expect(requests().at(-1)).toBe('GET /api/codes?columns=code&count=true');
+    expect(offered()).toEqual([
+      ['AL-1', 'AL-1'],
+      ['BR-2', 'BR-2'],
+    ]);
+    expect(component.pagerLabel()).toBe('1–2 of 3');
+
+    component.pager()?.turn('next');
+    await settle();
+    expect(requests().at(-1)).toBe('GET /api/codes?columns=code&count=true&cursor=two');
+    expect(offered().filter(([id]) => id !== 'BR-2')).toEqual([['BR-7', 'BR-7']]);
+
+    expect(component.narrowing()).toBe('box');
+    component.search('br');
+    await settle();
+    expect(requests().at(-1)).toBe('GET /api/codes?filter=*%3Asearch%3A%22br%22&columns=code&count=true');
+    expect(offered()).toEqual([
+      ['BR-2', 'BR-2'],
+      ['BR-7', 'BR-7'],
+    ]);
+  });
+
+  it('over a source with a name, keeps the display the page configures', async () => {
+    const shown = { listDisplay: ['name', 'zone'] as FieldName[], viewDisplay: ['name', 'zone'] as FieldName[] };
+    await pickerOver('hangarId', anvil, 'view', shown);
+    expect(fixture.componentInstance.singleEnumDisplayText()).toBe('Anvil Deck - North');
+
+    fixture.componentRef.setInput('editMode', 'edit');
+    await settle();
+    expect(requests().at(-1)).toBe('GET /api/hangars?columns=id%2Cname%2Czone&count=true');
+    expect(offered()).toEqual([
+      [anvil, 'Anvil Deck - North'],
+      [bastion, 'Bastion Deck - South'],
     ]);
   });
 });
@@ -1002,5 +1582,285 @@ describe('EnumeratedFieldComponent narrowing a paged source', () => {
       /^Berths: searchable is set, but the resource is paged, its display field name answers no startswith/,
     );
     expect(transport.requests).toEqual([]);
+  });
+});
+
+// A searchable picker over a paged computed source narrows only by fields the server
+// answers for this caller: the server searches and matches a computed resource over its
+// real values and refuses both by a field the digest lists as conditional (seen on some
+// rows only), so the picker asks neither by such a field, and the request carries the
+// configured filter alone. A field listed as conditionalOnTime narrows as one granted:
+// the server settles that grant from the time of the request. So does one listed as
+// conditionalWithResource: the server reads it only on the rows it shows. The picker sorts by the
+// same rule: no configured sort by a conditional field, and over a source with no
+// declared order whose display column is conditional, the key.
+describe('EnumeratedFieldComponent narrowing a paged computed source', () => {
+  const missions = 'Missions' as Resource;
+  const manifests = 'Manifests' as Resource;
+  const boards = 'Boards' as Resource;
+  const ledgers = 'Ledgers' as Resource;
+  // The wing a ledger is kept for: a resource known by its name, which the ledger carries beside the wing's id.
+  const wings = 'Wings' as Resource;
+  const paged = (resource: Resource, route: string): ApiDescriptor['resources'][string] => ({
+    resource,
+    property: route,
+    route,
+    scope: 'global',
+    consolidated: false,
+    keys: ['id'],
+    operations: ['list', 'read'],
+    page: { default: 25, max: 200 },
+    order: [{ field: 'id', direction: 'asc' }],
+  });
+  const descriptor: ApiDescriptor = {
+    permissionDigestRoute: 'permission-digest',
+    userDomainsRoute: 'user-domains',
+    features: { route: 'features' },
+    methods: {},
+    resources: {
+      [manifests]: paged(manifests, 'manifests'),
+      [boards]: paged(boards, 'boards'),
+      // No declared order: the picker states the sort of each page.
+      [ledgers]: { ...paged(ledgers, 'ledgers'), order: undefined },
+    },
+  };
+  const id: FieldMeta = { fieldName: 'id', displayType: 'uuid', required: false, isIndex: true };
+  const metas: Record<string, ResourceMeta> = {
+    [missions]: { route: 'missions', fields: [] },
+    // Searched by its title, which is also what the picker shows.
+    [manifests]: {
+      route: 'manifests',
+      computed: true,
+      fields: [id, { fieldName: 'title', displayType: 'string', required: true, isIndex: false, search: ['contains'] }],
+      searchFields: ['title'],
+    },
+    // No search fields: the picker narrows by a prefix on the ship's name.
+    [boards]: {
+      route: 'boards',
+      computed: true,
+      fields: [
+        id,
+        { fieldName: 'shipName', displayType: 'string', required: true, isIndex: false, search: ['startswith'] },
+      ],
+    },
+    // No search fields: shown by its title and narrowed by a prefix on it; also sorted by its
+    // sorties, or by its wing's name.
+    [ledgers]: {
+      route: 'ledgers',
+      computed: true,
+      fields: [
+        id,
+        { fieldName: 'title', displayType: 'string', required: true, isIndex: false, search: ['startswith'] },
+        { fieldName: 'sorties', displayType: 'number', required: true, isIndex: false },
+        { fieldName: 'wingId', displayType: 'enumerated', required: false, isIndex: true, enumeratedResource: wings },
+      ],
+      nameFields: [{ fieldName: 'wingName', of: 'wingId' }],
+    },
+    [wings]: {
+      route: 'wings',
+      nameField: 'name',
+      fields: [
+        id,
+        { fieldName: 'name', displayType: 'string', required: true, isIndex: false },
+        { fieldName: 'callSign', displayType: 'string', required: true, isIndex: false },
+      ],
+    },
+  };
+  const configured = 'sorties:gte:1';
+
+  let fixture: ComponentFixture<EnumeratedFieldComponent>;
+  let transport: ScriptedTransport;
+
+  const settle = async (): Promise<void> => {
+    for (let i = 0; i < 10; i++) {
+      TestBed.tick();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    fixture.detectChanges();
+  };
+
+  /**
+   * Draws the picker over the source, shown by its display field and ordered by the
+   * configured sorts, as the digest lists each field in states, then types a word.
+   */
+  const typeOver = async (
+    source: Resource,
+    display: string,
+    states: Record<string, PermissionDigestState>,
+    sorts: FieldSort[] = [],
+    others: PermissionDigest = {},
+  ): Promise<EnumeratedFieldComponent> => {
+    const digest: PermissionDigest = { [source]: { List: 'granted', Read: 'granted' }, ...others };
+    for (const [name, state] of Object.entries(states)) {
+      digest[`${source}.${name}`] = { List: state, Read: state };
+    }
+    transport = scriptedTransport((request: TransportRequest): TransportResponse =>
+      request.url.startsWith('/api/permission-digest')
+        ? { status: 200, body: digest }
+        : { status: 200, body: [], headers: { 'total-count': '0' } },
+    );
+    await TestBed.configureTestingModule({
+      imports: [EnumeratedFieldComponent],
+      providers: [
+        provideResourceTesting({
+          transport,
+          client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }),
+        }),
+        { provide: RESOURCE_META, useValue: (resource: Resource): ResourceMeta => metas[resource] },
+        ResourceStore,
+      ],
+    }).compileComponents();
+    await TestBed.inject<ClientBase>(RESOURCE_CLIENT).permissions.loadDigest();
+    fixture = TestBed.createComponent(EnumeratedFieldComponent);
+    fixture.componentRef.setInput('meta', metas[missions]);
+    fixture.componentRef.setInput('fieldMeta', {
+      fieldName: 'sourceId',
+      displayType: 'enumerated',
+      required: false,
+      isIndex: true,
+      enumeratedResource: source,
+    } satisfies FieldMeta);
+    fixture.componentRef.setInput(
+      'fieldConfig',
+      field({
+        name: 'sourceId' as FieldName,
+        label: 'Source',
+        enumeratedConfig: enumeratedConfig({
+          listDisplay: [display as FieldName],
+          viewDisplay: [display as FieldName],
+          searchable: true,
+          filter: () => configured,
+          sorts,
+        }),
+      }),
+    );
+    fixture.componentRef.setInput('editMode', 'edit');
+    fixture.componentRef.setInput('showField', true);
+    fixture.componentRef.setInput('form', new FormGroup({ sourceId: new FormControl<string | null>(null) }));
+    fixture.detectChanges();
+    await settle();
+    fixture.componentInstance.search('lan');
+    await settle();
+    return fixture.componentInstance;
+  };
+
+  /** The filter of each request for the source's rows, as the server reads it. */
+  const filters = (source: string): (string | null)[] =>
+    transport.requests
+      .filter((request) => request.url.split('?')[0] === `/api/${source}`)
+      .map((request) => new URL(request.url, 'http://picker.test').searchParams.get('filter'));
+
+  /** The sort of each request for the source's rows, as the server reads it. */
+  const sortsOf = (source: string): (string | null)[] =>
+    transport.requests
+      .filter((request) => request.url.split('?')[0] === `/api/${source}`)
+      .map((request) => new URL(request.url, 'http://picker.test').searchParams.get('sort'));
+
+  it('a search field listed as conditional: no box, and the request carries the configured filter alone', async () => {
+    const component = await typeOver(manifests, 'title', { title: 'conditional' });
+
+    expect(component.sourceSearchFields()).toEqual([]);
+    expect(component.narrowing()).toBeUndefined();
+    expect(filters('manifests').length).toBeGreaterThan(0);
+    expect(new Set(filters('manifests'))).toEqual(new Set([configured]));
+  });
+
+  it('a search field listed as conditionalOnTime: the request carries the box beside the configured filter', async () => {
+    const component = await typeOver(manifests, 'title', { title: 'conditionalOnTime' });
+
+    expect(component.narrowing()).toBe('box');
+    expect(filters('manifests').at(-1)).toBe(`(${configured}),*:search:"lan"`);
+  });
+
+  it('a search field listed as conditionalWithResource: the request carries the box beside the configured filter', async () => {
+    const component = await typeOver(manifests, 'title', { title: 'conditionalWithResource' });
+
+    expect(component.narrowing()).toBe('box');
+    expect(filters('manifests').at(-1)).toBe(`(${configured}),*:search:"lan"`);
+  });
+
+  it('a display field that answers startswith listed as conditional: no startswith clause', async () => {
+    const component = await typeOver(boards, 'shipName', { shipName: 'conditional' });
+
+    expect(component.narrowing()).toBeUndefined();
+    expect(filters('boards').length).toBeGreaterThan(0);
+    expect(filters('boards').some((filter) => filter?.includes('startswith'))).toBe(false);
+  });
+
+  it('the same display field listed as conditionalOnTime: the prefix match', async () => {
+    const component = await typeOver(boards, 'shipName', { shipName: 'conditionalOnTime' });
+
+    expect(component.narrowing()).toBe('prefix');
+    expect(filters('boards').at(-1)).toBe(`(${configured}),shipName:startswith:lan`);
+  });
+
+  it('the same display field listed as conditionalWithResource: the prefix match', async () => {
+    const component = await typeOver(boards, 'shipName', { shipName: 'conditionalWithResource' });
+
+    expect(component.narrowing()).toBe('prefix');
+    expect(filters('boards').at(-1)).toBe(`(${configured}),shipName:startswith:lan`);
+  });
+
+  it('a source with no declared order whose display column is listed as conditional: the picker pages by the key', async () => {
+    await typeOver(ledgers, 'title', { title: 'conditional', sorties: 'granted' });
+
+    expect(sortsOf('ledgers').length).toBeGreaterThan(0);
+    expect(new Set(sortsOf('ledgers'))).toEqual(new Set(['id:asc']));
+  });
+
+  it('the same display column listed as conditionalOnTime: the picker pages by the display column', async () => {
+    await typeOver(ledgers, 'title', { title: 'conditionalOnTime', sorties: 'granted' });
+
+    expect(sortsOf('ledgers').length).toBeGreaterThan(0);
+    expect(new Set(sortsOf('ledgers'))).toEqual(new Set(['title:asc']));
+  });
+
+  it('the same display column listed as conditionalWithResource: the picker pages by the display column', async () => {
+    await typeOver(ledgers, 'title', { title: 'conditionalWithResource', sorties: 'granted' });
+
+    expect(sortsOf('ledgers').length).toBeGreaterThan(0);
+    expect(new Set(sortsOf('ledgers'))).toEqual(new Set(['title:asc']));
+  });
+
+  it('a configured sort by a field listed as conditional is not sent, and one by a granted field is', async () => {
+    await typeOver(ledgers, 'title', { title: 'granted', sorties: 'conditional' }, [
+      { field: 'sorties' as FieldName, direction: 'desc' },
+      { field: 'title' as FieldName, direction: 'desc' },
+    ]);
+
+    expect(sortsOf('ledgers').length).toBeGreaterThan(0);
+    expect(new Set(sortsOf('ledgers'))).toEqual(new Set(['title:desc']));
+  });
+
+  it('a configured sort by a name field of the source is not sent where the digest lists the id beside it and not the pointed-to name: the picker pages by the display column', async () => {
+    await typeOver(
+      ledgers,
+      'title',
+      { title: 'granted', wingId: 'granted' },
+      [{ field: 'wingName' as FieldName, direction: 'asc' }],
+      {
+        [wings]: { List: 'granted' },
+        [`${wings}.callSign`]: { List: 'granted' },
+      },
+    );
+
+    expect(sortsOf('ledgers').length).toBeGreaterThan(0);
+    expect(new Set(sortsOf('ledgers'))).toEqual(new Set(['title:asc']));
+  });
+
+  it('the same sort is sent where the digest lists the id and the pointed-to name', async () => {
+    await typeOver(
+      ledgers,
+      'title',
+      { title: 'granted', wingId: 'granted' },
+      [{ field: 'wingName' as FieldName, direction: 'asc' }],
+      {
+        [wings]: { List: 'granted' },
+        [`${wings}.name`]: { List: 'granted' },
+      },
+    );
+
+    expect(sortsOf('ledgers').length).toBeGreaterThan(0);
+    expect(new Set(sortsOf('ledgers'))).toEqual(new Set(['wingName:asc']));
   });
 });

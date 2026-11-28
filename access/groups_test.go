@@ -2,6 +2,7 @@ package access
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 
@@ -9,6 +10,47 @@ import (
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 )
+
+// TestGroupMayHold pins the rule a list of the roles to offer a group asks, the one
+// every write of a group's role holds its row to: no group holds the Super
+// Administrator role, a group kept in one tenant holds roles in that tenant alone, and
+// a group kept for the whole application holds a role wherever a person can. What the
+// list offers is what the write takes: the two never disagree.
+func TestGroupMayHold(t *testing.T) {
+	t.Parallel()
+
+	global, every := accesstypes.GlobalPolicyScope(), accesstypes.EveryDomainPolicyScope()
+	anvil, bastion := accesstypes.DomainPolicyScope("anvil"), accesstypes.DomainPolicyScope("bastion")
+	tests := []struct {
+		name  string
+		kept  accesstypes.PolicyScope
+		scope accesstypes.PolicyScope
+		role  accesstypes.Role
+		want  bool
+	}{
+		{name: "a tenant's group, a role in its tenant", kept: anvil, scope: anvil, role: "Reader", want: true},
+		{name: "a tenant's group, a role for the whole application", kept: anvil, scope: global, role: "Reader"},
+		{name: "a tenant's group, a role in every tenant", kept: anvil, scope: every, role: "Reader"},
+		{name: "a tenant's group, a role in another tenant", kept: anvil, scope: bastion, role: "Reader"},
+		{name: "a tenant's group, the Super Administrator role", kept: anvil, scope: anvil, role: accesstypes.SuperAdministrator},
+		{name: "the whole application's group, a role for the whole application", kept: global, scope: global, role: "Steward", want: true},
+		{name: "the whole application's group, a role in every tenant", kept: global, scope: every, role: "Reader", want: true},
+		{name: "the whole application's group, a role in one tenant", kept: global, scope: anvil, role: "Reader", want: true},
+		{name: "the whole application's group, the Super Administrator role", kept: global, scope: global, role: accesstypes.SuperAdministrator},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := GroupMayHold(tt.kept, tt.scope, tt.role); got != tt.want {
+				t.Errorf("GroupMayHold(%v, %v, %s) = %t, want %t", tt.kept, tt.scope, tt.role, got, tt.want)
+			}
+			if taken := refuseGroupRole(tt.kept, tt.scope, tt.role) == nil; taken != tt.want {
+				t.Errorf("a write of %s in %v for a group kept in %v is taken = %t, want %t as the list offers it", tt.role, tt.scope, tt.kept, taken, tt.want)
+			}
+		})
+	}
+}
 
 // groupClient is superClient with the custom role Editor made in tenant1: the
 // role file gives Steward (global) and Reader (every tenant).
@@ -55,19 +97,19 @@ func Test_userManager_AddGroup(t *testing.T) {
 		want        string
 		conflict    bool
 	}{
-		{name: "kept in every tenant", scope: everyDomainPolicy, group: "Everyone", description: "Everybody.", want: "never in every tenant"},
-		{name: "no name", scope: globalPolicy, group: "  ", description: "Nobody.", want: "has no name"},
-		{name: "a name too long", scope: globalPolicy, group: strings.Repeat("n", 129), description: "Long.", want: "longer than 128 characters"},
-		{name: "a control character in the name", scope: globalPolicy, group: "Night\tshift", description: "Tabbed.", want: "cannot be shown"},
-		{name: "no description", scope: globalPolicy, group: "Staff", description: " ", want: "carries no description"},
-		{name: "a name taken in the same tenant", scope: tenant1Policy, group: " Night shift ", description: "Again.", want: "already exists there", conflict: true},
+		{name: "kept in every tenant", scope: everyDomainPolicy, group: "Everyone", description: "Everybody.", want: "A group is kept for the whole application or in one tenant, never in every tenant. Name the tenant, or none."},
+		{name: "no name", scope: globalPolicy, group: "  ", description: "Nobody.", want: "The group has no name. Give it the name people will know it by."},
+		{name: "a name too long", scope: globalPolicy, group: strings.Repeat("n", 129), description: "Long.", want: "The group's name is longer than 128 characters. Shorten it."},
+		{name: "a control character in the name", scope: globalPolicy, group: "Night\tshift", description: "Tabbed.", want: "The group's name holds a character that cannot be shown. Type the name again."},
+		{name: "no description", scope: globalPolicy, group: "Staff", description: " ", want: "The group has no description. Say who is in it in one or two plain sentences."},
+		{name: "a name taken in the same tenant", scope: tenant1Policy, group: " Night shift ", description: "Again.", want: `A group named "Night shift" already exists there. Choose another name.`, conflict: true},
 	}
 	for _, tt := range refused {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			_, err := manager.AddGroup(ctx, tt.scope, tt.group, tt.description)
-			if err == nil || !strings.Contains(err.Error(), tt.want) {
-				t.Fatalf("AddGroup() error = %v, want one containing %q", err, tt.want)
+			if err == nil || httpio.Message(err) != tt.want {
+				t.Fatalf("AddGroup() error = %v, want one saying %q", err, tt.want)
 			}
 			if tt.conflict != httpio.HasConflict(err) {
 				t.Errorf("AddGroup() conflict = %v, want %v", httpio.HasConflict(err), tt.conflict)
@@ -206,13 +248,13 @@ func Test_userManager_AddGroupRoles_refusals(t *testing.T) {
 		{name: "a global group, one tenant", group: staff, scope: tenant1Policy, role: "Editor"},
 		{name: "a tenant's group, its tenant", group: night, scope: tenant1Policy, role: "Editor"},
 		{name: "a tenant's group, a role of every tenant given there", group: night, scope: tenant1Policy, role: "Reader"},
-		{name: "a tenant's group, another tenant", group: night, scope: tenant2Policy, role: "Reader", wantErr: "holds roles in that tenant alone"},
-		{name: "a tenant's group, every tenant", group: night, scope: everyDomainPolicy, role: "Reader", wantErr: "holds roles in that tenant alone"},
-		{name: "a tenant's group, the global scope", group: night, scope: globalPolicy, role: "Steward", wantErr: "holds roles in that tenant alone"},
-		{name: "the Super Administrator role, a global group", group: staff, scope: globalPolicy, role: accesstypes.SuperAdministrator, wantErr: "never to a group"},
-		{name: "the Super Administrator role, a tenant's group", group: night, scope: tenant1Policy, role: accesstypes.SuperAdministrator, wantErr: "never to a group"},
-		{name: "a role that does not exist there", group: staff, scope: tenant2Policy, role: "Editor", wantErr: "not a valid role"},
-		{name: "a group that does not exist", group: "no-such-group", scope: globalPolicy, role: "Steward", wantErr: "the group does not exist"},
+		{name: "a tenant's group, another tenant", group: night, scope: tenant2Policy, role: "Reader", wantErr: "A group kept in one tenant holds roles in that tenant alone. Give the role there, or give it to a group kept for the whole application."},
+		{name: "a tenant's group, every tenant", group: night, scope: everyDomainPolicy, role: "Reader", wantErr: "A group kept in one tenant holds roles in that tenant alone. Give the role there, or give it to a group kept for the whole application."},
+		{name: "a tenant's group, the global scope", group: night, scope: globalPolicy, role: "Steward", wantErr: "A group kept in one tenant holds roles in that tenant alone. Give the role there, or give it to a group kept for the whole application."},
+		{name: "the Super Administrator role, a global group", group: staff, scope: globalPolicy, role: accesstypes.SuperAdministrator, wantErr: "The Super administrator role is given to a person, never to a group. Only a super administrator makes another, one person at a time."},
+		{name: "the Super Administrator role, a tenant's group", group: night, scope: tenant1Policy, role: accesstypes.SuperAdministrator, wantErr: "The Super administrator role is given to a person, never to a group. Only a super administrator makes another, one person at a time."},
+		{name: "a role that does not exist there", group: staff, scope: tenant2Policy, role: "Editor", wantErr: "The role Editor does not exist."},
+		{name: "a group that does not exist", group: "no-such-group", scope: globalPolicy, role: "Steward", wantErr: "This group does not exist."},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -241,10 +283,10 @@ func Test_userManager_AddGroupRoles_refusals(t *testing.T) {
 
 	// The same rules for a caller that writes the row in a transaction of its own.
 	noCustomRoles := func(context.Context, RoleKey) (bool, error) { return false, nil }
-	if _, err := manager.GroupRole(ctx, staff, globalPolicy, globalPolicy, accesstypes.SuperAdministrator, noCustomRoles); err == nil || !strings.Contains(err.Error(), "never to a group") {
+	if _, err := manager.GroupRole(ctx, staff, globalPolicy, globalPolicy, accesstypes.SuperAdministrator, noCustomRoles); err == nil || !strings.Contains(err.Error(), "The Super administrator role is given to a person, never to a group. Only a super administrator makes another, one person at a time.") {
 		t.Errorf("GroupRole(Super Administrator) error = %v, want the role refused", err)
 	}
-	if _, err := manager.GroupRole(ctx, night, tenant1Policy, tenant2Policy, "Reader", noCustomRoles); err == nil || !strings.Contains(err.Error(), "holds roles in that tenant alone") {
+	if _, err := manager.GroupRole(ctx, night, tenant1Policy, tenant2Policy, "Reader", noCustomRoles); err == nil || !strings.Contains(err.Error(), "A group kept in one tenant holds roles in that tenant alone. Give the role there, or give it to a group kept for the whole application.") {
 		t.Errorf("GroupRole(another tenant) error = %v, want the place refused", err)
 	}
 	key, err := manager.GroupRole(ctx, staff, globalPolicy, everyDomainPolicy, "Reader", noCustomRoles)
@@ -286,47 +328,40 @@ func Test_userManager_groupNeverGivesSuperAdministrator(t *testing.T) {
 	}
 }
 
-// Test_userManager_DeleteGroup pins that a group goes only once it is emptied:
-// with a member or a role it is refused, saying what to do, and nobody loses a
-// role by the refusal.
+// Test_userManager_DeleteGroup pins that a group goes with its members and the roles it
+// holds, in one call: the people in it no longer hold its role, a second group keeps its
+// own members and roles, and a group that is gone is not found.
 func Test_userManager_DeleteGroup(t *testing.T) {
 	t.Parallel()
 
 	_, manager := groupClient(t)
 	ctx := t.Context()
 	night := mustAddGroup(t, manager, tenant1Policy, "Night shift")
-	if err := manager.AddGroupUsers(ctx, night, "ann"); err != nil {
-		t.Fatalf("AddGroupUsers() error = %v", err)
+	day := mustAddGroup(t, manager, globalPolicy, "Day shift")
+	for _, group := range []accesstypes.Group{night, day} {
+		if err := manager.AddGroupUsers(ctx, group, "ann"); err != nil {
+			t.Fatalf("AddGroupUsers() error = %v", err)
+		}
 	}
 	if err := manager.AddGroupRoles(ctx, night, tenant1Policy, "Editor"); err != nil {
 		t.Fatalf("AddGroupRoles() error = %v", err)
 	}
-
-	refuse := func(when string) {
-		t.Helper()
-		err := manager.DeleteGroup(ctx, night)
-		if err == nil || !httpio.HasConflict(err) || !strings.Contains(err.Error(), "remove its members and take its roles away") {
-			t.Fatalf("DeleteGroup() with %s error = %v, want a conflict that says what to do", when, err)
-		}
-	}
-	refuse("a member and a role")
-	if err := manager.DeleteGroupUsers(ctx, night, "ann"); err != nil {
-		t.Fatalf("DeleteGroupUsers() error = %v", err)
-	}
-	refuse("a role")
-	if err := manager.AddGroupUsers(ctx, night, "ann"); err != nil {
-		t.Fatalf("AddGroupUsers() error = %v", err)
-	}
-	if err := manager.DeleteGroupRoles(ctx, night, tenant1Policy, "Editor"); err != nil {
-		t.Fatalf("DeleteGroupRoles() error = %v", err)
-	}
-	refuse("a member")
-	if err := manager.DeleteGroupUsers(ctx, night, "ann"); err != nil {
-		t.Fatalf("DeleteGroupUsers() error = %v", err)
+	if err := manager.AddGroupRoles(ctx, day, globalPolicy, "Steward"); err != nil {
+		t.Fatalf("AddGroupRoles() error = %v", err)
 	}
 
 	if err := manager.DeleteGroup(ctx, night); err != nil {
-		t.Fatalf("DeleteGroup() of an emptied group error = %v", err)
+		t.Fatalf("DeleteGroup() of a group with a member and a role error = %v", err)
+	}
+	held, err := manager.UserRoles(ctx, "ann")
+	if err != nil {
+		t.Fatalf("UserRoles() error = %v", err)
+	}
+	if diff := cmp.Diff(accesstypes.RoleCollection{globalPolicy: {"Steward"}}, held); diff != "" {
+		t.Errorf("UserRoles(ann) after the group's delete (-want +got):\n%s", diff)
+	}
+	if users, err := manager.GroupUsers(ctx, day); err != nil || !slices.Equal(users, []accesstypes.User{"ann"}) {
+		t.Errorf("GroupUsers(day) = (%v, %v), want ann, untouched", users, err)
 	}
 	if err := manager.DeleteGroup(ctx, night); err == nil || !httpio.HasNotFound(err) {
 		t.Errorf("DeleteGroup() of a group that is gone error = %v, want not found", err)

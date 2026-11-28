@@ -20,15 +20,20 @@ import (
 // record of the call holds a value.
 //
 // It is a tenant's method: served under the address of one Tenant, it names a
-// row of StaffTenantUser, the tenant's own list of the auth's people. A person who holds
-// no role in the tenant is not found there, and what the tenant may do to a person who
-// also holds a role outside it is the role file's to say, in a condition on the
-// method's grant that reads the facts of the row (heldElsewhere, heldGlobally).
+// row of StaffTenantUser, the tenant's own list of the auth's people. A person who is no
+// row of that list is not found there, and whether the tenant may do this to a person is
+// the role file's to say, in a condition on the method's grant that reads the facts of
+// the row: managedHere says this tenant manages the person's account.
+//
+// A row offers it only to a caller whose session enters every tenant the person
+// administers (@callerEnters); the method refuses anyone else.
 //
 // @rpc
 // @permissionScope(domain)
+// @callerEnters
 // @outlet(default)
 // @answers(204)
+// @class(credential)
 type RemoveStaffTenantPassword struct {
 	// @target(StaffTenantUser)
 	UserID impulse.UUID

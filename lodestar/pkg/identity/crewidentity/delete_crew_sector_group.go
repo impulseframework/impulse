@@ -5,16 +5,22 @@ package crewidentity
 
 import (
 	"context"
+	"net/http"
+	"time"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/lodestar/pkg/identity/internal/crewresources"
 	"github.com/impulseframework/impulse/resource"
 )
 
-// DeleteCrewSectorGroup deletes a group of the Crew auth. A group that still
-// has a member or holds a role is refused until it is emptied: nobody loses a role
-// because a group was deleted, each person is removed and each role taken away by an
-// act of its own.
+// DeleteCrewSectorGroup deletes a group of the Crew auth with its members and the
+// roles it holds. Asked without EverythingUnder of a group that has either, it deletes
+// nothing and answers the question a person is asked first, with their counts; asked with
+// it and the question's token, it takes them. Each member and each role whose period has
+// not ended is asked what its own removal asks, so nobody deletes a group that gives them
+// the last administrator's role of a tenant.
 //
 // It is a tenant's method: served under the address of one Sector, it names a
 // row of CrewSectorGroup, the tenant's own list of its groups. A group kept in
@@ -23,20 +29,117 @@ import (
 // @rpc
 // @permissionScope(domain)
 // @outlet(default)
-// @answers(204)
+// @answers(202, 204)
+// @class(access)
 type DeleteCrewSectorGroup struct {
 	// @target(CrewSectorGroup)
 	GroupID impulse.UUID
+	// EverythingUnder says the person was asked what the group's delete takes and confirmed
+	// it, so the delete takes the group's members and roles.
+	EverythingUnder bool
+	// Token is the token the delete's question gave (the 428's "token"): with
+	// EverythingUnder, the delete takes what is under the group only on it.
+	//
+	// @deleteToken
+	Token string
 }
 
-// Execute buffers the removal into the caller's transaction.
-func (m *DeleteCrewSectorGroup) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error {
+// DeleteCrewSectorGroupResult is what a delete of a group with more under it than one
+// save holds left (resource.DeleteLeft): the records this request deleted. The group
+// stands until a request takes the last of them.
+type DeleteCrewSectorGroupResult struct {
+	Deleted int64 `json:"deleted"`
+}
+
+// HTTPStatus answers 202: the group still stands, and the same delete, sent again, goes on.
+func (*DeleteCrewSectorGroupResult) HTTPStatus() int {
+	return http.StatusAccepted
+}
+
+// Execute asks the caller's grants of taking each member out of the group and each role
+// from it (mayEmpty), then buffers the delete into the caller's transaction. It answers
+// nothing (204) once the group is gone, and the rows one save deleted (202) while it
+// stands.
+func (m *DeleteCrewSectorGroup) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*DeleteCrewSectorGroupResult, error) {
+	if err := m.mayEmpty(ctx, txn); err != nil {
+		return nil, err
+	}
 	tenant, err := client.manager.Tenant(ctx)
 	if err != nil {
-		return errors.Wrap(err, "identity.Manager.Tenant()")
+		return nil, errors.Wrap(err, "identity.Manager.Tenant()")
 	}
-	if err := tenant.DeleteGroup(ctx, txn, m.GroupID); err != nil {
-		return errors.Wrap(err, "identity.Tenant.DeleteGroup()")
+	left, err := tenant.DeleteGroup(ctx, txn, m.GroupID, m.EverythingUnder)
+	if err != nil {
+		return nil, errors.Wrap(err, "identity.Tenant.DeleteGroup()")
+	}
+	if left == nil {
+		return nil, nil
+	}
+
+	return &DeleteCrewSectorGroupResult{Deleted: left.Deleted}, nil
+}
+
+// mayEmpty asks, in a request, what the caller needs to take each member out of the
+// group and each role from it: the Execute grants of RemoveCrewSectorGroupMember and
+// TakeCrewSectorGroupRole, each asked of the request's own check
+// (resource.Caller.ExecuteGate) with the group and the member or the role, and judged
+// against the row that method names where its fields do not settle it, as the method's
+// own frame judges it. A grant not held refuses the delete. A member or a role whose
+// period has ended gives nobody anything and is asked nothing: the delete takes it with
+// the rest. Outside a request nothing is asked.
+func (m *DeleteCrewSectorGroup) mayEmpty(ctx context.Context, txn resource.ReadWriteTransaction) error {
+	caller := resource.CallerFrom(ctx)
+	if caller.IsZero() {
+		return nil
+	}
+	periods, err := store{}.GroupPeriods(ctx, txn, m.GroupID)
+	if err != nil {
+		return errors.Wrap(err, "store.GroupPeriods()")
+	}
+	now := time.Now()
+	members, err := store{}.GroupMembers(ctx, txn, m.GroupID)
+	if err != nil {
+		return errors.Wrap(err, "store.GroupMembers()")
+	}
+	people := resource.ExecuteTarget{Resource: "CrewSectorGroupUsers", Label: "CrewSectorGroupUser", PKColumns: []string{"GroupId", "UserId"}, View: crewresources.CrewSectorGroupUser{}}
+	for _, member := range members {
+		if periods.Members[member].Ended(now) {
+			continue
+		}
+		userID, err := impulse.UUIDFromString(string(member))
+		if err != nil {
+			return errors.Wrap(err, "impulse.UUIDFromString()")
+		}
+		gate, err := caller.ExecuteGate(ctx, RemoveCrewSectorGroupMember{}.Method(), &RemoveCrewSectorGroupMember{GroupID: m.GroupID, UserID: userID})
+		may, err := judgedOnRow(gate, err, func() error {
+			return gate.EnforceView(ctx, txn, people, m.GroupID, userID)
+		})
+		if err != nil {
+			return err
+		}
+		if !may {
+			return httpio.NewForbiddenMessage("This group has members, and you can't remove people from a group, so it can't be deleted.")
+		}
+	}
+	roles, err := store{}.GroupRoles(ctx, txn, m.GroupID)
+	if err != nil {
+		return errors.Wrap(err, "store.GroupRoles()")
+	}
+	held := resource.ExecuteTarget{Resource: "CrewSectorGroupRoles", Label: "CrewSectorGroupRole", PKColumns: []string{"GroupId", "Role"}, View: crewresources.CrewSectorGroupRole{}}
+	for _, key := range roles {
+		if periods.Roles[key].Ended(now) {
+			continue
+		}
+		gate, err := caller.ExecuteGate(ctx, TakeCrewSectorGroupRole{}.Method(), &TakeCrewSectorGroupRole{GroupID: m.GroupID, Role: string(key.Role)})
+		may, err := judgedOnRow(gate, err, func() error {
+			return gate.EnforceView(ctx, txn, held, m.GroupID, string(key.Role))
+		})
+		if err != nil {
+			return err
+		}
+		if !may {
+			return httpio.NewForbiddenMessage("This group holds roles, and you can't take a role from a group, so it can't be deleted.")
+		}
 	}
 
 	return nil

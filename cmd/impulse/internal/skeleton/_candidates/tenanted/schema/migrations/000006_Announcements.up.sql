@@ -1,3 +1,6 @@
+-- The rows of a tenant-scoped table are the tenant's own, so they go with it. A tenant's
+-- delete takes the table's rows in code, each through its resource's own delete; the
+-- foreign key carries no delete rule.
 CREATE TABLE Announcements (
   Id STRING(36) NOT NULL,
   TenantId STRING(36) NOT NULL,

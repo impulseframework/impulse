@@ -28,12 +28,22 @@ const (
 	// account's confirmed address, and TokenHash keeps the code's hash, since the mail
 	// carries a code to type and no link to follow.
 	MailLinkFirstPassword MailLinkKind = "first-password"
+	// MailLinkPasswordReset lets a person who holds a password choose a new one without
+	// the old: UserID names the account and Email is the confirmed address the link was
+	// mailed to, the one the account must still hold when the link is followed. Nothing
+	// about the account changes until then.
+	MailLinkPasswordReset MailLinkKind = "password-reset"
+	// MailLinkAddressChange confirms an address an administrator asked to put on an
+	// account: UserID names the account and Email is the new address, which is written
+	// on the account, confirmed, when its reader follows the link. Until then the
+	// account keeps the address it has.
+	MailLinkAddressChange MailLinkKind = "address-change"
 )
 
-// Validate refuses a kind that is not one of the four.
+// Validate refuses a kind that is not one of the six.
 func (k MailLinkKind) Validate() error {
 	switch k {
-	case MailLinkInvitation, MailLinkVerification, MailLinkSignUp, MailLinkFirstPassword:
+	case MailLinkInvitation, MailLinkVerification, MailLinkSignUp, MailLinkFirstPassword, MailLinkPasswordReset, MailLinkAddressChange:
 		return nil
 	default:
 		return errors.Newf("%q is not a mail link kind", string(k))
@@ -50,12 +60,17 @@ type MailLink struct {
 	Kind      MailLinkKind
 	// Email is the address the link was mailed to, as given.
 	Email string
-	// UserID names the account a verification link or a first-password code belongs
-	// to; null for the other kinds.
+	// UserID names the account a verification link, a first-password code, a password
+	// reset link or an address change belongs to; null for the other kinds.
 	UserID impulse.NullUUID
-	// TenantID is the tenant an invitation seats the person in, "" for the application's
-	// global surface or for the other kinds.
+	// TenantID is the tenant an invitation seats the person in, "" for an invitation
+	// that names no one tenant or for the other kinds.
 	TenantID string
+	// EveryTenant says an invitation's roles are held in every tenant: its acceptance
+	// gives each role there and nowhere else. It is false for an invitation into one
+	// tenant, for one into the application's global surface (TenantID is "" and
+	// EveryTenant false) and for the other kinds.
+	EveryTenant bool
 	// RoleNames are the roles an invitation's acceptance grants; nil for the other
 	// kinds.
 	RoleNames []string

@@ -5,18 +5,27 @@ package membershandlers
 
 import (
 	"github.com/impulseframework/impulse/lodestar/pkg/identity/internal/membersresources"
+	"github.com/impulseframework/impulse/lodestar/pkg/identity/membersidentity"
 	"github.com/impulseframework/impulse/resource"
 )
 
 type Resourcer interface {
 	resource.Resourcer
-	membersresources.MembersRole | membersresources.MembersRoleGrant |
-		membersresources.MembersSectorIdentity | membersresources.MembersSectorInvitation |
-		membersresources.MembersSectorUser | membersresources.MembersSectorUserRole |
-		membersresources.MembersSession | membersresources.MembersSessionAuthEvent |
-		membersresources.MembersSessionIdentity | membersresources.MembersSessionMailLink |
+	membersresources.MembersHeldRole | membersresources.MembersListedIdentity |
+		membersresources.MembersListedMailLink | membersresources.MembersListedSession |
+		membersresources.MembersListedSignInAttempt | membersresources.MembersListedUser |
+		membersresources.MembersRole | membersresources.MembersRoleGrant |
+		membersresources.MembersSectorHeldRole | membersresources.MembersSectorIdentity |
+		membersresources.MembersSectorInvitation | membersresources.MembersSectorUser |
+		membersresources.MembersSectorUserRole | membersresources.MembersSession |
+		membersresources.MembersSessionAuthEvent | membersresources.MembersSessionIdentity |
+		membersresources.MembersSessionMailLink |
 		membersresources.MembersSessionSignInAttempt |
 		membersresources.MembersSessionSignInMethod |
+		membersresources.MembersSessionSignInSetting |
 		membersresources.MembersSessionTrustedDevice | membersresources.MembersSessionUser |
-		membersresources.MembersUserRole
+		membersresources.MembersUserRole | membersidentity.MembersListedAuditRecord |
+		membersidentity.MembersListedRoleGrant | membersidentity.MembersRememberLength |
+		membersidentity.MembersSectorAuditRecord | membersidentity.MembersSignInMethod |
+		membersidentity.MembersSignInSetting
 }

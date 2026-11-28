@@ -175,12 +175,12 @@ func seamPasswordGuessesAtOnce[Tx any](ctx context.Context, t *testing.T, a *aut
 	wrong, refused := 0, 0
 	for i, status := range statuses {
 		switch {
-		case status == http.StatusUnauthorized && strings.Contains(bodies[i], "Invalid Credentials"):
+		case status == http.StatusUnauthorized && strings.Contains(bodies[i], "The username or password is wrong. Check what you entered and try again"):
 			wrong++
 		case status == http.StatusTooManyRequests && strings.Contains(bodies[i], `"code":"too_many_attempts"`):
 			refused++
 		default:
-			t.Errorf("wrong password %d of %d at once = %d %s, want 401 Invalid Credentials or 429 too_many_attempts", i, guesses, status, bodies[i])
+			t.Errorf("wrong password %d of %d at once = %d %s, want 401 The username or password is wrong. Check what you entered and try again or 429 too_many_attempts", i, guesses, status, bodies[i])
 		}
 	}
 	if wrong != limit || refused != guesses-limit {

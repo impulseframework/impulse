@@ -28,8 +28,8 @@ import (
 	"github.com/impulseframework/impulse/access"
 ` + routerImports(routers) + `)
 
-func engine(store access.Store, collection access.PermissionCollection, roles access.RoleFile) (*access.Client, error) {
-	return access.New(store, access.WithDefaultRoles(collection, roles))
+func engine(store access.Store, collection access.PermissionCollection, roles access.RoleFile, auth string) (*access.Client, error) {
+	return access.New(store, collection, access.WithDefaultRoles(roles, auth))
 }
 `
 }
@@ -153,7 +153,7 @@ func TestSitesWired(t *testing.T) {
 			wantStatus:  Fail,
 			wantSummary: "1 site wiring problem(s)",
 			wantDetails: []string{
-				"no permission collection covers site portal: example.com/harbor/apps/portal/pkg/router is not imported by any package passing a collection to access.WithDefaultRoles (pkg/config)",
+				"no permission collection covers site portal: example.com/harbor/apps/portal/pkg/router is not imported by any package passing a collection to access.New (pkg/config)",
 			},
 		},
 		{
@@ -172,7 +172,7 @@ func TestSitesWired(t *testing.T) {
 			wantDetails: []string{
 				"site portal has no main package in apps/portal; nothing serves it",
 				"sites console and portal all listen on PORT=8094 in Procfile",
-				"no permission collection covers site portal: example.com/harbor/apps/portal/pkg/router is not imported by any package passing a collection to access.WithDefaultRoles (pkg/config)",
+				"no permission collection covers site portal: example.com/harbor/apps/portal/pkg/router is not imported by any package passing a collection to access.New (pkg/config)",
 			},
 		},
 		{

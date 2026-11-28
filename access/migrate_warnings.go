@@ -1,6 +1,7 @@
 package access
 
 import (
+	"cmp"
 	"fmt"
 	"slices"
 	"strings"
@@ -8,6 +9,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/accesstypes/condition"
+	"github.com/impulseframework/impulse/internal/words"
 )
 
 // This file flags the shapes a role file can carry that are legal and
@@ -53,9 +55,11 @@ import (
 
 // Warning is one thing a deploy should hear about before the release takes
 // traffic: a shape the role file carries as written but flags (GrantWarning,
-// RequiredFieldWarning, ConcealingKeyWarning), or something the policy store holds that this
-// release cannot use as written (SkippedGrant, ShadowedRole,
-// OrphanedMembership). A consumer that ranges and prints sees one line each,
+// RequiredFieldWarning, ConcealingKeyWarning), a subject set the application
+// declares that no role reads (UnreadSetWarning), a grant that gives nothing when its role is
+// held on one record (HeldOnWarning), or something the policy store holds that this
+// release cannot use as written (SkippedGrant, ShadowedRole, OrphanedMembership,
+// SkippedRecordRole). A consumer that ranges and prints sees one line each,
 // and one that switches on the kind reads its fields.
 type Warning interface {
 	fmt.Stringer
@@ -144,6 +148,137 @@ func grantWarnings(store PermissionCollection, role *Role, scope accesstypes.Per
 	return warnings
 }
 
+// The cases of HeldOnWarning: why a grant gives nothing when its role is held on one
+// record.
+const (
+	// heldOnNoRow is an Execute on a method that names no row.
+	heldOnNoRow = "noRow"
+	// heldOnApart is a grant on a resource that is neither under the record nor named
+	// by it.
+	heldOnApart = "apart"
+	// heldOnNamedOnly is a Create on a resource the record only names.
+	heldOnNamedOnly = "namedOnly"
+	// heldOnOwnKind is a Create on the record's own kind.
+	heldOnOwnKind = "ownKind"
+)
+
+// HeldOnWarning is one grant of a role that can be held on a kind of record
+// (Role.HeldOn) that gives nothing when the role is held on one record: a grant on a
+// resource neither under the record nor named by it ("apart"), a Create on a resource
+// the record only names ("namedOnly") or on the record's own kind ("ownKind"), or an
+// Execute on a method that names no row ("noRow"). The role keeps the grant, which
+// counts when the role is held across the tenant.
+type HeldOnWarning struct {
+	// Role holds the grant; Record is the kind of record it can be held on.
+	Role   accesstypes.Role
+	Record accesstypes.Resource
+
+	// Permission and Resource name the grant: the resource, or the method for Execute.
+	Permission accesstypes.Permission
+	Resource   accesstypes.Resource
+
+	// Row is the row resource the grant reaches: the grant's own resource, or the
+	// method's @target.
+	Row accesstypes.Resource
+
+	// Case says why the grant gives nothing on one record: noRow, apart, namedOnly or
+	// ownKind.
+	Case string
+
+	// RecordOne and RecordMany are what the sentence calls one record of the kind and
+	// many, and RowOne and RowMany one row of Row and many: the collection's words, filled
+	// where the warning is made, since the sentence is written with no collection at hand.
+	RecordOne  string
+	RecordMany string
+	RowOne     string
+	RowMany    string
+}
+
+func (HeldOnWarning) warning() {}
+
+// String renders the warning as one line: what the role can be held on, why the grant
+// gives nothing there, and that it still counts across the tenant.
+func (w HeldOnWarning) String() string {
+	held := words.WithArticle(w.RecordOne)
+	switch w.Case {
+	case heldOnNamedOnly:
+		return fmt.Sprintf("%[1]s can be held on %[2]s, and %[2]s names one %[3]s and makes none, so its Create on %[4]s gives nothing when the role is held on one %[5]s. It still adds %[6]s when the role is held across the tenant.",
+			w.Role, held, w.RowOne, w.Resource, w.RecordOne, w.RowMany)
+	case heldOnOwnKind:
+		return fmt.Sprintf("%[1]s can be held on %[2]s, and a role held on one %[3]s makes no other, so its Create on %[4]s gives nothing when the role is held on one %[3]s. It still adds %[5]s when the role is held across the tenant.",
+			w.Role, held, w.RecordOne, w.Resource, w.RecordMany)
+	case heldOnNoRow:
+		return fmt.Sprintf("%[1]s can be held on %[2]s, and %[3]s names no row, so its Execute on %[3]s gives nothing when the role is held on one %[4]s. It still counts when the role is held across the tenant.",
+			w.Role, held, w.Resource, w.RecordOne)
+	default:
+		return fmt.Sprintf("%[1]s can be held on %[2]s, and %[4]s is neither under %[2]s nor named by one, so its %[3]s on %[5]s gives nothing when the role is held on one %[6]s. It still counts when the role is held across the tenant.",
+			w.Role, held, w.Permission, w.Row, w.Resource, w.RecordOne)
+	}
+}
+
+// heldOnWarnings flags, for each domain role held on a kind of record and each kind it
+// names, the grants that give nothing when the role is held on one record of the kind:
+// one warning per permission and resource, however many fields or conditions the grant
+// carries, sorted by role, record, permission and resource. sets are the roles' expanded
+// grant sets, indexed like roles.
+func heldOnWarnings(store PermissionCollection, roles []*Role, sets []grantSet) []Warning {
+	var found []HeldOnWarning
+	for i, r := range roles {
+		for _, record := range sortedHeldOn(r.HeldOn) {
+			recordOne, recordMany := recordWords(store, record)
+			for _, perm := range sortedPermissions(sets[i]) {
+				for _, res := range sortedResources(sets[i][perm]) {
+					if res == "" || strings.ContainsRune(string(res), '.') {
+						continue
+					}
+					w := HeldOnWarning{Role: r.Name, Record: record, Permission: perm, Resource: res, Row: res, RecordOne: recordOne, RecordMany: recordMany}
+					if w.Case = heldOnCase(store, &w); w.Case != "" {
+						w.RowOne, w.RowMany = recordWords(store, w.Row)
+						found = append(found, w)
+					}
+				}
+			}
+		}
+	}
+	slices.SortFunc(found, func(a, b HeldOnWarning) int {
+		return cmp.Or(
+			strings.Compare(string(a.Role), string(b.Role)),
+			strings.Compare(string(a.Record), string(b.Record)),
+			strings.Compare(string(a.Permission), string(b.Permission)),
+			strings.Compare(string(a.Resource), string(b.Resource)),
+		)
+	})
+	warnings := make([]Warning, 0, len(found))
+	for i := range found {
+		warnings = append(warnings, found[i])
+	}
+
+	return warnings
+}
+
+// heldOnCase says why the warning's grant gives nothing on one record of its kind, and
+// sets its Row to the method's @target for an Execute; "" where the grant reaches a row.
+func heldOnCase(store PermissionCollection, w *HeldOnWarning) string {
+	if w.Permission == accesstypes.Execute {
+		target, targeted := store.MethodTarget(accesstypes.DomainPermissionScope, w.Resource)
+		if !targeted {
+			return heldOnNoRow
+		}
+		w.Row = target
+	}
+	self, under, named := recordReach(store, w.Record, w.Row)
+	switch {
+	case !self && !under && !named:
+		return heldOnApart
+	case w.Permission != accesstypes.Create || under:
+		return ""
+	case named:
+		return heldOnNamedOnly
+	default:
+		return heldOnOwnKind
+	}
+}
+
 // RequiredFieldWarning is one resource a role may create and, by itself,
 // cannot: the role holds Create on the resource, and none of its Create grants
 // there covers a field every create must be given by the client
@@ -185,6 +320,10 @@ func requiredFieldWarnings(store PermissionCollection, role *Role, scope accesst
 	var warnings []Warning
 	for _, res := range sortedResources(set[accesstypes.Create]) {
 		if strings.ContainsRune(string(res), '.') {
+			continue
+		}
+		if _, all := set[accesstypes.Create][res.ResourceWithTag(allFields)]; all {
+			// A Create of all the resource's fields leaves none out.
 			continue
 		}
 		var missing []accesstypes.Tag
@@ -264,9 +403,29 @@ func quoteEach(conditions []string) string {
 	return strings.Join(quoted, " or ")
 }
 
+// keyConditions returns the conditions the role lists one field of res under,
+// sorted: the field's own and those of the role's List of all the resource's
+// fields (Resource.*), which covers the field as well. It is nil where the role
+// does not list the field, and where either carries no condition, since the
+// field is then a plain column.
+func keyConditions(set grantSet, res accesstypes.Resource, tag accesstypes.Tag) []string {
+	merged := make(map[string]struct{})
+	for _, name := range []accesstypes.Resource{res.ResourceWithTag(tag), res.ResourceWithTag(allFields)} {
+		for condition := range set[accesstypes.List][name] {
+			if condition == "" {
+				return nil
+			}
+			merged[condition] = struct{}{}
+		}
+	}
+
+	return sortedConditions(merged)
+}
+
 // listFieldGrants reads the role's List field rows on res out of the expanded
 // grant set: each field's conditions where every grant on it is conditional,
-// and whether any field is granted with no condition at all.
+// and whether any field is granted with no condition at all. A List of all the
+// resource's fields is read as one more field, "*".
 func listFieldGrants(set grantSet, res accesstypes.Resource) (conditional map[accesstypes.Tag][]string, unconditional bool) {
 	conditional = make(map[accesstypes.Tag][]string)
 	prefix := string(res) + "."
@@ -349,10 +508,12 @@ func concealingKeyWarnings(store PermissionCollection, role *Role, scope accesst
 			}
 			visited[key.tag] = struct{}{}
 
-			conditions, ok := conditional[key.tag]
-			if !ok {
-				// Not granted to this role (a sort on it is refused), or granted
-				// with no condition: nothing masks.
+			conditions := keyConditions(set, res, key.tag)
+			if len(conditions) == 0 {
+				// Not granted to this role (a sort on it is refused, and a declared
+				// order by it orders the role's pages as if no row had a value
+				// there), or granted with no condition, by its name or with all the
+				// fields: nothing masks.
 				continue
 			}
 			own, err := disjunctsOf(conditions)

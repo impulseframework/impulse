@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/go-playground/errors/v5"
@@ -132,6 +133,8 @@ type clientOptions struct {
 	// secretKeyOptions how many times an option did.
 	secretKeys       *SecretKeys
 	secretKeyOptions int
+	// deleteSaveTime is the limit WithDeleteSaveTime set, zero where none did.
+	deleteSaveTime time.Duration
 }
 
 // wiredStore is one store as an option wired it, with the option that did, for the
@@ -162,12 +165,29 @@ func WithNamedFileStore[S NamedStore](store FileStore) ClientOption {
 	}
 }
 
-// applyClientOptions folds the options into the client's stores and its secret keys,
-// refusing a store wired twice, two stores on one location, and the secret keys given
-// twice. Each refusal is a panic: the constructors return no error and are used in
-// struct literals, and a duplicate is a programming error found the first time the
-// application starts, the treatment Go gives a duplicate HTTP route.
-func applyClientOptions(opts []ClientOption) (*fileStores, *SecretKeys) {
+// WithDeleteSaveTime sets how long one save of a delete that takes the rows under its
+// record may run before it stops taking rows, commits what it has and answers that there
+// is more to do (DeleteLeft). A save also stops at Spanner's limit of mutations in a
+// commit (DeleteMutationLimit); whichever comes first ends it. A save whose time has
+// passed before it reaches its first row takes the whole of the first page of rows it
+// reads, as many rows of one kind as the commit has room for, so that it does not take
+// one row a request: it runs past the limit by its reads and that page. Without the
+// option a save runs for DefaultDeleteSaveTime. A limit below zero is none: the mutations
+// alone end a save. Set it under the time the deployment gives one request, or a large
+// delete is cut off before its save commits and starts again from nothing.
+func WithDeleteSaveTime(limit time.Duration) ClientOption {
+	return func(o *clientOptions) {
+		o.deleteSaveTime = limit
+	}
+}
+
+// applyClientOptions folds the options into the client's stores, its secret keys and the
+// time limit of a delete's save, refusing a store wired twice, two stores on one
+// location, and the secret keys given twice. Each refusal is a panic: the constructors
+// return no error and are used in struct literals, and a duplicate is a programming
+// error found the first time the application starts, the treatment Go gives a duplicate
+// HTTP route.
+func applyClientOptions(opts []ClientOption) (*fileStores, *SecretKeys, time.Duration) {
 	var o clientOptions
 	for _, opt := range opts {
 		opt(&o)
@@ -192,7 +212,7 @@ func applyClientOptions(opts []ClientOption) (*fileStores, *SecretKeys) {
 		stores.byName[w.name] = w
 	}
 
-	return stores, o.secretKeys
+	return stores, o.secretKeys, o.deleteSaveTime
 }
 
 // fileStores is what a client holds: its wired stores by name, and by location where a

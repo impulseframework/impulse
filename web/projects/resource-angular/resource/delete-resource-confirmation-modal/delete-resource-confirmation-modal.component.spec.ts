@@ -1,22 +1,992 @@
-import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { TestBed } from '@angular/core/testing';
+import { MAT_DIALOG_DATA, MatDialog, MatDialogRef, MatDialogState } from '@angular/material/dialog';
+import { provideNoopAnimations } from '@angular/platform-browser/animations';
+import { ApiError, DeleteLeft, MethodWarning, RemoveOptions } from '@impulseframework/resource';
 
-import { DeleteResourceConfirmationModalComponent } from './delete-resource-confirmation-modal.component';
+import {
+  DeleteConfirmation,
+  DeleteResourceConfirmationModalComponent,
+  deleteQuestion,
+} from './delete-resource-confirmation-modal.component';
 
+// The confirmation before a delete says in plain words what is about to go: the row by
+// its own name where the page has one, the list by its title, and a button that says
+// what it does. Handed the delete, it runs it and keeps the server's refusal where the
+// question was asked.
 describe('DeleteResourceConfirmationModal', () => {
-  let component: DeleteResourceConfirmationModalComponent;
-  let fixture: ComponentFixture<DeleteResourceConfirmationModalComponent>;
+  const textOf = (element: Element | null): string => (element?.textContent ?? '').replace(/\s+/g, ' ').trim();
+  const rest = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 20));
+  const buttons = (): HTMLButtonElement[] => [
+    ...document.querySelectorAll<HTMLButtonElement>('.cdk-overlay-container button'),
+  ];
+  const press = async (words: string): Promise<void> => {
+    await rest();
+    const button = buttons().find((candidate) => textOf(candidate) === words);
+    expect(button, `the dialog has no "${words}" button`).toBeTruthy();
+    button?.click();
+    await rest();
+  };
 
-  beforeEach(async () => {
+  // The dialog opened as a page opens it, with the answers it closes with.
+  function opened(asked: DeleteConfirmation): {
+    ref: MatDialogRef<DeleteResourceConfirmationModalComponent>;
+    answers: unknown[];
+  } {
+    TestBed.configureTestingModule({ providers: [provideNoopAnimations()] });
+    const answers: unknown[] = [];
+    const ref = TestBed.inject(MatDialog).open(DeleteResourceConfirmationModalComponent, { data: asked });
+    ref.afterClosed().subscribe((answer) => answers.push(answer));
+
+    return { ref, answers };
+  }
+
+  // A delete whose every request the test answers in turn: `answer` settles the request
+  // that waits, with what the server left, nothing, or a failure, and rests so the dialog
+  // draws what it heard.
+  function answered(): {
+    run: (options?: RemoveOptions) => Promise<DeleteLeft | void>;
+    said: unknown[];
+    answer: (value: DeleteLeft | Error | undefined) => Promise<void>;
+  } {
+    const said: unknown[] = [];
+    let settle: (value: DeleteLeft | Error | undefined) => void = () => undefined;
+    const run = (options?: RemoveOptions): Promise<DeleteLeft | void> => {
+      said.push(options);
+
+      return new Promise<DeleteLeft | void>((resolve, reject) => {
+        settle = (value) => (value instanceof Error ? reject(value) : resolve(value));
+      });
+    };
+    const answer = async (value: DeleteLeft | Error | undefined): Promise<void> => {
+      settle(value);
+      await rest();
+    };
+
+    return { run, said, answer };
+  }
+  const overlay = (): Element | null => document.querySelector('.cdk-overlay-container');
+  // The server's question, with the records it counted under the row where it gives the
+  // number (`records`), as a server from before the number does not, and the token the
+  // delete that goes ahead brings back where it gives one.
+  const asksFirst = (message: string, records?: number, token?: string): ApiError =>
+    new ApiError('PATCH', '/api/resources', 428, {
+      message,
+      ...(records === undefined ? {} : { records }),
+      ...(token === undefined ? {} : { token }),
+    });
+
+  async function drawn(asked?: DeleteConfirmation): Promise<HTMLElement> {
     await TestBed.configureTestingModule({
       imports: [DeleteResourceConfirmationModalComponent],
+      providers: [
+        provideNoopAnimations(),
+        {
+          provide: MatDialogRef,
+          useValue: { close: (): void => undefined, getState: (): MatDialogState => MatDialogState.OPEN },
+        },
+        ...(asked ? [{ provide: MAT_DIALOG_DATA, useValue: asked }] : []),
+      ],
     }).compileComponents();
-
-    fixture = TestBed.createComponent(DeleteResourceConfirmationModalComponent);
-    component = fixture.componentInstance;
+    const fixture = TestBed.createComponent(DeleteResourceConfirmationModalComponent);
     fixture.detectChanges();
+
+    return fixture.nativeElement as HTMLElement;
+  }
+
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    document.querySelectorAll('.cdk-overlay-container').forEach((overlay) => (overlay.innerHTML = ''));
   });
 
-  it('should create', () => {
-    expect(component).toBeTruthy();
+  it('asks about a row of a list by the list it is in', async () => {
+    const dialog = await drawn({ from: 'Passes', inList: true });
+
+    expect(textOf(dialog.querySelector('[mat-dialog-title]'))).toBe('Delete');
+    expect(textOf(dialog.querySelector('.question'))).toBe('Delete this row from Passes?');
+  });
+
+  it("asks about a row with no name by the word the resource's rows go by", async () => {
+    const dialog = await drawn({ from: 'Passes', word: 'hangar pass', inList: true });
+
+    expect(textOf(dialog.querySelector('.question'))).toBe('Delete this hangar pass?');
+  });
+
+  it('names the row where the page knows its name', async () => {
+    const dialog = await drawn({ name: 'Night Watch', from: 'Groups' });
+
+    expect(textOf(dialog.querySelector('.question'))).toBe('Delete Night Watch from Groups?');
+  });
+
+  it('asks about the record of a page that has no name for it', async () => {
+    const dialog = await drawn({ from: 'Missions' });
+
+    expect(textOf(dialog.querySelector('.question'))).toBe('Delete this record from Missions?');
+  });
+
+  it('asks in plain words when it is told nothing', async () => {
+    const dialog = await drawn();
+
+    expect(textOf(dialog.querySelector('.question'))).toBe('Delete this record?');
+    expect(textOf(dialog)).not.toMatch(/resource|Are you sure|Confirm/);
+  });
+
+  it('carries Cancel and a button in the words of what it does', async () => {
+    const dialog = await drawn({ from: 'Passes', inList: true });
+
+    expect([...dialog.querySelectorAll('button')].map(textOf)).toEqual(['Cancel', 'Delete']);
+  });
+
+  it('answers true from Delete, false from Cancel and nothing when it is closed any other way', async () => {
+    TestBed.configureTestingModule({ providers: [provideNoopAnimations()] });
+    const dialogs = TestBed.inject(MatDialog);
+    const answers: unknown[] = [];
+    const ask = (): MatDialogRef<DeleteResourceConfirmationModalComponent> => {
+      const ref = dialogs.open(DeleteResourceConfirmationModalComponent, { data: { from: 'Passes', inList: true } });
+      ref.afterClosed().subscribe((answer) => answers.push(answer));
+
+      return ref;
+    };
+
+    ask();
+    await press('Delete');
+    ask();
+    await press('Cancel');
+    const closed = ask();
+    closed.close();
+    await rest();
+
+    expect(answers).toEqual([true, false, undefined]);
+  });
+
+  it('runs the delete it was handed and answers true once the row is gone', async () => {
+    let runs = 0;
+    const { answers } = opened({
+      from: 'Squadrons',
+      delete: () => {
+        runs++;
+
+        return Promise.resolve();
+      },
+    });
+
+    await press('Delete');
+
+    expect(runs).toBe(1);
+    expect(answers).toEqual([true]);
+  });
+
+  it('waits for the server with its buttons off, and cannot be closed meanwhile', async () => {
+    let gone: () => void = () => undefined;
+    const { ref, answers } = opened({
+      from: 'Squadrons',
+      delete: () => new Promise<void>((resolve) => (gone = resolve)),
+    });
+
+    await press('Delete');
+
+    expect(buttons().map((button) => [textOf(button), button.disabled])).toEqual([
+      ['Cancel', true],
+      ['Delete', true],
+    ]);
+    expect(ref.disableClose).toBe(true);
+    expect(answers).toEqual([]);
+
+    gone();
+    await rest();
+
+    expect(answers).toEqual([true]);
+  });
+
+  it("keeps a refused delete open with the server's sentence and one button, Close", async () => {
+    const sentence = 'This squadron has 3 missions. Delete them first.';
+    const { ref, answers } = opened({
+      name: 'Hammer',
+      from: 'Squadrons',
+      delete: () => Promise.reject(new ApiError('POST', '/api/batch', 409, { message: sentence })),
+    });
+
+    await press('Delete');
+
+    const overlay = document.querySelector('.cdk-overlay-container');
+    expect(answers).toEqual([]);
+    expect(textOf(overlay?.querySelector('.question') ?? null)).toBe('Delete Hammer from Squadrons?');
+    expect(textOf(overlay?.querySelector('.refusal') ?? null)).toBe(sentence);
+    expect(overlay?.querySelector('.refusal')?.getAttribute('role')).toBe('alert');
+    expect(buttons().map((button) => [textOf(button), button.disabled])).toEqual([['Close', false]]);
+    expect(ref.disableClose).toBeFalsy();
+
+    await press('Close');
+
+    expect(answers).toEqual([false]);
+  });
+
+  it("asks the server's question in the first one's place, and deletes everything under the row at the next press", async () => {
+    const sentence =
+      "Delete this mission and everything under it: 1 mission document, 2 sorties. This can't be undone.";
+    const said: unknown[] = [];
+    const { ref, answers } = opened({
+      from: 'Missions',
+      delete: (options) => {
+        said.push(options);
+
+        return options?.everythingUnder
+          ? Promise.resolve()
+          : Promise.reject(new ApiError('PATCH', '/api/resources', 428, { message: sentence }));
+      },
+    });
+
+    await press('Delete');
+
+    const overlay = document.querySelector('.cdk-overlay-container');
+    expect(answers).toEqual([]);
+    expect(said).toEqual([undefined]);
+    expect(textOf(overlay?.querySelector('.question') ?? null)).toBe(sentence);
+    expect(overlay?.querySelector('.refusal')).toBeNull();
+    expect(buttons().map((button) => [textOf(button), button.disabled])).toEqual([
+      ['Cancel', false],
+      ['Delete', false],
+    ]);
+    expect(ref.disableClose).toBeFalsy();
+
+    await press('Delete');
+
+    expect(said).toEqual([undefined, { everythingUnder: true }]);
+    expect(answers).toEqual([true]);
+  });
+
+  it("deletes nothing when the server's question is answered with Cancel", async () => {
+    let runs = 0;
+    const { answers } = opened({
+      from: 'Missions',
+      delete: () => {
+        runs++;
+
+        return Promise.reject(
+          new ApiError('PATCH', '/api/resources', 428, { message: 'Delete this mission and everything under it?' }),
+        );
+      },
+    });
+
+    await press('Delete');
+    await press('Cancel');
+
+    expect(runs).toBe(1);
+    expect(answers).toEqual([false]);
+  });
+
+  it("keeps a delete refused after the server's question open with the refusal and one button, Close", async () => {
+    const question = "Delete this mission and everything under it: 2 sorties. This can't be undone.";
+    const refusal = "This mission has sorties that you can't delete, so it can't be deleted.";
+    const { answers } = opened({
+      from: 'Missions',
+      delete: (options) =>
+        Promise.reject(
+          options?.everythingUnder
+            ? new ApiError('PATCH', '/api/resources', 403, { message: refusal })
+            : new ApiError('PATCH', '/api/resources', 428, { message: question }),
+        ),
+    });
+
+    await press('Delete');
+    await press('Delete');
+
+    const overlay = document.querySelector('.cdk-overlay-container');
+    expect(textOf(overlay?.querySelector('.question') ?? null)).toBe(question);
+    expect(textOf(overlay?.querySelector('.refusal') ?? null)).toBe(refusal);
+    expect(buttons().map((button) => textOf(button))).toEqual(['Close']);
+    expect(answers).toEqual([]);
+  });
+
+  it('shows no line of what is gone for a delete that finishes at once', async () => {
+    const server = answered();
+    const { answers } = opened({ from: 'Squadrons', delete: server.run });
+
+    await press('Delete');
+
+    expect(overlay()?.querySelector('.progress')).toBeNull();
+
+    await server.answer(undefined);
+
+    expect(server.said).toEqual([undefined]);
+    expect(answers).toEqual([true]);
+  });
+
+  it('carries a delete too large for one request through its rounds from one press, saying how many records are gone of those the question counted, and answers true once the row is gone', async () => {
+    const server = answered();
+    const { ref, answers } = opened({ from: 'Missions', delete: server.run });
+
+    await press('Delete');
+    await server.answer(
+      asksFirst("Delete this mission and everything under it: 38,000 sorties. This can't be undone.", 38000),
+    );
+    await press('Delete');
+    await server.answer({ deleted: 6800 });
+
+    expect(textOf(overlay()?.querySelector('.progress') ?? null)).toBe('Deleted 6,800 of 38,000 records…');
+    expect(buttons().map((button) => [textOf(button), button.disabled])).toEqual([
+      ['Cancel', true],
+      ['Delete', true],
+    ]);
+    expect(ref.disableClose).toBe(true);
+    expect(answers).toEqual([]);
+
+    await server.answer({ deleted: 6800 });
+
+    expect(textOf(overlay()?.querySelector('.progress') ?? null)).toBe('Deleted 13,600 of 38,000 records…');
+    expect(answers).toEqual([]);
+
+    await server.answer(undefined);
+
+    expect(server.said).toEqual([
+      undefined,
+      { everythingUnder: true },
+      { everythingUnder: true },
+      { everythingUnder: true },
+    ]);
+    expect(answers).toEqual([true]);
+  });
+
+  it('says how many records are gone alone where the question gave no number of them, as a server from before the number answers', async () => {
+    const server = answered();
+    const { answers } = opened({ from: 'Missions', delete: server.run });
+
+    await press('Delete');
+    await server.answer(
+      asksFirst("Delete this mission and everything under it: 38,000 sorties. This can't be undone."),
+    );
+    await press('Delete');
+    await server.answer({ deleted: 6800 });
+
+    expect(textOf(overlay()?.querySelector('.progress') ?? null)).toBe('Deleted 6,800 records…');
+
+    await server.answer({ deleted: 6800 });
+
+    expect(textOf(overlay()?.querySelector('.progress') ?? null)).toBe('Deleted 13,600 records…');
+
+    await server.answer(undefined);
+
+    expect(answers).toEqual([true]);
+  });
+
+  it('counts to the records deleted where more go than the question counted', async () => {
+    const server = answered();
+    opened({ from: 'Missions', delete: server.run });
+
+    await press('Delete');
+    await server.answer(
+      asksFirst("Delete this mission and everything under it: 100 sorties. This can't be undone.", 100),
+    );
+    await press('Delete');
+    await server.answer({ deleted: 80 });
+
+    expect(textOf(overlay()?.querySelector('.progress') ?? null)).toBe('Deleted 80 of 100 records…');
+
+    await server.answer({ deleted: 30 });
+
+    expect(textOf(overlay()?.querySelector('.progress') ?? null)).toBe('Deleted 110 of 110 records…');
+  });
+
+  it('sends the delete again after an answer that deleted every record the question counted, since the row still stands, and answers true on the answer after it', async () => {
+    const server = answered();
+    const { answers } = opened({ from: 'Missions', delete: server.run });
+
+    await press('Delete');
+    await server.answer(
+      asksFirst("Delete this mission and everything under it: 84 sorties. This can't be undone.", 84),
+    );
+    await press('Delete');
+    await server.answer({ deleted: 84 });
+
+    expect(textOf(overlay()?.querySelector('.progress') ?? null)).toBe('Deleted 84 of 84 records…');
+    expect(server.said).toEqual([undefined, { everythingUnder: true }, { everythingUnder: true }]);
+    expect(answers).toEqual([]);
+
+    await server.answer(undefined);
+
+    expect(server.said).toHaveLength(3);
+    expect(answers).toEqual([true]);
+  });
+
+  it("keeps a delete refused part way open with the server's sentence and how many records were deleted before it, and sends it no more", async () => {
+    const refusal = 'A sortie that is being flown cannot be deleted.';
+    const server = answered();
+    const { answers } = opened({ from: 'Missions', delete: server.run });
+
+    await press('Delete');
+    await server.answer(
+      asksFirst("Delete this mission and everything under it: 600 sorties. This can't be undone.", 600),
+    );
+    await press('Delete');
+    await server.answer({ deleted: 500 });
+    await server.answer(new ApiError('PATCH', '/api/resources', 400, { message: refusal }));
+
+    expect(textOf(overlay()?.querySelector('.refusal') ?? null)).toBe(refusal);
+    expect(textOf(overlay()?.querySelector('.progress') ?? null)).toBe(
+      '500 records were deleted before this. Press Delete again once that is put right.',
+    );
+    expect(buttons().map((button) => [textOf(button), button.disabled])).toEqual([['Close', false]]);
+    expect(server.said).toHaveLength(3);
+    expect(answers).toEqual([]);
+
+    await press('Close');
+
+    expect(server.said).toHaveLength(3);
+    expect(answers).toEqual([false]);
+  });
+
+  // The dialog draws Close alone beside a refusal, so Delete pressed again is its own
+  // `confirm`, as a page that keeps the dialog open would call it.
+  it('goes on counting from the records deleted before a refusal part way when Delete is pressed again', async () => {
+    const server = answered();
+    const { ref, answers } = opened({ from: 'Missions', delete: server.run });
+
+    await press('Delete');
+    await server.answer(
+      asksFirst("Delete this mission and everything under it: 600 sorties. This can't be undone.", 600),
+    );
+    await press('Delete');
+    await server.answer({ deleted: 500 });
+    await server.answer(new ApiError('PATCH', '/api/resources', 400, { message: 'A sortie is being flown.' }));
+
+    void ref.componentInstance.confirm();
+    await rest();
+
+    expect(server.said).toEqual([
+      undefined,
+      { everythingUnder: true },
+      { everythingUnder: true },
+      { everythingUnder: true },
+    ]);
+
+    await server.answer({ deleted: 60 });
+
+    expect(textOf(overlay()?.querySelector('.progress') ?? null)).toBe('Deleted 560 of 600 records…');
+
+    await server.answer(undefined);
+
+    expect(answers).toEqual([true]);
+  });
+
+  it("sends back the token the server's question gave, at the press after it and at each request after a 202", async () => {
+    const server = answered();
+    const { answers } = opened({ from: 'Missions', delete: server.run });
+
+    await press('Delete');
+    await server.answer(
+      asksFirst("Delete this mission and everything under it: 38,000 sorties. This can't be undone.", 38000, 't-1'),
+    );
+    await press('Delete');
+    await server.answer({ deleted: 6800 });
+    await server.answer(undefined);
+
+    expect(server.said).toEqual([
+      undefined,
+      { everythingUnder: true, token: 't-1' },
+      { everythingUnder: true, token: 't-1' },
+    ]);
+    expect(answers).toEqual([true]);
+  });
+
+  it('shows a question the server asks part way, with the records already deleted, counts on to its own number from them, and sends its token from then on', async () => {
+    const server = answered();
+    const { ref, answers } = opened({ from: 'Missions', delete: server.run });
+    const again = "Delete this mission and everything under it: 24,400 sorties. This can't be undone.";
+
+    await press('Delete');
+    await server.answer(
+      asksFirst("Delete this mission and everything under it: 38,000 sorties. This can't be undone.", 38000, 't-1'),
+    );
+    await press('Delete');
+    await server.answer({ deleted: 6800 });
+    await server.answer({ deleted: 6800 });
+    await server.answer(asksFirst(again, 24400, 't-2'));
+
+    expect(textOf(overlay()?.querySelector('.question') ?? null)).toBe(again);
+    expect(textOf(overlay()?.querySelector('.progress') ?? null)).toBe('13,600 records are already deleted.');
+    expect(overlay()?.querySelector('.refusal')).toBeNull();
+    expect(buttons().map((button) => [textOf(button), button.disabled])).toEqual([
+      ['Cancel', false],
+      ['Delete', false],
+    ]);
+    expect(ref.disableClose).toBeFalsy();
+    expect(answers).toEqual([]);
+
+    await press('Delete');
+    await server.answer({ deleted: 6800 });
+
+    expect(textOf(overlay()?.querySelector('.progress') ?? null)).toBe('Deleted 20,400 of 38,000 records…');
+
+    await server.answer(undefined);
+
+    expect(server.said).toEqual([
+      undefined,
+      { everythingUnder: true, token: 't-1' },
+      { everythingUnder: true, token: 't-1' },
+      { everythingUnder: true, token: 't-1' },
+      { everythingUnder: true, token: 't-2' },
+      { everythingUnder: true, token: 't-2' },
+    ]);
+    expect(answers).toEqual([true]);
+  });
+
+  // The dialog draws Close alone beside a refusal, so Delete pressed again is its own
+  // `confirm`, as a page that keeps the dialog open would call it.
+  it('keeps its token past a refusal part way, and shows the question the server then asks, whose token the next press sends', async () => {
+    const server = answered();
+    const { ref, answers } = opened({ from: 'Missions', delete: server.run });
+    const again = "Delete this mission and everything under it: 100 sorties. This can't be undone.";
+
+    await press('Delete');
+    await server.answer(
+      asksFirst("Delete this mission and everything under it: 600 sorties. This can't be undone.", 600, 't-1'),
+    );
+    await press('Delete');
+    await server.answer({ deleted: 500 });
+    await server.answer(new ApiError('PATCH', '/api/resources', 400, { message: 'A sortie is being flown.' }));
+
+    void ref.componentInstance.confirm();
+    await rest();
+
+    expect(server.said.at(-1)).toEqual({ everythingUnder: true, token: 't-1' });
+
+    await server.answer(asksFirst(again, 100, 't-2'));
+
+    expect(textOf(overlay()?.querySelector('.question') ?? null)).toBe(again);
+    expect(overlay()?.querySelector('.refusal')).toBeNull();
+    expect(textOf(overlay()?.querySelector('.progress') ?? null)).toBe('500 records are already deleted.');
+
+    await press('Delete');
+
+    expect(server.said.at(-1)).toEqual({ everythingUnder: true, token: 't-2' });
+
+    await server.answer(undefined);
+
+    expect(answers).toEqual([true]);
+  });
+
+  it('closes with false on any other failure and leaves it to the page', async () => {
+    const closedWith: unknown[] = [];
+    await TestBed.configureTestingModule({
+      imports: [DeleteResourceConfirmationModalComponent],
+      providers: [
+        provideNoopAnimations(),
+        {
+          provide: MatDialogRef,
+          useValue: {
+            close: (answer: unknown): void => void closedWith.push(answer),
+            getState: (): MatDialogState => MatDialogState.OPEN,
+          },
+        },
+        { provide: MAT_DIALOG_DATA, useValue: { delete: () => Promise.reject(new Error('the network is down')) } },
+      ],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(DeleteResourceConfirmationModalComponent);
+    fixture.detectChanges();
+
+    await expect(fixture.componentInstance.confirm()).rejects.toThrow('the network is down');
+
+    expect(closedWith).toEqual([false]);
+    expect(fixture.componentInstance.refusal()).toBe('');
+    expect(fixture.componentInstance.busy()).toBe(false);
+  });
+
+  it('leaves closing to the page that already closed it by leaving', async () => {
+    const closedWith: unknown[] = [];
+    await TestBed.configureTestingModule({
+      imports: [DeleteResourceConfirmationModalComponent],
+      providers: [
+        provideNoopAnimations(),
+        {
+          provide: MatDialogRef,
+          useValue: {
+            close: (answer: unknown): void => void closedWith.push(answer),
+            getState: (): MatDialogState => MatDialogState.CLOSED,
+          },
+        },
+        { provide: MAT_DIALOG_DATA, useValue: { delete: () => Promise.resolve() } },
+      ],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(DeleteResourceConfirmationModalComponent);
+    fixture.detectChanges();
+
+    await fixture.componentInstance.confirm();
+
+    expect(closedWith).toEqual([]);
+  });
+
+  // A page that hands the dialog a text (a tenant's name) has it typed before the row is
+  // deleted: from the first question on, Delete is held at every press until the input
+  // holds the text, in any case and however its spaces are typed. What is typed is never
+  // sent.
+  describe('told a text to type', () => {
+    const sentence = "Delete this sector and everything under it: 4 roles held, 2 accounts. This can't be undone.";
+    const field = (): HTMLInputElement | null =>
+      overlay()?.querySelector<HTMLInputElement>('.typed-name input') ?? null;
+    const held = (): boolean | undefined => buttons().find((button) => textOf(button) === 'Delete')?.disabled;
+    const type = async (value: string): Promise<void> => {
+      await rest();
+      const input = field();
+      expect(input, 'the dialog has no input for the text').toBeTruthy();
+      if (input) {
+        input.value = value;
+        input.dispatchEvent(new Event('input'));
+      }
+      await rest();
+    };
+
+    it('asks for it under the first question, with the text in full, the input taking the focus, and holds Delete until it is typed', async () => {
+      const server = answered();
+      opened({ name: 'West Reach', from: 'Sectors', typed: 'West Reach', delete: server.run });
+      await rest();
+
+      expect(textOf(overlay()?.querySelector('.question') ?? null)).toBe('Delete West Reach from Sectors?');
+      const asks = overlay()?.querySelector('.typed-asks') ?? null;
+      expect(textOf(asks)).toBe('Type West Reach to confirm.');
+      expect(textOf(asks?.querySelector('strong') ?? null)).toBe('West Reach');
+      const input = field();
+      expect(input, 'the dialog has no input for the text').toBeTruthy();
+      expect(document.activeElement).toBe(input);
+      expect(asks?.id).toBeTruthy();
+      expect([
+        input?.getAttribute('autocomplete'),
+        input?.getAttribute('autocapitalize'),
+        input?.getAttribute('spellcheck'),
+        input?.getAttribute('aria-labelledby'),
+      ]).toEqual(['off', 'off', 'false', asks?.id]);
+      expect(overlay()?.querySelector('.typed-name mat-label')).toBeNull();
+      expect(held()).toBe(true);
+
+      await press('Delete');
+
+      expect(server.said).toEqual([]);
+
+      await type('West');
+
+      expect(held()).toBe(true);
+
+      await type(' west  reach ');
+
+      expect(held()).toBe(false);
+
+      await press('Delete');
+
+      expect(server.said).toEqual([undefined]);
+    });
+
+    it("keeps what was typed under the server's question, holds Delete again while the input does not hold the text, and sends everything under the row and nothing else", async () => {
+      const server = answered();
+      const { answers } = opened({ name: 'West Reach', from: 'Sectors', typed: 'West Reach', delete: server.run });
+
+      await type('west reach');
+      await press('Delete');
+      await server.answer(asksFirst(sentence));
+
+      expect(textOf(overlay()?.querySelector('.question') ?? null)).toBe(sentence);
+      expect(textOf(overlay()?.querySelector('.typed-asks') ?? null)).toBe('Type West Reach to confirm.');
+      expect(field()?.value).toBe('west reach');
+      expect(held()).toBe(false);
+
+      await type('West');
+
+      expect(held()).toBe(true);
+
+      await type('WEST  REACH');
+      await press('Delete');
+
+      expect(server.said).toEqual([undefined, { everythingUnder: true }]);
+
+      await server.answer(undefined);
+
+      expect(server.said).toEqual([undefined, { everythingUnder: true }]);
+      expect(answers).toEqual([true]);
+    });
+
+    it('carries a delete in rounds from the one press, the input off with the buttons meanwhile', async () => {
+      const server = answered();
+      const { answers } = opened({ name: 'West Reach', from: 'Sectors', typed: 'West Reach', delete: server.run });
+
+      await type('West Reach');
+      await press('Delete');
+      await server.answer(
+        asksFirst("Delete this sector and everything under it: 38,000 sorties. This can't be undone.", 38000),
+      );
+      await press('Delete');
+      await server.answer({ deleted: 6800 });
+
+      expect(textOf(overlay()?.querySelector('.progress') ?? null)).toBe('Deleted 6,800 of 38,000 records…');
+      expect(field()?.disabled).toBe(true);
+      expect(buttons().map((button) => [textOf(button), button.disabled])).toEqual([
+        ['Cancel', true],
+        ['Delete', true],
+      ]);
+
+      await server.answer({ deleted: 31200 });
+      await server.answer(undefined);
+
+      expect(server.said).toEqual([
+        undefined,
+        { everythingUnder: true },
+        { everythingUnder: true },
+        { everythingUnder: true },
+      ]);
+      expect(answers).toEqual([true]);
+    });
+
+    it('draws no input beside a refusal at the first press, which comes after the text was typed', async () => {
+      const refusal = 'Disable this tenant before deleting it.';
+      const server = answered();
+      const { answers } = opened({ name: 'West Reach', from: 'Sectors', typed: 'West Reach', delete: server.run });
+
+      await type('West Reach');
+      await press('Delete');
+      await server.answer(new ApiError('PATCH', '/api/resources', 409, { message: refusal }));
+
+      expect(textOf(overlay()?.querySelector('.refusal') ?? null)).toBe(refusal);
+      expect(overlay()?.querySelector('.typed-asks')).toBeNull();
+      expect(field()).toBeNull();
+      expect(buttons().map((button) => [textOf(button), button.disabled])).toEqual([['Close', false]]);
+      expect(server.said).toEqual([undefined]);
+      expect(answers).toEqual([]);
+    });
+
+    it("takes the input away from a refusal after the server's question", async () => {
+      const refusal = "This sector has missions that you can't delete, so it can't be deleted.";
+      const server = answered();
+      opened({ name: 'West Reach', from: 'Sectors', typed: 'West Reach', delete: server.run });
+
+      await type('West Reach');
+      await press('Delete');
+      await server.answer(asksFirst(sentence));
+
+      expect(field()).toBeTruthy();
+
+      await press('Delete');
+      await server.answer(new ApiError('PATCH', '/api/resources', 403, { message: refusal }));
+
+      expect(textOf(overlay()?.querySelector('.refusal') ?? null)).toBe(refusal);
+      expect(overlay()?.querySelector('.typed-asks')).toBeNull();
+      expect(field()).toBeNull();
+      expect(buttons().map((button) => textOf(button))).toEqual(['Close']);
+    });
+
+    it('closes with true where the server deletes the row at the first press, once the text was typed', async () => {
+      const server = answered();
+      const { answers } = opened({ name: 'West Reach', from: 'Sectors', typed: 'West Reach', delete: server.run });
+
+      await press('Delete');
+
+      expect(server.said).toEqual([]);
+
+      await type('West Reach');
+      await press('Delete');
+      await server.answer(undefined);
+
+      expect(server.said).toEqual([undefined]);
+      expect(answers).toEqual([true]);
+    });
+
+    it('handed no delete, holds Delete until the text is typed and closes with true', async () => {
+      const { ref, answers } = opened({ name: 'West Reach', from: 'Sectors', typed: 'West Reach' });
+      await rest();
+
+      expect(textOf(overlay()?.querySelector('.typed-asks') ?? null)).toBe('Type West Reach to confirm.');
+      expect(held()).toBe(true);
+
+      await press('Delete');
+      // Held, the button's own action answers nothing either.
+      await ref.componentInstance.confirm();
+      await rest();
+
+      expect(answers).toEqual([]);
+
+      await type('West Reach');
+
+      expect(held()).toBe(false);
+
+      await press('Delete');
+
+      expect(answers).toEqual([true]);
+    });
+
+    it('asks nothing to be typed for a text of spaces alone', async () => {
+      const { answers } = opened({ name: 'West Reach', from: 'Sectors', typed: '   ' });
+      await rest();
+
+      expect(overlay()?.querySelector('.typed-asks')).toBeNull();
+      expect(field()).toBeNull();
+      expect(held()).toBe(false);
+
+      await press('Delete');
+
+      expect(answers).toEqual([true]);
+    });
+
+    it("draws no input at the server's question where it is told no text", async () => {
+      const server = answered();
+      opened({ name: 'West Reach', from: 'Sectors', delete: server.run });
+
+      await press('Delete');
+      await server.answer(asksFirst(sentence));
+
+      expect(textOf(overlay()?.querySelector('.question') ?? null)).toBe(sentence);
+      expect(overlay()?.querySelector('.typed-asks')).toBeNull();
+      expect(field()).toBeNull();
+      expect(held()).toBe(false);
+    });
+  });
+
+  // A method that warns before it runs hands the dialog its warning: the dialog asks it
+  // once as it opens, holds Delete until it is answered, and draws the server's words
+  // under the page's question, as the method's own dialog draws them. Once the server's
+  // question about what goes with the row is on the screen, the warning is not drawn.
+  describe("told the method's warning", () => {
+    const warning: MethodWarning = {
+      consequence: 'Ada can sign in again through the directory, and will get a new account.',
+      names: ['Ada Lovelace'],
+      confirm: 'Delete',
+      also: [{ says: 'Her sessions end at once.', names: ['the console'] }],
+    };
+    const held = (): boolean | undefined => buttons().find((button) => textOf(button) === 'Delete')?.disabled;
+    // A warning the test answers when it says, counting how often it is asked.
+    function warned(): {
+      ask: () => Promise<MethodWarning>;
+      asked: () => number;
+      answer: (value: MethodWarning | Error) => Promise<void>;
+    } {
+      let asked = 0;
+      let settle: (value: MethodWarning | Error) => void = () => undefined;
+      const ask = (): Promise<MethodWarning> => {
+        asked++;
+
+        return new Promise<MethodWarning>((resolve, reject) => {
+          settle = (value) => (value instanceof Error ? reject(value) : resolve(value));
+        });
+      };
+
+      return {
+        ask,
+        asked: () => asked,
+        answer: async (value) => {
+          settle(value);
+          await rest();
+        },
+      };
+    }
+
+    it("holds Delete until the warning is answered, then draws its words under the page's question", async () => {
+      const server = warned();
+      opened({ question: 'Delete ada?', warning: server.ask, delete: () => Promise.resolve() });
+      await rest();
+
+      expect(server.asked()).toBe(1);
+      expect(held()).toBe(true);
+      expect(overlay()?.querySelector('.warning')).toBeNull();
+
+      await server.answer(warning);
+
+      expect(textOf(overlay()?.querySelector('.question') ?? null)).toBe('Delete ada?');
+      expect(textOf(overlay()?.querySelector('.warning-consequence') ?? null)).toBe(warning.consequence);
+      expect([...(overlay()?.querySelectorAll('.warning-names li') ?? [])].map(textOf)).toEqual([
+        'Ada Lovelace',
+        'the console',
+      ]);
+      expect(textOf(overlay()?.querySelector('.warning-note') ?? null)).toBe('Her sessions end at once.');
+      expect(held()).toBe(false);
+    });
+
+    it('shows a refused warning as a refused delete, with Close alone, so nothing is deleted unseen', async () => {
+      const server = warned();
+      let runs = 0;
+      const { answers } = opened({
+        question: 'Delete ada?',
+        warning: server.ask,
+        delete: () => {
+          runs++;
+          return Promise.resolve();
+        },
+      });
+      await rest();
+      await server.answer(
+        new ApiError('POST', '/api/delete-crew-sector-user/warning', 403, { message: 'You may not.' }),
+      );
+
+      expect(textOf(overlay()?.querySelector('.refusal') ?? null)).toBe('You may not.');
+      expect(overlay()?.querySelector('.warning')).toBeNull();
+      expect(buttons().map((button) => [textOf(button), button.disabled])).toEqual([['Close', false]]);
+      expect(runs).toBe(0);
+
+      await press('Close');
+
+      expect(answers).toEqual([false]);
+    });
+
+    it("draws the warning no more once the server's question is on the screen, and asks it once", async () => {
+      const server = warned();
+      const said: unknown[] = [];
+      const counted = "Delete this account and everything under it: 7 task assignments. This can't be undone.";
+      const { answers } = opened({
+        question: 'Delete ada?',
+        warning: server.ask,
+        delete: (options) => {
+          said.push(options);
+
+          return options?.everythingUnder ? Promise.resolve() : Promise.reject(asksFirst(counted));
+        },
+      });
+      await rest();
+      await server.answer(warning);
+
+      await press('Delete');
+
+      expect(textOf(overlay()?.querySelector('.question') ?? null)).toBe(counted);
+      expect(overlay()?.querySelector('.warning')).toBeNull();
+      expect(held()).toBe(false);
+
+      await press('Delete');
+
+      expect(said).toEqual([undefined, { everythingUnder: true }]);
+      expect(server.asked()).toBe(1);
+      expect(answers).toEqual([true]);
+    });
+
+    it('draws no warning and holds nothing where it is told none', async () => {
+      opened({ question: 'Delete ada?', delete: () => Promise.resolve() });
+      await rest();
+
+      expect(overlay()?.querySelector('.warning')).toBeNull();
+      expect(held()).toBe(false);
+    });
+  });
+});
+
+describe('deleteQuestion', () => {
+  it('names the row and the list where it has both', () => {
+    expect(deleteQuestion({ name: 'Night Watch', from: 'Groups', inList: true })).toBe(
+      'Delete Night Watch from Groups?',
+    );
+  });
+
+  it('names the row alone where the list has no title', () => {
+    expect(deleteQuestion({ name: 'Night Watch' })).toBe('Delete Night Watch?');
+    expect(deleteQuestion({ name: 'Night Watch', from: '  ' })).toBe('Delete Night Watch?');
+  });
+
+  it("says the word the resource's rows go by for a row with no name, in a list and on a page", () => {
+    expect(deleteQuestion({ word: 'hangar pass', from: 'Passes', inList: true })).toBe('Delete this hangar pass?');
+    expect(deleteQuestion({ word: 'hangar pass', from: 'Passes' })).toBe('Delete this hangar pass?');
+    expect(deleteQuestion({ name: ' ', word: ' hangar pass ' })).toBe('Delete this hangar pass?');
+  });
+
+  it('names the row by its own name before the word', () => {
+    expect(deleteQuestion({ name: 'Night Watch', from: 'Groups', word: 'group', inList: true })).toBe(
+      'Delete Night Watch from Groups?',
+    );
+  });
+
+  it('says "this row" in a list and "this record" on a page for a row with no name and a resource with no word', () => {
+    expect(deleteQuestion({ inList: true })).toBe('Delete this row?');
+    expect(deleteQuestion({ name: ' ', from: 'Passes', inList: true })).toBe('Delete this row from Passes?');
+    expect(deleteQuestion({ from: 'Missions' })).toBe('Delete this record from Missions?');
+    expect(deleteQuestion()).toBe('Delete this record?');
   });
 });

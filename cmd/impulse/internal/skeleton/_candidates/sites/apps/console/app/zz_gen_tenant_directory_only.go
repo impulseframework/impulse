@@ -10,8 +10,10 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/sites/apps/console/pkg/resources"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/sites/apps/console/pkg/router"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/resource"
@@ -48,7 +50,12 @@ import (
 // a code sent to their email. Everyone else is counted, and
 // a person is named only to a caller who may list them: one who holds List on the
 // tenant's list of that auth's people and, on no condition, on the fields of it that name
-// a person.
+// a person. Where an auth has a password method, the client also reads the tenant's
+// administrators who have a password (DirectoryAdministrators) and the invitations not
+// yet accepted that give a role that administers a tenant (DirectoryInvitations), and the
+// warning carries a note that counts each, naming the administrators to the same caller
+// and the invitations to one who may list the tenant's invitations and the fields of
+// them that name one.
 //
 // The flag is written through the record's update patch, so its change event is written
 // with it; this instance's roster rereads what the tenant declares once the transaction
@@ -76,7 +83,9 @@ func (a *App) EndTenantDirectoryOnly() http.HandlerFunc {
 
 // tenantDirectoryOnly is the frame of the two methods that turn a tenant's
 // directory-only switch: method is the one served, as grants name it, and only the way
-// it turns the switch.
+// it turns the switch. The switch turned is recorded in the audit log of the auth
+// whose people the directories record's outlets sign in
+// (StaffIdentity().RecordTenantSignIn), in the same transaction.
 func tenantDirectoryOnly(a *App, method accesstypes.Resource, only bool) http.HandlerFunc {
 	// Neither method takes anything in its body: the route names the tenant.
 	type request struct{}
@@ -85,7 +94,12 @@ func tenantDirectoryOnly(a *App, method accesstypes.Resource, only bool) http.Ha
 	// The rules' sentences say the tenant's directory as each auth's sign-in
 	// registrations call it, never by its connection, and the rules ask each auth's
 	// client whether the caller has a password.
-	rules := NewTenantDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName).PasswordsBy(a.StaffIdentity().CallerPassword)
+	rules := NewTenantDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName).PasswordsBy(a.StaffIdentity().CallerPassword).CountedBy(resource.DirectoryPeople{Label: "Staff", List: "StaffTenantUsers", Fields: []accesstypes.Tag{"username", "name"}, Seated: a.StaffIdentity().SeatedCount, Outsiders: a.StaffIdentity().DirectoryOutsiders, AdministratorsEnter: a.StaffIdentity().AdministratorsEnterWithPassword, Administrators: a.StaffIdentity().DirectoryAdministrators, InvitationList: "StaffTenantInvitations", InvitationFields: []accesstypes.Tag{"email", "name"}, Invitations: a.StaffIdentity().DirectoryInvitations}).SecondFactorsBy(a.StaffIdentity().AuthSecondFactor)
+	// act is what the auth's audit log records of the method served.
+	act := auditlog.ActDirectoryOnlyOff
+	if only {
+		act = auditlog.ActDirectoryOnlyOn
+	}
 
 	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
@@ -100,6 +114,7 @@ func tenantDirectoryOnly(a *App, method accesstypes.Resource, only bool) http.Ha
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		ctx = resource.WithCaller(ctx, caller)
+		ctx = resource.WithRPC(ctx, method)
 
 		// A request that asks for the method's warning (X-Warning: true) is decoded
 		// and checked as the call is. Turning the switch on answers its warning in
@@ -119,7 +134,7 @@ func tenantDirectoryOnly(a *App, method accesstypes.Resource, only bool) http.Ha
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewNotFoundMessage("This tenant does not exist."))
 		}
-		eventSource := resource.UserEvent(ctx)
+		eventSource := eventsource.UserEvent(ctx)
 
 		ctx, touched := resource.CollectTouchedRows(ctx)
 		dryRun, err := resource.IsDryRun(r)
@@ -128,9 +143,7 @@ func tenantDirectoryOnly(a *App, method accesstypes.Resource, only bool) http.Ha
 		}
 		if err := a.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 			if asksWarning {
-				said, err := rules.DirectoryOnlyWarning(ctx, txn, domain,
-					resource.DirectoryPeople{List: "StaffTenantUsers", Fields: []accesstypes.Tag{"username", "name"}, Outsiders: a.StaffIdentity().DirectoryOutsiders, AdministratorsEnter: a.StaffIdentity().AdministratorsEnterWithPassword()},
-				)
+				said, err := rules.DirectoryOnlyWarning(ctx, txn, domain)
 				if err != nil {
 					return errors.Wrap(err, "resource.TenantDirectoryRules.DirectoryOnlyWarning()")
 				}
@@ -146,6 +159,9 @@ func tenantDirectoryOnly(a *App, method accesstypes.Resource, only bool) http.Ha
 			}
 			if err := resources.NewTenantUpdatePatch(id).SetDirectoryOnly(only).Buffer(ctx, txn, eventSource); err != nil {
 				return errors.Wrap(err, "resources.TenantUpdatePatch.Buffer()")
+			}
+			if err := a.StaffIdentity().RecordTenantSignIn(ctx, txn, domain, act, ""); err != nil {
+				return errors.Wrap(err, "StaffIdentity().RecordTenantSignIn()")
 			}
 			if dryRun {
 				return resource.ErrDryRun
@@ -175,13 +191,4 @@ func tenantDirectoryOnly(a *App, method accesstypes.Resource, only bool) http.Ha
 
 		return httpio.NewEncoder(w).Ok(nil)
 	})
-}
-
-// DirectoryOnly serves a tenant's directory-only switch as it stands, GET
-// <prefix>/tenants/{tenantID}/directory-only: what the tenant's Sign-in page shows the person
-// who may turn it, who does not read the global Tenant record. It is asked under the
-// grant of either method that turns it, Execute on MakeTenantDirectoryOnly or on EndTenantDirectoryOnly in the
-// tenant, and writes nothing (resource.DirectoryOnlyStateHandler).
-func (a *App) DirectoryOnly() http.HandlerFunc {
-	return resource.DirectoryOnlyStateHandler(a.ResourceClient(), NewTenantDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName), a.UserPermissions, router.Domain, "MakeTenantDirectoryOnly", "EndTenantDirectoryOnly")
 }

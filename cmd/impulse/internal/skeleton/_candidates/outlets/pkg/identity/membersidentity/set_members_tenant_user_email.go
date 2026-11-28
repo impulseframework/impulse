@@ -11,37 +11,60 @@ import (
 	"github.com/impulseframework/impulse/resource"
 )
 
-// SetMembersTenantUserEmail sets the email address of a person of the Members auth
-// by hand, or takes it off (no Email): for a person whose address changed, or who was
-// created without one. The address is held unverified, whatever the one before it was,
-// until the person verifies it themselves. An address another user holds is refused
-// when the transaction commits.
-//
-// It is a tenant's method: served under the address of one Tenant, it names a
-// row of MembersTenantUser, the tenant's own list of the auth's people. A person who holds
-// no role in the tenant is not found there, and what the tenant may do to a person who
-// also holds a role outside it is the role file's to say, in a condition on the
-// method's grant that reads the facts of the row (heldElsewhere, heldGlobally).
-//
-// @rpc
-// @permissionScope(domain)
-// @outlet(portal)
-// @answers(204)
-type SetMembersTenantUserEmail struct {
-	// @target(MembersTenantUser)
-	UserID impulse.UUID
-	Email  *string
-}
+type (
+	// SetMembersTenantUserEmail asks for a change of the email address of a person of the
+	// Members auth. Nothing about the account changes: a link is mailed to the new
+	// address once the transaction has committed, and the account keeps the address it
+	// has until the person follows that link from the new mailbox. Nothing is mailed
+	// to the old address to confirm the change; it is told once the change is made. An
+	// account always keeps an address, so one is replaced and never taken off, and the
+	// address of a person who signs in through an organization's directory is the
+	// directory's to change. The answer says whether the link went (Sent) and, where
+	// it did not, why (Reason).
+	//
+	// It is a tenant's method: served under the address of one Tenant, it names a
+	// row of MembersTenantUser, the tenant's own list of the auth's people. A person who is no
+	// row of that list is not found there, and whether the tenant may do this to a person is
+	// the role file's to say, in a condition on the method's grant that reads the facts of
+	// the row: managedHere says this tenant manages the person's account.
+	//
+	// A row offers it only to a caller whose session enters every tenant the person
+	// administers (@callerEnters); the method refuses anyone else.
+	//
+	// @rpc
+	// @permissionScope(domain)
+	// @callerEnters
+	// @outlet(portal)
+	// @class(credential)
+	SetMembersTenantUserEmail struct {
+		// @target(MembersTenantUser)
+		UserID impulse.UUID
+		Email  string `validate:"required"`
+	}
+	// SetMembersTenantUserEmailResult answers whether the link that confirms the new
+	// address was mailed and, where it was not, why, in a sentence for the
+	// administrator who asked. Both are set once the transaction has committed: a
+	// caller that runs the method in a transaction of its own reads them after its
+	// ExecuteFunc returns.
+	SetMembersTenantUserEmailResult struct {
+		Sent   bool
+		Reason string
+	}
+)
 
-// Execute buffers the address into the caller's transaction.
-func (m *SetMembersTenantUserEmail) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error {
+// Execute checks the request in the caller's transaction and registers the mailing for
+// after its commit.
+func (m *SetMembersTenantUserEmail) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*SetMembersTenantUserEmailResult, error) {
 	// A tenant's method acts for a request made under the tenant's address.
 	if _, err := client.manager.Tenant(ctx); err != nil {
-		return errors.Wrap(err, "identity.Manager.Tenant()")
+		return nil, errors.Wrap(err, "identity.Manager.Tenant()")
 	}
-	if err := client.manager.SetEmail(ctx, txn, m.UserID, m.Email); err != nil {
-		return errors.Wrap(err, "identity.Manager.SetEmail()")
+	result := &SetMembersTenantUserEmailResult{}
+	if err := client.manager.SetEmail(ctx, txn, m.UserID, m.Email, func(sent bool, reason string) {
+		result.Sent, result.Reason = sent, reason
+	}); err != nil {
+		return nil, errors.Wrap(err, "identity.Manager.SetEmail()")
 	}
 
-	return nil
+	return result, nil
 }

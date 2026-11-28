@@ -23,7 +23,6 @@ import (
 	"testing"
 
 	"github.com/impulseframework/impulse/accesstypes"
-	"github.com/impulseframework/impulse/lodestar/pkg/auth"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/crew"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/members"
 	"github.com/impulseframework/impulse/lodestar/pkg/router"
@@ -213,7 +212,7 @@ func attachHaulerBrief(t *testing.T, h http.Handler) string {
 	if len(rows) != 1 {
 		t.Fatalf("rows = %v, want one", rows)
 	}
-	assertKeys(t, rows[0], []string{"id", "missionId", "title", "fileName", "contentType", "size", "uploadedByUserId", "uploadedByName", "uploadedAt", "provenance", "digest"})
+	assertKeys(t, rows[0], []string{"id", "missionId", "missionName", "title", "fileName", "contentType", "size", "uploadedByUserId", "uploadedByName", "uploadedAt", "provenance", "digest"})
 
 	return cell[string](t, rows[0], "id")
 }
@@ -227,7 +226,7 @@ func fileRequestAs(t *testing.T, h http.Handler, user accesstypes.User, target s
 
 	ctx := sessionContext(t, user)
 	if portalUsers[user] {
-		ctx = auth.Bind(ctx, members.Name)
+		h = resource.BindAuth(members.Name)(h)
 	}
 	req := httptest.NewRequestWithContext(ctx, http.MethodGet, target, http.NoBody)
 	for name, value := range headers {
@@ -240,8 +239,9 @@ func fileRequestAs(t *testing.T, h http.Handler, user accesstypes.User, target s
 }
 
 // TestMissionDocument_portalListing pins the portal's view: the client lists her
-// company's documents through her own outlet with the grant's fields, no store key and
-// no uploader, and, holding no grant on content, is refused the download.
+// company's documents through her own outlet with the grant's fields and the mission's
+// name, which her grant on the missions' titles gives, no store key and no uploader,
+// and, holding no grant on content, is refused the download.
 func TestMissionDocument_portalListing(t *testing.T) {
 	t.Parallel()
 
@@ -258,12 +258,12 @@ func TestMissionDocument_portalListing(t *testing.T) {
 	if len(portalRows) != 1 {
 		t.Fatalf("portal rows = %v, want one", portalRows)
 	}
-	assertKeys(t, portalRows[0], []string{"id", "missionId", "title", "fileName", "contentType", "size", "uploadedAt", "provenance"})
+	assertKeys(t, portalRows[0], []string{"id", "missionId", "missionName", "title", "fileName", "contentType", "size", "uploadedAt", "provenance"})
 
 	status, content := doRequestAs(t, h, "client", http.MethodGet, portalPath(anvil, "mission-documents/"+id+"/content"), "")
 	assertStatus(t, status, http.StatusForbidden, content)
-	if !strings.Contains(string(content), "MissionDocuments.content") {
-		t.Errorf("refusal = %s, want it to name the content field", content)
+	if got, want := refusalMessage(t, content), "You may not see the content of mission documents here."; got != want {
+		t.Errorf("refusal = %q, want %q: the field in a person's words", got, want)
 	}
 }
 
@@ -327,7 +327,7 @@ func TestMissionDocument_fileRoute(t *testing.T) {
 			user:        "cadet",
 			target:      target,
 			wantStatus:  http.StatusForbidden,
-			wantMessage: "does not have (Read) on [MissionDocuments",
+			wantMessage: "You may not see mission documents here.",
 		},
 		{
 			name:       "the governor, a marshal in every sector, asks under bastion: another sector's document is indistinguishable from none",

@@ -25,6 +25,8 @@ func (h *Handlers) CrewSectorGroups() http.HandlerFunc {
 		Name        string       `json:"name"        index:"true"`
 		Description string       `json:"description"`
 		UpdatedAt   time.Time    `json:"updatedAt"`
+		People      int64        `json:"people"`
+		Roles       []string     `json:"roles"`
 	}
 
 	type response []map[string]any
@@ -43,8 +45,9 @@ func (h *Handlers) CrewSectorGroups() http.HandlerFunc {
 		}
 
 		// A live list registers before the query runs, so a commit that lands during
-		// the query is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, h.LiveService(), querySet, live.ListSubscription(querySet.Resource(), domain))
+		// the query is not missed; a refused request registers nothing. With it the
+		// request registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, h.LiveService(), querySet, live.ListSubscription(querySet.Resource(), domain))
 
 		res := crewresources.NewCrewSectorGroupQueryFromQuerySet(querySet)
 
@@ -87,6 +90,14 @@ func (h *Handlers) CrewSectorGroups() http.HandlerFunc {
 					if !row.Masked("updatedAt") {
 						rmap["updatedAt"] = rec.UpdatedAt
 					}
+				case "People":
+					if !row.Masked("people") {
+						rmap["people"] = rec.People
+					}
+				case "Roles":
+					if !row.Masked("roles") {
+						rmap["roles"] = rec.Roles
+					}
 				}
 			}
 			if capabilities := row.Capabilities(); capabilities != nil {
@@ -115,6 +126,8 @@ func (h *Handlers) CrewSectorGroup() http.HandlerFunc {
 		Name        string       `json:"name"`
 		Description string       `json:"description"`
 		UpdatedAt   time.Time    `json:"updatedAt"`
+		People      int64        `json:"people"`
+		Roles       []string     `json:"roles"`
 	}
 
 	decoder := NewQueryDecoder[crewresources.CrewSectorGroup, response](h, accesstypes.Read)
@@ -132,8 +145,9 @@ func (h *Handlers) CrewSectorGroup() http.HandlerFunc {
 		}
 
 		// A live row registers before the read runs, so a commit that lands during the
-		// read is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, h.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(id)))
+		// read is not missed; a refused request registers nothing. With it the request
+		// registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, h.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(id)))
 
 		res := crewresources.NewCrewSectorGroupQueryFromQuerySet(querySet).SetID(id)
 
@@ -164,6 +178,14 @@ func (h *Handlers) CrewSectorGroup() http.HandlerFunc {
 			case "UpdatedAt":
 				if !row.Masked("updatedAt") {
 					rmap["updatedAt"] = rec.UpdatedAt
+				}
+			case "People":
+				if !row.Masked("people") {
+					rmap["people"] = rec.People
+				}
+			case "Roles":
+				if !row.Masked("roles") {
+					rmap["roles"] = rec.Roles
 				}
 			}
 		}

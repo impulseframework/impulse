@@ -23,9 +23,9 @@ import (
 func (h *Handlers) GiveMembersGroupRole() http.HandlerFunc {
 	type request struct {
 		GroupID     impulse.UUID `json:"groupId"`
-		Role        string       `json:"role"`
 		Domain      *string      `json:"domain"`
 		EveryDomain bool         `json:"everyDomain"`
+		Role        string       `json:"role"`
 		StartsAt    *time.Time   `json:"startsAt"`
 		EndsAt      *time.Time   `json:"endsAt"`
 	}
@@ -48,6 +48,10 @@ func (h *Handlers) GiveMembersGroupRole() http.HandlerFunc {
 		// write or a read against the caller (Enforce) evaluates the same checker,
 		// scope, and decision instant.
 		ctx = resource.WithCaller(ctx, gate.Caller())
+		// The method's name rides the context too: who made a change
+		// (eventsource.UserEvent) reads it there, so every change record the body writes
+		// names the method.
+		ctx = resource.WithRPC(ctx, "GiveMembersGroupRole")
 
 		p := (*membersidentity.GiveMembersGroupRole)(params)
 
@@ -77,22 +81,12 @@ func (h *Handlers) GiveMembersGroupRole() http.HandlerFunc {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		if err := h.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-			// Declared target: locate the row within the tenancy predicate
-			// before the body runs.
-			row, err := membersresources.NewMembersGroupQuery().
-				AddColumns(membersresources.NewMembersGroupColumns().ID()).
-				SetID(p.GroupID).
-				Read(ctx, txn)
-			if err != nil {
-				return errors.Wrap(err, "membersresources.MembersGroupQuery.Read()")
-			}
-			if row == nil {
-				return httpio.NewNotFoundMessagef("MembersGroup %s does not exist", p.GroupID)
-			}
-
-			// A row-referencing condition on the caller's Execute grant
-			// evaluates against the located row, in this transaction.
-			if err := gate.Enforce(ctx, txn, resource.ExecuteTarget{Resource: "MembersGroups", Label: "MembersGroup", PKColumns: []string{"Id"}}, p.GroupID); err != nil {
+			// Declared target: a row of the MembersListedGroup view.
+			// A view's row is one row of its query, so the gate locates it by
+			// the key and judges any row-referencing condition on the caller's
+			// Execute grant against it, in one SELECT over that query in this
+			// transaction. No row there is NotFound.
+			if err := gate.EnforceView(ctx, txn, resource.ExecuteTarget{Resource: "MembersListedGroups", Label: "MembersListedGroup", PKColumns: []string{"Id"}, View: membersresources.MembersListedGroup{}}, p.GroupID); err != nil {
 				return err
 			}
 			if err := p.Execute(ctx, txn, h.RPCClient()); err != nil {
@@ -108,7 +102,7 @@ func (h *Handlers) GiveMembersGroupRole() http.HandlerFunc {
 				return httpio.NewEncoder(w).Ok(nil)
 			}
 
-			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "spanner.Client.ReadWriteTransaction()"))
+			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "resource.Client.ExecuteFunc()"))
 		}
 
 		live.Publish(ctx, w, h.LiveService(), h.liveDerivations, "", touched)

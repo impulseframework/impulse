@@ -3,6 +3,8 @@ package authpkg
 import (
 	"fmt"
 	"strings"
+
+	"github.com/impulseframework/impulse/auditlog"
 )
 
 // Migration is one migration of an auth's session tables: its stem after the sequence
@@ -38,27 +40,36 @@ func usersUp(p, who string, usernameIsEmail bool) string {
 CREATE TABLE %[1]sSessionUsers (
   Id                 STRING(36) NOT NULL,
   Username           STRING(MAX) NOT NULL,
-  NormalizedUsername STRING(MAX) AS (NORMALIZE_AND_CASEFOLD(Username)) STORED,
+  -- The form a username is unique in and looked up by. A username with an @ in it reads
+  -- as an email address and is matched as the library compares two addresses: its ASCII
+  -- capital letters lowercased and every other character as written (LOWER over BYTES
+  -- treats its argument as ASCII), so two addresses the library tells apart are two
+  -- usernames. Any other username is matched in Unicode's normalization and case folding,
+  -- and normalized once more after the folding: the folding of a normalized name is not
+  -- always normalized, and without that a capital written in two code points and its
+  -- small letter in one would be two names.
+  NormalizedUsername STRING(MAX) AS (IF(STRPOS(Username, '@') > 0, CAST(LOWER(CAST(Username AS BYTES)) AS STRING), NORMALIZE(NORMALIZE_AND_CASEFOLD(Username)))) STORED,
   -- The person's name, as people read it ("Gale Reyes"); null for none. It identifies
   -- nobody: the username does. A directory's sign-in or an invitation fills it only
   -- where the person holds none, so the person's own change stands.
   Name               STRING(MAX),
-  -- The look the person chose for the pages: light or dark, and one of the palettes the
-  -- application offers, by its id; null for none chosen. The person's own pages write
-  -- it and nothing else does, so it follows them to every browser they sign in from.
+  -- The look the person chose for the pages: light, dark or as their device is set
+  -- ('device'), and one of the palettes the application offers, by its id; null for none
+  -- chosen. The person's own pages write it and nothing else does, so it follows them to
+  -- every browser they sign in from.
   LookScheme         STRING(MAX),
   LookPalette        STRING(MAX),
   PasswordHash       STRING(MAX),
   Disabled           BOOL NOT NULL DEFAULT (FALSE),
-  -- An operator set the password (a first password, a reset): the person changes it
-  -- before anything else is served (the session library's forced change).
+  -- An administrator required a new password of the person: they choose it before
+  -- anything else is served (the session library's forced change).
   PasswordChangeRequired BOOL NOT NULL DEFAULT (FALSE),
   -- The database's time at the insert and at the latest sign-in (null before the
   -- first); the session library writes both as commit timestamps.
   CreatedAt          TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   LastSignInAt       TIMESTAMP OPTIONS (allow_commit_timestamp = true),
 %[4]s  CONSTRAINT CK_%[1]sSessionUsersId CHECK (REGEXP_CONTAINS(Id, %[3]s)),
-  CONSTRAINT CK_%[1]sSessionUsersLookScheme CHECK (LookScheme IN ('light', 'dark')),
+  CONSTRAINT CK_%[1]sSessionUsersLookScheme CHECK (LookScheme IN ('light', 'dark', 'device')),
 ) PRIMARY KEY(Id);
 
 CREATE UNIQUE INDEX %[1]sSessionUsersByNormalizedUsername ON %[1]sSessionUsers(NormalizedUsername);
@@ -81,24 +92,30 @@ func emailColumns(usernameIsEmail bool) string {
 	if usernameIsEmail {
 		return `  -- The person's email address is their sign-in name (session.UsernameIsEmail), so the
   -- database derives the address and its normalized form from the username: the two
-  -- cannot diverge, uniqueness holds once, and nothing writes either column.
+  -- cannot diverge, uniqueness holds once, and nothing writes either column. The
+  -- normalized form is the address with its ASCII capital letters lowercased and every
+  -- other character as written, which is how the library compares two addresses: LOWER
+  -- over BYTES treats its argument as ASCII and leaves every byte above 127 as it is.
   -- EmailVerifiedAt is the database's time at which the person proved they read the
   -- mailbox by following a link sent to it; null while the address is unverified. An
   -- address is trusted for nothing until it is verified.
   Email              STRING(MAX) AS (Username) STORED,
-  NormalizedEmail    STRING(MAX) AS (NORMALIZE_AND_CASEFOLD(Username)) STORED,
+  NormalizedEmail    STRING(MAX) AS (CAST(LOWER(CAST(Username AS BYTES)) AS STRING)) STORED,
   EmailVerifiedAt    TIMESTAMP OPTIONS (allow_commit_timestamp = true),
 `
 	}
 
 	return `  -- The person's email address, in two states, held apart from the username: Email as
-  -- the person gave it, NormalizedEmail the form uniqueness and lookups use, and
-  -- EmailVerifiedAt the database's time at which the person proved they read the
-  -- mailbox by following a link sent to it; null while the address is unverified. An
-  -- address is trusted for nothing until it is verified; an operator may put one on a
-  -- user by hand, unverified, which reserves it. No address is required.
+  -- the person gave it, NormalizedEmail the form uniqueness and lookups use (the address
+  -- with its ASCII capital letters lowercased and every other character as written,
+  -- which is how the library compares two addresses: LOWER over BYTES treats its
+  -- argument as ASCII and leaves every byte above 127 as it is), and EmailVerifiedAt the
+  -- database's time at which the person proved they read the mailbox by following a
+  -- link sent to it; null while the address is unverified. An address is trusted for
+  -- nothing until it is verified; an operator may put one on a user by hand, unverified,
+  -- which reserves it. No address is required.
   Email              STRING(MAX),
-  NormalizedEmail    STRING(MAX) AS (NORMALIZE_AND_CASEFOLD(Email)) STORED,
+  NormalizedEmail    STRING(MAX) AS (CAST(LOWER(CAST(Email AS BYTES)) AS STRING)) STORED,
   EmailVerifiedAt    TIMESTAMP OPTIONS (allow_commit_timestamp = true),
 `
 }
@@ -109,13 +126,17 @@ func usersDown(p string) string {
 
 func sessionsUp(p, who string) string {
 	return fmt.Sprintf(`-- The %[2]s auth's session tables: the session library's Auth sessions (session.Auth), one
--- set of tables for every sign-in method registered on the auth. A session belongs to a
--- user, and deleting the user deletes its sessions; UserId is null only for a
+-- set of tables for every sign-in method registered on the auth. A session names its user
+-- and is not held to it by a foreign key: a deleted user's sessions are ended in code, and
+-- their rows stay until the timed removal takes them. UserId is null only for a
 -- role-principal impersonation. ProviderSessionId is the identity provider's session id
 -- when the method reports one, for front-channel logout, and ProviderSessionIssuer the
--- issuer it belongs to. Every column that records when something happened is written
--- with the database's commit time, never the application's clock, which
--- allow_commit_timestamp permits.
+-- issuer it belongs to. Browser is the name of the browser a session was signed in from
+-- ("Chrome on Android"), worked out from the request's User-Agent header when the
+-- session is made, null where it was not recognized. It tells a person's sessions apart
+-- on their account page and decides nothing. Every column that records when something
+-- happened is written with the database's commit time, never the application's clock,
+-- which allow_commit_timestamp permits.
 CREATE TABLE %[1]sSessions (
     Id                    STRING(36) NOT NULL,
     Username              STRING(MAX) NOT NULL,
@@ -124,10 +145,10 @@ CREATE TABLE %[1]sSessions (
     AuthenticatedAt       TIMESTAMP OPTIONS (allow_commit_timestamp = true),
     ProviderSessionId     STRING(MAX),
     ProviderSessionIssuer STRING(MAX),
+    Browser               STRING(MAX),
     CreatedAt             TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     UpdatedAt             TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     CONSTRAINT CK_%[1]sSessionsId CHECK (REGEXP_CONTAINS(Id, %[3]s)),
-    CONSTRAINT FK_%[1]sSessions_%[1]sSessionUsers FOREIGN KEY (UserId) REFERENCES %[1]sSessionUsers (Id) ON DELETE CASCADE,
 ) PRIMARY KEY (Id);
 
 CREATE INDEX %[1]sSessions_Expired_idx ON %[1]sSessions (Expired DESC);
@@ -135,6 +156,10 @@ CREATE INDEX %[1]sSessions_Expired_idx ON %[1]sSessions (Expired DESC);
 CREATE INDEX %[1]sSessionsByUserId ON %[1]sSessions(UserId);
 
 CREATE INDEX %[1]sSessionsByProviderSessionId ON %[1]sSessions(ProviderSessionId);
+
+-- A session's row is removed 30 days after its last activity (UpdatedAt): Spanner deletes
+-- it in the background, with its auth events. A session in use is never removed.
+ALTER TABLE %[1]sSessions ADD ROW DELETION POLICY (OLDER_THAN(UpdatedAt, INTERVAL 30 DAY));
 
 -- The identity links: which provider subject is which person. A user holds one row per
 -- registration they have signed in through, keyed uniquely so a subject links to one
@@ -163,11 +188,11 @@ CREATE INDEX %[1]sSessionIdentitiesByUserId ON %[1]sSessionIdentities(UserId) ST
 -- method, its registration, and the provider's own amr claims). Not interleaved: an
 -- interleaved child's key must begin with the parent's, so the events reference their
 -- session through a cascading foreign key instead.
-`, p, who, guidCheck) + eventsUp(p, who) + mailLinksUp(p, who) + tokensUp(p, who) + factorsUp(p, who)
+`, p, who, guidCheck) + eventsUp(p, who) + signInSettingsUp(p) + auditRecordsUp(p, who) + mailLinksUp(p, who) + tokensUp(p, who) + factorsUp(p, who)
 }
 
 // eventsUp creates the auth events, pending sign-ins, sign-in attempts and sign-in
-// methods tables, the second part of the sessions migration; mailLinksUp follows it.
+// methods tables, the second part of the sessions migration; signInSettingsUp follows it.
 func eventsUp(p, who string) string {
 	return fmt.Sprintf(`CREATE TABLE %[1]sSessionAuthEvents (
     SessionId  STRING(36) NOT NULL,
@@ -224,18 +249,29 @@ CREATE UNIQUE INDEX %[1]sSessionPendingSignInsByTokenHash ON %[1]sSessionPending
 
 CREATE INDEX %[1]sSessionPendingSignInsByExpiresAt ON %[1]sSessionPendingSignIns(ExpiresAt);
 
+-- A pending sign-in's row is removed one day after it expired (ExpiresAt), consumed or
+-- not: Spanner deletes it in the background, with its sign-in codes.
+ALTER TABLE %[1]sSessionPendingSignIns ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 1 DAY));
+
 -- The sign-in attempts: the attempt limiter's count of failed password attempts per
 -- sign-in name, known or not, within a window, and the lock those failures earned. The
 -- row is keyed by the submitted name, never by the user row, so an unknown name is
 -- counted exactly as a known one; a success, an MFA completion or a password change
--- deletes it. WindowEndsAt and LockedUntil are deadlines, written as given.
+-- deletes it. WindowEndsAt and LockedUntil are deadlines, written as given. EndsAt is the
+-- moment the row stops counting: the end of its window or of its lock, whichever is
+-- later, worked out by the database.
 CREATE TABLE %[1]sSessionSignInAttempts (
     Name         STRING(MAX) NOT NULL,
     Failures     INT64 NOT NULL,
     WindowEndsAt TIMESTAMP NOT NULL,
     LockedUntil  TIMESTAMP,
     UpdatedAt    TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+    EndsAt       TIMESTAMP AS (GREATEST(WindowEndsAt, IFNULL(LockedUntil, WindowEndsAt))) STORED,
 ) PRIMARY KEY (Name);
+
+-- A sign-in attempts row is removed one day after it stopped counting (EndsAt). A lock that
+-- still holds is never removed, however long it lasts.
+ALTER TABLE %[1]sSessionSignInAttempts ADD ROW DELETION POLICY (OLDER_THAN(EndsAt, INTERVAL 1 DAY));
 
 -- The sign-in methods: what an administrator chose, in the running application, for one
 -- sign-in method of the auth, keyed by the name the method is registered under. OpenSignUp
@@ -245,23 +281,66 @@ CREATE TABLE %[1]sSessionSignInAttempts (
 -- since is invite only until it is opened again. DefaultRole names the role such a
 -- person is given with their account, and holds nothing in an application whose people
 -- get their roles in a tenant. A method with no row is invite
--- only, so the table starts empty and every method starts invite only.
+-- only, so the table starts empty and every method starts invite only. SelfServiceReset,
+-- read on the password method's row alone, says a person may ask at the sign-in page for
+-- a link that resets their own password; it starts false, and with no row nobody may.
 CREATE TABLE %[1]sSessionSignInMethods (
-    Name        STRING(MAX) NOT NULL,
-    OpenSignUp  BOOL NOT NULL,
-    OpenedFor   STRING(MAX),
-    DefaultRole STRING(MAX),
-    UpdatedAt   TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+    Name             STRING(MAX) NOT NULL,
+    OpenSignUp       BOOL NOT NULL,
+    OpenedFor        STRING(MAX),
+    DefaultRole      STRING(MAX),
+    SelfServiceReset BOOL NOT NULL DEFAULT (false),
+    UpdatedAt        TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
 ) PRIMARY KEY (Name);
 
 `, p, who, guidCheck)
+}
+
+// signInSettingsUp creates the sign-in settings table, the next part of the sessions
+// migration; auditRecordsUp follows it.
+func signInSettingsUp(p string) string {
+	return fmt.Sprintf(`-- The sign-in settings: what an administrator chose, in the running application, for the
+-- whole auth. The table holds at most one row, the Auth's, under the one name it takes
+-- ('auth'). RequireSecondFactor says everyone is asked for a second factor when they sign
+-- in, and RememberBrowserDays for how many days a browser a person asked to be remembered
+-- skips the code, 0 for browsers that are not remembered. An Auth with no row requires
+-- the second factor and remembers a browser for 30 days, so the table starts empty.
+-- UpdatedAt takes the commit time.
+CREATE TABLE %[1]sSessionSignInSettings (
+    Name                STRING(MAX) NOT NULL,
+    RequireSecondFactor BOOL NOT NULL,
+    RememberBrowserDays INT64 NOT NULL,
+    UpdatedAt           TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+    CONSTRAINT CK_%[1]sSessionSignInSettingsName CHECK (Name = 'auth'),
+) PRIMARY KEY (Name);
+
+`, p)
+}
+
+// auditRecordsUp creates the audit records table, the next part of the sessions migration;
+// mailLinksUp follows it. Its statements are the auditlog package's, the ones the session
+// library's schema sets create, kept forever: an application that keeps its audit records
+// for a period adds the row deletion policy in a migration of its own.
+func auditRecordsUp(p, who string) string {
+	return fmt.Sprintf(`-- The %[1]s auth's audit log: one row for each act that changes an account, who holds
+-- what, or how people sign in. A row holds parts and no sentence: when, the act by its
+-- fixed name, who acted, whom or what it was done to, the tenant it was done in, the role,
+-- the group, the old and new value and the period where the act has them, and the reason
+-- where there was one. Each name is kept as it was when the act happened, beside its id.
+-- No row holds a password, a token, a code or a link. Rows are written by the library
+-- alone and never changed. An application that keeps them for a period adds the row
+-- deletion policy the auditlog package gives (Spanner); on PostgreSQL the store removes
+-- them as it writes.
+`, who) + strings.Join(auditlog.SpannerDDL(p+"SessionAuditRecords", auditlog.KeepForever()), ";\n\n") + ";\n\n"
 }
 
 // mailLinksUp creates the mail links table, the next part of the sessions migration;
 // tokensUp follows it.
 func mailLinksUp(p, who string) string {
 	return fmt.Sprintf(`-- The mail links: the single-use links the auth mails. A row is one link: an invitation
--- to an address, carrying the tenant and the roles its acceptance seats, the name its
+-- to an address, carrying the roles its acceptance gives and the place they are held in
+-- (TenantId for one tenant, EveryTenant for every tenant, neither for the whole
+-- application: the acceptance gives each role there and nowhere else), the name its
 -- sender gave the person (Name, null for none) and who sent it, or, for an invitation
 -- that brings an organization in, the tenant its first sign-in makes (NewTenant, a JSON
 -- document: the tenant's name, whether it is entered through its directory only, and
@@ -269,12 +348,20 @@ func mailLinksUp(p, who string) string {
 -- the verification of an address a signed-in person adds (UserId names the account,
 -- Email the address); a sign-up a person starts by giving their address; or the code a
 -- signed-in person who has no password is mailed to choose their first one (UserId
--- names the account, and the row keeps the code's hash where a link keeps its token's).
+-- names the account, and the row keeps the code's hash where a link keeps its token's);
+-- the link that resets a password (UserId names the account, Email the confirmed
+-- address it was mailed to); or the confirmation of an address an administrator set
+-- for a person (UserId names the account, Email the new address).
 -- The mail carries an opaque token and the row keeps its hash; the row is accepted only
 -- while it is live, not expired and not consumed, and is consumed by a conditional
--- update so one link completes once. A revoked invitation is consumed by hand. A
--- verification link and a first-password code go with their user. CreatedAt and
--- ConsumedAt take the commit time; ExpiresAt is the library's deadline, written as given.
+-- update so one link completes once. A revoked invitation is consumed by hand, and a
+-- link whose message could not be mailed is consumed where the mail failed, with
+-- MailFailedAt set: it tells such a link from one that was followed or withdrawn. A
+-- link that was taken back is consumed too, with WithdrawnAt set: it tells a
+-- withdrawal from an acceptance. A verification link, a first-password code, a reset
+-- link and an address confirmation go with their user. CreatedAt, ConsumedAt,
+-- MailFailedAt and WithdrawnAt take the commit time; ExpiresAt is the library's
+-- deadline, written as given.
 CREATE TABLE %[1]sSessionMailLinks (
     Id         STRING(36) NOT NULL,
     TokenHash  BYTES(32) NOT NULL,
@@ -283,14 +370,17 @@ CREATE TABLE %[1]sSessionMailLinks (
     Name       STRING(MAX),
     UserId     STRING(36),
     TenantId   STRING(MAX),
+    EveryTenant BOOL NOT NULL DEFAULT (false),
     RoleNames  ARRAY<STRING(MAX)>,
     NewTenant  STRING(MAX),
     InvitedByUserId STRING(36),
     CreatedAt  TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     ExpiresAt  TIMESTAMP NOT NULL,
     ConsumedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
+    MailFailedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
+    WithdrawnAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
     CONSTRAINT CK_%[1]sSessionMailLinksId CHECK (REGEXP_CONTAINS(Id, %[3]s)),
-    CONSTRAINT CK_%[1]sSessionMailLinksKind CHECK (Kind IN ('invitation', 'verification', 'sign-up', 'first-password')),
+    CONSTRAINT CK_%[1]sSessionMailLinksKind CHECK (Kind IN ('invitation', 'verification', 'sign-up', 'first-password', 'password-reset', 'address-change')),
     CONSTRAINT FK_%[1]sSessionMailLinks_%[1]sSessionUsers FOREIGN KEY (UserId) REFERENCES %[1]sSessionUsers (Id) ON DELETE CASCADE,
 ) PRIMARY KEY (Id);
 
@@ -298,10 +388,14 @@ CREATE UNIQUE INDEX %[1]sSessionMailLinksByTokenHash ON %[1]sSessionMailLinks(To
 
 CREATE INDEX %[1]sSessionMailLinksByKind ON %[1]sSessionMailLinks(Kind, ConsumedAt, ExpiresAt);
 
--- A tenant's links, newest first, with the columns a tenant's list of its invitations
--- shows: a page of that list reads its own rows from the index and nothing else. A link
--- that names no tenant is not in it.
-CREATE NULL_FILTERED INDEX %[1]sSessionMailLinksByTenantId ON %[1]sSessionMailLinks(TenantId, Kind, CreatedAt DESC) STORING (Email, Name, RoleNames, InvitedByUserId, ExpiresAt, ConsumedAt);
+-- A tenant's links, newest first, with every column of the table a tenant's list of its
+-- invitations reads: a page of that list reads its own rows from the index and no row of
+-- the table. The name of an invitation's sender comes from the users table, by the
+-- sender's id. A link that names no tenant is not in it.
+CREATE NULL_FILTERED INDEX %[1]sSessionMailLinksByTenantId ON %[1]sSessionMailLinks(TenantId, Kind, CreatedAt DESC) STORING (Email, Name, RoleNames, InvitedByUserId, ExpiresAt, ConsumedAt, MailFailedAt, WithdrawnAt);
+
+-- A mail link's row is removed 30 days after the link expired (ExpiresAt), used or not.
+ALTER TABLE %[1]sSessionMailLinks ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY));
 
 `, p, who, guidCheck)
 }
@@ -346,6 +440,11 @@ CREATE INDEX %[1]sSessionTokensByUser ON %[1]sSessionTokens(UserId, RevokedAt, E
 
 CREATE INDEX %[1]sSessionTokensByFamilyId ON %[1]sSessionTokens(FamilyId, RevokedAt);
 
+-- A token's row is removed 30 days after the token expired (ExpiresAt), revoked or not. A
+-- refresh token that was rotated stays until then, so one presented again before it
+-- expires is still caught as a reuse.
+ALTER TABLE %[1]sSessionTokens ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY));
+
 -- The device codes: the device authorizations command-line clients start for a machine
 -- outlet whose tokens the %[2]s auth issues (RFC 8628). The client holds the opaque
 -- device code and the row keeps its hash; the person is shown the user code, normalized
@@ -374,18 +473,24 @@ CREATE TABLE %[1]sSessionDeviceCodes (
 CREATE UNIQUE INDEX %[1]sSessionDeviceCodesByHash ON %[1]sSessionDeviceCodes(DeviceCodeHash);
 
 CREATE INDEX %[1]sSessionDeviceCodesByUserCode ON %[1]sSessionDeviceCodes(UserCode, ExpiresAt);
+
+-- A device code's row is removed one day after the code expired (ExpiresAt), whether it
+-- was approved, denied or never decided.
+ALTER TABLE %[1]sSessionDeviceCodes ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 1 DAY));
 `, p, who, guidCheck)
 }
 
 // factorsUp creates the sign-in codes and trusted devices tables, the last part of the
-// sessions migration: the second factor every session carries.
+// sessions migration: the second factor the auth's sign-in setting requires.
 func factorsUp(p, who string) string {
 	return fmt.Sprintf(`
 -- The second factor of the %[2]s auth's sessions: the sign-in codes and the trusted
 -- devices. A sign-in code is one code mailed for a pending sign-in (PendingId): the mail
 -- carries the code and the row keeps its hash; the row is live while it is not consumed
 -- and not expired, Attempts counts the wrong codes entered against it, and a new code for
--- the same pending sign-in consumes the earlier one. A trusted device is a browser a
+-- the same pending sign-in consumes the earlier one. A code mailed for an invitation
+-- names it (InvitationId) and accepts that one alone; every other code names none. A
+-- trusted device is a browser a
 -- person asked to be remembered after a code (UserId): the browser holds an opaque token
 -- in the auth's trusted-device cookie and the row keeps its hash; it stands in for the
 -- factor while it is not revoked and not expired, and an administrator revokes every
@@ -401,6 +506,7 @@ CREATE TABLE %[1]sSessionFactorCodes (
     CreatedAt  TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     ExpiresAt  TIMESTAMP NOT NULL,
     ConsumedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
+    InvitationId STRING(36),
     CONSTRAINT CK_%[1]sSessionFactorCodesId CHECK (REGEXP_CONTAINS(Id, %[3]s)),
     CONSTRAINT FK_%[1]sSessionFactorCodes_%[1]sSessionPendingSignIns FOREIGN KEY (PendingId) REFERENCES %[1]sSessionPendingSignIns (Id) ON DELETE CASCADE,
 ) PRIMARY KEY (Id);
@@ -422,6 +528,9 @@ CREATE TABLE %[1]sSessionTrustedDevices (
 CREATE UNIQUE INDEX %[1]sSessionTrustedDevicesByTokenHash ON %[1]sSessionTrustedDevices(TokenHash);
 
 CREATE INDEX %[1]sSessionTrustedDevicesByUser ON %[1]sSessionTrustedDevices(UserId, RevokedAt);
+
+-- A trusted device's row is removed 30 days after it expired (ExpiresAt), revoked or not.
+ALTER TABLE %[1]sSessionTrustedDevices ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY));
 `, p, who, guidCheck)
 }
 
@@ -443,6 +552,10 @@ func sessionsDown(p string) string {
 		"DROP INDEX %[1]sSessionMailLinksByKind;",
 		"DROP INDEX %[1]sSessionMailLinksByTokenHash;",
 		"DROP TABLE %[1]sSessionMailLinks;",
+		"DROP INDEX %[1]sSessionAuditRecordsByTenant;",
+		"DROP INDEX %[1]sSessionAuditRecordsByCreatedAt;",
+		"DROP TABLE %[1]sSessionAuditRecords;",
+		"DROP TABLE %[1]sSessionSignInSettings;",
 		"DROP TABLE %[1]sSessionSignInMethods;",
 		"DROP TABLE %[1]sSessionSignInAttempts;",
 		"DROP INDEX %[1]sSessionPendingSignInsByExpiresAt;",

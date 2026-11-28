@@ -2,12 +2,12 @@ package access
 
 import (
 	"context"
-	"slices"
 	"strings"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/access/internal/policy"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 )
 
 var _ policyStore = (*storeManager)(nil)
@@ -35,17 +35,8 @@ func (m *storeManager) notifyPolicyChange() {
 	}
 }
 
-func (m *storeManager) addUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period) error {
-	if err := m.store.InsertUserRole(ctx, scope, user, role, period); err != nil {
-		return errors.Wrapf(err, "access.Store.InsertUserRole(): role %q to %q", role, user)
-	}
-	m.notifyPolicyChange()
-
-	return nil
-}
-
-func (m *storeManager) deleteUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role) error {
-	if err := m.store.DeleteUserRole(ctx, scope, user, role); err != nil {
+func (m *storeManager) deleteUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, record *auditlog.Record) error {
+	if err := m.store.DeleteUserRole(ctx, scope, user, role, record); err != nil {
 		return errors.Wrapf(err, "access.Store.DeleteUserRole(): role %q from %q", role, user)
 	}
 	m.notifyPolicyChange()
@@ -91,6 +82,24 @@ func (m *storeManager) roles(ctx context.Context, scope accesstypes.PolicyScope)
 	roles := make([]RoleInfo, 0, len(rows))
 	for _, row := range rows {
 		roles = append(roles, RoleInfo{Name: row.Name, Description: row.Description})
+	}
+
+	return roles, nil
+}
+
+// domainRoles lists every custom role held in one domain, whatever the
+// domain, from the whole policy the store holds.
+func (m *storeManager) domainRoles(ctx context.Context) ([]policy.Role, error) {
+	records, err := m.store.ReadPolicy(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "access.Store.ReadPolicy()")
+	}
+
+	roles := make([]policy.Role, 0, len(records.Roles))
+	for _, role := range records.Roles {
+		if _, oneDomain := role.Scope.Domain(); oneDomain {
+			roles = append(roles, role)
+		}
 	}
 
 	return roles, nil
@@ -249,6 +258,24 @@ func (m *storeManager) removeScopeWideGrant(ctx context.Context, scope accesstyp
 	return nil
 }
 
+// removeAllGrants removes every grant row the store holds for the role, each by
+// the four columns the store lists it with, never by a name joined and split
+// again, so a row no write could have made is removed with the rest.
+func (m *storeManager) removeAllGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) error {
+	grants, err := m.store.ListRoleGrants(ctx, scope, role)
+	if err != nil {
+		return errors.Wrapf(err, "access.Store.ListRoleGrants(): role %q", role)
+	}
+	for _, g := range grants {
+		if err := m.store.DeleteGrant(ctx, scope, role, g.Perm, g.Resource, g.Field, g.Condition); err != nil {
+			return errors.Wrapf(err, "access.Store.DeleteGrant(): %q on resource %q, field %q for role %q", g.Perm, g.Resource, g.Field, role)
+		}
+		m.notifyPolicyChange()
+	}
+
+	return nil
+}
+
 func (m *storeManager) roleGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (accesstypes.RolePermissionCollection, error) {
 	grants, err := m.store.ListRoleGrants(ctx, scope, role)
 	if err != nil {
@@ -269,34 +296,22 @@ func (m *storeManager) roleGrants(ctx context.Context, scope accesstypes.PolicyS
 	return permissions, nil
 }
 
-// roleGrantConditions returns the role's resource grants with the conditions
-// each resource is granted under (sorted; "" is the unconditional grant),
-// keyed by permission; scope-wide grants are structural (no resource) and not
-// included.
-func (m *storeManager) roleGrantConditions(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (map[accesstypes.Permission]map[accesstypes.Resource][]string, error) {
+// roleResourceGrants returns the rows the store holds for the role on resources, in
+// the store's order; scope-wide grants are structural (no resource) and not included.
+func (m *storeManager) roleResourceGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) ([]policy.RoleGrant, error) {
 	grants, err := m.store.ListRoleGrants(ctx, scope, role)
 	if err != nil {
 		return nil, errors.Wrapf(err, "access.Store.ListRoleGrants(): role %q", role)
 	}
 
-	out := make(map[accesstypes.Permission]map[accesstypes.Resource][]string)
+	rows := make([]policy.RoleGrant, 0, len(grants))
 	for _, g := range grants {
-		if g.Resource == "" {
-			continue
-		}
-		if out[g.Perm] == nil {
-			out[g.Perm] = make(map[accesstypes.Resource][]string)
-		}
-		res := joinResourceField(g.Resource, g.Field)
-		out[g.Perm][res] = append(out[g.Perm][res], g.Condition)
-	}
-	for _, resources := range out {
-		for _, conditions := range resources {
-			slices.Sort(conditions)
+		if g.Resource != "" {
+			rows = append(rows, g)
 		}
 	}
 
-	return out, nil
+	return rows, nil
 }
 
 // splitGrantResource splits a declared resource into its stored (base, field)
@@ -331,4 +346,58 @@ func joinResourceField(base, field string) accesstypes.Resource {
 	}
 
 	return accesstypes.Resource(base + "." + field)
+}
+
+func (m *storeManager) assignRecordUserRole(ctx context.Context, at accesstypes.RecordScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period) error {
+	if err := m.store.InsertRecordUserRole(ctx, at, user, role, period); err != nil {
+		return errors.Wrapf(err, "access.Store.InsertRecordUserRole(): role %q on %s to %q", role, at, user)
+	}
+	m.notifyPolicyChange()
+
+	return nil
+}
+
+func (m *storeManager) deleteRecordUserRole(ctx context.Context, at accesstypes.RecordScope, user accesstypes.User, role accesstypes.Role) error {
+	if err := m.store.DeleteRecordUserRole(ctx, at, user, role); err != nil {
+		return errors.Wrapf(err, "access.Store.DeleteRecordUserRole(): role %q on %s from %q", role, at, user)
+	}
+	m.notifyPolicyChange()
+
+	return nil
+}
+
+func (m *storeManager) assignRecordGroupRole(ctx context.Context, group accesstypes.Group, at accesstypes.RecordScope, role accesstypes.Role, period accesstypes.Period) error {
+	if err := m.store.InsertRecordGroupRole(ctx, group, at, role, period); err != nil {
+		return errors.Wrapf(err, "access.Store.InsertRecordGroupRole(): role %q on %s to group %q", role, at, group)
+	}
+	m.notifyPolicyChange()
+
+	return nil
+}
+
+func (m *storeManager) deleteRecordGroupRole(ctx context.Context, group accesstypes.Group, at accesstypes.RecordScope, role accesstypes.Role) error {
+	if err := m.store.DeleteRecordGroupRole(ctx, group, at, role); err != nil {
+		return errors.Wrapf(err, "access.Store.DeleteRecordGroupRole(): role %q on %s from group %q", role, at, group)
+	}
+	m.notifyPolicyChange()
+
+	return nil
+}
+
+func (m *storeManager) recordRoles(ctx context.Context, at accesstypes.RecordScope) ([]policy.RecordAssignment, error) {
+	held, err := m.store.ListRecordRoles(ctx, at)
+	if err != nil {
+		return nil, errors.Wrapf(err, "access.Store.ListRecordRoles(): %s", at)
+	}
+
+	return held, nil
+}
+
+func (m *storeManager) deleteRecordRoles(ctx context.Context, at accesstypes.RecordScope) error {
+	if err := m.store.DeleteRecordRoles(ctx, at); err != nil {
+		return errors.Wrapf(err, "access.Store.DeleteRecordRoles(): %s", at)
+	}
+	m.notifyPolicyChange()
+
+	return nil
 }

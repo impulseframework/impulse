@@ -4,9 +4,11 @@ import (
 	"context"
 	"net/http"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
@@ -30,14 +32,20 @@ type authSettings struct {
 	pendingHook    PendingHook
 	pendingTimeout time.Duration
 	pendingCookie  string
-	// identitiesTable, pendingSignInsTable, signInAttemptsTable, mailLinksTable and
-	// signInMethodsTable name the group's tables; nil keeps the store's defaults.
+	// identitiesTable, pendingSignInsTable, signInAttemptsTable, mailLinksTable,
+	// signInMethodsTable, signInSettingsTable and auditRecordsTable name the group's
+	// tables; nil keeps the store's defaults.
 	identitiesTable     *string
 	pendingSignInsTable *string
 	signInAttemptsTable *string
 	mailLinksTable      *string
 	signInMethodsTable  *string
-	// mail is how the Auth sends mail, nil when it sends none.
+	signInSettingsTable *string
+	auditRecordsTable   *string
+	// auditRecordsKept is how long the Auth keeps its audit records (KeepAuditRecords),
+	// nil for forever.
+	auditRecordsKept *auditlog.Period
+	// mail is how the Auth sends mail: NewAuth's argument, validated.
 	mail *mailSettings
 	// invitationCookie names the cookie that carries an opened invitation into the
 	// sign-in.
@@ -148,6 +156,29 @@ func WithSignInMethodsTableName(name string) AuthOption {
 	return authOption{apply: func(s *authSettings) { s.signInMethodsTable = &name }}
 }
 
+// WithSignInSettingsTableName sets the name of the group's sign-in settings table.
+// (default: SessionSignInSettings)
+func WithSignInSettingsTableName(name string) AuthOption {
+	return authOption{apply: func(s *authSettings) { s.signInSettingsTable = &name }}
+}
+
+// WithAuditRecordsTableName sets the name of the group's audit records table, where the
+// Auth keeps its audit log. (default: SessionAuditRecords)
+func WithAuditRecordsTableName(name string) AuthOption {
+	return authOption{apply: func(s *authSettings) { s.auditRecordsTable = &name }}
+}
+
+// KeepAuditRecords says how long the Auth keeps its audit records on PostgreSQL, where
+// the store removes older rows as it writes one. On Spanner the table's row deletion
+// policy removes them, written into the application's migration (auditlog.SpannerDDL),
+// and NewAuth refuses this option with the statement to write.
+//
+// The period is counted in hours, a day being 24 of them (auditlog.KeepDays); with
+// auditlog.KeepForever, or without the option, no row is removed.
+func KeepAuditRecords(period auditlog.Period) AuthOption {
+	return authOption{apply: func(s *authSettings) { s.auditRecordsKept = &period }}
+}
+
 // WithInvitationCookieName sets the name of the cookie that carries an invitation the
 // browser opened into the sign-in. (default: auth-invitation)
 func WithInvitationCookieName(name string) AuthOption {
@@ -204,6 +235,8 @@ func nameTables[Tx any](storage sessionstorage.AuthStore[Tx], settings *authSett
 		{option: "WithSignInAttemptsTableName", name: settings.signInAttemptsTable, set: storage.SetSignInAttemptsTableName},
 		{option: "WithMailLinksTableName", name: settings.mailLinksTable, set: storage.SetMailLinksTableName},
 		{option: "WithSignInMethodsTableName", name: settings.signInMethodsTable, set: storage.SetSignInMethodsTableName},
+		{option: "WithSignInSettingsTableName", name: settings.signInSettingsTable, set: storage.SetSignInSettingsTableName},
+		{option: "WithAuditRecordsTableName", name: settings.auditRecordsTable, set: storage.SetAuditRecordsTableName},
 		{option: "WithTokensTableName", name: settings.tokensTable, set: storage.SetTokensTableName},
 		{option: "WithDeviceCodesTableName", name: settings.deviceCodesTable, set: storage.SetDeviceCodesTableName},
 		{option: "WithFactorCodesTableName", name: settings.factorCodesTable, set: storage.SetFactorCodesTableName},
@@ -253,6 +286,13 @@ type Auth[SessionData, UserData, Tx any] struct {
 	// signedIn is the application's after-sign-in hook, nil when it set none. Set by
 	// SetSignedInHook before the Auth is in use.
 	signedIn SignedInHook
+	// ownTenants answers the own-tenants handlers (OwnTenants, LeaveTenant), nil when the
+	// application set none. Set by SetOwnTenants before the Auth is in use.
+	ownTenants *OwnTenantsHook
+	// passwordDisabledCheck says whose password the tenants' sign-in settings disable
+	// (signin.PasswordsDisabledByTenants), nil when the application set none. Set by
+	// SetPasswordDisabledCheck before the Auth is in use.
+	passwordDisabledCheck signin.PasswordDisabledCheck
 
 	// cookies is the session cookie client. It also writes the external methods' state
 	// cookies.
@@ -275,10 +315,6 @@ type Auth[SessionData, UserData, Tx any] struct {
 	// anything: with directories it decides a first link made on a name alone. Set
 	// with them.
 	directoryOnlyIn signinflow.OnlyInTenant[Tx]
-	// directorySeeded reports whether an account is the deployment's own seed for a
-	// registration, nil where the application named none
-	// (DirectorySeatedHook.Seeded).
-	directorySeeded signinflow.SeededAccount
 	// signUpSeated gives a person who signed up through an open method the method's
 	// default role, nil for none.
 	signUpSeated signinflow.SignUpSeater[Tx]
@@ -287,6 +323,9 @@ type Auth[SessionData, UserData, Tx any] struct {
 	tenantNames TenantNamer
 	// methods are the registered sign-in methods. Read them through registered.
 	methods signInMethods[Tx]
+	// background counts the work the Auth does once a request is answered (later),
+	// which AuthAPI.WaitForMail waits for.
+	background sync.WaitGroup
 }
 
 // SuperAdministrators is what NewAuth is told about the holders of the Super
@@ -307,12 +346,10 @@ type SuperAdministrators struct {
 // check reports. Pass signin.SuperAdministrators over the access library's user manager
 // (on Spanner over resource.SignInRoles of it, as the tenant policy is), built before
 // the Auth. The Auth then holds a holder's sign-in for the code it mails, whatever the
-// application's sign-in rule asks of anyone else (signin.SuperAdministratorFactor), so
-// the Auth must send mail (WithMail): NewAuth refuses one that sends none, and a nil
-// check. A sign-in through a method that synchronizes roles is not held: there the
-// directory is the authority on who is a super administrator, and the application's own
-// rule is asked of that person as of anyone. NewAuth asks such an Auth for mail all the
-// same.
+// application's sign-in rule asks of anyone else (signin.SuperAdministratorFactor).
+// NewAuth refuses a nil check. A sign-in through a method that synchronizes roles is
+// not held: there the directory is the authority on who is a super administrator, and
+// the application's own rule is asked of that person as of anyone.
 func SuperAdministratorsBy(check signin.SuperAdministratorCheck) SuperAdministrators {
 	return SuperAdministrators{none: false, checked: true, check: check}
 }
@@ -326,9 +363,8 @@ func NoSuperAdministrators() SuperAdministrators {
 }
 
 // validate refuses what NewAuth cannot build an Auth from: no word on the super
-// administrators at all, a word with no check behind it, and super administrators on an
-// Auth that cannot mail the code their second factor is.
-func (s SuperAdministrators) validate(mails bool) error {
+// administrators at all, and a word with no check behind it.
+func (s SuperAdministrators) validate() error {
 	switch {
 	case s.none:
 		return nil
@@ -337,9 +373,6 @@ func (s SuperAdministrators) validate(mails bool) error {
 			"so a holder of the Super Administrator role signs in with a second factor, or session.NoSuperAdministrators() for an application with no permission engine")
 	case s.check == nil:
 		return errors.New("session.SuperAdministratorsBy was given no check: pass signin.SuperAdministrators over the access library's user manager")
-	case !mails:
-		return errors.New("the Auth has super administrators and sends no mail: a super administrator signs in with a second factor, the code the Auth mails, " +
-			"and an Auth without mail could not send it, so a holder would never sign in; pass session.WithMail with the application's sender and its mail settings")
 	default:
 		return nil
 	}
@@ -348,7 +381,7 @@ func (s SuperAdministrators) validate(mails bool) error {
 // NewAuth creates an Auth session for the given storage. The storage's custom session
 // and user data configurations must be built for SessionData and UserData. Tx is
 // inferred from the storage: an application writes
-// NewAuth[SessionData, UserData](store, cookieKey, superAdministrators, options...).
+// NewAuth[SessionData, UserData](store, cookieKey, superAdministrators, mail, options...).
 //
 // superAdministrators says who holds the Super Administrator role
 // (SuperAdministratorsBy, or NoSuperAdministrators for an application with no permission
@@ -357,8 +390,13 @@ func (s SuperAdministrators) validate(mails bool) error {
 // rule asks anyone for one. A sign-in the rule allows, or any sign-in where no rule is
 // set, is held for the code the library mails when the person holds the role, unless
 // the sign-in already carries a second factor as any account's may (the directory's
-// attestation, or a browser the person asked to be remembered). So an Auth with super
-// administrators must send mail (WithMail), and NewAuth refuses one that does not.
+// attestation, or a browser the person asked to be remembered).
+//
+// mail is how the Auth sends mail (MailSettings: the sender, the application's name and
+// its login page). It is an argument and not an option because nothing works without
+// it: an invitation, a sign-up, a password reset, the code a sign-in is held for and the
+// notices that tell a person their account changed all go by mail. NewAuth refuses a nil
+// sender, an empty application name and a login URL that is not absolute.
 //
 // A sign-in is decided by the library's own checks: the user exists and is enabled,
 // the identity is linked or resolved, roles reconcile. An application with rules of
@@ -367,7 +405,7 @@ func (s SuperAdministrators) validate(mails bool) error {
 // cookieKey: A Base64-encoded string representing at least 32 bytes
 // of cryptographically secure random data.
 func NewAuth[SessionData, UserData, Tx any](
-	storage sessionstorage.AuthStore[Tx], cookieKey string, superAdministrators SuperAdministrators, options ...AuthOption,
+	storage sessionstorage.AuthStore[Tx], cookieKey string, superAdministrators SuperAdministrators, mail MailSettings, options ...AuthOption,
 ) (*Auth[SessionData, UserData, Tx], error) {
 	if storage == nil {
 		return nil, errors.New("storage is required: pass sessionstorage.NewSpannerAuth or NewPostgresAuth")
@@ -392,10 +430,9 @@ func NewAuth[SessionData, UserData, Tx any](
 	if settings.pendingTimeout <= 0 {
 		return nil, errors.New("the pending timeout must be positive")
 	}
-	if settings.mail != nil {
-		if err := settings.mail.validate(); err != nil {
-			return nil, err
-		}
+	settings.mail = &mailSettings{sender: mail.Sender, settings: mail}
+	if err := settings.mail.validate(); err != nil {
+		return nil, err
 	}
 	if err := settings.tokens.validate(); err != nil {
 		return nil, err
@@ -403,11 +440,16 @@ func NewAuth[SessionData, UserData, Tx any](
 	if err := settings.factors.validate(); err != nil {
 		return nil, err
 	}
-	if err := superAdministrators.validate(settings.mail != nil); err != nil {
+	if err := superAdministrators.validate(); err != nil {
 		return nil, err
 	}
 	if err := nameTables(storage, &settings); err != nil {
 		return nil, err
+	}
+	if settings.auditRecordsKept != nil {
+		if err := storage.SetAuditRecordsPeriod(*settings.auditRecordsKept); err != nil {
+			return nil, errors.Wrap(err, "KeepAuditRecords()")
+		}
 	}
 
 	baseSession, cookieClient, err := sessioncore.NewBaseSession(storage, cookieKey, options)
@@ -442,7 +484,8 @@ type authCookies struct {
 
 // newAuthCookies builds the clients of the pending, invitation and trusted device
 // cookies under the session's cookie key and options, refusing a name that is empty
-// or that another of the four cookies has.
+// or that another of the four cookies has, or that the invitation cookie's companion
+// takes (seatedCookie).
 func newAuthCookies(cookieKey, sessionCookie string, opts []internalcookie.Option, settings *authSettings) (*authCookies, error) {
 	names := []struct {
 		what, name string
@@ -464,6 +507,14 @@ func newAuthCookies(cookieKey, sessionCookie string, opts []internalcookie.Optio
 		}
 		clients = append(clients, client)
 	}
+	// The tenant an accepted invitation leads to rides in a cookie named after the
+	// invitation cookie (seatedCookie), which no other cookie may be named.
+	if seated := settings.invitationCookie + seatedCookieSuffix; taken[seated] {
+		return nil, errors.Newf(
+			"the cookie name %q is the one the invitation cookie %q keeps for the tenant an accepted invitation leads to: give the other cookie another name",
+			seated, settings.invitationCookie,
+		)
+	}
 
 	return &authCookies{pending: clients[0], invitation: clients[1], trusted: clients[2]}, nil
 }
@@ -472,7 +523,11 @@ func newAuthCookies(cookieKey, sessionCookie string, opts []internalcookie.Optio
 // known and before any session exists, for every sign-in method and for a session the
 // application starts for a user it authenticated itself (AuthAPI.StartAuthenticatedSession),
 // with signin.Allow, signin.Deny or signin.RequireMFA. Without a policy the library's
-// own checks decide. Set it after NewAuth and before serving the first request; a nil
+// own checks decide. After the policy, or in its place where there is none, the Auth's
+// sign-in settings are read: while they ask everyone for a second factor, a sign-in the
+// policy allows is held for the library's mailed code unless it already carries a
+// second factor (AuthAPI.SetSecondFactorRequired).
+// Set it after NewAuth and before serving the first request; a nil
 // policy, a second policy, or a policy set once the Auth is in use is a wiring
 // mistake and panics, as a misregistered sign-in method does.
 func (a *Auth[SessionData, UserData, Tx]) SetSignInPolicy(policy signin.Policy[Tx]) {
@@ -526,6 +581,60 @@ func (a *Auth[SessionData, UserData, Tx]) SetSignedInHook(hook SignedInHook) {
 	a.signedIn = hook
 }
 
+// SetOwnTenants sets the hook that answers OwnTenants and LeaveTenant: the application's
+// rules of who belongs where, which the generated identity client's OwnTenants holds.
+// Without it both handlers answer 404 and the methods answer names neither route. Set it
+// after NewAuth and before the routes are wired: the methods answer is built when Methods
+// is called, so a hook set after it would be served and never told to the page. A hook
+// with no List or no Leave, a hook set once the Auth is in use, one set after Methods was
+// called, or a second hook is a wiring mistake and panics, as SetSignedInHook does.
+func (a *Auth[SessionData, UserData, Tx]) SetOwnTenants(hook OwnTenantsHook) {
+	if hook.List == nil || hook.Leave == nil {
+		panic("session: SetOwnTenants was given a hook with no List or no Leave: pass the identity client's OwnTenants, or set none")
+	}
+	a.methods.mu.Lock()
+	defer a.methods.mu.Unlock()
+
+	if a.methods.inUse.Load() {
+		panic("session: the own-tenants hook was set after the Auth served a request: set it before serving")
+	}
+	if len(a.methods.lists) > 0 {
+		panic("session: the own-tenants hook was set after Methods was called, so the methods answer names no tenants paths: set it before the routes are wired")
+	}
+	if a.ownTenants != nil {
+		panic("session: the own-tenants hook was set twice: one Auth has one")
+	}
+	a.ownTenants = &hook
+}
+
+// SetPasswordDisabledCheck sets the check that says whose password the tenants' sign-in
+// settings disable: the tenant policy's own decision for a sign-in with a password,
+// signin.PasswordsDisabledByTenants over the role store and the declarations the policy
+// reads. With it, what a person signs in with (SignInMeans) says so (PasswordDisabled),
+// so their account page draws no Password line, and the person is refused a first
+// password (FirstPassword(), 403); a password their account holds stays. The check is
+// handed the directories the account signs in through, read with the reader set with
+// SetDirectoryAdmission, and none on an Auth that sets no directory admission. Without
+// the check, and on an Auth with no password method, nobody's password is disabled. Set
+// it after NewAuth and before serving the first request; a nil check, a second check, or
+// a check set once the Auth is in use is a wiring mistake and panics, as SetOwnTenants
+// does.
+func (a *Auth[SessionData, UserData, Tx]) SetPasswordDisabledCheck(check signin.PasswordDisabledCheck) {
+	if check == nil {
+		panic("session: SetPasswordDisabledCheck was given nil: pass signin.PasswordsDisabledByTenants over the role store and the declarations the tenant policy reads, or set none")
+	}
+	a.methods.mu.Lock()
+	defer a.methods.mu.Unlock()
+
+	if a.methods.inUse.Load() {
+		panic("session: the password-disabled check was set after the Auth served a request: set it before serving")
+	}
+	if a.passwordDisabledCheck != nil {
+		panic("session: the password-disabled check was set twice: one Auth has one")
+	}
+	a.passwordDisabledCheck = check
+}
+
 // UserRenamedHook is told that a user's username changed by the library's own doing:
 // under a password method declared UsernameIsEmail, the person who verifies a new
 // address is renamed to it, live sessions included, as a rename does. Role memberships
@@ -564,9 +673,17 @@ func (a *Auth[SessionData, UserData, Tx]) SetUserRenamed(hook UserRenamedHook) {
 // or neither. It runs for every acceptance: the one a sign-in or a sign-up performs
 // with the invitation the browser carries, and Invitation().Accept() for a person
 // already signed in. The user is named by id, the key role memberships are held under,
-// and by username, what a log line reads; a user the same transaction provisioned is
-// buffered in it and is not readable until the commit, so the hook writes under the id
-// it is given and looks nobody up.
+// and by username, what a log line reads; a user the same transaction makes (one a
+// directory sign-in provisions, and the account of a sign-up with a password through
+// the invitation) is buffered in it and is not readable until the commit, so the hook
+// writes under the id it is given and looks nobody up.
+//
+// For an invitation that makes a tenant (inv.NewTenant), the hook makes the tenant and
+// seats the user in it, and sets inv.MadeTenantID to the key of the tenant it made,
+// each time it runs. The library reads the field once the acceptance has committed,
+// and the application opens for the person in that tenant, as it opens in the tenant
+// an invitation names (Authenticated's invitedTenant). A hook that leaves it empty
+// lands the person as any sign-in does.
 //
 // The hook reads and writes through tx alone. The Spanner emulator allows one
 // read-write transaction at a time, so a second transaction, or a read through another
@@ -578,7 +695,7 @@ func (a *Auth[SessionData, UserData, Tx]) SetUserRenamed(hook UserRenamedHook) {
 // transaction's closure again when it aborts, so the hook may be called more than
 // once for one acceptance; only the committed function of the call whose transaction
 // committed is run, once. A hook that fails fails the transaction and ends the sign-in
-// with its error: nothing is consumed, a user the sign-in would have provisioned is not
+// with its error: nothing is consumed, a user the sign-in would have made is not
 // created, and the invitation stands for the next attempt.
 type InvitationAcceptedHook[Tx any] = func(ctx context.Context, tx Tx, userID impulse.UUID, username string, inv *sessioninfo.Invitation) (committed func(ctx context.Context), err error)
 
@@ -603,10 +720,10 @@ func (a *Auth[SessionData, UserData, Tx]) SetInvitationAccepted(hook InvitationA
 	a.acceptInvitation = hook
 }
 
-// Authenticated answers {"authenticated", "username", "name", "look",
-// "passwordChangeRequired", "email", "emailVerified", "emailHint", "impersonation"}. A session whose user is
+// Authenticated answers {"authenticated", "sessionId", "username", "name", "look",
+// "passwordChangeRequired", "email", "emailVerified", "emailHint", "invitedTenant", "impersonation"}. A session whose user is
 // missing or disabled is reported as not authenticated. passwordChangeRequired is set
-// while the user must change a password an operator set (see "Users and the forced
+// while an administrator's required password change stands (see "Users and the forced
 // password change" in the README): the session read is answered under the mark, so the
 // login page can show the change form. email is the user's address when they hold one,
 // with emailVerified saying whether they have proven it; emailHint, present when the
@@ -621,13 +738,24 @@ func (a *Auth[SessionData, UserData, Tx]) SetInvitationAccepted(hook InvitationA
 // tenant by its tenant id), present for a sign-in through one and absent for a
 // password, for a personal account, which is no organization's directory, and for an
 // impersonated session: what a page offers the person to make a tenant's directory.
+// invitedTenant is the tenant an invitation the person has just accepted seated them
+// in, by this sign-in or by hand since, the tenant the invitation names or the one its
+// acceptance made: present on the first session read after the acceptance and on no
+// later one, and never on an impersonated session. It is where the application opens
+// for the person, whatever else they hold. sessionId is the id of the session the
+// request arrived on: what a list of sessions marks as the reader's own. It is no
+// secret: the cookie that carries a session is sealed with the server's key, and the
+// id alone opens nothing.
 func (a *Auth[S, U, Tx]) Authenticated() http.HandlerFunc {
 	type directory struct {
 		Method     sessioninfo.AuthMethod `json:"method"`
 		Connection string                 `json:"connection"`
 	}
 	type response struct {
-		Authenticated          bool                               `json:"authenticated"`
+		Authenticated bool `json:"authenticated"`
+		// SessionID is the id of the session the request arrived on, absent from the
+		// answer of a request that is not signed in.
+		SessionID              string                             `json:"sessionId,omitempty"`
 		Username               string                             `json:"username"`
 		Name                   *string                            `json:"name,omitempty"`
 		Look                   *sessioninfo.Look                  `json:"look,omitempty"`
@@ -643,6 +771,9 @@ func (a *Auth[S, U, Tx]) Authenticated() http.HandlerFunc {
 		// Directory is the organization's directory the session was established
 		// through, nil for any other session.
 		Directory *directory `json:"directory,omitempty"`
+		// InvitedTenant is the tenant an invitation the person has just accepted seated
+		// them in, told once (takeSeated).
+		InvitedTenant string `json:"invitedTenant,omitempty"`
 	}
 
 	return a.serving(a.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
@@ -666,9 +797,14 @@ func (a *Auth[S, U, Tx]) Authenticated() http.HandlerFunc {
 				through = &directory{Method: d.Method, Connection: d.Connection}
 			}
 		}
+		var invited string
+		if imp == nil && user != nil {
+			invited = a.takeSeated(w, r, user.ID)
+		}
 
 		return httpio.NewEncoder(w).Ok(response{
 			Authenticated:          true,
+			SessionID:              sessioninfo.IDFromCtx(ctx).String(),
 			Username:               sessioninfo.FromCtx(ctx).Username,
 			Name:                   user.Name,
 			Look:                   lookOf(user),
@@ -679,6 +815,7 @@ func (a *Auth[S, U, Tx]) Authenticated() http.HandlerFunc {
 			Impersonation:          basesession.NewImpersonationResponse(imp),
 			BrowserRemembered:      imp == nil && user != nil && browserRemembered(ctx, user.ID),
 			Directory:              through,
+			InvitedTenant:          invited,
 		})
 	}))
 }
@@ -701,11 +838,11 @@ func (a *Auth[S, U, Tx]) Logout() http.HandlerFunc {
 
 // StartSession restores or initializes the session. It also makes the browser's
 // pending identity, if any, available to the Pending handlers and the AuthAPI pending
-// methods, and the invitation and the trusted device the browser carries to the
-// sign-in.
+// methods, the invitation and the trusted device the browser carries to the sign-in,
+// and the browser's name to the session a sign-in makes.
 func (a *Auth[S, U, Tx]) StartSession(next http.Handler) http.Handler {
 	return a.serving(a.baseSession.StartSession(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx := a.withTrustedDeviceCookie(a.withInvitationCookie(a.withPendingCookie(r), r), r)
+		ctx := withBrowser(a.withTrustedDeviceCookie(a.withInvitationCookie(a.withPendingCookie(r), r), r), r)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})))
 }
@@ -713,8 +850,8 @@ func (a *Auth[S, U, Tx]) StartSession(next http.Handler) http.Handler {
 // ValidateSession validates the session and loads its user by UserId. A session
 // with no user, or whose user is missing or disabled, is refused with 401. The
 // user is available through sessioninfo.UserFromCtx. A foreign actor's
-// role-principal impersonation has no user and carries only its username. A user who
-// must change a password an operator set is refused with 403 and {"message", "code":
+// role-principal impersonation has no user and carries only its username. A user an
+// administrator required a new password of is refused with 403 and {"message", "code":
 // "password_change_required"} until the change: route the password change, the
 // session read and the logout outside this middleware, since they validate on their
 // own and are what the user reaches meanwhile. An impersonated session is not held to
@@ -745,18 +882,20 @@ func (a *Auth[S, U, Tx]) ValidateSession(next http.Handler) http.Handler {
 // DirectorySeatedHook is the application's half of a tenant directory's admission: what
 // it alone can read and write of a person's roles, in two functions.
 //
-// Seat seats the user at their first sign-in through a tenant's directory, named by id
-// (the key an application's memberships are held under) and by username (what a log
-// line reads), with seats, the default seat of the tenant whose directory the identity
-// came through, inside the transaction that links the identity to the user, which it is
-// handed: the link is made and the person seated together, or neither. The first
-// sign-in through a directory is the one that makes the link, whether it makes the
-// account too or the account stood before, and whether the link is made at once or once
-// the user's password has confirmed it. The library calls it once for a link: a later
-// sign-in finds the link and gives nothing, so a seat an administrator removed is not
-// given back, and a link that was deleted and is made again is a first sign-in again.
-// It gives a seat only where the person holds no role in the tenant: a person who holds
-// one keeps what they hold. A seat the invitation this sign-in consumes names too (the
+// Seat seats the user at their sign-in through a tenant's directory, named by id (the
+// key an application's memberships are held under) and by username (what a log line
+// reads), with seats, the default seat of the tenant whose directory the identity came
+// through, inside the sign-in's transaction, which it is handed: where that transaction
+// links the identity to the user, the link is made and the person seated together, or
+// neither, whether it makes the account too or the account stood before, and whether
+// the link is made at once or once the user's password has confirmed it. The library
+// calls it at every sign-in through the directory by an account that is not disabled,
+// whether the link is made then or stood before. It gives a seat only where the person
+// holds nothing in the tenant: a person who holds anything there keeps what they hold.
+// So a person an administrator removed from the tenant is given the default seat again
+// the next time they sign in through the directory; disabling their account keeps one
+// person out while the tenant is open, and making the tenant invite only keeps everyone
+// out who is not invited. A seat the invitation this sign-in consumes names too (the
 // same role in the same tenant) is not among seats: InvitationAcceptedHook gives it, in
 // the same transaction, and the two hooks never write one membership twice. It is not
 // called for no seats. It is held to what InvitationAcceptedHook is: tx alone for its
@@ -774,51 +913,45 @@ func (a *Auth[S, U, Tx]) ValidateSession(next http.Handler) http.Handler {
 // the directory of the one tenant the person belongs to, which is given nothing the
 // tenant's own administrators could not give, or by a sign-in that carries the person's
 // own invitation; any other sign-in under the name is refused as a person no account
-// was created for is.
-//
-// Seeded is optional and reports whether the account with this id and username is the
-// one the deployment's own seed created for a person who signs in through the
-// registration named: the first administrator of an Auth whose people sign in through
-// a directory, who holds roles for the whole application and belongs to no tenant, so
-// no tenant's directory vouches for them. The seed creates the account under
-// SeedUserIDThrough, and the function answers by that id, which no request can give an
-// account. Such an account is linked on its name at its person's first sign-in through
-// that registration, where the registration admits one organization and nobody else
-// (signin.Audience.OneOrganization) and the account is not disabled; through any other
-// registration, or a wider one, the name links nothing. Nil
-// recognizes no account, and a seeded first administrator is then held to the rule
-// every account created ahead is.
+// was created for is. The deployment's own first administrator, who belongs to no
+// tenant, is no such account: the deployment invites the person
+// (AuthAPI.InviteFirstAdministrator), and their invitation is what vouches.
 type DirectorySeatedHook[Tx any] struct {
 	Seat   func(ctx context.Context, tx Tx, userID impulse.UUID, username string, seats []signin.DirectorySeat) (committed func(ctx context.Context), err error)
 	OnlyIn func(ctx context.Context, tx Tx, userID impulse.UUID, tenant accesstypes.Domain) (bool, error)
-	Seeded func(userID impulse.UUID, username, registration string) bool
 }
 
-// SetDirectoryAdmission sets what a tenanted application gives a person's first
-// sign-in through a tenant's directory: reader, which reads the declaration of the
-// directory the identity came through (signin.DirectoryReader: the tenant whose
-// directory it is, since a directory belongs to one tenant), and hook, which seats the
-// person with the default seat the declaration names. With them the standard rule asks
+// SetDirectoryAdmission sets what a tenanted application gives a person's sign-in
+// through a tenant's directory: reader, which reads the declaration of the directory
+// the identity came through (signin.DirectoryReader: the tenant whose directory it is,
+// since a directory belongs to one tenant), and hook, which seats the person with the
+// default seat the declaration names, at every sign-in through the directory, where the
+// person holds nothing in the tenant. With them the standard rule asks
 // the tenant first: its declaration decides before the sign-in method's own choice,
 // open or invite only. A default seat admits a stranger with it, and a declaration naming none
 // refuses a stranger by invitation only (invitation_only, unless the sign-in carries
 // an invitation), with no account created. A person who has an account is no stranger.
 // One with a password confirms the link with it, and the default seat is given with the
-// link when they hold no role in the tenant. One with no password who has never signed
-// in (an account an administrator created ahead) is tied to the sign-in by nothing but
+// link when they hold nothing in the tenant, as at every later sign-in through the
+// directory. One with no password who has never signed
+// in (an account the application created ahead) is tied to the sign-in by nothing but
 // the name the directory asserts, so the identity is linked only when the directory is
 // that of the one tenant the person belongs to, holding a role there and nothing
-// anywhere else (hook.OnlyIn), or the sign-in carries the person's own invitation, or
-// the account is the deployment's own seed for the registration the sign-in came
-// through and that registration admits one organization alone (hook.Seeded, the first
-// administrator of an Auth whose people sign in through a directory); any
+// anywhere else (hook.OnlyIn), or the sign-in carries the person's own invitation; any
 // other sign-in under the name is refused as a stranger is, and says nothing of the
 // account. A directory no tenant declares, and a personal
 // account, which is no organization's directory (signin.Directory.PersonalAccounts),
-// fall to the sign-in method's choice as without them. Set the two after
-// NewAuth and before serving the first request; a nil reader, a hook missing either
-// function, a second call, or a call once the Auth is in use is a wiring mistake and
-// panics, as SetSignInPolicy does.
+// fall to the sign-in method's choice as without them.
+//
+// The reader also tells the sign-in policy which tenant's directory an account signs
+// in through: at each sign-in the library reads the directories of the account's
+// identity links and the tenants that declare each (sessioninfo.SignInUser.Directories),
+// by which the tenant policy keeps a directory-only tenant's directory people to that
+// directory.
+//
+// Set the two after NewAuth and before serving the first request; a nil reader, a hook
+// missing either function, a second call, or a call once the Auth is in use is a wiring
+// mistake and panics, as SetSignInPolicy does.
 func (a *Auth[SessionData, UserData, Tx]) SetDirectoryAdmission(reader signin.DirectoryReader[Tx], hook DirectorySeatedHook[Tx]) {
 	if reader == nil {
 		panic("session: SetDirectoryAdmission was given no reader: pass the application's reader of the tenants' directory declarations")
@@ -835,7 +968,7 @@ func (a *Auth[SessionData, UserData, Tx]) SetDirectoryAdmission(reader signin.Di
 	if a.directories != nil {
 		panic("session: the directory admission was set twice: one Auth has one")
 	}
-	a.directories, a.directorySeated, a.directoryOnlyIn, a.directorySeeded = reader, hook.Seat, hook.OnlyIn, hook.Seeded
+	a.directories, a.directorySeated, a.directoryOnlyIn = reader, hook.Seat, hook.OnlyIn
 }
 
 // SignUpSeatedHook is the application's half of a sign-up through a method an
@@ -894,9 +1027,10 @@ type TenantNamer interface {
 // invitation (Invitation().Open()) and the invitation a sign-in methods answer reports
 // carry the tenant's name beside its key (tenantName), and the screen says where the
 // person is invited. Without them, or for a tenant the namer does not know, the name is
-// empty and the screen names no tenant. Set it after NewAuth and before serving the
-// first request; a nil namer, a second call, or a call once the Auth is in use is a
-// wiring mistake and panics, as SetDirectoryAdmission does.
+// empty and the screen names no tenant. A signed-in person's own tenants (OwnTenants)
+// are named the same way, each by its key where the namer does not know it. Set it after
+// NewAuth and before serving the first request; a nil namer, a second call, or a call
+// once the Auth is in use is a wiring mistake and panics, as SetDirectoryAdmission does.
 func (a *Auth[SessionData, UserData, Tx]) SetTenantNames(names TenantNamer) {
 	if names == nil {
 		panic("session: SetTenantNames was given nil: pass the application's tenant roster, or set none")
@@ -914,8 +1048,9 @@ func (a *Auth[SessionData, UserData, Tx]) SetTenantNames(names TenantNamer) {
 }
 
 // tenantName is what the invitation screen calls the tenant an invitation seats a
-// person in: its name from the namer (SetTenantNames), "" for the application's global
-// surface, for no namer and for a tenant the namer does not know.
+// person in, and the own-tenants list a tenant the person holds something in: its name
+// from the namer (SetTenantNames), "" for the application's global surface, for no namer
+// and for a tenant the namer does not know.
 func (a *Auth[SessionData, UserData, Tx]) tenantName(tenantID string) string {
 	if tenantID == "" || a.tenantNames == nil {
 		return ""
@@ -952,7 +1087,6 @@ type PendingHandlers struct {
 	sendCode            http.HandlerFunc
 	verifyCode          http.HandlerFunc
 	enrollEmail         http.HandlerFunc
-	requireMail         func(group string)
 }
 
 // Status returns {"reason", "email", "expiresAt", "returnUrl"[, "factors"]} for the
@@ -972,11 +1106,8 @@ func (h *PendingHandlers) Status() http.HandlerFunc { return h.status }
 // user holds no address (the page then asks for one and posts it to EnrollEmail());
 // an address sent five codes within fifteen minutes and using none is refused with
 // too_many_emails and the wait; a code that is used resets the count. Route it
-// behind StartSession and ValidateXSRFToken; it panics at wiring on an Auth without
-// mail.
+// behind StartSession and ValidateXSRFToken.
 func (h *PendingHandlers) SendCode() http.HandlerFunc {
-	h.requireMail("Pending().SendCode()")
-
 	return h.sendCode
 }
 
@@ -984,29 +1115,26 @@ func (h *PendingHandlers) SendCode() http.HandlerFunc {
 // when code is the one sent: the session starts under a new ID, recording the
 // sign-in's events and an email-code event, and the address the code went to is
 // written on the user verified when it was not. With rememberDevice the browser is
-// remembered as a trusted device of the user for the trusted device period, so its
-// next sign-ins skip the factor. It answers as the password login does:
+// remembered as a trusted device of the user for the days the sign-in settings say
+// (AuthAPI.SetRememberedBrowserDays), so its next sign-ins skip the factor; while they
+// say 0, it is not remembered. It answers as the password login does:
 // {"mfaIsRequired": false}, or the policy's next wait. A wrong code is 401 with
 // {"code": "invalid_code"} and the code stands with one fewer attempt; a code entered
-// while none stands, because none was sent or the one sent expired, was used or took
-// its last attempt, is 401 with {"code": "code_expired"}, and the page asks for a new
-// one. Route it as SendCode.
+// while none stands, because none was sent or the one sent expired, was used, took its
+// last attempt or was mailed to an address the account no longer holds, is 401 with
+// {"code": "code_expired"}, and the page asks for a new one. Route it as SendCode.
 func (h *PendingHandlers) VerifyCode() http.HandlerFunc {
-	h.requireMail("Pending().VerifyCode()")
-
 	return h.verifyCode
 }
 
 // EnrollEmail accepts {"email"} from a pending identity whose user holds no address,
-// and mails that address the code as SendCode does; the address is written on the
-// user, verified, when the code is entered. It answers as SendCode does, and 409 when
-// the user already holds an address: the code goes there, and an administrator
-// changes it. An address another account holds is answered as sent and told so by
-// mail to that address, as the add-address step does, so the screen reveals nothing.
-// Route it as SendCode.
+// and mails that address the code as SendCode does; the address is written on the user,
+// verified, as the session the code completes starts. It answers as SendCode does, and
+// 409 when the user already holds an address: the code goes there, and an administrator
+// changes it. An address another account holds is answered as sent and told so by mail
+// to that address, as the add-address step does, so the screen reveals nothing. Route
+// it as SendCode.
 func (h *PendingHandlers) EnrollEmail() http.HandlerFunc {
-	h.requireMail("Pending().EnrollEmail()")
-
 	return h.enrollEmail
 }
 
@@ -1029,7 +1157,6 @@ func (a *Auth[S, U, Tx]) Pending() *PendingHandlers {
 		sendCode:            a.serving(a.pendingSendCode()),
 		verifyCode:          a.serving(a.pendingVerifyCode()),
 		enrollEmail:         a.serving(a.pendingEnrollEmail()),
-		requireMail:         a.requireMail,
 	}
 }
 

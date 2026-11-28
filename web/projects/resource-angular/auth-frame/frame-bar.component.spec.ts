@@ -1,37 +1,39 @@
 import { inject } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { MatDialog } from '@angular/material/dialog';
+import { Router } from '@angular/router';
 import { ListPermission, PermissionDigest, Resource } from '@impulseframework/resource';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { firstValueFrom } from 'rxjs';
 import { FrameConfig } from './frame';
 import { FrameBarComponent } from './frame-bar.component';
-import { provideFrameTesting, specTransport } from './frame-testing';
+import { frameRoutes } from './frame-routes';
+import { notNamedFor, provideFrameTesting, specTransport } from './frame-testing';
 import { ShownMenu } from './menu';
 import { MenuService } from './menu.service';
 
 // The bar draws the application's name, the place, the menus and the person's corner. The
-// menus hold what the digest grants: an entry of the menu file that opens the feature flags
-// dialog shows under List on FeatureFlags and opens the dialog; a person with no grant there
-// has no System menu at all. Help comes last on every bar and ends with About.
+// menus hold what the digest grants: the Feature flags page the menu file places shows
+// under List on FeatureFlags, as a link to the page; a person with no grant there has no
+// System menu at all. Help comes last on every bar and ends with About, which opens a
+// pop-up and goes nowhere.
 
 /** The flags' reader: List on FeatureFlags. */
 const flagsReader: PermissionDigest = { FeatureFlags: { List: 'granted', Read: 'granted' } };
 /** Someone with no grant at all. */
 const nobody: PermissionDigest = {};
 
-/** A menu file with one System menu: Feature flags, behind List on FeatureFlags. */
-const menuFile: FrameConfig['menus'] = (actions) => [
+/** A menu file with one System menu: the Feature flags page, behind List on FeatureFlags. */
+const menuFile: FrameConfig['menus'] = [
   {
     label: 'System',
     groups: [
       {
         entries: [
           {
-            label: 'Feature flags…',
+            label: 'Feature flags',
             icon: 'flag',
-            run: actions.featureFlags,
-            place: 'outside',
+            route: ['feature-flags'],
             permission: { resource: 'FeatureFlags' as Resource, permission: ListPermission },
           },
         ],
@@ -67,7 +69,7 @@ describe('FrameBarComponent', () => {
 
   it('draws the name, the place, the menus, and the person', async () => {
     await signIn(nobody);
-    expect(element().querySelector('a.brand')?.textContent).toContain('Lodestar');
+    expect(element().querySelector('a.impulse-frame-bar-brand')?.textContent).toContain('Lodestar');
     expect(element().querySelector('impulse-place-switcher')).not.toBeNull();
     expect(element().querySelector('impulse-menu-bar')).not.toBeNull();
     expect(element().querySelector('impulse-person-menu')?.textContent).toContain('gale');
@@ -75,7 +77,7 @@ describe('FrameBarComponent', () => {
 
   it('draws no name when the application gives none', async () => {
     await signIn(nobody, { name: undefined });
-    expect(element().querySelector('a.brand')).toBeNull();
+    expect(element().querySelector('a.impulse-frame-bar-brand')).toBeNull();
     expect(
       menu('Help')
         ?.groups.at(-1)
@@ -83,16 +85,15 @@ describe('FrameBarComponent', () => {
     ).toEqual(['About']);
   });
 
-  it('puts Feature flags in the System menu under List on FeatureFlags, and it opens the dialog', async () => {
+  it('puts the Feature flags page in the System menu under List on FeatureFlags, as a link to the page', async () => {
     await signIn(flagsReader);
     const entry = menu('System')
       ?.groups.flatMap((group) => group.entries)
-      .find((e) => e.label === 'Feature flags…');
+      .find((e) => e.label === 'Feature flags');
     expect(entry).toBeDefined();
-    entry?.run?.();
-    fixture.detectChanges();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(document.querySelector('mat-dialog-container')).not.toBeNull();
+    // A page: it has an address and nothing to run, so it opens no dialog.
+    expect(entry?.link).toEqual(['feature-flags']);
+    expect(entry?.run).toBeUndefined();
   });
 
   it('draws no System menu for a person with no grant outside the tenants', async () => {
@@ -121,6 +122,30 @@ describe('FrameBarComponent', () => {
     const help = TestBed.inject(MenuService).menus().at(-1);
     expect(help?.label).toBe('Help');
     expect(help?.groups.map((group) => group.entries.map((e) => e.label))).toEqual([['Guides'], ['About Lodestar']]);
-    expect(help?.groups.at(-1)?.entries[0]?.link).toEqual(['about']);
+  });
+
+  it('opens About as a pop-up from Help, and the address stays the same', async () => {
+    await signIn(nobody);
+    const router = TestBed.inject(Router);
+    const before = router.url;
+    const about = TestBed.inject(MenuService).menus().at(-1)?.groups.at(-1)?.entries[0];
+
+    // Something that runs, with no address of its own: no page and no route stand behind it.
+    expect(about?.link).toBeUndefined();
+    expect(frameRoutes().map((route) => route.path)).toEqual(['account', 'api-keys']);
+    about?.run?.();
+    fixture.detectChanges();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const dialog = document.querySelector('mat-dialog-container');
+    expect(dialog?.querySelector('[mat-dialog-title]')?.textContent?.trim()).toBe('About Lodestar');
+    expect(router.url).toBe(before);
+  });
+
+  it("names every element for the bar: an application's rule for its own .bar, .brand or .menus lands on none", async () => {
+    await signIn(nobody);
+
+    expect(notNamedFor('impulse-frame-bar-', element())).toEqual([]);
+    expect(element().querySelector('header.impulse-frame-bar-header')).not.toBeNull();
   });
 });

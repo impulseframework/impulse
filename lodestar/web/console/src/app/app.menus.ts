@@ -1,18 +1,23 @@
 import { apiDescriptor } from '@app/service/zz_gen_api';
-import { Permissions, Resources } from '@app/service/zz_gen_constants';
 import { resourceMeta } from '@app/service/zz_gen_resources';
-import { FrameActions, Menu } from '@impulseframework/resource-angular/auth-frame';
-import { identityMenuPages } from '@impulseframework/resource-angular/identity-pages';
+import { Menu } from '@impulseframework/resource-angular/auth-frame';
+import { featureFlagsPage } from '@impulseframework/resource-angular/feature-flags';
+import { identityMenuPages, inviteTenantAction, tenantsPage } from '@impulseframework/resource-angular/identity-pages';
 import { resourcePage } from '@impulseframework/resource-angular/resource-route-generator';
-import { deckPages, sectorSignInPage, watchDeskPage } from '@components/sector/sector.routes';
+import { deckPages, sectorSignInPage } from '@components/sector/sector.routes';
 import { clientsConfig } from './configs/clients.config';
 import { commendationsConfig } from './configs/commendations.config';
+import { consignmentsConfig } from './configs/consignments.config';
+import { crewSessionImpersonationsConfig } from './configs/crewSessionImpersonations.config';
 import { distressCallsConfig } from './configs/distressCalls.config';
+import { expenseManifestsConfig } from './configs/expenseManifests.config';
+import { hangarsConfig } from './configs/hangars.config';
+import { sectorsPage } from './configs/issue-bulletin.config';
 import { missionDocumentsConfig } from './configs/missionDocuments.config';
 import { missionsConfig } from './configs/missions.config';
 import { missionsEverySectorConfig } from './configs/missionsEverySector.config';
 import { pilotsConfig, sectorPilotsConfig } from './configs/pilots.config';
-import { sectorsConfig } from './configs/sectors.config';
+import { sectorHazardBoardsConfig } from './configs/sectorHazardBoards.config';
 import { shipClassesConfig } from './configs/shipClasses.config';
 import { shipsConfig } from './configs/ships.config';
 import { squadronsConfig } from './configs/squadrons.config';
@@ -29,12 +34,12 @@ import { standingOrdersConfig } from './configs/standingOrders.config';
  * the person's own menu at the right (Your account, Your API keys, Appearance, Sign out).
  * A page added to the routes and forgotten here fails app.menus.spec.ts, naming the page.
  *
- * The frame calls the function once, in an injection context, handing it what the frame
- * does: here the feature flags dialog.
+ * The frame calls the function once, in an injection context, so an entry of the
+ * application's own may use a service it injects.
  *
  * Demonstrates: frame.menu-file.
  */
-export function appMenus(actions: FrameActions): Menu[] {
+export function appMenus(): Menu[] {
   return [
     {
       label: 'Records',
@@ -47,7 +52,10 @@ export function appMenus(actions: FrameActions): Menu[] {
             resourcePage(pilotsConfig, resourceMeta),
             // Behind the commendations flag: the entry shows only while it is on.
             resourcePage(commendationsConfig, resourceMeta),
-            resourcePage(sectorsConfig, resourceMeta),
+            // All sectors: the library's tenants page, with Issue Bulletin on a sector's page.
+            tenantsPage(apiDescriptor, resourceMeta, sectorsPage),
+            // Invite a sector…: opens All sectors with the invitation's dialog.
+            inviteTenantAction(apiDescriptor, resourceMeta, sectorsPage),
             // The missions of every sector the person reaches, on one page of Headquarters.
             resourcePage(missionsEverySectorConfig, resourceMeta),
           ],
@@ -61,9 +69,10 @@ export function appMenus(actions: FrameActions): Menu[] {
           entries: [
             resourcePage(missionsConfig, resourceMeta),
             resourcePage(shipsConfig, resourceMeta),
+            // The hangars a person may list, each with the passes that open it.
+            resourcePage(hangarsConfig, resourceMeta),
             resourcePage(squadronsConfig, resourceMeta),
             resourcePage(missionDocumentsConfig, resourceMeta),
-            resourcePage(distressCallsConfig, resourceMeta),
             resourcePage(sectorPilotsConfig, resourceMeta),
           ],
         },
@@ -76,11 +85,13 @@ export function appMenus(actions: FrameActions): Menu[] {
           entries: [
             deckPages.flightDeck,
             deckPages.hangarDeck,
-            deckPages.salvageHold,
-            deckPages.callLog,
+            // The salvage hold, the call log, the hazard board and the expense manifests are
+            // the library's lists.
+            resourcePage(consignmentsConfig, resourceMeta),
+            resourcePage(distressCallsConfig, resourceMeta),
             deckPages.roster,
-            deckPages.hazardBoard,
-            deckPages.shipsLog,
+            resourcePage(sectorHazardBoardsConfig, resourceMeta),
+            resourcePage(expenseManifestsConfig, resourceMeta),
             deckPages.briefing,
           ],
         },
@@ -106,10 +117,12 @@ export function appMenus(actions: FrameActions): Menu[] {
       label: 'System',
       groups: [
         {
-          // The crew's accounts across the whole service, their mailed links, the Invited
-          // sectors page, where headquarters and the surveyor bring a new sector in by
-          // inviting the person who will run it, sessions and failed sign-ins, and the
-          // Sign-in page, which lists the crew's sign-in methods.
+          // The crew's accounts across the whole service, their mailed links, sessions,
+          // failed sign-ins and audit log, and the Sign-in page, which lists the crew's
+          // sign-in methods.
+          // Headquarters and the surveyor bring a new sector in by inviting the person who
+          // will run it from the sectors page (All sectors, in Records), which lists the
+          // invitations still waiting above the sectors.
           // Its Open sign-up action runs a method that declares a warning: the library's
           // dialog asks the server what opening that method will do, shows the answer in
           // the warning style, and holds its button until the word `open` is typed.
@@ -125,14 +138,12 @@ export function appMenus(actions: FrameActions): Menu[] {
         },
         {
           entries: [
-            {
-              label: 'Feature flags…',
-              icon: 'flag',
-              run: () => actions.featureFlags(),
-              place: 'outside',
-              permission: { resource: Resources.FeatureFlags, permission: Permissions.List },
-            },
-            watchDeskPage,
+            // The feature flags Lodestar declares, each with who last turned it on or off:
+            // the library's page, shown under List on the flags, in Headquarters.
+            featureFlagsPage(resourceMeta),
+            // The watch desk: the sessions people hold as someone else, shown under List
+            // on the crew auth's impersonation records.
+            resourcePage(crewSessionImpersonationsConfig, resourceMeta),
           ],
         },
       ],

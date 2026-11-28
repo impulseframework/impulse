@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"go.uber.org/mock/gomock"
 )
@@ -463,7 +464,7 @@ func TestPatchSet_fork_changeRecords(t *testing.T) {
 			p := NewPatchSet(NewMetadata[trackedForkRow]()).SetPatchType(UpdatePatchType)
 			p.SetKey("ID", "row-1")
 			p.Set("Title", "after")
-			if err := p.OrCreate(nil).Buffer(t.Context(), txn, "test"); err != nil {
+			if err := p.OrCreate(nil).Buffer(t.Context(), txn, eventsource.ProcessEvent("test")); err != nil {
 				t.Fatalf("Buffer() error = %v", err)
 			}
 			if reads != tt.wantReads {
@@ -622,8 +623,11 @@ func TestPatchSet_fork_armed_refusedBeforeTheRead(t *testing.T) {
 			if err == nil || !httpio.HasForbidden(err) {
 				t.Fatalf("Buffer() error = %v, want a 403", err)
 			}
-			if msg := httpio.Message(err); !strings.Contains(msg, string(tt.denied)) {
-				t.Errorf("the refusal = %q, want it to name %s", msg, tt.denied)
+			if msg, want := httpio.Message(err), "You may not "+permissionVerb(tt.denied)+" tenancy resources here."; msg != want {
+				t.Errorf("the refusal = %q, want %q", msg, want)
+			}
+			if !strings.Contains(err.Error(), string(tt.denied)) {
+				t.Errorf("the error's text, which the server's log prints, = %q, want it to name %s", err.Error(), tt.denied)
 			}
 			if p.Outcome() != "" {
 				t.Errorf("Outcome() = %q after a refusal, want none", p.Outcome())
@@ -690,8 +694,11 @@ func TestPatchSet_Permitted(t *testing.T) {
 			if err == nil || !httpio.HasForbidden(err) {
 				t.Fatalf("Permitted() error = %v, want a 403", err)
 			}
-			if msg := httpio.Message(err); !strings.Contains(msg, string(tt.denied)) {
-				t.Errorf("the refusal = %q, want it to name %s", msg, tt.denied)
+			if msg, want := httpio.Message(err), "You may not "+permissionVerb(tt.denied)+" tenancy resources here."; msg != want {
+				t.Errorf("the refusal = %q, want %q", msg, want)
+			}
+			if !strings.Contains(err.Error(), string(tt.denied)) {
+				t.Errorf("the error's text, which the server's log prints, = %q, want it to name %s", err.Error(), tt.denied)
 			}
 		})
 	}

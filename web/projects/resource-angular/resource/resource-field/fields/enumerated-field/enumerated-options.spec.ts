@@ -3,6 +3,7 @@ import { ApiError, ResourceMeta } from '@impulseframework/resource';
 
 import {
   displayFromOptions,
+  keyDisplay,
   matchOptions,
   narrowedFilter,
   optionColumns,
@@ -64,6 +65,24 @@ describe('optionColumns', () => {
   });
 });
 
+describe('keyDisplay', () => {
+  it("writes a key in words where the source's key field holds a role's name", () => {
+    expect(keyDisplay('NightShiftLead', new Set(['name']), 'name')).toBe('Night shift lead');
+    expect(keyDisplay('SuperAdministrator', new Set(['id']))).toBe('Super administrator');
+  });
+
+  it("shows a key as it is stored where the source's key field holds no role", () => {
+    expect(keyDisplay('NightShiftLead')).toBe('NightShiftLead');
+    // The source has a role field, and it is not the key field.
+    expect(keyDisplay('NightShiftLead', new Set(['role']), 'name')).toBe('NightShiftLead');
+  });
+
+  it('leaves an empty key empty', () => {
+    expect(keyDisplay('', new Set(['name']), 'name')).toBe('');
+    expect(keyDisplay('')).toBe('');
+  });
+});
+
 describe('optionDisplay', () => {
   const concat = (row: Record<string, string>, ...fields: string[]): string => fields.map((f) => row[f]).join(' - ');
 
@@ -75,6 +94,38 @@ describe('optionDisplay', () => {
 
   it('shows the key where the page configured no display field', () => {
     expect(optionDisplay({ name: 'Pilot', description: 'Flies' }, 'Pilot', [], concat)).toBe('Pilot');
+    // A key that is no role's name is shown as it is stored, whatever its letters.
+    expect(optionDisplay({ name: 'NightShiftLead' }, 'NightShiftLead', [], concat)).toBe('NightShiftLead');
+  });
+
+  it("shows the key in words where the source's key field holds a role's name, as the server's sentences name it", () => {
+    const roleFields = new Set(['name']);
+    expect(optionDisplay({ name: 'NightShiftLead' }, 'NightShiftLead', [], concat, roleFields, 'name')).toBe(
+      'Night shift lead',
+    );
+    expect(optionDisplay({ name: 'SuperAdministrator' }, 'SuperAdministrator', [], concat, roleFields, 'name')).toBe(
+      'Super administrator',
+    );
+    expect(optionDisplay({ name: 'Reader' }, 'Reader', [], concat, roleFields, 'name')).toBe('Reader');
+  });
+
+  it("shows the key as it is stored where the source's key field is not among its role fields", () => {
+    // The role fields name another field: the key, under `id`, is no role's name.
+    expect(optionDisplay({ id: 'NightShiftLead' }, 'NightShiftLead', [], concat, new Set(['name']))).toBe(
+      'NightShiftLead',
+    );
+    expect(optionDisplay({ name: 'NightShiftLead' }, 'NightShiftLead', [], concat, new Set(['id']), 'name')).toBe(
+      'NightShiftLead',
+    );
+  });
+
+  it("writes a display field that holds a role's name in words, and the others as they are", () => {
+    const row = { name: 'NightShiftLead', description: 'RunsTheNight' };
+    expect(optionDisplay(row, 'NightShiftLead', ['name', 'description'], concat, new Set(['name']), 'name')).toBe(
+      'Night shift lead - RunsTheNight',
+    );
+    // The row handed in is left as it is.
+    expect(row).toEqual({ name: 'NightShiftLead', description: 'RunsTheNight' });
   });
 });
 
@@ -229,6 +280,16 @@ describe('displayFromOptions', () => {
       expect(displayFromOptions([standard], tt.value)).toEqual(tt.want);
     });
   }
+
+  it("shows a value outside the list in words where the source's key field holds a role's name", () => {
+    const sectorMarshal: PickerOption = { id: 'SectorMarshal', display: 'Sector marshal' };
+    expect(displayFromOptions([sectorMarshal], 'NightShiftLead', new Set(['name']), 'name')).toEqual({
+      id: 'NightShiftLead',
+      display: 'Night shift lead',
+    });
+    // An option the list holds keeps its own display.
+    expect(displayFromOptions([sectorMarshal], 'SectorMarshal', new Set(['name']), 'name')).toEqual(sectorMarshal);
+  });
 });
 
 describe('withChosen', () => {
@@ -265,32 +326,70 @@ describe('withChosen', () => {
 });
 
 describe('pickerRefusal', () => {
-  const cases: { name: string; error: unknown; want: string | undefined }[] = [
-    { name: 'nothing while the picker works', error: undefined, want: undefined },
+  // What the server says, as it says it: of a request it will not serve, and of a read that failed.
+  const unserved = new ApiError('GET', '/api/berths', 400, {
+    message: 'Berths serves at most 50 rows per page and declares no order; add a sort',
+  });
+  const failed = new ApiError('GET', '/api/berths', 500, {
+    message: 'spanner: code = "Unavailable", desc = "the session pool is closed"',
+  });
+  const cases: {
+    name: string;
+    error: unknown;
+    read: 'list' | 'record';
+    showsId: boolean;
+    want: string | undefined;
+  }[] = [
+    { name: 'nothing while the picker works', error: undefined, read: 'list', showsId: true, want: undefined },
     {
       name: "a 403 is not said here: the picker says a sentence of its own for it, never the server's words",
       error: new ApiError('GET', '/api/sectors/anvil/client-rosters', 403, {
-        message: 'no List grant on ClientRosters',
+        message: 'scope (anvil), user (3f2a9c1e-7b64-4d1a-9e0c-5a8d2b7f6c13) does not have (List) on [ClientRosters]',
       }),
+      read: 'list',
+      showsId: true,
       want: undefined,
     },
     {
-      name: 'a 400 says the server refused the request, in its words: the way out is on the struct or in the config',
-      error: new ApiError('GET', '/api/berths', 400, {
-        message: 'Berths serves at most 50 rows per page and declares no order; add a sort',
-      }),
-      want: "The server refused this picker's request: Berths serves at most 50 rows per page and declares no order; add a sort",
+      name: "a list the server would not serve is said in the picker's words, with what a form that is read shows for the value it holds",
+      error: unserved,
+      read: 'list',
+      showsId: true,
+      want: 'This list could not be loaded, so only the id is shown.',
     },
     {
-      name: 'any other failure is a plain sentence',
+      name: 'a list that failed, where the field shows no id (it is edited, or holds nothing), says nothing can be chosen',
+      error: failed,
+      read: 'list',
+      showsId: false,
+      want: 'This list could not be loaded, so nothing can be chosen here.',
+    },
+    {
+      name: 'a failure that is no answer of the server is said the same',
       error: new Error('network down'),
-      want: 'This picker could not be loaded: network down',
+      read: 'list',
+      showsId: true,
+      want: 'This list could not be loaded, so only the id is shown.',
+    },
+    {
+      name: 'the read of the row the field holds, where it failed, is said in words of its own',
+      error: failed,
+      read: 'record',
+      showsId: true,
+      want: 'This record could not be loaded, so only its id is shown.',
     },
   ];
 
+  it('says nothing of what the server said: no resource, page size, column or database of its message', () => {
+    const serverWords = /Berths|50 rows|declares no order|add a sort|spanner|Unavailable|session pool|network down/;
+    for (const tt of cases) {
+      expect(pickerRefusal(tt.error, tt.read, tt.showsId) ?? '').not.toMatch(serverWords);
+    }
+  });
+
   for (const tt of cases) {
     it(tt.name, () => {
-      expect(pickerRefusal(tt.error)).toBe(tt.want);
+      expect(pickerRefusal(tt.error, tt.read, tt.showsId)).toBe(tt.want);
     });
   }
 });

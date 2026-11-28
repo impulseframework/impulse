@@ -6,6 +6,7 @@ package app
 import (
 	"net/http"
 
+	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/sites/apps/portal/pkg/router"
 	"github.com/impulseframework/impulse/httpio"
@@ -16,12 +17,14 @@ import (
 // domain-scoped route: it resolves the route's domain and answers 404 before the
 // handler runs when the application's tenant roster (Tenants) does not hold it, and
 // the same 404 when the session does not reach the tenant (resource.UserPermissions.Reaches:
-// the tenant's declaration does not admit the way the session was established), so a
-// tenant the session may not enter is, for that session, not there.
+// the tenant is disabled, or its declaration does not admit the way the session was
+// established), so a tenant the session may not enter is, for that session, not there.
 // Domains are concealed (generation.WithConcealedDomains), so a domain the caller holds
 // no grant in answers exactly like a domain that does not exist, and tenant existence
 // cannot be probed from the rejection shape. A caller with any foothold in the domain
 // passes the guard and receives ordinary 403s for the permissions they lack.
+// Each 404 says the one sentence, "This tenant does not exist.", with nothing of what was
+// asked for; what the guard found is the cause, which the server logs.
 func (a *App) DomainGuard() func(http.HandlerFunc) http.HandlerFunc {
 	return func(next http.HandlerFunc) http.HandlerFunc {
 		return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
@@ -30,18 +33,18 @@ func (a *App) DomainGuard() func(http.HandlerFunc) http.HandlerFunc {
 
 			domain := httpio.Param[accesstypes.Domain](r, router.Domain)
 			if !a.TenantRoster().Has(domain) {
-				return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewNotFoundMessagef("unknown domain %q", domain))
+				return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewNotFoundMessageWithError(errors.Newf("unknown domain %q", domain), "This tenant does not exist."))
 			}
 			userPermissions := a.UserPermissions(r)
 			if reaches, err := userPermissions.Reaches(ctx, domain); err != nil {
 				return httpio.NewEncoder(w).ClientMessage(ctx, err)
 			} else if !reaches {
-				return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewNotFoundMessagef("unknown domain %q", domain))
+				return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewNotFoundMessageWithError(errors.Newf("the session does not reach domain %q", domain), "This tenant does not exist."))
 			}
 			if ok, err := userPermissions.HasGrants(ctx, accesstypes.DomainScope(domain)); err != nil {
 				return httpio.NewEncoder(w).ClientMessage(ctx, err)
 			} else if !ok {
-				return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewNotFoundMessagef("unknown domain %q", domain))
+				return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewNotFoundMessageWithError(errors.Newf("the caller holds no grant in domain %q", domain), "This tenant does not exist."))
 			}
 
 			next.ServeHTTP(w, r)

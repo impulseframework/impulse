@@ -22,7 +22,14 @@ import (
 func (h *Handlers) SetCrewUserEmail() http.HandlerFunc {
 	type request struct {
 		UserID impulse.UUID `json:"userId"`
-		Email  *string      `json:"email"`
+		Email  string       `json:"email"`
+	}
+
+	// The answer as the wire carries it: Execute's result mirrored with generated
+	// wire names, encoded after the transaction commits.
+	type response struct {
+		Sent   bool   `json:"sent"`
+		Reason string `json:"reason"`
 	}
 
 	decoder := NewTargetedRPCDecoder[crewidentity.SetCrewUserEmail, request](h, accesstypes.Execute)
@@ -43,6 +50,10 @@ func (h *Handlers) SetCrewUserEmail() http.HandlerFunc {
 		// write or a read against the caller (Enforce) evaluates the same checker,
 		// scope, and decision instant.
 		ctx = resource.WithCaller(ctx, gate.Caller())
+		// The method's name rides the context too: who made a change
+		// (eventsource.UserEvent) reads it there, so every change record the body writes
+		// names the method.
+		ctx = resource.WithRPC(ctx, "SetCrewUserEmail")
 
 		p := (*crewidentity.SetCrewUserEmail)(params)
 
@@ -62,6 +73,9 @@ func (h *Handlers) SetCrewUserEmail() http.HandlerFunc {
 		// the commit lands and before the answer; a transaction that rolls back wrote
 		// nothing to publish.
 		ctx, touched := resource.CollectTouchedRows(ctx)
+		// Captured inside the transaction, encoded after it commits: under
+		// abort-and-retry the value is the committing attempt's.
+		var result *crewidentity.SetCrewUserEmailResult
 		// A dry run (X-Dry-Run: true) runs the whole frame and the body, then
 		// rolls the transaction back: every refusal answers as the real call
 		// would, and a call that would have succeeded answers 200 with no body.
@@ -72,27 +86,19 @@ func (h *Handlers) SetCrewUserEmail() http.HandlerFunc {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		if err := h.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-			// Declared target: locate the row within the tenancy predicate
-			// before the body runs.
-			row, err := crewresources.NewCrewSessionUserQuery().
-				AddColumns(crewresources.NewCrewSessionUserColumns().ID()).
-				SetID(p.UserID).
-				Read(ctx, txn)
-			if err != nil {
-				return errors.Wrap(err, "crewresources.CrewSessionUserQuery.Read()")
-			}
-			if row == nil {
-				return httpio.NewNotFoundMessagef("CrewSessionUser %s does not exist", p.UserID)
-			}
-
-			// A row-referencing condition on the caller's Execute grant
-			// evaluates against the located row, in this transaction.
-			if err := gate.Enforce(ctx, txn, resource.ExecuteTarget{Resource: "CrewSessionUsers", Label: "CrewSessionUser", PKColumns: []string{"Id"}}, p.UserID); err != nil {
+			// Declared target: a row of the CrewListedUser view.
+			// A view's row is one row of its query, so the gate locates it by
+			// the key and judges any row-referencing condition on the caller's
+			// Execute grant against it, in one SELECT over that query in this
+			// transaction. No row there is NotFound.
+			if err := gate.EnforceView(ctx, txn, resource.ExecuteTarget{Resource: "CrewListedUsers", Label: "CrewListedUser", PKColumns: []string{"Id"}, View: crewresources.CrewListedUser{}}, p.UserID); err != nil {
 				return err
 			}
-			if err := p.Execute(ctx, txn, h.RPCClient()); err != nil {
+			answer, err := p.Execute(ctx, txn, h.RPCClient())
+			if err != nil {
 				return errors.Wrap(err, "Transaction.Execute()")
 			}
+			result = answer
 			if dryRun {
 				return resource.ErrDryRun
 			}
@@ -103,13 +109,14 @@ func (h *Handlers) SetCrewUserEmail() http.HandlerFunc {
 				return httpio.NewEncoder(w).Ok(nil)
 			}
 
-			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "spanner.Client.ReadWriteTransaction()"))
+			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "resource.Client.ExecuteFunc()"))
 		}
 
 		live.Publish(ctx, w, h.LiveService(), h.liveDerivations, "", touched)
+		if result == nil {
+			return httpio.NewEncoder(w).Ok(nil)
+		}
 
-		w.WriteHeader(http.StatusNoContent)
-
-		return nil
+		return httpio.NewEncoder(w).Ok((*response)(result))
 	})
 }

@@ -33,14 +33,16 @@ import {
   Resource,
   RootConfig,
 } from '@impulseframework/resource-angular/types';
-import { pickerSort, readMode } from '@impulseframework/resource';
+import { PermissionDigestState, pickerSort, readMode } from '@impulseframework/resource';
 import { concatFunctions, hyphenConcat } from '../../../concat-fns';
 import { PagedListRequest } from '../../../paged-list';
-import { pageLabel } from '../../../resource-list/list-request';
+import { answeredSorts, pageLabel, queryableMeta } from '../../../resource-list/list-request';
+import { listableNames, namesListableOf } from '../../../resource-list/name-columns';
 import { SearchBoxComponent } from '../../../search-box/search-box.component';
 import {
   filterReachesPII,
   listableFieldsOf,
+  refusedSearchFields,
   searchedFields,
   searchFieldLabel,
   searchPlaceholder,
@@ -51,6 +53,7 @@ import {
   closedRecordText,
   closedSourceText,
   displayFromOptions,
+  keyDisplay,
   matchOptions,
   narrowedFilter,
   notPermitted,
@@ -69,7 +72,10 @@ import {
  * resource (a field-scope @enumerate, or the schema's foreign key), or `enumeration`
  * carries a fixed value set the picker renders with no request. The configuration
  * narrows and presents those rows — `filter`, `sorts`, the display columns — and never
- * chooses another resource.
+ * chooses another resource. Where the configuration names no display column an option
+ * shows its key. A field of the source that holds a role's name (`roles` in its metadata)
+ * is shown in words ("Night shift lead" for `NightShiftLead`), the key and a display field
+ * alike.
  *
  * How the resource is read is the generated descriptor's statement alone: its declared
  * maximum page size (readMode). A source with no maximum is read whole in one request,
@@ -94,7 +100,9 @@ import {
  * condition on the row, say) it shows the stored key with a sentence of its own, asks no
  * more for that value, and stays a picker while it is edited, so a row they may read can
  * be chosen. Neither touches the form's value. Any other failure of a request shows in
- * the words pickerRefusal gives it, never as an empty list.
+ * the words pickerRefusal gives it, never as an empty list. What the server said of a
+ * request it refused or that failed is never on the screen: it is written to the
+ * browser's console, once.
  */
 @Component({
   selector: 'impulse-enumerated-field',
@@ -179,13 +187,20 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
   /**
    * How the picker presents the source's rows: the field's configuration, and where it
    * names no display of its own (a form drawn from the metadata alone), the field the
-   * source's metadata says its rows are called by (`nameField`: a tenant's name), so a
-   * picker over a record keyed by an id lists names and never ids.
+   * source's metadata says its rows are called by (`nameField`: the field marked `@name`,
+   * or the tenant record's `@tenantName`), so a picker over a record keyed by an id lists
+   * names and never ids. A person the digest does not let list that field (no grant on
+   * it, or a feature flag that is off) is shown the keys, as over a source that declares
+   * no name: the server refuses a list that asks for a field the person may not list.
    */
   private picker = computed((): EnumeratedConfig => {
     const config = this.fieldConfig().enumeratedConfig;
     const name = this.sourceMeta()?.nameField;
     if (!name || config.listDisplay.length > 0 || config.viewDisplay.length > 0) {
+      return config;
+    }
+    const listable = this.sourceListable();
+    if (listable !== undefined && !listable.has(name)) {
       return config;
     }
     return { ...config, viewDisplay: [name as FieldName] };
@@ -194,14 +209,52 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
   /** The digest's List field set for any resource (listableFieldsOf): the source's own and a search branch's child. */
   private readonly listableOf = listableFieldsOf(this.auth);
 
+  /**
+   * The digest's List field set for a resource an id of the source points to, as its name
+   * is judged (namesListableOf): the empty set once a digest has answered and names no field.
+   */
+  private readonly namesOf = namesListableOf(this.auth);
+
   /** The digest's List field set for the source itself. */
   private sourceListable = computed<ReadonlySet<string> | undefined>(() => {
     const resource = this.resource();
     return resource ? this.listableOf(resource) : undefined;
   });
 
-  /** The fields the box over the source searches for this caller: the source's, less the denied, a branch judged on its child. */
-  sourceSearchFields = computed(() => searchedFields(this.sourceMeta(), this.sourceListable(), this.listableOf));
+  /**
+   * The digest's List state of each field of the source, by field name: what the server
+   * answers a paged computed source's search and prefix match by (refusedSearchFields,
+   * queryableMeta). The empty record for a fixed enumeration.
+   */
+  private sourceListStates = computed((): Readonly<Record<string, PermissionDigestState>> => {
+    const resource = this.resource();
+    return resource ? this.auth.fieldPermissionStates({ resource, permission: ListPermission }) : {};
+  });
+
+  /**
+   * Whether the server would refuse the box's search of a paged computed source: a
+   * search field the caller's role does not see or does not always see
+   * (refusedSearchFields). A whole source is read without a search and matched here, so
+   * nothing is refused over it.
+   */
+  private sourceSearchRefused = computed(() => {
+    if (!this.paged()) {
+      return false;
+    }
+    const refused = refusedSearchFields(this.sourceMeta(), this.sourceListStates());
+    return refused.notSeen.length > 0 || refused.notAlwaysSeen.length > 0;
+  });
+
+  /**
+   * The fields the box over the source searches for this caller: the source's, less the
+   * denied, a branch judged on its child; none while the server would refuse the search
+   * (sourceSearchRefused).
+   */
+  sourceSearchFields = computed(() =>
+    this.sourceSearchRefused()
+      ? []
+      : searchedFields(this.sourceMeta(), this.sourceListable(), this.listableOf, this.resourceMeta),
+  );
 
   /**
    * Whether the source's request must travel in the body: the config asked for it, the
@@ -226,12 +279,21 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
   /** The source's own search fields (not a child's), the columns a whole source's matcher reads. */
   private ownSearchFields = computed(() => this.sourceSearchFields().filter((field) => !field.includes('.')));
 
-  /** How a searchable paged source narrows as the user types: the box, a prefix on the display field, or nothing. */
+  /**
+   * How a searchable paged source narrows as the user types: the box, a prefix on the
+   * display field, or nothing. The prefix is judged on the source's metadata as the
+   * caller may filter by it (queryableMeta): over a computed source the server refuses a
+   * `startswith` on a display field the digest lists as `conditional`.
+   */
   narrowing = computed(() => {
     if (!this.paged() || !this.picker().searchable) {
       return undefined;
     }
-    return pickerNarrowing(this.sourceMeta(), this.displayColumn(), this.sourceSearchFields());
+    return pickerNarrowing(
+      queryableMeta(this.sourceMeta(), this.sourceListStates()),
+      this.displayColumn(),
+      this.sourceSearchFields(),
+    );
   });
 
   /** What the panel's box says: the fields it searches, or the display field a prefix narrows. */
@@ -247,8 +309,19 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
     return this.editMode() === 'view' && this.picker().viewDetails === true && this.closedTo() === undefined;
   });
 
+  /**
+   * The picker's configured sorts as the server answers them for this person
+   * (answeredSorts). A sort by a name field of the source is sent only where the person
+   * may list the name (listableNames), as a list sends it.
+   */
   sorts = computed(() => {
-    return this.picker().sorts;
+    return answeredSorts(
+      this.picker().sorts,
+      this.sourceMeta(),
+      this.sourceListStates(),
+      this.sourceListable(),
+      listableNames(this.sourceMeta(), this.namesOf, this.resourceMeta),
+    );
   });
 
   /**
@@ -267,7 +340,11 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
    */
   private keyField = computed((): string => keyFields(this.sourceMeta())[0]?.fieldName ?? 'id');
 
-  /** The display column shown first: the sort a paged source with no @order pages by. */
+  /**
+   * The display column shown first: the sort a paged source with no @order pages by, but
+   * for a computed source whose display column the digest lists as conditional, which
+   * pages by the key (pageRequest).
+   */
   private displayColumn = computed((): string | undefined => {
     const config = this.picker();
     return config.listDisplay[0] ?? config.viewDisplay[0];
@@ -310,6 +387,19 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
    * empty list is the empty value.
    */
   multiple = computed((): boolean => this.fieldMeta()?.displayType === 'enumerated[]');
+
+  /**
+   * The source's fields that hold a role's name: those whose metadata lists the roles they
+   * may hold (`roles`). The picker writes a role in words where it shows one of them, a
+   * display field or the key, and stores the key as it is. None for a fixed enumeration or
+   * a source with no metadata.
+   */
+  private readonly roleFields = computed(
+    (): ReadonlySet<string> =>
+      new Set(
+        (this.sourceMeta()?.fields ?? []).filter((field) => field.roles !== undefined).map((field) => field.fieldName),
+      ),
+  );
 
   /** The picked keys of a field that takes several, in the order they were picked. */
   private readonly chosenKeys = computed((): string[] => {
@@ -440,7 +530,9 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
   /**
    * The paged source's request while the picker is open for editing: the page the panel
    * shows, in the picker's sort. Nothing in view mode, where the chosen row is read by
-   * key, and nothing of a source closed to the person.
+   * key, and nothing of a source closed to the person. Over a computed source whose
+   * display column the digest lists as conditional the picker pages by the key, which
+   * takes no grant.
    */
   private pageRequest = computed((): PagedListRequest | undefined => {
     const descriptor = this.descriptor();
@@ -453,14 +545,20 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
     ) {
       return undefined;
     }
-    const config = this.picker();
-    const configured = config.sorts.map((sort) => ({ field: sort.field as string, direction: sort.direction }));
+    const configured = this.sorts().map((sort) => ({ field: sort.field as string, direction: sort.direction }));
+    const display = this.displayColumn();
+    const sortColumn =
+      this.sourceMeta()?.computed === true &&
+      display !== undefined &&
+      this.sourceListStates()[display] === 'conditional'
+        ? this.keyField()
+        : display;
     return {
       route: this.resourceMeta(this.resource() as Resource).route,
-      filter: narrowedFilter(this.optionFilter(), this.narrowing(), this.displayColumn(), this.query()),
+      filter: narrowedFilter(this.optionFilter(), this.narrowing(), display, this.query()),
       sensitive: this.sensitive(),
       columns: this.columns(),
-      sorts: pickerSort<Record<string, unknown>>(descriptor, configured, this.displayColumn()),
+      sorts: pickerSort<Record<string, unknown>>(descriptor, configured, sortColumn),
     };
   });
 
@@ -534,17 +632,19 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
     }
     // Nothing names what is stored where the source is closed to the person: its key shows.
     if (this.closedTo() === 'source') {
-      return value ? String(value) : defaultEmptyFieldValue;
+      return value ? this.bareKey(String(value)) : defaultEmptyFieldValue;
     }
     // A whole source holds every row in its list: the display comes from there, and a
     // value the list does not hold shows as itself.
     if (!this.paged()) {
-      return value ? displayFromOptions(this.allEnumOptions(), value).display : defaultEmptyFieldValue;
+      return value
+        ? displayFromOptions(this.allEnumOptions(), value, this.roleFields(), this.keyField()).display
+        : defaultEmptyFieldValue;
     }
     // A row the person may not read, or one whose read failed, shows as its key, beside
     // what the field says under itself.
     if (this.closedTo() === 'row' || this.chosenRowFailed()) {
-      return value ? String(value) : defaultEmptyFieldValue;
+      return value ? this.bareKey(String(value)) : defaultEmptyFieldValue;
     }
     const record = this.chosenRow();
     if (record === undefined) {
@@ -585,7 +685,7 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
       });
     }
     const options = this.allEnumOptions();
-    return keys.map((key) => displayFromOptions(options, key));
+    return keys.map((key) => displayFromOptions(options, key, this.roleFields(), this.keyField()));
   });
 
   singleEnumValue = computed((): PickerOption[] | undefined => {
@@ -598,10 +698,10 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
     }
     if (!currentValue) return [];
     if (!this.paged()) {
-      return [displayFromOptions(this.allEnumOptions(), String(currentValue))];
+      return [displayFromOptions(this.allEnumOptions(), String(currentValue), this.roleFields(), this.keyField())];
     }
     if (this.closedTo() === 'row' || this.chosenRowFailed()) {
-      return [{ id: String(currentValue), display: String(currentValue) }];
+      return [{ id: String(currentValue), display: this.bareKey(String(currentValue)) }];
     }
     const record = this.chosenRow();
     if (!record || Object.keys(record).length === 0) return [];
@@ -683,24 +783,62 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
 
   /**
    * What the picker says when a request of its own failed for a reason that is no
-   * permission's; nothing while it works, and nothing for a refusal of permission, which
-   * notice says. A paged source has two requests: the page of options, and the read of
-   * the chosen row.
+   * permission's, in the library's own words; nothing while it works, and nothing for a
+   * refusal of permission, which notice says. A paged source has two requests: the page
+   * of options, and the read of the chosen row. Of a list that failed it says what the
+   * field then shows: a form that is read shows the value it holds as its id, and a field
+   * that is edited is a picker with nothing in it to choose from.
    */
   refusal = computed((): string | undefined => {
+    const showsId = this.editMode() !== 'edit' && (this.chosenValue() !== '' || this.chosenKeys().length > 0);
     const pager = this.pager();
     if (pager) {
       if (pager.status() === 'error') {
-        return pickerRefusal(pager.error());
+        return pickerRefusal(pager.error(), 'list', showsId);
       }
-      return this.chosenRowFailed() ? pickerRefusal(this.singleEnumResourceRef()?.error()) : undefined;
+      return this.chosenRowFailed()
+        ? pickerRefusal(this.singleEnumResourceRef()?.error(), 'record', showsId)
+        : undefined;
     }
     const ref = this.enumResourceRef();
-    return ref && ref.status() === 'error' ? pickerRefusal(ref.error()) : undefined;
+    return ref && ref.status() === 'error' ? pickerRefusal(ref.error(), 'list', showsId) : undefined;
   });
+
+  /** The refusals and failures already written to the console, so each is written once. */
+  private logged = new WeakSet<object>();
 
   constructor() {
     super();
+    // What the server said of a request of the picker's that it refused, or how the request
+    // failed, is for whoever looks into it: it is written to the console, once, with the
+    // resource and the read it belongs to. The field says it in the library's words.
+    // Each line's words are a constant, and the console puts the resource's name where they
+    // keep its place (%s): a name is never itself read as words to print.
+    effect(() => {
+      const list = this.pager() ?? this.enumResourceRef();
+      const row = this.singleEnumResourceRef();
+      const failed: ['list' | 'record', unknown][] = [
+        ['list', list?.status() === 'error' ? list.error() : undefined],
+        ['record', row?.status() === 'error' ? row.error() : undefined],
+      ];
+      for (const [read, error] of failed) {
+        if (error === undefined || error === null) {
+          continue;
+        }
+        if (typeof error === 'object') {
+          if (this.logged.has(error)) {
+            continue;
+          }
+          this.logged.add(error);
+        }
+        const resource = String(untracked(this.resource) ?? '');
+        if (read === 'list') {
+          console.error('%s: the list a picker offers could not be loaded:', resource, error);
+        } else {
+          console.error('%s: the record a picker shows could not be loaded:', resource, error);
+        }
+      }
+    });
     // What the server refused as not permitted is remembered, so the picker asks nothing
     // more of a source the person may not list and never again for a row they may not
     // read. The readers go idle once it is, which is why it is kept here and not read
@@ -732,7 +870,7 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
     const key = resource[this.keyField()] ?? '';
     const option: PickerOption = {
       id: key,
-      display: optionDisplay(resource, key, displayFields, concatFunction),
+      display: optionDisplay(resource, key, displayFields, concatFunction, this.roleFields(), this.keyField()),
     };
     if (enumeratedConfig.searchable && !this.paged()) {
       option.text = this.ownSearchFields().map((field) => String(resource[field] ?? ''));
@@ -746,7 +884,7 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
     if (typeof value === 'string') {
       const option = this.availableEnumOptions()?.find((o) => o.id === value);
       // An id with no matching option displays as itself rather than blanking the field.
-      return option ? option.display : value;
+      return option ? option.display : this.bareKey(value);
     }
 
     return value['display'] || this.formatDisplay(value);
@@ -754,6 +892,11 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
 
   private formatDisplay(resource: Record<string, string>): string {
     return this.toEnumerated(resource).display;
+  }
+
+  /** A key the source answered no row for, as the picker shows it (keyDisplay). */
+  private bareKey(key: string): string {
+    return keyDisplay(key, this.roleFields(), this.keyField());
   }
 
   search(value: string): void {

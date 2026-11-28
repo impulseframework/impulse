@@ -1,14 +1,12 @@
 {
+  "auth": "staff",
   "roles": {
     "global": [
       {
         "name": "Administrator",
-        "description": "Manages the application's people: creates accounts, invites people, gives and takes roles, keeps groups of people, and sets temporary passwords.",
+        "description": "Manages the application's people: invites people, gives and takes roles, keeps groups of people, and mails password reset links.",
         "permissions": {
           "Execute": [
-            {
-              "resource": "CreateStaffUser"
-            },
             {
               "resource": "DisableStaffUser"
             },
@@ -20,6 +18,9 @@
             },
             {
               "resource": "RemoveStaffRole"
+            },
+            {
+              "resource": "TakeStaffRole"
             },
             {
               "resource": "EndStaffSession"
@@ -46,7 +47,7 @@
               "resource": "RenameStaffUser"
             },
             {
-              "resource": "SetStaffTemporaryPassword"
+              "resource": "SendStaffUserPasswordResetLink"
             },
             {
               "resource": "RevokeStaffUserTrustedDevices"
@@ -59,6 +60,18 @@
             },
             {
               "resource": "MakeStaffInviteOnly"
+            },
+            {
+              "resource": "SetStaffSelfServiceReset"
+            },
+            {
+              "resource": "RequireStaffSecondFactor"
+            },
+            {
+              "resource": "StopRequiringStaffSecondFactor"
+            },
+            {
+              "resource": "SetStaffRememberedBrowsers"
             },
             {
               "resource": "InviteStaffUser"
@@ -109,6 +122,22 @@
               ]
             },
             {
+              "resource": "StaffListedUsers",
+              "fields": [
+                "username",
+                "name",
+                "email",
+                "emailVerifiedAt",
+                "disabled",
+                "passwordChangeRequired",
+                "createdAt",
+                "lastSignInAt",
+                "roles",
+                "lockedUntil",
+                "trustedDevices"
+              ]
+            },
+            {
               "resource": "StaffSessions",
               "fields": [
                 "userId",
@@ -120,11 +149,46 @@
               ]
             },
             {
+              "resource": "StaffListedSessions",
+              "fields": [
+                "userId",
+                "username",
+                "name",
+                "expired",
+                "live",
+                "state",
+                "signedInWith",
+                "browser",
+                "authenticatedAt",
+                "createdAt",
+                "updatedAt"
+              ]
+            },
+            {
+              "resource": "StaffListedAuditRecords",
+              "fields": [
+                "at",
+                "act",
+                "who",
+                "what",
+                "doneTo",
+                "actorUsername",
+                "subjectKind",
+                "subjectName",
+                "userId",
+                "role",
+                "tenantId",
+                "tenantName",
+                "reason"
+              ]
+            },
+            {
               "resource": "StaffUserRoles",
               "fields": [
                 "createdAt",
                 "startsAt",
-                "endsAt"
+                "endsAt",
+                "reason"
               ]
             },
             {
@@ -171,13 +235,37 @@
                 "consumedAt",
                 "createdAt",
                 "email",
+                "everyTenant",
                 "expiresAt",
                 "invitedByUserId",
                 "kind",
+                "mailFailedAt",
                 "name",
                 "roleNames",
                 "tenantId",
-                "userId"
+                "userId",
+                "withdrawnAt"
+              ]
+            },
+            {
+              "resource": "StaffListedMailLinks",
+              "fields": [
+                "consumedAt",
+                "createdAt",
+                "email",
+                "everyTenant",
+                "expiresAt",
+                "invitedByUserId",
+                "kind",
+                "mailFailedAt",
+                "makesTenant",
+                "name",
+                "roleNames",
+                "sentBy",
+                "state",
+                "tenantId",
+                "userId",
+                "withdrawnAt"
               ]
             },
             {
@@ -190,6 +278,22 @@
               ]
             },
             {
+              "resource": "StaffListedSignInAttempts",
+              "fields": [
+                "account",
+                "failureLimit",
+                "failures",
+                "kind",
+                "locked",
+                "lockedUntil",
+                "state",
+                "subject",
+                "updatedAt",
+                "userId",
+                "windowEndsAt"
+              ]
+            },
+            {
               "resource": "StaffSignInMethods",
               "fields": [
                 "admits",
@@ -198,7 +302,23 @@
                 "label",
                 "openSignUp",
                 "ownRule",
+                "says",
+                "selfServiceReset"
+              ]
+            },
+            {
+              "resource": "StaffSignInSettings",
+              "fields": [
+                "position",
+                "rememberBrowserDays",
+                "requireSecondFactor",
                 "says"
+              ]
+            },
+            {
+              "resource": "StaffRememberLengths",
+              "fields": [
+                "days"
               ]
             },
             {
@@ -224,9 +344,18 @@
               ]
             },
             {
-              "resource": "StaffRoleGrants",
+              "resource": "StaffGivableRoles",
               "fields": [
-                "updatedAt"
+                "description",
+                "method",
+                "group"
+              ]
+            },
+            {
+              "resource": "StaffListedRoleGrants",
+              "fields": [
+                "updatedAt",
+                "skipped"
               ]
             },
             {
@@ -277,6 +406,62 @@
                 "startsAt",
                 "endsAt"
               ]
+            },
+            {
+              "resource": "StaffHeldRoles",
+              "fields": [
+                "username",
+                "groupName",
+                "createdAt",
+                "startsAt",
+                "endsAt",
+                "reason"
+              ]
+            },
+            {
+              "resource": "StaffListedGroups",
+              "fields": [
+                "kind",
+                "axis",
+                "domainId",
+                "name",
+                "description",
+                "updatedAt",
+                "people",
+                "roles"
+              ]
+            },
+            {
+              "resource": "StaffListedGroupRoles",
+              "fields": [
+                "createdAt",
+                "startsAt",
+                "endsAt",
+                "losing"
+              ]
+            },
+            {
+              "resource": "StaffTakenRoles",
+              "fields": [
+                "username",
+                "name",
+                "reason",
+                "startsAt",
+                "endsAt",
+                "ended"
+              ]
+            },
+            {
+              "resource": "StaffTakeableRoles",
+              "fields": [
+                "description"
+              ]
+            },
+            {
+              "resource": "StaffTakeLengths",
+              "fields": [
+                "minutes"
+              ]
             }
           ],
           "Read": [
@@ -294,11 +479,43 @@
               ]
             },
             {
+              "resource": "StaffListedUsers",
+              "fields": [
+                "username",
+                "name",
+                "email",
+                "emailVerifiedAt",
+                "disabled",
+                "passwordChangeRequired",
+                "createdAt",
+                "lastSignInAt",
+                "roles",
+                "lockedUntil",
+                "trustedDevices"
+              ]
+            },
+            {
               "resource": "StaffSessions",
               "fields": [
                 "userId",
                 "username",
                 "expired",
+                "authenticatedAt",
+                "createdAt",
+                "updatedAt"
+              ]
+            },
+            {
+              "resource": "StaffListedSessions",
+              "fields": [
+                "userId",
+                "username",
+                "name",
+                "expired",
+                "live",
+                "state",
+                "signedInWith",
+                "browser",
                 "authenticatedAt",
                 "createdAt",
                 "updatedAt"
@@ -339,13 +556,37 @@
                 "consumedAt",
                 "createdAt",
                 "email",
+                "everyTenant",
                 "expiresAt",
                 "invitedByUserId",
                 "kind",
+                "mailFailedAt",
                 "name",
                 "roleNames",
                 "tenantId",
-                "userId"
+                "userId",
+                "withdrawnAt"
+              ]
+            },
+            {
+              "resource": "StaffListedMailLinks",
+              "fields": [
+                "consumedAt",
+                "createdAt",
+                "email",
+                "everyTenant",
+                "expiresAt",
+                "invitedByUserId",
+                "kind",
+                "mailFailedAt",
+                "makesTenant",
+                "name",
+                "roleNames",
+                "sentBy",
+                "state",
+                "tenantId",
+                "userId",
+                "withdrawnAt"
               ]
             },
             {
@@ -367,6 +608,19 @@
                 "name",
                 "description",
                 "updatedAt"
+              ]
+            },
+            {
+              "resource": "StaffListedGroups",
+              "fields": [
+                "kind",
+                "axis",
+                "domainId",
+                "name",
+                "description",
+                "updatedAt",
+                "people",
+                "roles"
               ]
             }
           ]

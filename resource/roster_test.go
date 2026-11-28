@@ -30,10 +30,10 @@ func TestTenantRosterStatements(t *testing.T) {
 		wantErr  bool
 	}{
 		{
-			name:   "Spanner quotes with backticks and casts to STRING; no declaration reads FALSE and no directories",
+			name:   "Spanner quotes with backticks and casts to STRING; no declaration reads FALSE for both flags and no directories",
 			dbType: SpannerDBType,
 			table:  "Sectors",
-			want:   rosterStatements{Keys: "SELECT CAST(`Id` AS STRING) AS Domain, FALSE AS DirectoryOnly FROM `Sectors`"},
+			want:   rosterStatements{Keys: "SELECT CAST(`Id` AS STRING) AS Domain, FALSE AS DirectoryOnly, FALSE AS Disabled FROM `Sectors`"},
 		},
 		{
 			name:    "Spanner with the declaration reads the flag and the directories, ordered",
@@ -41,7 +41,7 @@ func TestTenantRosterStatements(t *testing.T) {
 			table:   "Sectors",
 			columns: declared,
 			want: rosterStatements{
-				Keys:        "SELECT CAST(`Id` AS STRING) AS Domain, `DirectoryOnly` AS DirectoryOnly FROM `Sectors`",
+				Keys:        "SELECT CAST(`Id` AS STRING) AS Domain, `DirectoryOnly` AS DirectoryOnly, FALSE AS Disabled FROM `Sectors`",
 				Directories: "SELECT CAST(`SectorId` AS STRING) AS Domain, `Method` AS Method, `Connection` AS Connection FROM `SectorDirectories` ORDER BY `Method`, `Connection`",
 			},
 		},
@@ -52,7 +52,7 @@ func TestTenantRosterStatements(t *testing.T) {
 			columns:  declared,
 			filtered: true,
 			want: rosterStatements{
-				Keys:        "SELECT CAST(`Id` AS STRING) AS Domain, `DirectoryOnly` AS DirectoryOnly FROM `Sectors` WHERE CAST(`Id` AS STRING) = @domain",
+				Keys:        "SELECT CAST(`Id` AS STRING) AS Domain, `DirectoryOnly` AS DirectoryOnly, FALSE AS Disabled FROM `Sectors` WHERE CAST(`Id` AS STRING) = @domain",
 				Directories: "SELECT CAST(`SectorId` AS STRING) AS Domain, `Method` AS Method, `Connection` AS Connection FROM `SectorDirectories` WHERE CAST(`SectorId` AS STRING) = @domain ORDER BY `Method`, `Connection`",
 			},
 		},
@@ -62,7 +62,24 @@ func TestTenantRosterStatements(t *testing.T) {
 			table:   "Sectors",
 			columns: &TenantDeclarationColumns{DirectoriesTable: "SectorDirectories", TenantColumn: "SectorId", MethodColumn: "Method", ConnectionColumn: "Connection"},
 			want: rosterStatements{
-				Keys:        "SELECT CAST(`Id` AS STRING) AS Domain, FALSE AS DirectoryOnly FROM `Sectors`",
+				Keys:        "SELECT CAST(`Id` AS STRING) AS Domain, FALSE AS DirectoryOnly, FALSE AS Disabled FROM `Sectors`",
+				Directories: "SELECT CAST(`SectorId` AS STRING) AS Domain, `Method` AS Method, `Connection` AS Connection FROM `SectorDirectories` ORDER BY `Method`, `Connection`",
+			},
+		},
+		{
+			name:    "Spanner with a disabled column and no directories reads the column and no directories",
+			dbType:  SpannerDBType,
+			table:   "Sectors",
+			columns: &TenantDeclarationColumns{Disabled: "Disabled"},
+			want:    rosterStatements{Keys: "SELECT CAST(`Id` AS STRING) AS Domain, FALSE AS DirectoryOnly, `Disabled` AS Disabled FROM `Sectors`"},
+		},
+		{
+			name:    "Spanner with the disabled column and the directories reads both flags and the directories",
+			dbType:  SpannerDBType,
+			table:   "Sectors",
+			columns: &TenantDeclarationColumns{DirectoryOnly: "DirectoryOnly", Disabled: "Disabled", DirectoriesTable: "SectorDirectories", TenantColumn: "SectorId", MethodColumn: "Method", ConnectionColumn: "Connection"},
+			want: rosterStatements{
+				Keys:        "SELECT CAST(`Id` AS STRING) AS Domain, `DirectoryOnly` AS DirectoryOnly, `Disabled` AS Disabled FROM `Sectors`",
 				Directories: "SELECT CAST(`SectorId` AS STRING) AS Domain, `Method` AS Method, `Connection` AS Connection FROM `SectorDirectories` ORDER BY `Method`, `Connection`",
 			},
 		},
@@ -70,7 +87,7 @@ func TestTenantRosterStatements(t *testing.T) {
 			name:   "Postgres quotes with double quotes and casts to TEXT",
 			dbType: PostgresDBType,
 			table:  "Sectors",
-			want:   rosterStatements{Keys: `SELECT CAST("Id" AS TEXT) AS "Domain", FALSE AS "DirectoryOnly" FROM "Sectors"`},
+			want:   rosterStatements{Keys: `SELECT CAST("Id" AS TEXT) AS "Domain", FALSE AS "DirectoryOnly", FALSE AS "Disabled" FROM "Sectors"`},
 		},
 		{
 			name:     "Postgres with the declaration, filtered, takes the tenant as $1",
@@ -79,7 +96,7 @@ func TestTenantRosterStatements(t *testing.T) {
 			columns:  declared,
 			filtered: true,
 			want: rosterStatements{
-				Keys:        `SELECT CAST("Id" AS TEXT) AS "Domain", "DirectoryOnly" AS "DirectoryOnly" FROM "Sectors" WHERE CAST("Id" AS TEXT) = $1`,
+				Keys:        `SELECT CAST("Id" AS TEXT) AS "Domain", "DirectoryOnly" AS "DirectoryOnly", FALSE AS "Disabled" FROM "Sectors" WHERE CAST("Id" AS TEXT) = $1`,
 				Directories: `SELECT CAST("SectorId" AS TEXT) AS "Domain", "Method" AS "Method", "Connection" AS "Connection" FROM "SectorDirectories" WHERE CAST("SectorId" AS TEXT) = $1 ORDER BY "Method", "Connection"`,
 			},
 		},
@@ -87,7 +104,7 @@ func TestTenantRosterStatements(t *testing.T) {
 			name:   "a quote in an identifier is doubled",
 			dbType: PostgresDBType,
 			table:  `Odd"Name`,
-			want:   rosterStatements{Keys: `SELECT CAST("Id" AS TEXT) AS "Domain", FALSE AS "DirectoryOnly" FROM "Odd""Name"`},
+			want:   rosterStatements{Keys: `SELECT CAST("Id" AS TEXT) AS "Domain", FALSE AS "DirectoryOnly", FALSE AS "Disabled" FROM "Odd""Name"`},
 		},
 		{
 			name:    "an unknown database type is refused",
@@ -360,3 +377,32 @@ var _ TenantDeclarations = (*TenantRoster)(nil).Declarations
 // The roster's Domains is a DomainRoster: what a tenanted application hands
 // SessionPermissions, pinned at compile time.
 var _ DomainRoster = (*TenantRoster)(nil).Domains
+
+// TestNewTenantDeclarationReader_nothingDeclared pins the sign-in policy's reader over a
+// record that declares no directories: it answers nothing for every tenant and makes no
+// read, so it is handed no transaction here. It is what the generated constructor
+// builds for an application whose tenants have no directories.
+func TestNewTenantDeclarationReader_nothingDeclared(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		columns *TenantDeclarationColumns
+	}{
+		{name: "no columns"},
+		{name: "columns that name no directories record and no disabled column", columns: &TenantDeclarationColumns{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			declaration, err := NewTenantDeclarationReader("Stations", "Id", tt.columns)(t.Context(), nil, "a1111111-1111-4111-8111-111111111111")
+			if err != nil {
+				t.Fatalf("the reader's error = %v, want none", err)
+			}
+			if declaration != nil {
+				t.Errorf("the reader answered %+v, want nothing: the record declares no directories", declaration)
+			}
+		})
+	}
+}

@@ -13,8 +13,9 @@ import (
 // Test_createTableMapUsingQuery reads the index-shapes fixture schema through the
 // emulator and pins what the information schema yields: every index's composition,
 // the primary key and Spanner's foreign-key backing indexes included, the column flags
-// derived from it, and the cascade facts the audit pass reads: each table's parent and
-// delete action, and each foreign key's delete rule. Orders and Seats share the column
+// derived from it, the cascade facts the audit pass reads: each table's parent and
+// delete action, and each foreign key's delete rule, and each column's default
+// expression. Orders and Seats share the column
 // name Note and every table carries a PRIMARY_KEY index, so an index joined to its
 // columns on index name alone would leak across tables here. Requires the Spanner
 // emulator (podman/docker).
@@ -45,7 +46,7 @@ func Test_createTableMapUsingQuery(t *testing.T) {
 		releaseSpannerContainer(context.Background(), spannerContainer)
 	})
 
-	tableMap, err := createTableMapUsingQuery(ctx, db.Client)
+	tableMap, err := createTableMapUsingQuery(ctx, db)
 	if err != nil {
 		t.Fatalf("createTableMapUsingQuery() error = %v", err)
 	}
@@ -66,11 +67,15 @@ func Test_createTableMapUsingQuery(t *testing.T) {
 		wantIndexes []indexMeta
 		wantFlags   map[string][2]bool // column -> IsIndex, IsUniqueIndex
 		wantTypes   map[string]string  // column -> SpannerType, as the information schema spells it
-		// wantParent and wantCascade are the interleave facts; wantDeleteRules maps a
-		// column to its foreign key's delete rule, "" where it has none.
-		wantParent      string
-		wantCascade     bool
-		wantDeleteRules map[string]string
+		// wantParent and wantCascade are the interleave facts.
+		wantParent  string
+		wantCascade bool
+		// wantForeignKeys are the table's foreign keys whole, in constraint name order,
+		// compared where a case names any.
+		wantForeignKeys []foreignKeyMeta
+		// wantDefaults maps a column to its default expression as the information
+		// schema spells it, "" where the column declares none.
+		wantDefaults map[string]string
 	}{
 		{
 			name:        "a table with only its primary key, sharing the key column name with Orders",
@@ -98,8 +103,6 @@ func Test_createTableMapUsingQuery(t *testing.T) {
 				"Reference": {true, true}, "ExternalRef": {true, true}, "Note": {true, false},
 			},
 			wantTypes: map[string]string{"TenantId": "STRING(36)", "PlacedAt": "TIMESTAMP", "Reference": "STRING(MAX)"},
-			// A top-level table: no parent, and its one foreign key keeps the default rule.
-			wantDeleteRules: map[string]string{"TenantId": "NO ACTION", "PlacedAt": ""},
 		},
 		{
 			// The foreign key on OrderId needs no backing index: the primary key leads
@@ -133,7 +136,7 @@ func Test_createTableMapUsingQuery(t *testing.T) {
 			wantParent:  "Orders",
 		},
 		{
-			// Two foreign keys, one cascading: each column reads its own rule.
+			// Two foreign keys, one cascading: each foreign key reads its own rule.
 			name:  "a table with a cascading foreign key and a plain one reports each rule",
 			table: "Attachments",
 			wantIndexes: []indexMeta{
@@ -141,8 +144,66 @@ func Test_createTableMapUsingQuery(t *testing.T) {
 				{Managed: true, Key: []indexColumn{{Column: "TenantId"}}},
 				{Name: "PRIMARY_KEY", PrimaryKey: true, Unique: true, Key: []indexColumn{{Column: "Id"}}},
 			},
-			wantFlags:       map[string][2]bool{"Id": {true, true}, "OrderId": {true, false}, "TenantId": {true, false}},
-			wantDeleteRules: map[string]string{"OrderId": "CASCADE", "TenantId": "NO ACTION", "StoreKey": ""},
+			wantFlags: map[string][2]bool{"Id": {true, true}, "OrderId": {true, false}, "TenantId": {true, false}},
+			wantForeignKeys: []foreignKeyMeta{
+				{Name: "FK_Attachments_OrderId", Columns: []string{"OrderId"}, ReferencedTable: "Orders", ReferencedColumns: []string{"Id"}, DeleteRule: "CASCADE"},
+				{Name: "FK_Attachments_TenantId", Columns: []string{"TenantId"}, ReferencedTable: "Tenants", ReferencedColumns: []string{"Id"}, DeleteRule: "NO ACTION"},
+			},
+		},
+		{
+			// The gate's key is Id, and the pass names the gate by its Code: the foreign
+			// key reads with the table and the column it references all the same.
+			name:  "a foreign key to a column that is not the other table's key reads whole",
+			table: "Passes",
+			wantIndexes: []indexMeta{
+				{Managed: true, Key: []indexColumn{{Column: "GateCode"}}},
+				{Managed: true, Unique: true, Key: []indexColumn{{Column: "Zone"}, {Column: "Number"}}},
+				{Name: "PRIMARY_KEY", PrimaryKey: true, Unique: true, Key: []indexColumn{{Column: "Id"}}},
+			},
+			wantForeignKeys: []foreignKeyMeta{
+				{Name: "FK_Passes_GateCode", Columns: []string{"GateCode"}, ReferencedTable: "Gates", ReferencedColumns: []string{"Code"}, DeleteRule: "NO ACTION"},
+			},
+		},
+		{
+			// Two columns to two columns that are no key, each beside the column it
+			// references, and a foreign key to the same table's key next to it.
+			name:  "a foreign key of two columns to columns that are no key reads each beside the column it references",
+			table: "Stubs",
+			wantIndexes: []indexMeta{
+				{Managed: true, Key: []indexColumn{{Column: "PassId"}}},
+				{Managed: true, Key: []indexColumn{{Column: "PassZone"}, {Column: "PassNumber"}}},
+				{Name: "PRIMARY_KEY", PrimaryKey: true, Unique: true, Key: []indexColumn{{Column: "Id"}}},
+			},
+			wantForeignKeys: []foreignKeyMeta{
+				{Name: "FK_Stubs_Pass", Columns: []string{"PassZone", "PassNumber"}, ReferencedTable: "Passes", ReferencedColumns: []string{"Zone", "Number"}, DeleteRule: "NO ACTION"},
+				{Name: "FK_Stubs_PassId", Columns: []string{"PassId"}, ReferencedTable: "Passes", ReferencedColumns: []string{"Id"}, DeleteRule: "NO ACTION"},
+			},
+		},
+		{
+			// A seal and a stub name a pass by the same two columns. The database holds
+			// both foreign keys by one unique index on the pass, and the information
+			// schema lists that index's columns once for each of the two.
+			name:  "two foreign keys to the same columns that are no key each read their columns once",
+			table: "Seals",
+			wantIndexes: []indexMeta{
+				{Managed: true, Key: []indexColumn{{Column: "PassZone"}, {Column: "PassNumber"}}},
+				{Name: "PRIMARY_KEY", PrimaryKey: true, Unique: true, Key: []indexColumn{{Column: "Id"}}},
+			},
+			wantForeignKeys: []foreignKeyMeta{
+				{Name: "FK_Seals_Pass", Columns: []string{"PassZone", "PassNumber"}, ReferencedTable: "Passes", ReferencedColumns: []string{"Zone", "Number"}, DeleteRule: "NO ACTION"},
+			},
+		},
+		{
+			// The expression comes back as the migration wrote it, in its own case and
+			// without the parentheses the DDL wraps it in.
+			name:        "each column's default is read as the schema declares it",
+			table:       "Switches",
+			wantIndexes: []indexMeta{{Name: "PRIMARY_KEY", PrimaryKey: true, Unique: true, Key: []indexColumn{{Column: "Id"}}}},
+			wantFlags:   map[string][2]bool{"Id": {true, true}},
+			wantTypes:   map[string]string{"Lit": "BOOL", "Maybe": "BOOL", "Count": "INT64"},
+			wantDefaults: map[string]string{
+				"Id": "", "Lit": "TRUE", "Dark": "FALSE", "Low": "false", "Open": "", "Odd": "1 = 1", "Maybe": "TRUE", "Count": "0",
+			},
 		},
 	}
 
@@ -179,9 +240,15 @@ func Test_createTableMapUsingQuery(t *testing.T) {
 			if table.ParentTable != tt.wantParent || table.OnDeleteCascade != tt.wantCascade || table.IsInterleaved != (tt.wantParent != "") {
 				t.Errorf("%s (ParentTable, OnDeleteCascade, IsInterleaved) = (%q, %v, %v), want (%q, %v, %v)", tt.table, table.ParentTable, table.OnDeleteCascade, table.IsInterleaved, tt.wantParent, tt.wantCascade, tt.wantParent != "")
 			}
-			for column, want := range tt.wantDeleteRules {
-				if got := table.Columns[column].DeleteRule; got != want {
-					t.Errorf("%s.%s DeleteRule = %q, want %q", tt.table, column, got, want)
+			if tt.wantForeignKeys != nil {
+				if diff := cmp.Diff(tt.wantForeignKeys, table.ForeignKeys); diff != "" {
+					t.Errorf("%s foreign keys mismatch (-want +got):\n%s", tt.table, diff)
+				}
+			}
+			for column, want := range tt.wantDefaults {
+				meta := table.Columns[column]
+				if meta.Default != want || meta.HasDefault != (want != "") {
+					t.Errorf("%s.%s (Default, HasDefault) = (%q, %v), want (%q, %v)", tt.table, column, meta.Default, meta.HasDefault, want, want != "")
 				}
 			}
 		})

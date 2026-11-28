@@ -12,6 +12,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -21,6 +22,73 @@ func (MembersGroup) Resource() accesstypes.Resource {
 
 func (MembersGroup) DefaultConfig() resource.Config {
 	return defaultConfig()
+}
+
+// DeleteTree describes what a delete of a MembersGroup takes with it and what refuses
+// it: the library's own kinds, and the application's records that name the
+// MembersGroup, taken where their column says so (@deletedWith) and refusing its delete
+// where it does not. The kinds taken are in the order their rows are deleted, deepest
+// first, each with its ways up to the MembersGroup and what the delete of one of its
+// rows costs.
+func (MembersGroup) DeleteTree() *resource.DeleteTree {
+	return &resource.DeleteTree{
+		Record: "MembersGroups",
+		Words:  resource.DeleteWords{One: "group", Many: "groups"},
+		Key:    []string{"Id"},
+		Cost:   resource.DeleteCost{IndexEntries: 1, Files: 0},
+		Taken: []resource.DeleteKind{
+			{
+				Resource: "MembersGroupRoles",
+				Words:    resource.DeleteWords{One: "role", Many: "roles"},
+				Key:      []string{"GroupId", "Kind", "Axis", "DomainId", "Role"},
+				Cost:     resource.DeleteCost{IndexEntries: 1, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"GroupId"}, Table: "MembersGroups", References: []string{"Id"}},
+					},
+				},
+				Trusted: true,
+				Rows:    resource.NewTakenRows(func(*resource.PatchSet[MembersGroupRole], *resource.Caller) {}),
+			},
+			{
+				Resource: "MembersGroupMembers",
+				Words:    resource.DeleteWords{One: "member", Many: "members"},
+				Key:      []string{"GroupId", "UserId"},
+				Cost:     resource.DeleteCost{IndexEntries: 1, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"GroupId"}, Table: "MembersGroups", References: []string{"Id"}},
+					},
+				},
+				Trusted: true,
+				Rows:    resource.NewTakenRows(func(*resource.PatchSet[MembersGroupMember], *resource.Caller) {}),
+			},
+		},
+		Under: []resource.DeleteKind{
+			{
+				Resource: "MembersGroupMembers",
+				Words:    resource.DeleteWords{One: "member", Many: "members"},
+				Key:      []string{"GroupId", "UserId"},
+				Cost:     resource.DeleteCost{IndexEntries: 1, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"GroupId"}, Table: "MembersGroups", References: []string{"Id"}},
+					},
+				},
+			},
+			{
+				Resource: "MembersGroupRoles",
+				Words:    resource.DeleteWords{One: "role", Many: "roles"},
+				Key:      []string{"GroupId", "Kind", "Axis", "DomainId", "Role"},
+				Cost:     resource.DeleteCost{IndexEntries: 1, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"GroupId"}, Table: "MembersGroups", References: []string{"Id"}},
+					},
+				},
+			},
+		},
+	}
 }
 
 // membersGroupRead mirrors the wire shape the resource routes list
@@ -395,11 +463,11 @@ func (p *MembersGroupCreatePatch) ToStruct() *MembersGroup {
 	return p.patchSet.ToStruct()
 }
 
-func (p *MembersGroupCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *MembersGroupCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *MembersGroupCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *MembersGroupCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -559,11 +627,11 @@ func (p *MembersGroupUpdatePatch) ToStruct() *MembersGroup {
 	return p.patchSet.ToStruct()
 }
 
-func (p *MembersGroupUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *MembersGroupUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *MembersGroupUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *MembersGroupUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -733,11 +801,66 @@ func NewMembersGroupDeletePatch(id impulse.UUID) *MembersGroupDeletePatch {
 	return &MembersGroupDeletePatch{patchSet: patchSet}
 }
 
-func (p *MembersGroupDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+// WithEverythingUnder says the delete takes the rows under the MembersGroup with it:
+// the kinds its description lists as taken, the application's rows that name it in a
+// column that says so (@deletedWith) among them, each through its own delete. It takes
+// the kinds handed to the delete as well (DeleteAlso). Without it, a delete of a
+// MembersGroup that has such rows deletes nothing and is answered with the question a
+// person is asked first (httpio.HasPreconditionRequired). Where the rows cost more than
+// one save takes, the delete takes what fits, deepest first, and Left answers the rows
+// that save deleted: buffer the delete again, in a transaction of its own, until Left
+// answers nil.
+// It is for code that deletes outside a request, and every save of such a delete asks
+// everything again before it takes a row: a request's delete goes on the token its
+// question gave (WithDeleteToken).
+func (p *MembersGroupDeletePatch) WithEverythingUnder() *MembersGroupDeletePatch {
+	p.patchSet.DeleteEverythingUnder()
+
+	return p
+}
+
+// WithDeleteToken says the delete takes the rows under the MembersGroup on the token
+// its question gave (resource.PatchSet.DeleteWithToken): it takes them only where the
+// token holds, and is answered with the question again where it does not.
+func (p *MembersGroupDeletePatch) WithDeleteToken(token string) *MembersGroupDeletePatch {
+	p.patchSet.DeleteWithToken(token)
+
+	return p
+}
+
+// Left is what the delete says once it is buffered (resource.DeleteLeft): the rows the
+// save deleted where rows are left under the MembersGroup, which stands until a save
+// takes the last of them; nil where the delete finished, the MembersGroup with it.
+func (p *MembersGroupDeletePatch) Left() *resource.DeleteLeft {
+	return p.patchSet.DeleteLeft()
+}
+
+// DeleteAlso hands the delete kinds of row it takes with the MembersGroup that its
+// description does not list (resource.TakenKind): the question counts them, the check
+// before the delete asks them, and each round takes what fits of them after the kinds
+// the description lists and before the MembersGroup.
+func (p *MembersGroupDeletePatch) DeleteAlso(kinds ...resource.TakenKind) *MembersGroupDeletePatch {
+	p.patchSet.DeleteAlso(kinds...)
+
+	return p
+}
+
+// WithLibraryRowsAlone says the delete leaves the application's rows that name the
+// MembersGroup out: none is counted, asked about or taken, and none refuses the delete
+// (resource.PatchSet.DeleteLibraryRowsAlone). A MembersGroup deleted with its tenant is
+// deleted so, the tenant's delete having taken the application's rows under the tenant
+// already.
+func (p *MembersGroupDeletePatch) WithLibraryRowsAlone() *MembersGroupDeletePatch {
+	p.patchSet.DeleteLibraryRowsAlone()
+
+	return p
+}
+
+func (p *MembersGroupDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *MembersGroupDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *MembersGroupDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

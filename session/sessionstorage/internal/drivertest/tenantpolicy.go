@@ -52,21 +52,25 @@ func (s *roleStore) DeleteUserRoles(context.Context, accesstypes.PolicyScope, ac
 }
 
 // The HookRecords row a tenant's declaration is kept in: the key names the tenant, and
-// the value lists its directories as method:connection and the directory-only mark,
-// comma-separated.
+// the value lists its directories as method:connection, the directory-only mark and
+// the disabled mark, comma-separated.
 const (
 	declarationKeyPrefix = "tenant:"
 	directoryOnlyMark    = "directory-only"
+	disabledMark         = "disabled"
 )
 
 // declarationValue renders d as the value readDeclaration parses back.
 func declarationValue(d *signin.TenantDeclaration) string {
-	parts := make([]string, 0, len(d.Directories)+1)
+	parts := make([]string, 0, len(d.Directories)+2)
 	for _, directory := range d.Directories {
 		parts = append(parts, string(directory.Method)+":"+directory.Connection)
 	}
 	if d.DirectoryOnly {
 		parts = append(parts, directoryOnlyMark)
+	}
+	if d.Disabled {
+		parts = append(parts, disabledMark)
 	}
 
 	return strings.Join(parts, ",")
@@ -74,7 +78,7 @@ func declarationValue(d *signin.TenantDeclaration) string {
 
 // readDeclaration is the application's reader of a tenant's declaration, over the
 // hook's transaction: the row recorded under the tenant, parsed back, or nil when the
-// tenant declares nothing.
+// tenant declares nothing. A row that records nothing is an empty declaration.
 func readDeclaration(ctx context.Context, tx HookTx, tenant accesstypes.Domain) (*signin.TenantDeclaration, error) {
 	value, found, err := tx.Recorded(ctx, declarationKeyPrefix+string(tenant))
 	if err != nil {
@@ -86,14 +90,21 @@ func readDeclaration(ctx context.Context, tx HookTx, tenant accesstypes.Domain) 
 
 	d := &signin.TenantDeclaration{}
 	for part := range strings.SplitSeq(value, ",") {
-		if part == directoryOnlyMark {
+		switch part {
+		case "":
+			continue
+		case directoryOnlyMark:
 			d.DirectoryOnly = true
+
+			continue
+		case disabledMark:
+			d.Disabled = true
 
 			continue
 		}
 		method, connection, ok := strings.Cut(part, ":")
 		if !ok {
-			return nil, errors.Newf("declaration %q of tenant %q: %q is neither a directory nor the directory-only mark", value, tenant, part)
+			return nil, errors.Newf("declaration %q of tenant %q: %q is neither a directory nor a mark", value, tenant, part)
 		}
 		d.Directories = append(d.Directories, signin.Directory{Method: sessioninfo.AuthMethod(method), Connection: connection})
 	}
@@ -189,7 +200,14 @@ func testTenantAdministratorsWayIn(_ context.Context, t *testing.T, h *AuthHarne
 				roles.administers[person] = []accesstypes.Domain{"lakeside"}
 			}
 
-			_, err := passwordSignIn(ctx, in, user, sessioninfo.ReasonLogin)
+			// Jane's account signs in through Lakeside's directory too, and the instance
+			// sets no directory admission: the policy is told no directory.
+			mustLink(ctx, t, in.Driver, user.ID, lakeside("idp_jane"))
+
+			req, err := passwordSignIn(ctx, in, user, sessioninfo.ReasonLogin)
+			if req.User == nil || len(req.User.Directories) != 0 {
+				t.Errorf("the sign-in's user = %+v, want one with no directories on an Auth that sets no directory admission", req.User)
+			}
 			if tt.completion != nil {
 				assertHeldForCode(t, err)
 				err = signInRequest(ctx, in, &sessioninfo.NewSessionRequest{
@@ -320,6 +338,27 @@ func testTenantPolicy(_ context.Context, t *testing.T, h *AuthHarness) {
 			password:  true,
 			wantCode:  sessioninfo.RefusedDirectoryOnly,
 			wantCause: signin.ErrDirectoryOnly,
+		},
+		{
+			name:      "a member whose only tenant is disabled is refused a password with no_tenant, as a member of no tenant is",
+			held:      accesstypes.RoleCollection{lakesideScope: member},
+			declared:  map[accesstypes.Domain]*signin.TenantDeclaration{"lakeside": {Disabled: true}},
+			password:  true,
+			wantCode:  sessioninfo.RefusedNoTenant,
+			wantCause: signin.ErrNoTenant,
+		},
+		{
+			name:     "a member whose only tenant is disabled is admitted by password with AdmitWithoutTenant, as a member of no tenant is",
+			held:     accesstypes.RoleCollection{lakesideScope: member},
+			declared: map[accesstypes.Domain]*signin.TenantDeclaration{"lakeside": {Disabled: true}},
+			password: true,
+			opts:     []signin.TenantPolicyOption{signin.AdmitWithoutTenant()},
+		},
+		{
+			name:     "a disabled tenant is passed over: a password is admitted by the person's other tenant, which declares nothing",
+			held:     accesstypes.RoleCollection{lakesideScope: member, riversideScope: member},
+			declared: map[accesstypes.Domain]*signin.TenantDeclaration{"lakeside": {Disabled: true}},
+			password: true,
 		},
 		{
 			name:        "the application's own rule is asked after the tenant policy allows, and its answer is the decision",

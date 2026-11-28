@@ -228,8 +228,8 @@ func TestAuth_PasswordProof_Pending(t *testing.T) {
 		})
 
 		err := complete(f, cookies)
-		if !httpio.HasUnauthorized(err) || httpio.Message(err) != "Invalid Credentials" || !errors.Is(err, sessionstorage.ErrPasswordChanged) {
-			t.Fatalf("CompletePending() error = %v, want Unauthorized \"Invalid Credentials\" over ErrPasswordChanged", err)
+		if !httpio.HasUnauthorized(err) || httpio.Message(err) != "The username or password is wrong. Check what you entered and try again" || !errors.Is(err, sessionstorage.ErrPasswordChanged) {
+			t.Fatalf("CompletePending() error = %v, want Unauthorized \"The username or password is wrong. Check what you entered and try again\" over ErrPasswordChanged", err)
 		}
 		if f.held[pendingID].ConsumedAt == nil {
 			t.Error("the pending sign-in stands, want it consumed: the person signs in again")
@@ -263,8 +263,9 @@ func TestAuth_PasswordProof_Pending(t *testing.T) {
 // TestAuth_PasswordProof_Confirmation pins that the link and the session a password
 // confirmation makes rest on the proof of the password that confirmed: the store is
 // handed it with the link and with the sign-in, a sign-in the policy then holds for a
-// factor is held with it, and a link or a sign-in the store refuses because the
-// password has changed is answered as a wrong password is and counted as one.
+// factor is held with it, and one held in a wait that names no user is held with none,
+// and a link or a sign-in the store refuses because the password has changed is
+// answered as a wrong password is and counted as one.
 func TestAuth_PasswordProof_Confirmation(t *testing.T) {
 	t.Parallel()
 
@@ -295,8 +296,8 @@ func TestAuth_PasswordProof_Confirmation(t *testing.T) {
 	assertRefusedAsWrong := func(t *testing.T, f *authFixture, rr *httptest.ResponseRecorder) {
 		t.Helper()
 
-		if rr.Code != wrongStatus || refusalMessage(t, rr) != "Invalid Credentials" {
-			t.Errorf("confirmation = %d %s, want %d \"Invalid Credentials\", as a wrong password gets", rr.Code, rr.Body.String(), wrongStatus)
+		if rr.Code != wrongStatus || refusalMessage(t, rr) != "The username or password is wrong. Check what you entered and try again" {
+			t.Errorf("confirmation = %d %s, want %d \"The username or password is wrong. Check what you entered and try again\", as a wrong password gets", rr.Code, rr.Body.String(), wrongStatus)
 		}
 		if r := f.attemptsRecord("pat"); r == nil || r.Failures != 1 {
 			t.Errorf("attempts under the name = %+v, want one failure", r)
@@ -334,6 +335,23 @@ func TestAuth_PasswordProof_Confirmation(t *testing.T) {
 		}
 		if got, want := f.held[again].PasswordProof, proofOf(t, hash); !bytes.Equal(got, want) {
 			t.Errorf("HoldSignIn() given the proof %x, want %x: the factor completes only while the confirming password stands", got, want)
+		}
+	})
+
+	t.Run("a sign-in held after the link for an invitation's code, in a wait that names no user, is held with no proof", func(t *testing.T) {
+		t.Parallel()
+		f, cookies, _ := held(t)
+		f.store.EXPECT().LinkConfirmedIdentity(gomock.Any(), userID, "pat", identity, "lakeside", gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+		f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) { req.UserID, req.Username = userID, "pat" }, func(*sessioninfo.NewSessionRequest) error {
+			return &signin.PendingSignInError{Reason: sessioninfo.PendingMFA, Factors: []sessioninfo.AuthMethod{sessioninfo.MethodEmailCode}}
+		})
+		again := f.expectHold("")
+
+		if rr := confirm(f, cookies); rr.Code != http.StatusOK {
+			t.Fatalf("confirmation = %d %s, want 200 with the step to take", rr.Code, rr.Body.String())
+		}
+		if row := f.held[again]; row.PasswordProof != nil || row.UserID.Valid {
+			t.Errorf("HoldSignIn() given the proof %x for the user %v, want no proof and no user: a proof names its user, and the wait names none", row.PasswordProof, row.UserID)
 		}
 	})
 

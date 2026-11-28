@@ -72,6 +72,22 @@ func (probeCollection) SubjectSetComparisonType(string) (accesstypes.AttributeTy
 	return "", false
 }
 
+func (probeCollection) SubjectSets(string) map[string][]string {
+	return nil
+}
+
+func (probeCollection) SubjectSetAuth(string) string {
+	return ""
+}
+
+func (probeCollection) SubjectSetDefinition(string) []string {
+	return nil
+}
+
+func (probeCollection) Auths() []string {
+	return nil
+}
+
 func (probeCollection) SubjectValueComparisonType(string) (accesstypes.AttributeType, bool) {
 	return "", false
 }
@@ -214,7 +230,7 @@ func TestValidateRoles_grantWarnings(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := ValidateRoles(probeCollection{}, &RoleConfig{Roles: tt.roles})
+			got, err := ValidateRoles(probeCollection{}, &RoleConfig{Auth: fixtureAuth, Roles: tt.roles}, fixtureAuth)
 			if err != nil {
 				t.Fatalf("ValidateRoles() error = %v", err)
 			}
@@ -248,6 +264,13 @@ func TestValidateRoles_errors(t *testing.T) {
 			wantErr: "is not an attribute of Missions",
 		},
 		{
+			name: "a field named with a dot",
+			roles: ScopedRoles{Domain: []*Role{{Name: "Paymaster", Description: "Settles the open missions.", Permissions: map[accesstypes.Permission][]Grant{
+				"Read": {{Resource: "Missions", Fields: []accesstypes.Tag{"hazard.level"}}},
+			}}}},
+			wantErr: `grant on Missions: field "hazard.level" holds a dot`,
+		},
+		{
 			name: "a role declared at both scopes",
 			roles: ScopedRoles{
 				Global: []*Role{{Name: "Paymaster"}},
@@ -260,7 +283,7 @@ func TestValidateRoles_errors(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			warnings, err := ValidateRoles(probeCollection{}, &RoleConfig{Roles: tt.roles})
+			warnings, err := ValidateRoles(probeCollection{}, &RoleConfig{Auth: fixtureAuth, Roles: tt.roles}, fixtureAuth)
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("ValidateRoles() error = %v, want one containing %q", err, tt.wantErr)
 			}

@@ -8,12 +8,23 @@
       <mat-label>{{ fieldConfig().label }}</mat-label>
       <span matTextPrefix class="prefix">{{ prefixString() }}</span>
       <span matTextSuffix class="suffix">{{ suffixString() }}</span>
-      <input
-        matInput
-        (keydown.enter)="$event.preventDefault()"
-        [readonly]="editMode() === 'view'"
-        type="number"
-        [formControlName]="fieldConfig().name" />
+      @if (decimal()) {
+        <input
+          matInput
+          impulseDecimalInput
+          (keydown.enter)="$event.preventDefault()"
+          [readonly]="editMode() === 'view'"
+          type="number"
+          step="any"
+          [formControlName]="fieldConfig().name" />
+      } @else {
+        <input
+          matInput
+          (keydown.enter)="$event.preventDefault()"
+          [readonly]="editMode() === 'view'"
+          type="number"
+          [formControlName]="fieldConfig().name" />
+      }
     </mat-form-field>
   </div>
 } @else {

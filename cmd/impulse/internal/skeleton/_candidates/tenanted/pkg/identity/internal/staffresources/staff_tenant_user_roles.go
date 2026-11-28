@@ -22,15 +22,22 @@ type (
 	// condition too (role), so a role file can say which roles its holder takes away.
 	//
 	// StartsAt and EndsAt are the role's period, the first instant it counts and the first
-	// it no longer does, each empty for none. A role that has ended is not listed: it
-	// grants nothing and goes at the person's next sign-in. One that has not begun is
-	// listed, where it is given another period or taken away.
+	// it no longer does, each empty for none, and Reason is why the role was given, where
+	// the request gave one: a tenant's administrator reads there why someone holds a role
+	// with them for a set time. A role that has ended is not listed: it grants nothing and
+	// goes at the person's next sign-in. One that has not begun is listed, where it is
+	// given another period or taken away.
+	//
+	// The roles a person holds through a group are not rows here. The one list a page
+	// shows a person's roles from, these rows beside the ones that come through a group,
+	// is StaffTenantHeldRole, whose rows RemoveStaffTenantRole names.
 	//
 	// @virtual
 	// @permissionScope(domain)
 	// @outlet(default)
 	// @order(Username asc, Role asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(held role)
 	StaffTenantUserRole struct {
 		// @domain
 		DomainID string `spanner:"DomainId" index:"true"`
@@ -39,12 +46,14 @@ type (
 		Username string       `spanner:"Username" index:"true"`
 		// @primarykey
 		// @attribute(role)
+		// @roleOf(Staff)
 		Role string `spanner:"Role" index:"true"`
 		// @attribute(everyDomain)
 		EveryDomain bool       `spanner:"EveryDomain" index:"true"`
 		CreatedAt   time.Time  `spanner:"CreatedAt"`
 		StartsAt    *time.Time `spanner:"StartsAt"`
 		EndsAt      *time.Time `spanner:"EndsAt"`
+		Reason      *string    `spanner:"Reason"`
 	}
 )
 
@@ -66,14 +75,15 @@ SELECT
   t.EveryDomain AS EveryDomain,
   t.CreatedAt AS CreatedAt,
   t.StartsAt AS StartsAt,
-  t.EndsAt AS EndsAt
+  t.EndsAt AS EndsAt,
+  t.Reason AS Reason
 FROM (
-  SELECT m.DomainId AS DomainId, m.UserId AS UserId, m.Role AS Role, FALSE AS EveryDomain, m.CreatedAt AS CreatedAt, m.StartsAt AS StartsAt, m.EndsAt AS EndsAt
+  SELECT m.DomainId AS DomainId, m.UserId AS UserId, m.Role AS Role, FALSE AS EveryDomain, m.CreatedAt AS CreatedAt, m.StartsAt AS StartsAt, m.EndsAt AS EndsAt, m.Reason AS Reason
   FROM StaffUserRoles m
   WHERE m.Kind = 'domain' AND m.Axis = ''
     AND (m.EndsAt IS NULL OR m.EndsAt > CURRENT_TIMESTAMP())
   UNION ALL
-  SELECT s.Id AS DomainId, m.UserId AS UserId, m.Role AS Role, TRUE AS EveryDomain, m.CreatedAt AS CreatedAt, m.StartsAt AS StartsAt, m.EndsAt AS EndsAt
+  SELECT s.Id AS DomainId, m.UserId AS UserId, m.Role AS Role, TRUE AS EveryDomain, m.CreatedAt AS CreatedAt, m.StartsAt AS StartsAt, m.EndsAt AS EndsAt, m.Reason AS Reason
   FROM StaffUserRoles@{FORCE_INDEX=_BASE_TABLE} m
   CROSS JOIN Tenants s
   WHERE m.Kind = 'every' AND m.Axis = ''

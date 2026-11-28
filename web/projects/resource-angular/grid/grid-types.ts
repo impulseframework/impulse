@@ -72,7 +72,9 @@ export interface SortRule {
 /**
  * Which columns the server filters, by column id: the generated field metadata's
  * `filterable` for the field the column shows. A column absent here draws no filter
- * control.
+ * control. It also answers for each field the page's own filter names
+ * (`externalFilterFields`), which may be no column: the grid asks it whether an indexed
+ * filter is already in the request.
  */
 export type ColumnFilterability = Readonly<Record<string, FilterEligibility | undefined>>;
 
@@ -103,6 +105,29 @@ export type FilterInput = 'text' | 'date' | 'datetime';
  * field metadata's display type. A column absent here takes typed text.
  */
 export type ColumnFilterInputs = Readonly<Record<string, FilterInput | undefined>>;
+
+/** One value a column's field takes, as its filter menu offers it: the name a person reads in the column, and the value the server filters by. */
+export interface FilterChoice {
+  value: string;
+  label: string;
+}
+
+/**
+ * The values each column's field takes, by column id, where they are known: a fixed set
+ * the generated field metadata lists (`enumeration`), or the roles of a field that holds a
+ * role's name, those the metadata lists (`roles`) and those the list was found to hold
+ * beyond them. The column's menu offers the names, as the column's cells write them, and
+ * the filter carries the values. A column absent here takes its value from its control
+ * (`ColumnFilterInputs`).
+ */
+export type ColumnFilterChoices = Readonly<Record<string, readonly FilterChoice[] | undefined>>;
+
+/**
+ * What a column's menu draws for a value under an operator: one of the column's controls
+ * (`FilterInput`), or, on a column whose field takes fixed values, one name to pick
+ * (`choice`) or, under a list operator, each name to tick (`choices`).
+ */
+export type FilterValueInput = FilterInput | 'choice' | 'choices';
 
 /** Where the rows sit in the server's list: the rows before this page, whether neighbors exist, and the total when the first page asked for it. */
 export interface GridPageState {

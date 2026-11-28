@@ -23,9 +23,9 @@ var _ identity.RoleGrants = grants{}
 // since none of it gives a power that giving the role directly would not: a person put
 // in a group is given the group's roles, and a sign-in method opened to sign-up gives
 // its default role to every person who signs up. Each is judged by the grant of the
-// method that gives a role. The list a tenant's role is picked from asks which roles
-// the caller could give at all (CouldGive), so a page offers no role every method
-// would refuse.
+// method that gives a role. A list a role is picked from asks which roles the caller
+// could give with the method whose dialog picks (CouldGive), so a dialog offers no role
+// its own method would refuse.
 //
 // The answer is the one the method's own frame would reach for the same caller, asked
 // of the request's own check (resource.Caller.ExecuteGate): the method's Execute grant
@@ -67,54 +67,86 @@ func (grants) MayGive(ctx context.Context, txn resource.ReadWriteTransaction, sc
 	return settled(gate, "AssignStaffRole")
 }
 
+// MayGiveOn reports whether the caller may give the person the role on the record: the
+// instance shares no record, so no role is given on one here.
+func (grants) MayGiveOn(context.Context, resource.ReadWriteTransaction, accesstypes.RecordScope, impulse.UUID, accesstypes.Role) (bool, error) {
+	return false, nil
+}
+
 // CouldGive reports whether the caller could give the role in the scope by hand, to
-// somebody: the question of the list a role is picked from, asked before anybody is
-// named, with no row to read and so no transaction. For a request made under a
-// tenant, each method of the tenant whose role field picks from the tenant's roles is
-// asked with the role and nothing else:
+// somebody, with the method named: the question of the list a role is picked from,
+// asked for the method whose dialog picks, before anybody is named, with no row to read
+// and so no transaction. Each method is asked of its own grant and no other's, so a
+// dialog is offered the roles its own method takes from the caller.
 //
-//	AssignStaffTenantRole, CreateStaffTenantUser, InviteStaffTenantUser, GiveStaffTenantGroupRole
+// For a request made under a tenant, the method is one of the tenant's whose role
+// field picks from the tenant's roles, asked with the role and nothing else:
 //
-// The answer is yes where one of them does not refuse the caller the role: its grant
+//	AssignStaffTenantRole, InviteStaffTenantUser, GiveStaffTenantGroupRole
+//
+// The answer is yes where the method does not refuse the caller the role: its grant
 // admits the role, or what is left of the grant's condition reads the row the method
-// names (a person, a group), so the role could be given to some of them. A role every
-// one of them refuses is one the caller gives nobody. For the whole application the
-// method that gives a role names no row, and its grant answers (MayGive, of nobody).
-func (g grants) CouldGive(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {
+// names (a person, a group), so the role could be given to some of them.
+//
+// For a request made for the whole application, the method is one of the whole
+// application's whose role field picks from the roles to give
+// (StaffGivableRoles), asked the same way, with the role and where it is held:
+//
+//	AssignStaffRole, InviteStaffUser, GiveStaffGroupRole
+//
+// The invitation that makes a tenant (InviteStaffTenant) is asked the same
+// way for the list its starting role is picked from
+// (StaffInvitedTenantRoles), with the role alone: the tenant does
+// not exist yet, so the request names no place.
+//
+// A method that is none of them gives no role by hand where the request was made, and
+// is an error.
+func (g grants) CouldGive(ctx context.Context, method accesstypes.Resource, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {
 	caller := resource.CallerFrom(ctx)
 	if tenant, inTenant := caller.Scope.Domain(); inTenant {
 		// A request made under a tenant gives a role in that tenant alone.
 		if scope != accesstypes.DomainPolicyScope(tenant) {
 			return false, nil
 		}
-		for _, by := range []struct {
-			method  accesstypes.Resource
-			request any
-		}{
-			{method: AssignStaffTenantRole{}.Method(), request: &AssignStaffTenantRole{Role: string(role)}},
-			{method: CreateStaffTenantUser{}.Method(), request: &CreateStaffTenantUser{Roles: []string{string(role)}}},
-			{method: InviteStaffTenantUser{}.Method(), request: &InviteStaffTenantUser{Roles: []string{string(role)}}},
-			{method: GiveStaffTenantGroupRole{}.Method(), request: &GiveStaffTenantGroupRole{Role: string(role)}},
-		} {
-			gate, err := caller.ExecuteGate(ctx, by.method, by.request)
-			if err != nil {
-				// A method the caller holds no grant on, or whose grant refuses the
-				// role, is a no of that method, and the next is asked.
-				if _, err := granted(err); err != nil {
-					return false, err
-				}
-
-				continue
-			}
-			if may, settled := gate.Settled(); may || !settled {
-				return true, nil
-			}
+		switch method {
+		case AssignStaffTenantRole{}.Method():
+			return couldGiveBy(ctx, caller, method, &AssignStaffTenantRole{Role: string(role)})
+		case InviteStaffTenantUser{}.Method():
+			return couldGiveBy(ctx, caller, method, &InviteStaffTenantUser{Roles: []string{string(role)}})
+		case GiveStaffTenantGroupRole{}.Method():
+			return couldGiveBy(ctx, caller, method, &GiveStaffTenantGroupRole{Role: string(role)})
 		}
 
-		return false, nil
+		return false, errors.Newf("%s is no method of a tenant that gives a role by hand: AssignStaffTenantRole, InviteStaffTenantUser, GiveStaffTenantGroupRole", method)
 	}
 
-	return g.MayGive(ctx, nil, scope, impulse.NilUUID, role)
+	domain, everyDomain := scopeFields(scope)
+	switch method {
+	case AssignStaffRole{}.Method():
+		return couldGiveBy(ctx, caller, method, &AssignStaffRole{Role: string(role), Domain: domain, EveryDomain: everyDomain})
+	case InviteStaffUser{}.Method():
+		return couldGiveBy(ctx, caller, method, &InviteStaffUser{Roles: []string{string(role)}, Domain: domain, EveryDomain: everyDomain})
+	case GiveStaffGroupRole{}.Method():
+		return couldGiveBy(ctx, caller, method, &GiveStaffGroupRole{Role: string(role), Domain: domain, EveryDomain: everyDomain})
+	case InviteStaffTenant{}.Method():
+		return couldGiveBy(ctx, caller, method, &InviteStaffTenant{DefaultRole: new(string(role))})
+	}
+
+	return false, errors.Newf("%s is no method of the whole application that gives a role by hand: AssignStaffRole, InviteStaffUser, GiveStaffGroupRole", method)
+}
+
+// couldGiveBy reports whether the method does not refuse the caller its request, which
+// names the role: its grant admits it, or what is left of the grant's condition reads
+// the row the method names, so the role could be given to some of them. A method the
+// caller holds no grant on, or whose grant refuses the role, is a no.
+func couldGiveBy(ctx context.Context, caller *resource.Caller, method accesstypes.Resource, request any) (bool, error) {
+	gate, err := caller.ExecuteGate(ctx, method, request)
+	if err != nil {
+		return granted(err)
+	}
+	may, settled := gate.Settled()
+
+	return may || !settled, nil
 }
 
 // MayTake reports whether the caller may take the role the person holds in the scope
@@ -130,12 +162,12 @@ func (grants) MayTake(ctx context.Context, txn resource.ReadWriteTransaction, sc
 		if err != nil {
 			return granted(err)
 		}
-		// The method names a row of StaffTenantUserRole, the roles held in the tenant by a
-		// membership of a person's own, and a condition on its grant reads that row. A
-		// role held through a group is no row of the list, so the condition is read
-		// against the row the removal would name: this role, held in the tenant itself
-		// and not in every tenant.
-		held := resource.ExecuteTarget{Resource: "StaffTenantUserRoles", Label: "StaffTenantUserRole", PKColumns: []string{"UserId", "Role"}, View: nil}
+		// The method names a row of StaffTenantHeldRole, the roles held in the tenant,
+		// by the row of a membership of a person's own, and a condition on its grant
+		// reads that row. A role a person holds through a group alone is no such row, so
+		// the condition is read against the row the removal would name: this role, held
+		// in the tenant itself and not in every tenant.
+		held := resource.ExecuteTarget{Resource: "StaffTenantHeldRoles", Label: "StaffTenantHeldRole", PKColumns: []string{"UserId", "Role", "GroupId"}, View: nil}
 
 		return granted(gate.EnforceProposed(ctx, txn, held, map[string]any{"role": string(role), "everyDomain": false}))
 	}

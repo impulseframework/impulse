@@ -9,38 +9,49 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
-	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/resource"
 )
 
 // RemoveStaffRole takes a role from a person of the Staff auth, named by the
-// id of their account: the one held in the global scope, in one domain (Domain), or in
-// every domain (EveryDomain). A role the person does not hold there is no error. The
-// person's next request is served without it.
+// id of their account. The application has no tenants, so the role is the one held for
+// the whole application and the request names no place. A role the person does not hold
+// is no error. The person's next request is served without it.
 //
 // A person who removes a role from themselves in a domain keeps an administrator role
 // nobody else would hold there (identity.WithAdministratorRoles names them). The Super
 // Administrator role is taken away by a super administrator alone, and never from the
-// last one who can sign in. A person left with no role anywhere is deleted with their
-// identity links and sessions, in the same transaction: an account nothing admits is
-// not kept.
+// last one who can sign in. Where the role is the last thing the person holds, the
+// account stays, holding nothing.
+//
+// The method declares a warning with no word to type: asked first, the server says whose
+// role goes and where it is held.
 //
 // @rpc
 // @outlet(default)
 // @answers(204)
+// @warning
+// @class(access)
 type RemoveStaffRole struct {
-	UserID      impulse.UUID
-	Role        string `validate:"required"`
-	Domain      *string
-	EveryDomain bool
+	UserID impulse.UUID
+	Role   string `validate:"required"`
+}
+
+// Warning says whose role would go and where it is held. It writes nothing.
+func (m *RemoveStaffRole) Warning(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*resource.Warning, error) {
+	// The application has no tenants: every role is held for the whole application.
+	scope := accesstypes.GlobalPolicyScope()
+	warning, err := client.manager.RoleRemovalWarning(ctx, txn, scope, m.UserID, accesstypes.Role(m.Role))
+	if err != nil {
+		return nil, errors.Wrap(err, "identity.Manager.RoleRemovalWarning()")
+	}
+
+	return warning, nil
 }
 
 // Execute buffers the removal into the caller's transaction.
 func (m *RemoveStaffRole) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error {
-	scope, err := identity.Scope(m.Domain, m.EveryDomain)
-	if err != nil {
-		return errors.Wrap(err, "identity.Scope()")
-	}
+	// The application has no tenants: every role is held for the whole application.
+	scope := accesstypes.GlobalPolicyScope()
 	if err := client.manager.RemoveRole(ctx, txn, scope, m.UserID, accesstypes.Role(m.Role)); err != nil {
 		return errors.Wrap(err, "identity.Manager.RemoveRole()")
 	}

@@ -26,6 +26,7 @@ func (h *Handlers) CrewUserRoles() http.HandlerFunc {
 		CreatedAt time.Time  `json:"createdAt"`
 		StartsAt  *time.Time `json:"startsAt"`
 		EndsAt    *time.Time `json:"endsAt"`
+		Reason    *string    `json:"reason"`
 	}
 
 	type response []map[string]any
@@ -43,8 +44,9 @@ func (h *Handlers) CrewUserRoles() http.HandlerFunc {
 		}
 
 		// A live list registers before the query runs, so a commit that lands during
-		// the query is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, h.LiveService(), querySet, live.ListSubscription(querySet.Resource(), ""))
+		// the query is not missed; a refused request registers nothing. With it the
+		// request registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, h.LiveService(), querySet, live.ListSubscription(querySet.Resource(), ""))
 
 		res := crewresources.NewCrewUserRoleQueryFromQuerySet(querySet)
 
@@ -98,6 +100,10 @@ func (h *Handlers) CrewUserRoles() http.HandlerFunc {
 				case "EndsAt":
 					if !row.Masked("endsAt") {
 						rmap["endsAt"] = rec.EndsAt
+					}
+				case "Reason":
+					if !row.Masked("reason") {
+						rmap["reason"] = rec.Reason
 					}
 				}
 			}

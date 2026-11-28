@@ -29,20 +29,28 @@ file gives a place's groups, their members and their roles to whoever manages it
 nobody a power that giving the role directly would not: who is in a group, and what it
 holds, is changed by someone who may give or take those roles directly, and a tenant puts
 its own people in its groups, while an account from outside the tenant is put there from
-the whole application's accounts. The library
+the whole application's accounts. The list of groups says how many people each group has and the roles it
+holds, and offers Delete on every group, asking first with a count of its people and roles; a person's page lists their
+roles in one list that says "Their own" or names the group each comes through. On the
+Break glass page (`/staff-break-glass`) a person takes a role in a tenant for a set time
+and says why, when they hold the page's grant and could give themselves that role there:
+the role ends by itself, and the tenant's administrator reads the reason beside it and
+may end it early. The role file gives the page's lists and its method to the
+`Administrator` alone: a `TenantAdministrator`, who may give themselves a role in their
+own tenant, holds no grant of the page and takes none for a set time. The library
 draws them from the API description (`identityRoutes` in the console's `app.routes.ts`,
 placed by `identityMenuPages` in its menu file), and a tenant's pages read the tenant from
 the URL (the frame provides `RESOURCE_DOMAIN`). The console's menu file (`app.menus.ts`)
-shows Tenants (All tenants) and System (the staff's accounts, the Invited tenants page and
-Feature flags…) in Configuration, and People and Tenant (Sign-in settings) inside a tenant; the
+shows Tenants (All tenants and Invite a tenant…) and System (the staff's accounts and
+Feature flags) in Configuration, and People and Tenant (Sign-in settings) inside a tenant; the
 portal has no pages of its own yet, so its bar holds Help alone. In both, the person's own
-menu holds Your account, Appearance and Sign out, and Help ends with About, which carries
-the release.
+menu holds Your account, Appearance and Sign out, and Help ends with About, a pop-up that carries
+the release and, outside production, the environment's name (the server's `APP_ENVIRONMENT`, which a deployment sets everywhere but production).
 
 How a tenant comes to exist is apart from who may enter one. Nobody creates a tenant
 directly: the record's create is refused, with a sentence that says so. An administrator
-brings an organization in by inviting one person, on the console's Invited tenants page
-(System), which the library draws from the staff auth's generated `InviteStaffTenant`,
+brings an organization in by inviting one person, on the console's tenants page (All
+tenants), which lists the invitations still waiting above the tenants, and which the library draws from the staff auth's generated `InviteStaffTenant`,
 `StaffInvitedTenants` and `WithdrawStaffInvitedTenant`. Sending the invitation takes the
 `Administrator` role's Create grant on the record, and a name a tenant holds is refused
 there. No tenant exists while the invitation waits; the invited person's first sign-in
@@ -53,7 +61,8 @@ page. The staff auth is handed what makes the tenant by the data level
 (`staff.Settings.TenantMaker`, the generated `consoleapp.NewTenantMaker` over the roster, built before the
 auth), and refuses to start without it. A person who signed up and holds no tenant
 creates their own through the generated create-your-tenant route, which the dashboard
-offers while an administrator has a sign-in method open to sign-up.
+offers to a person who signed in through a sign-in method an administrator has open to
+sign-up.
 
 Who may enter a tenant is the record's declaration, data of the application rather than
 deploy configuration: the tenant's directory, the organization its people sign in
@@ -70,7 +79,10 @@ transaction): a tenant's declaration restricts its own door alone, so a tenant t
 not directory only admits everyone it seats, however they signed in, a directory-only
 tenant admits a sign-in through its own directory and, of its own administrators alone, a
 password with a code sent to their email, and nothing else, and a person is
-refused only when every tenant that seats them is closed to the way they signed in. A
+refused only when every tenant that seats them is closed to the way they signed in. One
+part of a declaration reaches past its own tenant: an account that signs in through a
+directory-only tenant's directory signs in through that directory alone, whichever
+tenants seat the person; that tenant's own administrators keep the password. A
 super administrator is admitted whatever a tenant declares, an administrator of a
 directory-only tenant (a holder of `TenantAdministrator` in that tenant itself, by a role
 of their own or through one of the tenant's own groups, never one held in every tenant)
@@ -85,7 +97,7 @@ enters a tenant only where its declaration admits their session, and a person ho
 tenant is refused.
 Which tenants the session then reaches is decided again per tenant where its tenant list
 is computed, on either site, and a tenant that seats the person and is closed to their
-session stays in the list marked closed, with the reason: the shared roster keeps every tenant's declaration beside
+session stays in the list as not available, with the reason: the shared roster keeps every tenant's declaration beside
 its key (`resource.TenantRoster.Declarations`, handed to `resource.SessionPermissions` by
 both Apps), the console's write paths reload it after their commit and signal the other
 instances, so a declaration decides the next request on both sites, and the records'
@@ -95,18 +107,20 @@ tenant's directory there and removes it, and changes everything else with the te
 methods, which `TenantAdministrator` holds and the page runs through the library's
 method dialog: `OpenTenantToDirectory`
 (`POST /api/tenants/{tenantID}/open-tenant-to-directory`) names the role each of
-the directory's people is given at their first sign-in through it, a role the caller
-could give directly, picked from the list of the roles they may give
+the directory's people is given when they sign in through it and hold nothing in the
+tenant, a role the caller could give directly, picked from the list of the roles they may give
 (`StaffTenantDirectoryRoles`), and `MakeTenantInviteOnly` clears it; `MakeTenantDirectoryOnly`
 (`POST /api/tenants/{tenantID}/make-tenant-directory-only`) and
 `EndTenantDirectoryOnly` turn directory only (the `Tenants` record shows the flag and
 takes no write of it), which the server turns on only once the tenant has its directory
 and only for a person signed in through it who has a password of their own, their way
-back in if the directory has a problem. Opening the tenant and making it directory
+back in if the directory has a problem; the page says both before the person presses,
+in the server's own sentences, and offers the button only where the tenant has a
+directory. Opening the tenant and making it directory
 only each warn first: the dialog shows the server's sentence (who will enter and with
 what role; the count of the people it would keep out and, to a person who may list the
 tenant's people, their names as a list) and holds its button until the person has typed
-the method's word; the other two are plain confirmations. Every sentence names the
+the method's word; the other two, and removing the directory, are plain confirmations. Every sentence names the
 directory in words a person knows, the name a sign-in registration gives it or the
 label of its button, and never by a connection that is an id. Nobody types a directory in: it is set from a
 sign-in, by an administrator who is signed in through their organization's directory,
@@ -132,12 +146,12 @@ turned on, since that takes a person who is signed in through the tenant's direc
   application manages its people. The portal's generator does not set the option and the
   portal serves none of it. The tree has two sides. The whole application's: the lists
   (`StaffSessionUsers`, `StaffUserRoles`, `StaffSessionMailLinks`, `StaffSessions` and the
-  rest) and the methods (`CreateStaffUser`, `InviteStaffUser`, `AssignStaffRole`,
-  `SetStaffTemporaryPassword` and the rest). A tenant's, under the tenant segment and
+  rest) and the methods (`InviteStaffUser`, `AssignStaffRole`,
+  `SendStaffUserPasswordResetLink` and the rest). A tenant's, under the tenant segment and
   named with the tenant record: the lists of its people, the roles held in it, its
   invitations, its people's sign-in identities and the roles it gives (`StaffTenantUsers`,
   `StaffTenantUserRoles`, `StaffTenantInvitations`, `StaffTenantIdentities`,
-  `StaffTenantRoles`), and the methods (`CreateStaffTenantUser`, `InviteStaffTenantUser`,
+  `StaffTenantRoles`), and the methods (`InviteStaffTenantUser`,
   `AssignStaffTenantRole` and the rest). All of it is served like every other resource
   and method and granted in the role file. The shared auth builds the client
   the console's handlers act through when it opens (`staff.New`, answered by
@@ -154,17 +168,27 @@ turned on, since that takes a person who is signed in through the tenant's direc
 - `pkg/deploy` holds the database steps a deployment runs: the schema migrations, then
   the role policy check (`CheckRoles`), which prints what the store holds that this
   release cannot use as written. Then `MigrateFeatures` brings the `FeatureFlags` table to the
-  flags the release declares (section Feature flags). Between the two, `SeedAdministrators` gives each auth its first
-  administrator while its users table holds no rows, the foothold a deployed environment
-  starts from: the staff auth's `administrator`, with the password the stack generates
-  (`APP_STAFF_ADMINISTRATOR_PASSWORD`, a generated secret), holding the development
-  administrator's roles. The generated password is for the first sign-in alone: sign in
-  as `administrator` with it, give an email address and confirm it with the sign-in code
-  mailed there (the account starts with no address), then choose a new password, which
-  the login page asks for before it opens anything else; the generated password signs
-  nobody in after that. A user that exists stops the seed; the auth's management
-  creates every user after the first, and the bootstrap creates the development logins
-  instead. The staff auth's role file validates against the union
+  flags the release declares (section Feature flags). Between the two, `InviteAdministrators` invites each
+  auth's first administrator while nobody of the auth holds the Super Administrator
+  role, the foothold a deployed environment starts from: an invitation mailed to the address the placement names for
+  the environment (`APP_STAFF_ADMINISTRATOR`), which gives the Super Administrator role
+  and the development administrator's roles. The person opens the link and chooses a
+  password there, and enters the code mailed to the address. No account is made ahead of them and
+  no password is generated. A release leaves an invitation that stands as it is, mails a new one once
+  it has run out (seven days), and withdraws one for an address the placement no longer
+  names; the migrate command's `-reinvite-administrator staff` withdraws the
+  standing one and mails a fresh one on demand, for mail that was lost, while nobody
+  holds the role. Both refuse while nobody holds it and the environment has no mailbox
+  (`APP_MAIL_MAILBOX` with `APP_MAIL_APP_PASSWORD`): an invitation's link is never
+  written to a log, so the mailbox comes before the first release. Once somebody holds
+  the Super Administrator role nobody is invited, and neither an address nor a mailbox
+  is asked for; an account that holds no such role (a person who signed up, a persona)
+  stops no invitation, and a holder whose account is disabled is a holder still. The
+  auth's management invites every person after the first. The bootstrap creates the
+  development logins instead, and its `admin` login holds the role, so a migrate run
+  against a bootstrapped database invites nobody. An application that adds a cast of
+  personas seeds it before `InviteAdministrators`, so an environment whose cast holds
+  the role invites nobody. The staff auth's role file validates against the union
   of the sites' generated collections (`config.Collection`) when its engine opens: one
   policy store, one role file, one identity across sites.
   `cmd/deployment/migrate` is the deploy step; `cmd/bootstrap` reuses it for the emulator
@@ -181,6 +205,10 @@ turned on, since that takes a person who is signed in through the tenant's direc
   and `-force <n>` and `-force-data <n>` set a table to a version (-1 for no version), for
   the states the migration runner refuses to guess at; the pipeline passes them from the
   operations workflow (`bedrock migration`), and none of them applies a migration.
+  Every run but those opens the application's data and gives the database one minute to
+  answer: a database that has not answered by then, as one that does not exist never does,
+  stops the run with one sentence that names the database and its instance, and a non-zero
+  exit.
   `-retire-secret APP_SECRET_KEY_1` retires a version of the application secret: it writes
   every stored secret field that names the version again under the current one, confirms
   none is left and exits 0 only then, so the deployment disables the version only when no
@@ -196,17 +224,21 @@ turned on, since that takes a person who is signed in through the tenant's direc
   a tenant's `StaffTenantRoles`) answer beside the name; a role without one is refused. A
   domain role is
   held in every tenant domain, so nothing provisions the file per tenant. An account is
-  one row for the whole application, whichever tenants its person holds a role in, so
-  the methods a tenant changes an account through (a temporary password, a new name, a
-  delete and the rest) are granted to `TenantAdministrator` under a condition: the
-  tenant holds the person alone (`heldElsewhere = false AND heldGlobally = false`).
-  Without it one tenant's administrator could set a password on an account that also
-  manages another tenant or the application. The address and the directory's subject of
-  a person another tenant holds too are left out of the tenant's lists the same way
-  (`heldElsewhere = false`), a role held in every tenant is not one tenant's to take
+  one row for the whole application, whichever tenants its person holds a role in.
+  A tenant's administrator sees every person of the tenant with the name they sign in
+  with, their name, their email address and whether the account is disabled. The rest of
+  an account, how its person signs in, and the methods that change it are the
+  administrator's only where the tenant manages the account (`managedHere = true`): the
+  person signs in through the tenant's directory, or signs in through no tenant's
+  directory and holds something in this tenant and nothing anywhere else. A password
+  reset link goes to everyone in the list but a person another tenant's directory
+  manages (`managedHere = true OR managedByAnotherDirectory = false`). A role held in
+  every tenant is not one tenant's to take
   (`everyDomain = false`), and an invitation is withdrawn while it stands
   (`pending = true`); `test/integration/tenant_people_test.go` proves each of them on the
-  console. Every grant in
+  console. The application's `Administrator` changes an account only where no tenant
+  manages it (`managedByTenant = false`), and `test/integration/grants_test.go` proves that
+  too. Every grant in
   it is proven live by `test/integration/grants_test.go`, which opens the auth the way
   the deployment does and asks the engine about each unconditional grant; a conditional
   grant is proven by a test case that names it through `provesGrant`, and
@@ -248,7 +280,7 @@ flip is recorded in `FeatureFlagChanges`. The App reads the table when it is bui
 digest and features route answer from one copy. Each site serves `features` under its `/api`. Flipping is the generated
 `SetFeature` method, held by the `FeatureAdministrator` role in the staff role file
 (Execute on `SetFeature`, List and Read on `FeatureFlags`), which the development `admin`
-login holds; the library's `FeatureFlagsDialog` calls it, opened from Feature flags… in
+login holds; the library's Feature flags page runs it: the list of the flags, each in words with who last turned it on or off, a row's menu that turns the flag on or off after asking, and a History button that opens the flag's flips in a pop-up. The menu file places the page (`featureFlagsPage`) in
 the console's System menu, shown to anyone holding List on `FeatureFlags`. A flag's
 development state is its row in `schema/devseed/<n>_dev_feature_flags.up.sql`, which
 `impulse add feature` writes off (set it to TRUE to start development and the test
@@ -310,7 +342,7 @@ under the current version. It reads the resources packages `pkg/deploy` hands it
 
 That starts fresh Spanner and Firestore emulators, bootstraps the database (schema, the North and South tenants,
 roles, the logins `admin` — every tenant — `member` and `client` — North only — with
-password `password`), and serves the console site on :8094 and the portal site on :8095.
+password `open-the-console-first`), and serves the console site on :8094 and the portal site on :8095.
 The first run compiles and bootstraps before it listens; wait for "Starting Server" in
 the console pane, then the portal pane.
 
@@ -328,7 +360,10 @@ link opens the login page under `APP_PUBLIC_URL`.
 
 Each site has its own Angular workspace, `apps/console/web` and `apps/portal/web`, that
 installs the published `@impulseframework/resource`, `@impulseframework/resource-angular` and
-`@impulseframework/resource-firestore` (pinned in `package.json`). To develop
+`@impulseframework/resource-firestore` (pinned in `package.json`). Install them
+once with `bun install` in each: it writes the workspace's `bun.lock`, which the
+workflows install from (`bun ci`) and the repository keeps, and `impulse check` fails
+while a web root has none (`package-manager`). To develop
 against a local checkout of the framework, attach its web packages to each through yalc, a local
 state that is never committed (the script builds the three packages, publishes them to the
 local yalc store, links them, and runs `bun install`; `weblib.sh restore` puts the pins back):

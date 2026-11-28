@@ -15,19 +15,12 @@ body {
   color: var(--mat-sys-on-surface);
 }
 
-.page-content {
-  padding: 16px 24px;
-  max-width: 960px;
-  margin: 0 auto;
-}
-
 .empty {
   padding: 16px;
   color: var(--mat-sys-on-surface-variant);
 }
 
-.table-card,
-.create-card {
+.table-card {
   margin: 16px 0;
 
   table {
@@ -35,15 +28,38 @@ body {
   }
 }
 
-.inline-form {
+// A row of a page's own buttons. One that adds or changes something opens its form in a
+// dialog over the page; the row wraps where the page is narrow.
+.actions {
   display: flex;
-  align-items: baseline;
-  gap: 12px;
+  align-items: center;
+  gap: 8px;
   flex-wrap: wrap;
+  margin: 8px 0;
+}
 
-  .grow {
-    flex: 1;
-    min-width: 240px;
+// A form of a page's own, opened in a dialog over the page: the fields one under another,
+// each as wide as the dialog, so the form reads the same at every width.
+.dialog-form {
+  mat-form-field {
+    width: 100%;
+  }
+
+  .hint {
+    margin: 0 0 12px;
+    color: var(--mat-sys-on-surface-variant);
+    font-size: 0.85rem;
+  }
+
+  // What a dialog asks before it changes something: the question, in the page's own words.
+  .asks {
+    margin: 0 0 12px;
+  }
+
+  // What the server refused of the form, under its fields, as the library's dialogs show one.
+  .refusal {
+    margin: 12px 0 0;
+    color: var(--mat-sys-error);
   }
 }
 

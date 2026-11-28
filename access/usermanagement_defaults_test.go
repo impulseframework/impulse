@@ -9,12 +9,15 @@ package access
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/impulseframework/impulse/access/internal/policy"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 )
@@ -52,6 +55,7 @@ func defaultsRoleConfig() *RoleConfig {
 func defaultsTestEngine(t *testing.T, store Store, defaults *defaultRoles) *snapshotEngine {
 	t.Helper()
 	opts := defaultClientOptions()
+	opts.collection = grammarCollection{}
 	opts.heartbeatInterval = time.Hour
 	e := newSnapshotEngine(store, defaults, opts)
 	t.Cleanup(func() {
@@ -75,7 +79,7 @@ func defaultsManager(t *testing.T) (*userManager, *fakeStore) {
 	t.Helper()
 	ctx := context.Background()
 
-	defaults, err := compileDefaultRoles(grammarCollection{}, defaultsRoleConfig(), nil)
+	defaults, err := compileDefaultRoles(grammarCollection{}, defaultsRoleConfig(), nil, fixtureAuth)
 	if err != nil {
 		t.Fatalf("compileDefaultRoles() error = %v", err)
 	}
@@ -83,7 +87,7 @@ func defaultsManager(t *testing.T) (*userManager, *fakeStore) {
 	manager := newStoreManager(store)
 	engine := defaultsTestEngine(t, store, defaults)
 	manager.onPolicyChange = engine.policyChanged
-	m := newUserManager(manager, defaults, engine, nil)
+	m := newUserManager(manager, defaults, engine, nil, grammarCollection{})
 
 	for _, seed := range []struct {
 		scope       accesstypes.PolicyScope
@@ -144,6 +148,7 @@ func Test_userManager_defaults_ResolveRole(t *testing.T) {
 		{name: "a custom role held in every domain resolves from a mixed-case name in one domain", scope: tenant2Policy, role: "eVERYwhere", want: "Everywhere", wantFound: true},
 		{name: "a custom role held in the global partition resolves from its lowercase name", scope: globalPolicy, role: "gob", want: "Gob", wantFound: true},
 		{name: "a lowercase name of a role held in another domain only does not resolve", scope: tenant2Policy, role: "zed"},
+		{name: "a global default's name written with the long s finds no role", scope: globalPolicy, role: "ſteward"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -169,7 +174,7 @@ func Test_userManager_defaults_ResolveRole_ambiguous(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	m, store := defaultsManager(t)
-	store.roles[fakeRoleKey{scope: tenant1Policy, role: "zed"}] = "A case twin written before the rule."
+	store.writeRoleUnchecked(tenant1Policy, "zed", "A case twin written before the rule.")
 
 	if got, found, err := m.ResolveRole(ctx, tenant1Policy, "Zed"); err != nil || !found || got != "Zed" {
 		t.Errorf("ResolveRole(Zed) = (%q, %v, %v), want the exact spelling", got, found, err)
@@ -232,8 +237,9 @@ func Test_userManager_defaults_Roles(t *testing.T) {
 // a name outside the grammar every role name follows (letters and digits
 // starting with a capital letter), a default's of the scope's kind (a
 // conflict), a name a custom role held in every domain already answers to in
-// one domain, and the empty name — and that a role without a description, or
-// with whitespace for one, is refused.
+// one domain, a name in every domain that differs only in case from a custom
+// role one domain holds, and the empty name — and that a role without a
+// description, or with whitespace for one, is refused.
 func Test_userManager_defaults_AddRole(t *testing.T) {
 	t.Parallel()
 
@@ -243,6 +249,7 @@ func Test_userManager_defaults_AddRole(t *testing.T) {
 		role        accesstypes.Role
 		description string
 		wantErr     func(error) bool
+		wantMessage string // held by the refusal's message when not empty
 	}{
 		{name: "a domain default's name is refused in one domain", scope: tenant1Policy, role: domainDefault, description: aDescription, wantErr: httpio.HasConflict},
 		{name: "a domain default's name is refused in every domain", scope: everyDomainPolicy, role: domainDefault, description: aDescription, wantErr: httpio.HasConflict},
@@ -257,10 +264,24 @@ func Test_userManager_defaults_AddRole(t *testing.T) {
 		{name: "a role without a description is refused", scope: tenant2Policy, role: "Zed", description: "", wantErr: httpio.HasBadRequest},
 		{name: "a whitespace description is refused", scope: tenant2Policy, role: "Zed", description: " \t\n", wantErr: httpio.HasBadRequest},
 		{name: "a name held in another domain only is free", scope: tenant2Policy, role: "Zed", description: aDescription},
-		{name: "a name differing only in case from a domain default is refused", scope: tenant1Policy, role: accesstypes.Role(strings.ToUpper(string(domainDefault))), description: aDescription, wantErr: httpio.HasConflict},
-		{name: "a name differing only in case from a custom role held in the scope is refused", scope: tenant1Policy, role: "ZED", description: aDescription, wantErr: httpio.HasConflict},
-		{name: "a name differing only in case from a custom role held in every domain is refused in one domain", scope: tenant2Policy, role: "EVERYWHERE", description: aDescription, wantErr: httpio.HasConflict},
+		{
+			name: "a name differing only in case from a domain default is refused", scope: tenant1Policy, role: accesstypes.Role(strings.ToUpper(string(domainDefault))), description: aDescription,
+			wantErr: httpio.HasConflict, wantMessage: fmt.Sprintf("The name %q differs only in upper and lower case from %q, one of the application's built-in roles. A directory tells role names apart without regard to case, so choose a name that differs by more.", strings.ToUpper(string(domainDefault)), string(domainDefault)),
+		},
+		{
+			name: "a name differing only in case from a custom role held in the scope is refused", scope: tenant1Policy, role: "ZED", description: aDescription,
+			wantErr: httpio.HasConflict, wantMessage: `The name "ZED" differs only in upper and lower case from the role "Zed", which is held in a tenant. A directory tells role names apart without regard to case, so choose a name that differs by more.`,
+		},
+		{
+			name: "a name differing only in case from a custom role held in every domain is refused in one domain", scope: tenant2Policy, role: "EVERYWHERE", description: aDescription,
+			wantErr: httpio.HasConflict, wantMessage: `The name "EVERYWHERE" differs only in upper and lower case from the role "Everywhere", which is held in every tenant. A directory tells role names apart without regard to case, so choose a name that differs by more.`,
+		},
 		{name: "a name differing only in case from a role held in another domain only is free", scope: tenant2Policy, role: "ZED", description: aDescription},
+		{
+			name: "a name differing only in case from a custom role one domain holds is refused in every domain", scope: everyDomainPolicy, role: "ZED", description: aDescription,
+			wantErr: httpio.HasConflict, wantMessage: `The name "ZED" differs only in upper and lower case from the role "Zed", which is held in a tenant. A directory tells role names apart without regard to case, so choose a name that differs by more.`,
+		},
+		{name: "a name one domain holds in the same spelling is free in every domain", scope: everyDomainPolicy, role: "Zed", description: aDescription},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -286,11 +307,109 @@ func Test_userManager_defaults_AddRole(t *testing.T) {
 			if err == nil || !tt.wantErr(err) {
 				t.Fatalf("AddRole() error = %v, want a refusal of the expected kind", err)
 			}
+			if !strings.Contains(httpio.Message(err), tt.wantMessage) {
+				t.Errorf("AddRole() message = %q, want one holding %q", httpio.Message(err), tt.wantMessage)
+			}
 			if len(store.roles) != rolesBefore {
 				t.Errorf("AddRole() wrote a role row on a refused call")
 			}
 		})
 	}
+}
+
+// caseTwinInsertStore is the fake store whose InsertRole refuses every name as
+// a case twin of held, as a store refuses the second of two names added at the
+// same moment once AddRole's own checks have found no twin.
+type caseTwinInsertStore struct {
+	*fakeStore
+	held policy.Role
+}
+
+func (s *caseTwinInsertStore) InsertRole(context.Context, accesstypes.PolicyScope, accesstypes.Role, string) error {
+	return errors.Wrap(&policy.CaseTwinError{Held: s.held}, "insert role")
+}
+
+// Test_userManager_defaults_AddRole_storeRefusesCaseTwin pins that a twin only
+// the store's insert sees, one added at the same moment, is refused in the
+// words AddRole says a twin it finds itself in: the name asked, the role held
+// and where it is held.
+func Test_userManager_defaults_AddRole_storeRefusesCaseTwin(t *testing.T) {
+	t.Parallel()
+	m, store := defaultsManager(t)
+	held := policy.Role{Scope: everyDomainPolicy, Name: "NEWROLE"}
+	m.store = newStoreManager(&caseTwinInsertStore{fakeStore: store, held: held})
+
+	err := m.AddRole(t.Context(), tenant2Policy, "Newrole", aDescription)
+	if !httpio.HasConflict(err) {
+		t.Fatalf("AddRole() error = %v, want a conflict", err)
+	}
+	if got, want := httpio.Message(err), `The name "Newrole" differs only in upper and lower case from the role "NEWROLE", which is held in every tenant. A directory tells role names apart without regard to case, so choose a name that differs by more.`; got != want {
+		t.Errorf("AddRole() message = %q, want %q", got, want)
+	}
+}
+
+// Test_fakeStore_InsertRole_caseTwins holds the fake to the stores' contract
+// for a name that differs only in case from a custom role held: refused where
+// the two are read side by side, with nothing written; written where they are
+// not; and a re-insert of a row that is there is the no-op whatever else the
+// store holds.
+func Test_fakeStore_InsertRole_caseTwins(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		held     policy.Role
+		scope    accesstypes.PolicyScope
+		role     accesstypes.Role
+		wantTwin bool
+	}{
+		{name: "a twin in the scope itself is refused", held: policy.Role{Scope: tenant1Policy, Name: "Zed"}, scope: tenant1Policy, role: "ZED", wantTwin: true},
+		{name: "a role held in every domain refuses its twin in one domain", held: policy.Role{Scope: everyDomainPolicy, Name: "Zed"}, scope: tenant1Policy, role: "ZED", wantTwin: true},
+		{name: "a role held in one domain refuses its twin in every domain", held: policy.Role{Scope: tenant1Policy, Name: "Zed"}, scope: everyDomainPolicy, role: "ZED", wantTwin: true},
+		{name: "a twin in the global partition of a role held in a domain lands", held: policy.Role{Scope: tenant1Policy, Name: "Zed"}, scope: globalPolicy, role: "ZED"},
+		{name: "a twin in another domain lands", held: policy.Role{Scope: tenant1Policy, Name: "Zed"}, scope: tenant2Policy, role: "ZED"},
+		{name: "the same exact name in a place that meets lands", held: policy.Role{Scope: everyDomainPolicy, Name: "Zed"}, scope: tenant1Policy, role: "Zed"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			store := newFakeStore()
+			if err := store.InsertRole(ctx, tt.held.Scope, tt.held.Name, aDescription); err != nil {
+				t.Fatalf("InsertRole(%s, %q) error = %v", tt.held.Scope, tt.held.Name, err)
+			}
+
+			err := store.InsertRole(ctx, tt.scope, tt.role, aDescription)
+			_, landed := store.roles[fakeRoleKey{scope: tt.scope, role: tt.role}]
+			if !tt.wantTwin {
+				if err != nil || !landed {
+					t.Errorf("InsertRole(%s, %q) = %v, landed %v; want nil and the row", tt.scope, tt.role, err, landed)
+				}
+
+				return
+			}
+			var twin *policy.CaseTwinError
+			if !errors.As(err, &twin) || twin.Held != tt.held {
+				t.Errorf("InsertRole(%s, %q) error = %v, want a *policy.CaseTwinError naming %v", tt.scope, tt.role, err, tt.held)
+			}
+			if landed {
+				t.Errorf("InsertRole(%s, %q) wrote the refused row", tt.scope, tt.role)
+			}
+		})
+	}
+
+	t.Run("a re-insert of a role that has a twin from before is the no-op", func(t *testing.T) {
+		t.Parallel()
+		store := newFakeStore()
+		store.writeRoleUnchecked(tenant1Policy, "Zed", aDescription)
+		store.writeRoleUnchecked(tenant1Policy, "ZED", aDescription)
+		if err := store.InsertRole(t.Context(), tenant1Policy, "Zed", "Another description."); err != nil {
+			t.Errorf("InsertRole() re-insert error = %v, want the no-op", err)
+		}
+		if got := store.roles[fakeRoleKey{scope: tenant1Policy, role: "Zed"}]; got != aDescription {
+			t.Errorf("InsertRole() re-insert changed the description to %q", got)
+		}
+	})
 }
 
 // Test_userManager_defaults_DeleteRole pins what DeleteRole refuses — a
@@ -353,6 +472,43 @@ func Test_userManager_defaults_DeleteRole(t *testing.T) {
 				t.Errorf("ResolveRole() after DeleteRole = %v, want %v", exists, tt.wantExists)
 			}
 		})
+	}
+}
+
+// Test_userManager_defaults_DeleteAllRolePermissions_storedRows pins that
+// removing all of a custom role's permissions removes every row the store
+// holds for it by the row's own columns: the rows a write makes, and the rows
+// no write could have made, which a load skips and reports.
+func Test_userManager_defaults_DeleteAllRolePermissions_storedRows(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	m, store := defaultsManager(t)
+
+	for _, row := range []struct {
+		resource, field, condition string
+	}{
+		{resource: "Widgets", field: "name"},
+		{resource: "Widgets", condition: "true"},
+		{resource: "Widgets.name"},
+		{resource: "Widgets.name", field: "*"},
+		{field: "name"},
+		{resource: "Widgets", field: "name.first"},
+		{},
+	} {
+		if err := store.InsertGrant(ctx, tenant1Policy, "Zed", "Read", row.resource, row.field, row.condition); err != nil {
+			t.Fatalf("InsertGrant(%q, %q, %q) error = %v", row.resource, row.field, row.condition, err)
+		}
+	}
+
+	if err := m.DeleteAllRolePermissions(ctx, tenant1Policy, "Zed"); err != nil {
+		t.Fatalf("DeleteAllRolePermissions() error = %v", err)
+	}
+	left, err := store.ListRoleGrants(ctx, tenant1Policy, "Zed")
+	if err != nil {
+		t.Fatalf("ListRoleGrants() error = %v", err)
+	}
+	if len(left) != 0 {
+		t.Errorf("ListRoleGrants() after DeleteAllRolePermissions = %v, want none", left)
 	}
 }
 
@@ -768,22 +924,24 @@ func Test_userManager_defaults_RolePermissions(t *testing.T) {
 	}
 }
 
-// Test_userManager_defaults_RoleGrants pins the as-held listing with
-// conditions: a default role's grants come from the file, unconditional rows
-// under the empty condition; a custom role's come from the store where it is
-// held, reachable through one domain when held in every domain; a role that
-// does not exist in the scope is not found.
+// Test_userManager_defaults_RoleGrants pins the listing with conditions: a
+// default role's grants come from the file, unconditional rows under the empty
+// condition; a custom role's come from the store where it is held, reachable
+// through one domain when held in every domain; a role that does not exist in
+// the scope is not found. Each grant here is one its role holds, so none is
+// marked skipped (TestClient_storedGrantIsHeldToTheWritesRule lists the rows a
+// load leaves out).
 func Test_userManager_defaults_RoleGrants(t *testing.T) {
 	t.Parallel()
 
-	fileGrants := map[accesstypes.Permission]map[accesstypes.Resource][]string{
-		"Read": {"Widgets": {""}, "Widgets.name": {""}},
+	fileGrants := map[accesstypes.Permission]map[accesstypes.Resource][]RoleGrant{
+		"Read": {"Widgets": {{Condition: ""}}, "Widgets.name": {{Condition: ""}}},
 	}
 	tests := []struct {
 		name    string
 		scope   accesstypes.PolicyScope
 		role    accesstypes.Role
-		want    map[accesstypes.Permission]map[accesstypes.Resource][]string
+		want    map[accesstypes.Permission]map[accesstypes.Resource][]RoleGrant
 		wantErr func(error) bool
 	}{
 		{name: "a domain default's grants are the file's in one domain", scope: tenant1Policy, role: domainDefault, want: fileGrants},
@@ -792,25 +950,25 @@ func Test_userManager_defaults_RoleGrants(t *testing.T) {
 			name:  "a global default's grants are the file's in the global partition",
 			scope: globalPolicy,
 			role:  globalDefault,
-			want:  map[accesstypes.Permission]map[accesstypes.Resource][]string{"Execute": {"DoThing": {""}}},
+			want:  map[accesstypes.Permission]map[accesstypes.Resource][]RoleGrant{"Execute": {"DoThing": {{Condition: ""}}}},
 		},
 		{
 			name:  "a custom role answers its own rows with their conditions",
 			scope: tenant1Policy,
 			role:  "Zed",
-			want:  map[accesstypes.Permission]map[accesstypes.Resource][]string{"Read": {"Widgets": {""}}},
+			want:  map[accesstypes.Permission]map[accesstypes.Resource][]RoleGrant{"Read": {"Widgets": {{Condition: ""}}}},
 		},
 		{
 			name:  "a custom role held in every domain answers through one domain",
 			scope: tenant1Policy,
 			role:  "Everywhere",
-			want:  map[accesstypes.Permission]map[accesstypes.Resource][]string{"Read": {"Widgets": {"price < 10"}}},
+			want:  map[accesstypes.Permission]map[accesstypes.Resource][]RoleGrant{"Read": {"Widgets": {{Condition: "price < 10"}}}},
 		},
 		{
 			name:  "a custom role held in every domain answers there",
 			scope: everyDomainPolicy,
 			role:  "Everywhere",
-			want:  map[accesstypes.Permission]map[accesstypes.Resource][]string{"Read": {"Widgets": {"price < 10"}}},
+			want:  map[accesstypes.Permission]map[accesstypes.Resource][]RoleGrant{"Read": {"Widgets": {{Condition: "price < 10"}}}},
 		},
 		{name: "a role nothing defines is not found", scope: tenant1Policy, role: "Ghost", wantErr: httpio.HasNotFound},
 		{name: "a domain default in the global partition is not found", scope: globalPolicy, role: domainDefault, wantErr: httpio.HasNotFound},

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session/internal/workos"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/signin"
@@ -185,10 +186,15 @@ func TestAuth_ReturnURLInTheApplication(t *testing.T) {
 			t.Run("a pending sign-in carries it", func(t *testing.T) {
 				t.Parallel()
 				f := newReturnURLFixture(t, gomock.NewController(t))
+				userID := impulse.Must(impulse.NewUUID())
 				f.expectSignIn(impulse.Must(impulse.NewUUID()), nil, func(*sessioninfo.NewSessionRequest) error {
-					return &signin.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: impulse.NullUUIDFromUUID(impulse.Must(impulse.NewUUID())), Username: "pat"}
+					return &signin.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: impulse.NullUUIDFromUUID(userID), Username: "pat"}
 				})
 				f.expectHold("pat")
+				// The status of a wait for a second factor says where its code goes: no code
+				// stands yet, and the account holds an address.
+				f.store.EXPECT().FactorCode(gomock.Any(), gomock.Any()).Return(nil, httpio.NewNotFoundMessage("no code stands"))
+				f.store.EXPECT().User(gomock.Any(), userID).Return(pat(userID), nil)
 
 				rr := f.callback(t, returnURL)
 

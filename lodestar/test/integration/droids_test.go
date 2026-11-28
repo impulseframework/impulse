@@ -34,7 +34,7 @@ func TestIngestDroidReports(t *testing.T) {
 
 	h := newTestApp(db, grants{
 		accesstypes.Execute: {accesstypes.Resource("IngestDroidReports")},
-		accesstypes.List:    append(withFields("SectorHazardBoards", "worstReading", "recent"), withFields("DroidReports", "shipId", "subsystem", "reading", "frame")...),
+		accesstypes.List:    append(withFields("SectorHazardBoards", "worstReading", "recent"), withFields("DroidReports", "shipId", "subsystem", "reading", "recordedAt", "frame")...),
 		accesstypes.Read:    withFields("SectorHazardBoards", "worstReading", "recent"),
 	})
 	ingest := "/droids/sectors/" + anvil + "/ingest-droid-reports"
@@ -117,6 +117,15 @@ func TestIngestDroidReports(t *testing.T) {
 		if !ok || reading["value"] != want {
 			t.Errorf("recent[%d] = %v, want value %v", i, recent[i], want)
 		}
+	}
+
+	// A ship of another sector is not there for a reading sent to Anvil's address, and
+	// nothing is written.
+	before := countRows(ctx, t, db, "DroidReports", "Id")
+	status, body = doRequest(t, h, http.MethodPost, ingest, `{"shipId":"`+shipBastionWatchID+`","subsystem":"reactor","reading":0.4}`)
+	assertStatus(t, status, http.StatusNotFound, body)
+	if after := countRows(ctx, t, db, "DroidReports", "Id"); after != before {
+		t.Errorf("DroidReports holds %d rows after a reading for another sector's ship, want %d", after, before)
 	}
 
 	// A reading without a subsystem is refused by the body.

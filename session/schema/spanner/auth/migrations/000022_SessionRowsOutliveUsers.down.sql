@@ -1,0 +1,1 @@
+ALTER TABLE Sessions ADD CONSTRAINT FK_Sessions_SessionUsers FOREIGN KEY (UserId) REFERENCES SessionUsers (Id) ON DELETE CASCADE;

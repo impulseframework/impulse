@@ -104,8 +104,9 @@ type tenantGroup[Resource Resourcer] struct {
 	q *QuerySet[Resource]
 
 	// hidden are the fields the list names that no grant of the person's covers
-	// in these tenants: a projected field, a sort or filter field, a field the
-	// search box searches. Each is masked on every row of them.
+	// in these tenants: a projected field, a sort or filter field, a field of the
+	// declared order in force, a field the search box searches. Each is masked on
+	// every row of them.
 	hidden map[accesstypes.Field]struct{}
 }
 
@@ -160,9 +161,15 @@ func (d *QueryDecoder[Resource, Request]) DecodeAcrossTenants(request *http.Requ
 	if !d.collection.ListsAcrossTenants(qSet.Resource()) {
 		return nil, errors.Newf("resource %s cannot be listed across tenants: it is not declared for it; declare @listAcrossTenants on its struct and regenerate", qSet.Resource())
 	}
+	for i := range d.names {
+		if name := &d.names[i]; name.TenantColumn != "" {
+			return nil, errors.Newf("resource %s cannot be listed across tenants with the name field %s: it is the name of a row of %s, which belongs to a tenant, and a list across tenants looks up no tenant's names; take it out of the resource's NameFields() (the generator writes none for a resource declared @listAcrossTenants)", qSet.Resource(), name.Field, name.Resource)
+		}
+	}
 
-	// The zero scope is no tenant's: until the read checks settle the set, nothing
-	// that asks the scope finds a grant in it.
+	// The zero scope is no tenant's. Until the read checks settle the set nothing
+	// may ask a grant in it: a check asked in it is refused
+	// (accesstypes.ErrNoScope).
 	qSet.EnableUserPermissionEnforcement(d.resourceSet, userPermissions, accesstypes.Scope{}, perms[0])
 
 	reached, err := userPermissions.Domains(request.Context())
@@ -175,7 +182,7 @@ func (d *QueryDecoder[Resource, Request]) DecodeAcrossTenants(request *http.Requ
 	// to this caller in every tenant the list may read (Decode).
 	if d.boxPII && qSet.searchBox && request.URL.Query().Get(filterParam) != "" {
 		for _, domain := range qSet.across.candidates {
-			reaches, err := qSet.inTenant(domain).searchBoxReachesPII(request.Context(), d.boxPIIFields)
+			reaches, err := qSet.inTenant(domain).searchBoxReachesPII(request.Context(), d.sensitiveBoxFields(qSet.searchFields))
 			if err != nil {
 				return nil, err
 			}
@@ -381,6 +388,13 @@ func (q *QuerySet[Resource]) decideAcrossTenants(ctx context.Context, dbType DBT
 		return len(a.domains) == 1, nil
 	}
 
+	// A name's own grant is asked once for the list, not once a tenant: it is
+	// held where the pointed-to resource's grants are, and each tenant's copy of
+	// the query carries the decisions. Every name that reaches here is held in
+	// the global scope: a name of a tenant's row is refused at decode.
+	if err := q.checkNameGrants(ctx); err != nil {
+		return false, err
+	}
 	var admitted []*tenantGroup[Resource]
 	for _, domain := range a.candidates {
 		decided, err := q.decideTenant(ctx, dbType, domain)
@@ -399,7 +413,10 @@ func (q *QuerySet[Resource]) decideAcrossTenants(ctx context.Context, dbType DBT
 	switch len(admitted) {
 	case 0:
 	case 1:
+		// The tenant's own checks run next, and ask the names' grants in its
+		// scope.
 		q.scope = accesstypes.DomainScope(domains[0])
+		q.nameGrants = nil
 	default:
 		groups, err := groupTenants(admitted)
 		if err != nil {
@@ -437,7 +454,17 @@ func (q *QuerySet[Resource]) decideTenant(ctx context.Context, dbType DBType, do
 
 	hidden := make(map[accesstypes.Field]struct{})
 
-	queried, queryFields, err := alone.queryFieldDecisions(ctx, alone.resourceSet, alone.userPermissions, alone.queryFields())
+	// The fields a declared order in force orders by, and the ids of the names it
+	// orders by, are decided with the sort's fields: where one is hidden in the
+	// tenant its rows sort as rows with no value there, or with no name, and
+	// nothing is refused (settleAcrossTenants walks the sort's fields alone).
+	candidates := alone.queryFields()
+	for _, field := range alone.declaredOrderFields() {
+		if !slices.Contains(candidates, field) {
+			candidates = append(candidates, field)
+		}
+	}
+	queried, queryFields, err := alone.queryFieldDecisions(ctx, alone.resourceSet, alone.userPermissions, candidates)
 	if err != nil {
 		return nil, err
 	}
@@ -465,7 +492,16 @@ func (q *QuerySet[Resource]) decideTenant(ctx context.Context, dbType DBType, do
 			}
 		}
 	} else {
-		projected, projectedFields, err := alone.queryFieldDecisions(ctx, alone.resourceSet, alone.userPermissions, alone.fields)
+		// A name the request shows is decided by its id field's grant in the
+		// tenant, whether or not the request named the id: where the id is
+		// hidden the row gives no name. The id is decided, not projected.
+		decided := slices.Clone(alone.fields)
+		for _, key := range alone.shownNameKeys() {
+			if !slices.Contains(decided, key) {
+				decided = append(decided, key)
+			}
+		}
+		projected, projectedFields, err := alone.queryFieldDecisions(ctx, alone.resourceSet, alone.userPermissions, decided)
 		if err != nil {
 			return nil, err
 		}
@@ -517,7 +553,7 @@ func (g *tenantGroup[Resource]) signature() (string, error) {
 	for _, name := range slices.Sorted(mapKeys(g.q.branchDecisions)) {
 		for i := range g.q.rMeta.searchBranches {
 			branch := &g.q.rMeta.searchBranches[i]
-			if branch.Name != name {
+			if branch.Name != name || g.q.branchHidden(branch) {
 				continue
 			}
 			expr, err := conditionalExpr(branch.fieldResource(), g.q.branchDecisions[name])
@@ -569,8 +605,10 @@ func groupTenants[Resource Resourcer](tenants []*tenantGroup[Resource]) ([]*tena
 // each group's checks came to. With no columns asked, the projection is every
 // field some tenant of the set shows, in declaration order. What the tenant's own
 // list refuses is refused here where every tenant of the set would refuse it: a
-// column, or a sort or filter field, that no grant covers in any of them. A field
-// of the search box, or a @searchAlso branch, that every tenant drops is dropped.
+// column, or a sort or filter field, that no grant covers in any of them, and a
+// name asked for, sorted by or filtered by whose own grant, asked once for the
+// list, is denied. A field of the search box, or a @searchAlso branch, that every tenant
+// drops is dropped.
 func (q *QuerySet[Resource]) settleAcrossTenants(dbType DBType, groups []*tenantGroup[Resource]) error {
 	everywhere := func(hides func(*tenantGroup[Resource]) bool) bool {
 		return !slices.ContainsFunc(groups, func(g *tenantGroup[Resource]) bool { return !hides(g) })
@@ -585,18 +623,40 @@ func (q *QuerySet[Resource]) settleAcrossTenants(dbType DBType, groups []*tenant
 				q.AddField(field)
 			}
 		}
+		// As on a tenant's own list, the name beside every id returned, less the
+		// names the person may not list; a row whose tenant hides the id gives
+		// none (nameConditionsAcrossTenants).
+		q.showNamesOf(q.fields)
 	} else {
-		for _, field := range q.fields {
+		// A name asked for is refused where its id would be: no tenant of the
+		// set shows the id it is looked up by.
+		for _, field := range append(slices.Clone(q.fields), q.shownNameKeys()...) {
 			if hiddenEverywhere(field) {
-				return httpio.NewForbiddenMessagef("user (%s) does not have (%s) on %s in any tenant the list reads", q.userPermissions.User(), q.requiredPermission, q.resourceSet.Resource(field))
+				denied := q.resourceSet.Resource(field)
+
+				return httpio.NewForbiddenMessageWithError(
+					errors.Newf("user (%s) does not have (%s) on %s in any tenant the list reads", q.userPermissions.User(), q.requiredPermission, denied),
+					mayNot(q.requiredPermission, []accesstypes.Resource{denied}, refusedAnywhere),
+				)
 			}
+		}
+		if err := q.refuseNamedColumns(refusedAnywhere); err != nil {
+			return err
 		}
 	}
 
 	for _, field := range q.queryFields() {
 		if hiddenEverywhere(field) {
-			return httpio.NewForbiddenMessagef("user (%s) cannot sort or filter on %s: (%s) on %s is denied in every tenant the list reads", q.userPermissions.User(), q.jsonName(field), q.requiredPermission, q.resourceSet.Resource(field))
+			denied := q.resourceSet.Resource(field)
+
+			return httpio.NewForbiddenMessageWithError(
+				errors.Newf("user (%s) cannot sort or filter on %s: (%s) on %s is denied in every tenant the list reads", q.userPermissions.User(), q.jsonName(field), q.requiredPermission, denied),
+				mayNotAskBy(bySortOrFilter, denied, refusedAnywhere),
+			)
 		}
+	}
+	if err := q.refuseQueriedName(refusedAnywhere); err != nil {
+		return err
 	}
 
 	for _, field := range q.searchFields {
@@ -608,6 +668,9 @@ func (q *QuerySet[Resource]) settleAcrossTenants(dbType DBType, groups []*tenant
 		}
 	}
 	for i := range q.rMeta.searchBranches {
+		if q.branchHidden(&q.rMeta.searchBranches[i]) {
+			continue
+		}
 		name := q.rMeta.searchBranches[i].Name
 		dropped := everywhere(func(g *tenantGroup[Resource]) bool {
 			_, isDropped := g.q.droppedBranches[name]
@@ -756,6 +819,9 @@ func (q *QuerySet[Resource]) acrossPredicates(dbType DBType, registry *paramRegi
 	if err := q.queryColumnsAcrossTenants(dbType, gen, renderings, rendered); err != nil {
 		return nil, "", err
 	}
+	if err := q.nameConditionsAcrossTenants(renderings, rendered); err != nil {
+		return nil, "", err
+	}
 
 	domains := namedComparand(domainsParamName)
 	tenancy, err := gen.generateLowered(tenantMember(lctx, outer, binding, &domains, registry), registry)
@@ -857,6 +923,28 @@ func (q *QuerySet[Resource]) queryColumnsAcrossTenants(dbType DBType, gen *sqlGe
 		}
 		rendered.queryOverrides[field] = fmt.Sprintf("CASE WHEN %s THEN %s END", shown, gen.quoteIdentifier(dbField.ColumnName))
 		rendered.queryConditions[field] = shown
+	}
+
+	return nil
+}
+
+// nameConditionsAcrossTenants renders, for each id field a name the statement
+// names stands beside, where a list over several tenants shows the id: the name's
+// lookup sits inside it, so a row whose tenant does not show the id gives no
+// name. An id every row shows carries no condition.
+func (q *QuerySet[Resource]) nameConditionsAcrossTenants(renderings []*groupRendering, rendered *renderedReadConditions) error {
+	for _, key := range q.nameKeys() {
+		shown, everywhere, err := q.shownAcrossTenants(renderings, key, true)
+		if err != nil {
+			return err
+		}
+		if everywhere {
+			continue
+		}
+		if rendered.nameConditions == nil {
+			rendered.nameConditions = make(map[accesstypes.Field]string)
+		}
+		rendered.nameConditions[key] = shown
 	}
 
 	return nil
@@ -990,6 +1078,9 @@ func (q *QuerySet[Resource]) acrossBranchGrants(dbType DBType, registry *paramRe
 	grants := make(map[string]searchGrant)
 	for i := range q.rMeta.searchBranches {
 		branch := &q.rMeta.searchBranches[i]
+		if q.branchHidden(branch) {
+			continue
+		}
 		if _, dropped := q.droppedBranches[branch.Name]; dropped {
 			grants[branch.Name] = searchGrant{dropped: true}
 

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/go-playground/errors/v5"
@@ -36,7 +35,7 @@ func provenWrites() []provenWrite {
 		{
 			name: "a user's own change",
 			write: func(ctx context.Context, d AuthDriver, userID impulse.UUID, proven, replacement *securehash.Hash) error {
-				return d.ChangeUserPassword(ctx, userID, proven, replacement)
+				return d.ChangeUserPassword(ctx, userID, proven, replacement, nil)
 			},
 		},
 		{
@@ -47,7 +46,7 @@ func provenWrites() []provenWrite {
 					return err
 				}
 
-				return d.RemoveProvenUserPassword(ctx, userID, proven, standing)
+				return d.RemoveProvenUserPassword(ctx, userID, proven, standing, nil)
 			},
 		},
 	}
@@ -71,19 +70,31 @@ func passwordHashes(t *testing.T, passwords ...string) []*securehash.Hash {
 	return hashes
 }
 
-// linkedPasswordUser creates a user that holds hash, under the mark that it must be
-// changed when marked, and one identity, so the password is not the user's last means
-// of sign-in and a removal can go through.
-func linkedPasswordUser(ctx context.Context, t *testing.T, d AuthDriver, name string, hash *securehash.Hash, marked bool) *dbtype.SessionUser {
+// linkedPasswordUser creates a user that holds hash and one identity, so the password
+// is not the user's last means of sign-in and a removal can go through.
+func linkedPasswordUser(ctx context.Context, t *testing.T, d AuthDriver, name string, hash *securehash.Hash) *dbtype.SessionUser {
 	t.Helper()
 
-	user, err := d.CreateUser(ctx, &dbtype.InsertSessionUser{Username: name + "@lakeside.edu", PasswordHash: hash, PasswordChangeRequired: marked}, nil)
+	user, err := d.CreateUser(ctx, &dbtype.InsertSessionUser{Username: name + "@lakeside.edu", PasswordHash: hash}, nil)
 	if err != nil {
 		t.Fatalf("CreateUser(%q) error = %v", name, err)
 	}
 	mustLink(ctx, t, d, user.ID, lakeside("idp_"+name))
 
 	return user
+}
+
+// markedPasswordUser is linkedPasswordUser under the mark that the password must be
+// changed. No write of the driver's sets the mark: it is written directly, as an
+// application's account management writes it when an administrator requires a new
+// password.
+func markedPasswordUser(ctx context.Context, t *testing.T, h *AuthHarness, in *AuthInstance, name string, hash *securehash.Hash) *dbtype.SessionUser {
+	t.Helper()
+
+	user := linkedPasswordUser(ctx, t, in.Driver, name, hash)
+	h.RequirePasswordChange(ctx, t, in.Raw, user.ID)
+
+	return mustUser(ctx, t, in.Driver, user.ID)
 }
 
 // testProvenPasswordWrites pins the three writes that follow a proof while the row holds
@@ -97,7 +108,7 @@ func testProvenPasswordWrites(ctx context.Context, t *testing.T, h *AuthHarness)
 	hashes := passwordHashes(t, "temporary", "replacement")
 	temporary, replacement := hashes[0], hashes[1]
 
-	upgraded := linkedPasswordUser(ctx, t, in.Driver, "upgraded", temporary, true)
+	upgraded := markedPasswordUser(ctx, t, h, in, "upgraded", temporary)
 	if err := in.Driver.UpgradeUserPasswordHash(ctx, upgraded.ID, mustUser(ctx, t, in.Driver, upgraded.ID).PasswordHash, replacement); err != nil {
 		t.Fatalf("UpgradeUserPasswordHash() on proof of the hash the row holds error = %v", err)
 	}
@@ -105,16 +116,16 @@ func testProvenPasswordWrites(ctx context.Context, t *testing.T, h *AuthHarness)
 		t.Errorf("User() after the upgrade = %+v, want the new hash and the change mark as it was, set", got)
 	}
 
-	changed := linkedPasswordUser(ctx, t, in.Driver, "changed", temporary, true)
-	if err := in.Driver.ChangeUserPassword(ctx, changed.ID, mustUser(ctx, t, in.Driver, changed.ID).PasswordHash, replacement); err != nil {
+	changed := markedPasswordUser(ctx, t, h, in, "changed", temporary)
+	if err := in.Driver.ChangeUserPassword(ctx, changed.ID, mustUser(ctx, t, in.Driver, changed.ID).PasswordHash, replacement, nil); err != nil {
 		t.Fatalf("ChangeUserPassword() on proof of the hash the row holds error = %v", err)
 	}
 	if got := mustUser(ctx, t, in.Driver, changed.ID); !sameHash(got.PasswordHash, replacement) || got.PasswordChangeRequired {
 		t.Errorf("User() after the change = %+v, want the new hash and no change mark", got)
 	}
 
-	removed := linkedPasswordUser(ctx, t, in.Driver, "removed", temporary, true)
-	if err := in.Driver.RemoveProvenUserPassword(ctx, removed.ID, mustUser(ctx, t, in.Driver, removed.ID).PasswordHash, standingLinks(ctx, t, in.Driver, removed.ID)); err != nil {
+	removed := markedPasswordUser(ctx, t, h, in, "removed", temporary)
+	if err := in.Driver.RemoveProvenUserPassword(ctx, removed.ID, mustUser(ctx, t, in.Driver, removed.ID).PasswordHash, standingLinks(ctx, t, in.Driver, removed.ID), nil); err != nil {
 		t.Fatalf("RemoveProvenUserPassword() on proof of the hash the row holds error = %v", err)
 	}
 	if got := mustUser(ctx, t, in.Driver, removed.ID); got.PasswordHash != nil || got.PasswordChangeRequired {
@@ -127,7 +138,7 @@ func testProvenPasswordWrites(ctx context.Context, t *testing.T, h *AuthHarness)
 	if err != nil {
 		t.Fatalf("CreateUser() error = %v", err)
 	}
-	err = in.Driver.RemoveProvenUserPassword(ctx, alone.ID, mustUser(ctx, t, in.Driver, alone.ID).PasswordHash, nil)
+	err = in.Driver.RemoveProvenUserPassword(ctx, alone.ID, mustUser(ctx, t, in.Driver, alone.ID).PasswordHash, nil, nil)
 	if !errors.Is(err, dbtype.ErrLastSignInMethod) || !httpio.HasConflict(err) {
 		t.Errorf("RemoveProvenUserPassword() of a user with no identity error = %v, want ErrLastSignInMethod (Conflict)", err)
 	}
@@ -135,7 +146,7 @@ func testProvenPasswordWrites(ctx context.Context, t *testing.T, h *AuthHarness)
 		t.Errorf("User() after the refused removal = %+v, want the password as it was", got)
 	}
 
-	held := linkedPasswordUser(ctx, t, in.Driver, "held", temporary, true)
+	held := markedPasswordUser(ctx, t, h, in, "held", temporary)
 	passwordLess := createUser(ctx, t, in.Driver, "passwordless@lakeside.edu")
 	mustLink(ctx, t, in.Driver, passwordLess.ID, lakeside("idp_passwordless"))
 	for _, w := range provenWrites() {
@@ -163,20 +174,18 @@ func testProvenPasswordWrites(ctx context.Context, t *testing.T, h *AuthHarness)
 
 // testProvenPasswordWriteAfterAnotherWrite holds each write that follows a proof to the
 // hash that was proved. The user is read, as the caller reads it to compare the
-// password; then another write of the password commits: a change, a temporary password
-// an operator sets, a removal; then the write is made on proof of the hash that was
-// read. It writes nothing and answers ErrPasswordChanged (a Conflict), and the row
-// holds what the other write left, hash and change mark: an upgrade does not put the
-// old password back, and a change or a removal does not undo an operator's reset on
-// proof of the password it replaced.
+// password; then another write of the password commits: a change, a removal; then the
+// write is made on proof of the hash that was read. It writes nothing and answers
+// ErrPasswordChanged (a Conflict), and the row holds what the other write left, hash
+// and change mark: an upgrade does not put the old password back, and a removal does
+// not take the password a change just wrote.
 func testProvenPasswordWriteAfterAnotherWrite(ctx context.Context, t *testing.T, h *AuthHarness) {
 	in := h.New(ctx, t, Auth, AuthConfig{Auth: true})
 	hashes := passwordHashes(t, "original", "other", "replacement")
 	original, other, replacement := hashes[0], hashes[1], hashes[2]
 
 	// Each write between leaves a hash and a mark the write under test would not: the
-	// users start under the mark, which a change and a removal clear and a temporary
-	// password sets again.
+	// users start under the mark, which a change and a removal clear.
 	between := []struct {
 		name string
 		// commit makes the other write and answers the hash and the mark it leaves.
@@ -185,13 +194,7 @@ func testProvenPasswordWriteAfterAnotherWrite(ctx context.Context, t *testing.T,
 		{
 			name: "a change",
 			commit: func(userID impulse.UUID, read *securehash.Hash) (*securehash.Hash, bool, error) {
-				return other, false, in.Driver.ChangeUserPassword(ctx, userID, read, other)
-			},
-		},
-		{
-			name: "a temporary password",
-			commit: func(userID impulse.UUID, _ *securehash.Hash) (*securehash.Hash, bool, error) {
-				return other, true, in.Driver.ReplaceUserPassword(ctx, userID, other, true)
+				return other, false, in.Driver.ChangeUserPassword(ctx, userID, read, other, nil)
 			},
 		},
 		{
@@ -205,7 +208,7 @@ func testProvenPasswordWriteAfterAnotherWrite(ctx context.Context, t *testing.T,
 	for i, w := range provenWrites() {
 		for j, b := range between {
 			t.Run(fmt.Sprintf("%s after %s", w.name, b.name), func(t *testing.T) {
-				user := linkedPasswordUser(ctx, t, in.Driver, fmt.Sprintf("between-%d-%d", i, j), original, true)
+				user := markedPasswordUser(ctx, t, h, in, fmt.Sprintf("between-%d-%d", i, j), original)
 				read := mustUser(ctx, t, in.Driver, user.ID).PasswordHash
 
 				wantHash, wantMarked, err := b.commit(user.ID, read)
@@ -222,51 +225,6 @@ func testProvenPasswordWriteAfterAnotherWrite(ctx context.Context, t *testing.T,
 						sameHash(got.PasswordHash, original), sameHash(got.PasswordHash, replacement), got.PasswordHash == nil, got.PasswordChangeRequired, b.name, wantMarked)
 				}
 			})
-		}
-	}
-}
-
-// testProvenPasswordWriteRacesReset asks a temporary password an operator sets and a
-// write that follows a proof of the password it replaces at once. Whichever order they
-// commit in, the operator's password stands with its change mark: the write on proof
-// lands first and is overwritten, or finds another hash and writes nothing
-// (ErrPasswordChanged). The comparison and the write are one statement on PostgreSQL
-// and one transaction on Spanner, so nothing commits between them. Several users are
-// raced for each write, since one race may fall the right way by chance.
-func testProvenPasswordWriteRacesReset(ctx context.Context, t *testing.T, h *AuthHarness) {
-	in := h.New(ctx, t, Auth, AuthConfig{Auth: true})
-	hashes := passwordHashes(t, "original", "temporary", "replacement")
-	original, temporary, replacement := hashes[0], hashes[1], hashes[2]
-
-	const rounds = 8
-	for i, w := range provenWrites() {
-		for round := range rounds {
-			user := linkedPasswordUser(ctx, t, in.Driver, fmt.Sprintf("reset-race-%d-%d", i, round), original, false)
-			read := mustUser(ctx, t, in.Driver, user.ID).PasswordHash
-
-			var (
-				wg       sync.WaitGroup
-				resetErr error
-				writeErr error
-			)
-			wg.Go(func() {
-				resetErr = in.Driver.ReplaceUserPassword(ctx, user.ID, temporary, true)
-			})
-			wg.Go(func() {
-				writeErr = w.write(ctx, in.Driver, user.ID, read, replacement)
-			})
-			wg.Wait()
-
-			if resetErr != nil {
-				t.Fatalf("round %d: ReplaceUserPassword() error = %v, want the operator's password set whatever else is asked", round, resetErr)
-			}
-			if writeErr != nil && !errors.Is(writeErr, dbtype.ErrPasswordChanged) {
-				t.Fatalf("round %d: %s error = %v, want it to go through or find the password changed", round, w.name, writeErr)
-			}
-			if got := mustUser(ctx, t, in.Driver, user.ID); !sameHash(got.PasswordHash, temporary) || !got.PasswordChangeRequired {
-				t.Errorf("round %d: after a temporary password and %s asked at once (its error = %v), the user holds the replacement = %t, no hash = %t, the change mark = %t; want the temporary password and its mark",
-					round, w.name, writeErr, sameHash(got.PasswordHash, replacement), got.PasswordHash == nil, got.PasswordChangeRequired)
-			}
 		}
 	}
 }
@@ -293,11 +251,11 @@ func testOwnChangeEndsSessions(ctx context.Context, t *testing.T, h *AuthHarness
 
 				return id
 			}
-			pat := linkedPasswordUser(ctx, t, in.Driver, "pat", old, true)
-			other := linkedPasswordUser(ctx, t, in.Driver, "other", old, false)
+			pat := markedPasswordUser(ctx, t, h, in, "pat", old)
+			other := linkedPasswordUser(ctx, t, in.Driver, "other", old)
 			first, second, others := start(pat), start(pat), start(other)
 
-			if err := in.Driver.ChangeUserPassword(ctx, pat.ID, mustUser(ctx, t, in.Driver, pat.ID).PasswordHash, replacement); err != nil {
+			if err := in.Driver.ChangeUserPassword(ctx, pat.ID, mustUser(ctx, t, in.Driver, pat.ID).PasswordHash, replacement, nil); err != nil {
 				t.Fatalf("ChangeUserPassword() on proof of the hash the row holds error = %v", err)
 			}
 			if got := mustUser(ctx, t, in.Driver, pat.ID); !sameHash(got.PasswordHash, replacement) || got.PasswordChangeRequired {
@@ -314,7 +272,7 @@ func testOwnChangeEndsSessions(ctx context.Context, t *testing.T, h *AuthHarness
 
 			// A change on proof of the password just replaced is refused, and ends nothing.
 			later := start(pat)
-			err := in.Driver.ChangeUserPassword(ctx, pat.ID, old, another)
+			err := in.Driver.ChangeUserPassword(ctx, pat.ID, old, another, nil)
 			if !errors.Is(err, dbtype.ErrPasswordChanged) || !httpio.HasConflict(err) {
 				t.Fatalf("ChangeUserPassword() on proof of a replaced password error = %v, want ErrPasswordChanged (Conflict)", err)
 			}
@@ -327,7 +285,7 @@ func testOwnChangeEndsSessions(ctx context.Context, t *testing.T, h *AuthHarness
 			if err := in.Driver.SetSessionTableName(table); err != nil {
 				t.Fatalf("SetSessionTableName() error = %v", err)
 			}
-			err = in.Driver.ChangeUserPassword(ctx, pat.ID, mustUser(ctx, t, in.Driver, pat.ID).PasswordHash, another)
+			err = in.Driver.ChangeUserPassword(ctx, pat.ID, mustUser(ctx, t, in.Driver, pat.ID).PasswordHash, another, nil)
 			if err == nil || errors.Is(err, dbtype.ErrPasswordChanged) || !strings.Contains(err.Error(), table) {
 				t.Fatalf("ChangeUserPassword() where the sessions cannot be ended error = %v, want the failure of the sessions table, naming %s", err, table)
 			}

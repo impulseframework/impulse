@@ -5,6 +5,9 @@ package crewidentity
 
 import (
 	"context"
+	"iter"
+	"slices"
+	"strconv"
 	"time"
 
 	"cloud.google.com/go/spanner"
@@ -12,6 +15,8 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/lodestar/pkg/identity/internal/crewresources"
@@ -19,6 +24,7 @@ import (
 	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage"
+	"google.golang.org/api/iterator"
 )
 
 var _ identity.Store = store{}
@@ -27,25 +33,6 @@ var _ identity.Store = store{}
 // is one read or one buffered write through the declarations' own query and patch
 // types, and holds no rule.
 type store struct{}
-
-func (store) InsertUser(ctx context.Context, txn resource.ReadWriteTransaction, user *identity.NewUser) (impulse.UUID, error) {
-	patch, err := crewresources.NewCrewSessionUserCreatePatch()
-	if err != nil {
-		return impulse.NilUUID, errors.Wrap(err, "crewresources.NewCrewSessionUserCreatePatch()")
-	}
-	patch.SetUsername(user.Username).SetDisabled(false).SetPasswordChangeRequired(false).SetCreatedAt(spanner.CommitTimestamp)
-	if user.Name != nil {
-		patch.SetName(user.Name)
-	}
-	if user.Email != nil {
-		patch.SetEmail(user.Email)
-	}
-	if err := patch.Buffer(ctx, txn); err != nil {
-		return impulse.NilUUID, errors.Wrap(err, "crewresources.CrewSessionUserCreatePatch.Buffer()")
-	}
-
-	return patch.ID(), nil
-}
 
 func (store) UpdateUser(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, change *identity.UserChange) error {
 	patch := crewresources.NewCrewSessionUserUpdatePatch(id)
@@ -60,10 +47,6 @@ func (store) UpdateUser(ctx context.Context, txn resource.ReadWriteTransaction, 
 	}
 	if change.Name != nil {
 		patch.SetName(change.Name.Name)
-	}
-	// An address entered by hand is unverified, whatever the one before it was.
-	if change.Email != nil {
-		patch.SetEmail(change.Email.Address).SetEmailVerifiedAt(nil)
 	}
 	if err := patch.Buffer(ctx, txn); err != nil {
 		return errors.Wrap(err, "crewresources.CrewSessionUserUpdatePatch.Buffer()")
@@ -96,16 +79,17 @@ func (store) EndSession(ctx context.Context, txn resource.ReadWriteTransaction, 
 }
 
 func (store) RenameSession(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, username string) error {
-	if err := crewresources.NewCrewSessionUpdatePatch(id).SetUsername(username).SetUpdatedAt(spanner.CommitTimestamp).Buffer(ctx, txn); err != nil {
+	if err := crewresources.NewCrewSessionUpdatePatch(id).SetUsername(username).Buffer(ctx, txn); err != nil {
 		return errors.Wrap(err, "crewresources.CrewSessionUpdatePatch.Buffer()")
 	}
 
 	return nil
 }
 
-// passwordWrite names the user row a password is written on. It is the one write that
+// passwordWrite names the user row a password is taken off. It is the one write that
 // goes past the declarations: the password hash is no field of any of them, so no read
-// returns it and nothing but SetPassword and RemovePassword writes it.
+// returns it and nothing here but RemovePassword writes it. A person chooses their own
+// password, in the session library's storage.
 type passwordWrite struct {
 	id impulse.UUID
 }
@@ -120,15 +104,6 @@ func (w passwordWrite) PrimaryKey() resource.KeySet {
 
 func (passwordWrite) Resource() accesstypes.Resource {
 	return "CrewSessionUsers"
-}
-
-func (store) SetPassword(_ context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, hash string, changeRequired bool) error {
-	row := map[string]any{"Id": id, "PasswordHash": hash, "PasswordChangeRequired": changeRequired}
-	if err := txn.BufferMap(passwordWrite{id: id}, row); err != nil {
-		return errors.Wrap(err, "resource.ReadWriteTransaction.BufferMap()")
-	}
-
-	return nil
 }
 
 func (store) RemovePassword(_ context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error {
@@ -215,7 +190,7 @@ func (store) DeleteIdentity(ctx context.Context, txn resource.ReadWriteTransacti
 
 func (store) Token(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (token *identity.Token, found bool, err error) {
 	row, err := crewresources.NewCrewSessionTokenQuery().
-		AddColumns(crewresources.NewCrewSessionTokenColumns().FamilyID().ExpiresAt().RevokedAt()).
+		AddColumns(crewresources.NewCrewSessionTokenColumns().UserID().FamilyID().ExpiresAt().RevokedAt()).
 		SetID(id).
 		Read(ctx, txn)
 	if err != nil {
@@ -226,7 +201,7 @@ func (store) Token(ctx context.Context, txn resource.ReadWriteTransaction, id im
 		return nil, false, errors.Wrap(err, "crewresources.CrewSessionTokenQuery.Read()")
 	}
 
-	return &identity.Token{FamilyID: row.Data.FamilyID, ExpiresAt: row.Data.ExpiresAt, Revoked: row.Data.RevokedAt != nil}, true, nil
+	return &identity.Token{UserID: row.Data.UserID, FamilyID: row.Data.FamilyID, ExpiresAt: row.Data.ExpiresAt, Revoked: row.Data.RevokedAt != nil}, true, nil
 }
 
 func (store) FamilyTokens(ctx context.Context, txn resource.ReadWriteTransaction, family impulse.UUID) ([]impulse.UUID, error) {
@@ -292,9 +267,11 @@ func (store) UserDisabled(ctx context.Context, txn resource.ReadWriteTransaction
 func (store) UserID(ctx context.Context, txn resource.ReadWriteTransaction, username string) (id impulse.UUID, found bool, err error) {
 	// A read that goes past the declarations, as the session library's own lookup of
 	// a name does: the table's normalized username is no field of the declaration,
-	// and it is the column the unique index is over.
+	// and it is the column the unique index is over. The name is folded as the column
+	// folds it: one with an @ in it as an address is, any other in Unicode's
+	// normalization and case folding.
 	stmt := spanner.Statement{
-		SQL:    "SELECT Id FROM CrewSessionUsers WHERE NormalizedUsername = NORMALIZE_AND_CASEFOLD(@username)",
+		SQL:    "SELECT Id FROM CrewSessionUsers WHERE NormalizedUsername = IF(STRPOS(@username, '@') > 0, CAST(LOWER(CAST(@username AS BYTES)) AS STRING), NORMALIZE(NORMALIZE_AND_CASEFOLD(@username)))",
 		Params: map[string]any{"username": username},
 	}
 	if err := txn.SpannerReadOnlyTransaction().Query(ctx, stmt).Do(func(row *spanner.Row) error {
@@ -311,10 +288,12 @@ func (store) UserID(ctx context.Context, txn resource.ReadWriteTransaction, user
 func (store) UserByVerifiedEmail(ctx context.Context, txn resource.ReadWriteTransaction, email string) (id impulse.UUID, found bool, err error) {
 	// A read that goes past the declarations, as UserID's is: the table's normalized
 	// address is no field of the declaration, and it is the column the unique index
-	// is over, so the address is compared as the session library compares one. An
-	// address nobody confirmed names no one, as at a sign-in.
+	// is over, so the address is compared as the session library compares one, by the
+	// case of its ASCII letters alone (LOWER over BYTES treats its argument as ASCII and
+	// leaves every byte above 127 as it is). An address nobody confirmed names no one,
+	// as at a sign-in.
 	stmt := spanner.Statement{
-		SQL:    "SELECT Id FROM CrewSessionUsers WHERE NormalizedEmail = NORMALIZE_AND_CASEFOLD(@email) AND EmailVerifiedAt IS NOT NULL",
+		SQL:    "SELECT Id FROM CrewSessionUsers WHERE NormalizedEmail = CAST(LOWER(CAST(@email AS BYTES)) AS STRING) AND EmailVerifiedAt IS NOT NULL",
 		Params: map[string]any{"email": email},
 	}
 	if err := txn.SpannerReadOnlyTransaction().Query(ctx, stmt).Do(func(row *spanner.Row) error {
@@ -328,8 +307,66 @@ func (store) UserByVerifiedEmail(ctx context.Context, txn resource.ReadWriteTran
 	return id, found, nil
 }
 
-func (store) DeleteUser(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error {
-	if err := crewresources.NewCrewSessionUserDeletePatch(id).Buffer(ctx, txn); err != nil {
+func (store) ConfirmedEmail(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (email string, found bool, err error) {
+	// A read that goes past the declarations, as UserByVerifiedEmail's is: an address
+	// nobody confirmed is no address to mail a person at, so it is not answered.
+	stmt := spanner.Statement{
+		SQL:    "SELECT Email FROM CrewSessionUsers WHERE Id = @id AND Email IS NOT NULL AND EmailVerifiedAt IS NOT NULL",
+		Params: map[string]any{"id": id.String()},
+	}
+	if err := txn.SpannerReadOnlyTransaction().Query(ctx, stmt).Do(func(row *spanner.Row) error {
+		found = true
+
+		return row.Column(0, &email)
+	}); err != nil {
+		return "", false, errors.Wrap(err, "spanner.RowIterator.Do()")
+	}
+
+	return email, found, nil
+}
+
+// deletedBy is who a delete of an account or of a group is recorded as made by, in the
+// change records of the rows it takes that keep a change history: the request's person
+// (eventsource.UserEvent), and nobody for a call made outside any request, which carries
+// no session to read a person from. A row that keeps a change history refuses a delete
+// that names nobody: a job deletes such rows first, in a transaction before, under its
+// own process's name (eventsource.ProcessEvent).
+func deletedBy(ctx context.Context) []eventsource.EventSource {
+	if _, inRequest := ctx.Value(sessioninfo.CtxSessionInfo).(*sessioninfo.SessionData); !inRequest {
+		return nil
+	}
+
+	return []eventsource.EventSource{eventsource.UserEvent(ctx)}
+}
+
+func (store) DeleteUser(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, everythingUnder bool) (*resource.DeleteLeft, error) {
+	// The row's delete takes the application's rows that go with the account
+	// (@deletedWith), where it is told to. In a person's request the delete is that
+	// person's (deletedBy): a row it takes that keeps a change history records its
+	// delete as theirs.
+	patch := crewresources.NewCrewSessionUserDeletePatch(id)
+	if everythingUnder {
+		// Where the method that called declared a token (@deleteToken), the delete goes on
+		// it, and asks where it does not hold. Anywhere else it is code's word: every save
+		// asks everything again.
+		if token, declared := resource.DeleteTokenFrom(ctx); declared {
+			patch = patch.WithDeleteToken(token)
+		} else {
+			patch = patch.WithEverythingUnder()
+		}
+	}
+	if err := patch.Buffer(ctx, txn, deletedBy(ctx)...); err != nil {
+		return nil, errors.Wrap(err, "crewresources.CrewSessionUserDeletePatch.Buffer()")
+	}
+
+	return patch.Left(), nil
+}
+
+func (store) DeleteUserWithTenant(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error {
+	// The tenant's delete took the application's rows under the tenant before it reached
+	// the accounts: the row's delete leaves the application's rows out.
+	patch := crewresources.NewCrewSessionUserDeletePatch(id).WithEverythingUnder().WithLibraryRowsAlone()
+	if err := patch.Buffer(ctx, txn); err != nil {
 		return errors.Wrap(err, "crewresources.CrewSessionUserDeletePatch.Buffer()")
 	}
 
@@ -510,22 +547,32 @@ func (store) TenantMemberships(ctx context.Context, txn resource.ReadWriteTransa
 	return keys, nil
 }
 
-// DeleteTenantRoles removes the custom roles made in one tenant with their grants: the
-// one write here to the roles and grants tables, whose rows are otherwise the
-// permission engine's to write, made because the tenant itself goes.
+// TenantRoles counts the custom roles made in one tenant: the rows of the roles table
+// under the tenant's own scope, read in the caller's transaction
+// (identity.Store.TenantRoles).
+func (store) TenantRoles(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) (int, error) {
+	at := access.NewMembershipKey(accesstypes.DomainPolicyScope(domain), "", "")
+	query := crewresources.NewCrewRoleQuery().
+		AddColumns(crewresources.NewCrewRoleColumns().Kind().Axis().DomainID().Role()).
+		SetKind(at.Kind).SetAxis(at.Axis).SetDomainID(at.Domain)
+	roles := 0
+	for _, err := range query.List(ctx, txn) {
+		if err != nil {
+			return 0, errors.Wrap(err, "crewresources.CrewRoleQuery.List()")
+		}
+		roles++
+	}
+
+	return roles, nil
+}
+
+// DeleteTenantRoles removes the custom roles made in one tenant: the one write here to
+// the roles table, whose rows are otherwise the permission engine's to write, made
+// because the tenant itself goes. Each role's grants go with it by the database's rule,
+// the grants table being interleaved in the roles table ON DELETE CASCADE, as the
+// permission engine's own delete of a role takes them.
 func (store) DeleteTenantRoles(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) (int, error) {
 	at := access.NewMembershipKey(accesstypes.DomainPolicyScope(domain), "", "")
-	grants := crewresources.NewCrewRoleGrantQuery().
-		AddColumns(crewresources.NewCrewRoleGrantColumns().Kind().Axis().DomainID().Role().Permission().ResourceName().Field().Condition()).
-		SetKind(at.Kind).SetAxis(at.Axis).SetDomainID(at.Domain)
-	var grantPatches []*crewresources.CrewRoleGrantDeletePatch
-	for row, err := range grants.List(ctx, txn) {
-		if err != nil {
-			return 0, errors.Wrap(err, "crewresources.CrewRoleGrantQuery.List()")
-		}
-		grant := row.Data
-		grantPatches = append(grantPatches, crewresources.NewCrewRoleGrantDeletePatch(grant.Kind, grant.Axis, grant.DomainID, grant.Role, grant.Permission, grant.ResourceName, grant.Field, grant.Condition))
-	}
 	roles := crewresources.NewCrewRoleQuery().
 		AddColumns(crewresources.NewCrewRoleColumns().Kind().Axis().DomainID().Role()).
 		SetKind(at.Kind).SetAxis(at.Axis).SetDomainID(at.Domain)
@@ -536,11 +583,6 @@ func (store) DeleteTenantRoles(ctx context.Context, txn resource.ReadWriteTransa
 		}
 		role := row.Data
 		rolePatches = append(rolePatches, crewresources.NewCrewRoleDeletePatch(role.Kind, role.Axis, role.DomainID, role.Role))
-	}
-	for _, patch := range grantPatches {
-		if err := patch.Buffer(ctx, txn); err != nil {
-			return 0, errors.Wrap(err, "crewresources.CrewRoleGrantDeletePatch.Buffer()")
-		}
 	}
 	for _, patch := range rolePatches {
 		if err := patch.Buffer(ctx, txn); err != nil {
@@ -573,15 +615,18 @@ func (invitationWrite) Resource() accesstypes.Resource {
 
 func (store) InsertInvitation(_ context.Context, txn resource.ReadWriteTransaction, row *session.InvitationRow) error {
 	// The row as the session library says an invitation is written
-	// (session.InvitationRow): the user and the consumption are left null.
+	// (session.InvitationRow): the user and the consumption are left null. EveryTenant
+	// is written on every row, true or false: with TenantId it is the place the
+	// acceptance gives the roles in.
 	columns := map[string]any{
-		"Id":        row.ID,
-		"TokenHash": row.TokenHash,
-		"Kind":      string(sessionstorage.MailLinkInvitation),
-		"Email":     row.Email,
-		"RoleNames": row.RoleNames,
-		"CreatedAt": spanner.CommitTimestamp,
-		"ExpiresAt": row.ExpiresAt,
+		"Id":          row.ID,
+		"TokenHash":   row.TokenHash,
+		"Kind":        string(sessionstorage.MailLinkInvitation),
+		"Email":       row.Email,
+		"EveryTenant": row.EveryTenant,
+		"RoleNames":   row.RoleNames,
+		"CreatedAt":   spanner.CommitTimestamp,
+		"ExpiresAt":   row.ExpiresAt,
 	}
 	if row.Name != "" {
 		columns["Name"] = row.Name
@@ -626,11 +671,48 @@ func (store) MailLink(ctx context.Context, txn resource.ReadWriteTransaction, id
 
 func (store) ConsumeMailLink(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error {
 	consumedAt := spanner.CommitTimestamp
-	if err := crewresources.NewCrewSessionMailLinkUpdatePatch(id).SetConsumedAt(&consumedAt).Buffer(ctx, txn); err != nil {
+	if err := crewresources.NewCrewSessionMailLinkUpdatePatch(id).SetConsumedAt(&consumedAt).SetWithdrawnAt(&consumedAt).Buffer(ctx, txn); err != nil {
 		return errors.Wrap(err, "crewresources.CrewSessionMailLinkUpdatePatch.Buffer()")
 	}
 
 	return nil
+}
+
+func (store) SentInvitation(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (invitation *identity.SentInvitation, found bool, err error) {
+	// A read that goes past the declarations, as UserID's does: whether an invitation
+	// makes a tenant is its NewTenant document, which is no field of the declaration.
+	// A link of another kind is not found.
+	stmt := spanner.Statement{
+		SQL: "SELECT Email, Name, TenantId, EveryTenant, RoleNames, NewTenant IS NOT NULL, ConsumedAt IS NOT NULL AND WithdrawnAt IS NULL AND MailFailedAt IS NULL, WithdrawnAt IS NOT NULL, MailFailedAt IS NOT NULL, ExpiresAt" +
+			" FROM CrewSessionMailLinks WHERE Id = @id AND Kind = @kind",
+		Params: map[string]any{"id": id.String(), "kind": string(sessionstorage.MailLinkInvitation)},
+	}
+	if err := txn.SpannerReadOnlyTransaction().Query(ctx, stmt).Do(func(row *spanner.Row) error {
+		var (
+			sent         identity.SentInvitation
+			name, tenant spanner.NullString
+			roles        []string
+		)
+		if err := row.Columns(&sent.Invitation.Email, &name, &tenant, &sent.Invitation.EveryDomain, &roles, &sent.MakesTenant, &sent.Accepted, &sent.Withdrawn, &sent.NotMailed, &sent.ExpiresAt); err != nil {
+			return errors.Wrap(err, "spanner.Row.Columns()")
+		}
+		if name.Valid {
+			sent.Invitation.Name = &name.StringVal
+		}
+		if tenant.Valid {
+			sent.Invitation.Domain = &tenant.StringVal
+		}
+		for _, role := range roles {
+			sent.Invitation.Roles = append(sent.Invitation.Roles, accesstypes.Role(role))
+		}
+		invitation, found = &sent, true
+
+		return nil
+	}); err != nil {
+		return nil, false, errors.Wrap(err, "spanner.RowIterator.Do()")
+	}
+
+	return invitation, found, nil
 }
 
 func (store) TenantInvitations(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]impulse.UUID, error) {
@@ -683,21 +765,26 @@ func (store) InvitedTenants(ctx context.Context, reader resource.ReadOnlyTransac
 
 func (store) SignInMethodRows(ctx context.Context, reader resource.ReadOnlyTransaction) ([]identity.SignInMethodRow, error) {
 	query := crewresources.NewCrewSessionSignInMethodQuery().
-		AddColumns(crewresources.NewCrewSessionSignInMethodColumns().Name().OpenSignUp().OpenedFor().DefaultRole())
+		AddColumns(crewresources.NewCrewSessionSignInMethodColumns().Name().OpenSignUp().OpenedFor().DefaultRole().SelfServiceReset())
 	var rows []identity.SignInMethodRow
 	for row, err := range query.List(ctx, reader) {
 		if err != nil {
 			return nil, errors.Wrap(err, "crewresources.CrewSessionSignInMethodQuery.List()")
 		}
-		rows = append(rows, identity.SignInMethodRow{Name: row.Data.Name, OpenSignUp: row.Data.OpenSignUp, OpenedFor: row.Data.OpenedFor, DefaultRole: row.Data.DefaultRole})
+		rows = append(rows, identity.SignInMethodRow{
+			Name: row.Data.Name, OpenSignUp: row.Data.OpenSignUp, OpenedFor: row.Data.OpenedFor, DefaultRole: row.Data.DefaultRole,
+			SelfServiceReset: row.Data.SelfServiceReset,
+		})
 	}
 
 	return rows, nil
 }
 
 func (store) SetSignInMethod(ctx context.Context, txn resource.ReadWriteTransaction, row *identity.SignInMethodRow) error {
-	// The row is written whole: created where the method has none, replaced where it
-	// has one, which is read in the transaction. Either write leaves its change event
+	// Who may sign up is written whole: the row is created where the method has none,
+	// and the three columns of the choice are replaced where it has one, which is read
+	// in the transaction. Whether people reset their own password is not this write's
+	// and stands as it is (SetSelfServiceReset). Either write leaves its change event
 	// under the caller, the record of who made the choice and when.
 	_, err := crewresources.NewCrewSessionSignInMethodQuery().
 		AddColumns(crewresources.NewCrewSessionSignInMethodColumns().Name()).
@@ -707,7 +794,7 @@ func (store) SetSignInMethod(ctx context.Context, txn resource.ReadWriteTransact
 	case err == nil:
 		patch := crewresources.NewCrewSessionSignInMethodUpdatePatch(row.Name).
 			SetOpenSignUp(row.OpenSignUp).SetOpenedFor(row.OpenedFor).SetDefaultRole(row.DefaultRole).SetUpdatedAt(spanner.CommitTimestamp)
-		if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+		if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 			return errors.Wrap(err, "crewresources.CrewSessionSignInMethodUpdatePatch.Buffer()")
 		}
 
@@ -717,11 +804,261 @@ func (store) SetSignInMethod(ctx context.Context, txn resource.ReadWriteTransact
 	}
 	patch := crewresources.NewCrewSessionSignInMethodCreatePatch(row.Name).
 		SetOpenSignUp(row.OpenSignUp).SetOpenedFor(row.OpenedFor).SetDefaultRole(row.DefaultRole).SetUpdatedAt(spanner.CommitTimestamp)
-	if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+	if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 		return errors.Wrap(err, "crewresources.CrewSessionSignInMethodCreatePatch.Buffer()")
 	}
 
 	return nil
+}
+
+func (store) SetSelfServiceReset(ctx context.Context, txn resource.ReadWriteTransaction, name string, on bool) error {
+	// The one field is written, and what else the row says is left as it stands: a
+	// method with no row gets one that is invite only. Either write leaves its change
+	// event under the caller, the record of who made the choice and when.
+	_, err := crewresources.NewCrewSessionSignInMethodQuery().
+		AddColumns(crewresources.NewCrewSessionSignInMethodColumns().Name()).
+		SetName(name).
+		Read(ctx, txn)
+	switch {
+	case err == nil:
+		patch := crewresources.NewCrewSessionSignInMethodUpdatePatch(name).SetSelfServiceReset(on).SetUpdatedAt(spanner.CommitTimestamp)
+		if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
+			return errors.Wrap(err, "crewresources.CrewSessionSignInMethodUpdatePatch.Buffer()")
+		}
+
+		return nil
+	case !httpio.HasNotFound(err):
+		return errors.Wrap(err, "crewresources.CrewSessionSignInMethodQuery.Read()")
+	}
+	patch := crewresources.NewCrewSessionSignInMethodCreatePatch(name).SetOpenSignUp(false).SetSelfServiceReset(on).SetUpdatedAt(spanner.CommitTimestamp)
+	if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
+		return errors.Wrap(err, "crewresources.CrewSessionSignInMethodCreatePatch.Buffer()")
+	}
+
+	return nil
+}
+
+func (store) SignInSettingsRow(ctx context.Context, reader resource.ReadOnlyTransaction) (*identity.SignInSettingsRow, error) {
+	row, err := crewresources.NewCrewSessionSignInSettingQuery().
+		AddColumns(crewresources.NewCrewSessionSignInSettingColumns().Name().RequireSecondFactor().RememberBrowserDays()).
+		SetName(session.SignInSettingsRowName).
+		Read(ctx, reader)
+	switch {
+	case httpio.HasNotFound(err):
+		return nil, nil
+	case err != nil:
+		return nil, errors.Wrap(err, "crewresources.CrewSessionSignInSettingQuery.Read()")
+	}
+
+	return &identity.SignInSettingsRow{RequireSecondFactor: row.Data.RequireSecondFactor, RememberBrowserDays: row.Data.RememberBrowserDays}, nil
+}
+
+func (store) SetRequireSecondFactor(ctx context.Context, txn resource.ReadWriteTransaction, on bool) error {
+	// The one field is written, and the days a browser is remembered stand as they are:
+	// where there is no row, one is created with the session library's default days.
+	// Either write leaves its change event under the caller, the record of who made the
+	// choice and when.
+	found, err := signInSettingsRowFound(ctx, txn)
+	if err != nil {
+		return err
+	}
+	if found {
+		patch := crewresources.NewCrewSessionSignInSettingUpdatePatch(session.SignInSettingsRowName).SetRequireSecondFactor(on).SetUpdatedAt(spanner.CommitTimestamp)
+		if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
+			return errors.Wrap(err, "crewresources.CrewSessionSignInSettingUpdatePatch.Buffer()")
+		}
+
+		return nil
+	}
+	patch := crewresources.NewCrewSessionSignInSettingCreatePatch(session.SignInSettingsRowName).
+		SetRequireSecondFactor(on).SetRememberBrowserDays(session.DefaultRememberedBrowserDays).SetUpdatedAt(spanner.CommitTimestamp)
+	if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
+		return errors.Wrap(err, "crewresources.CrewSessionSignInSettingCreatePatch.Buffer()")
+	}
+
+	return nil
+}
+
+func (store) SetRememberBrowserDays(ctx context.Context, txn resource.ReadWriteTransaction, days int64) error {
+	// The one field is written, and whether the second factor is required stands as it
+	// is: where there is no row, one is created with it required. Either write leaves its
+	// change event under the caller, the record of who made the choice and when.
+	found, err := signInSettingsRowFound(ctx, txn)
+	if err != nil {
+		return err
+	}
+	if found {
+		patch := crewresources.NewCrewSessionSignInSettingUpdatePatch(session.SignInSettingsRowName).SetRememberBrowserDays(days).SetUpdatedAt(spanner.CommitTimestamp)
+		if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
+			return errors.Wrap(err, "crewresources.CrewSessionSignInSettingUpdatePatch.Buffer()")
+		}
+
+		return nil
+	}
+	patch := crewresources.NewCrewSessionSignInSettingCreatePatch(session.SignInSettingsRowName).
+		SetRequireSecondFactor(true).SetRememberBrowserDays(days).SetUpdatedAt(spanner.CommitTimestamp)
+	if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
+		return errors.Wrap(err, "crewresources.CrewSessionSignInSettingCreatePatch.Buffer()")
+	}
+
+	return nil
+}
+
+// signInSettingsRowFound reports whether the sign-in settings row stands, read in the
+// transaction that writes it.
+func signInSettingsRowFound(ctx context.Context, txn resource.ReadWriteTransaction) (bool, error) {
+	_, err := crewresources.NewCrewSessionSignInSettingQuery().
+		AddColumns(crewresources.NewCrewSessionSignInSettingColumns().Name()).
+		SetName(session.SignInSettingsRowName).
+		Read(ctx, txn)
+	switch {
+	case err == nil:
+		return true, nil
+	case httpio.HasNotFound(err):
+		return false, nil
+	default:
+		return false, errors.Wrap(err, "crewresources.CrewSessionSignInSettingQuery.Read()")
+	}
+}
+
+// auditRecordWrite names the row of the audit log a record is written as. It goes past
+// the declarations as the invitation's write does: the table has no declaration, and
+// nothing but InsertAuditRecord writes it.
+type auditRecordWrite struct {
+	id string
+}
+
+func (auditRecordWrite) PatchType() resource.PatchType {
+	return resource.CreatePatchType
+}
+
+func (w auditRecordWrite) PrimaryKey() resource.KeySet {
+	return resource.KeySet{}.Add("ID", w.id)
+}
+
+func (auditRecordWrite) Resource() accesstypes.Resource {
+	return "CrewSessionAuditRecords"
+}
+
+func (store) InsertAuditRecord(_ context.Context, txn resource.ReadWriteTransaction, record *auditlog.Record) error {
+	// The row as the audit log says a record is written (auditlog.Record.Columns), which
+	// refuses a record that is not its act's, at the commit's own time.
+	columns, err := record.Columns()
+	if err != nil {
+		return errors.Wrap(err, "auditlog.Record.Columns()")
+	}
+	columns["CreatedAt"] = spanner.CommitTimestamp
+	id, _ := columns["Id"].(string)
+	if err := txn.BufferMap(auditRecordWrite{id: id}, columns); err != nil {
+		return errors.Wrap(err, "resource.ReadWriteTransaction.BufferMap()")
+	}
+
+	return nil
+}
+
+func (store) AuditRecords(ctx context.Context, reader resource.ReadOnlyTransaction, query *identity.AuditQuery) iter.Seq2[*auditlog.Stored, error] {
+	// A read that goes past the declarations, as InvitedTenants' does: the table has no
+	// declaration, and the identity package writes the one statement its lists read it
+	// by.
+	return func(yield func(*auditlog.Stored, error) bool) {
+		sql, params, err := identity.AuditStatement("CrewSessionAuditRecords", query)
+		if err != nil {
+			yield(nil, errors.Wrap(err, "identity.AuditStatement()"))
+
+			return
+		}
+		rows := reader.SpannerReadOnlyTransaction().Query(ctx, spanner.Statement{SQL: sql, Params: params})
+		defer rows.Stop()
+		for {
+			row, err := rows.Next()
+			if errors.Is(err, iterator.Done) {
+				return
+			}
+			if err != nil {
+				yield(nil, errors.Wrap(err, "spanner.RowIterator.Next()"))
+
+				return
+			}
+			var record auditRecordRow
+			if err := row.ToStruct(&record); err != nil {
+				yield(nil, errors.Wrap(err, "spanner.Row.ToStruct()"))
+
+				return
+			}
+			if !yield(record.stored(), nil) {
+				return
+			}
+		}
+	}
+}
+
+// auditRecordRow is one row of CrewSessionAuditRecords, every column as the table
+// types it.
+type auditRecordRow struct {
+	ID                string               `spanner:"Id"`
+	CreatedAt         time.Time            `spanner:"CreatedAt"`
+	Act               string               `spanner:"Act"`
+	Form              spanner.NullString   `spanner:"Form"`
+	Auth              spanner.NullString   `spanner:"Auth"`
+	ActorUserID       spanner.NullString   `spanner:"ActorUserId"`
+	ActorUsername     spanner.NullString   `spanner:"ActorUsername"`
+	PrincipalUserID   spanner.NullString   `spanner:"PrincipalUserId"`
+	PrincipalUsername spanner.NullString   `spanner:"PrincipalUsername"`
+	PrincipalRole     spanner.NullString   `spanner:"PrincipalRole"`
+	SessionID         spanner.NullString   `spanner:"SessionId"`
+	Process           spanner.NullString   `spanner:"Process"`
+	RPC               spanner.NullString   `spanner:"Rpc"`
+	Directory         spanner.NullString   `spanner:"Directory"`
+	SubjectKind       string               `spanner:"SubjectKind"`
+	SubjectID         string               `spanner:"SubjectId"`
+	SubjectName       spanner.NullString   `spanner:"SubjectName"`
+	TenantID          spanner.NullString   `spanner:"TenantId"`
+	TenantName        spanner.NullString   `spanner:"TenantName"`
+	RoleName          spanner.NullString   `spanner:"RoleName"`
+	OtherRoleNames    []spanner.NullString `spanner:"OtherRoleNames"`
+	RoleScope         spanner.NullString   `spanner:"RoleScope"`
+	RecordKind        spanner.NullString   `spanner:"RecordKind"`
+	RecordID          spanner.NullString   `spanner:"RecordId"`
+	RecordWord        spanner.NullString   `spanner:"RecordWord"`
+	RecordName        spanner.NullString   `spanner:"RecordName"`
+	GroupID           spanner.NullString   `spanner:"GroupId"`
+	GroupName         spanner.NullString   `spanner:"GroupName"`
+	OldValue          spanner.NullString   `spanner:"OldValue"`
+	NewValue          spanner.NullString   `spanner:"NewValue"`
+	PeriodStart       spanner.NullTime     `spanner:"PeriodStart"`
+	PeriodEnd         spanner.NullTime     `spanner:"PeriodEnd"`
+	SeatingTenantID   spanner.NullString   `spanner:"SeatingTenantId"`
+	SeatingTenantName spanner.NullString   `spanner:"SeatingTenantName"`
+	Reason            spanner.NullString   `spanner:"Reason"`
+}
+
+// stored is the row as the identity package reads it: a NULL as the empty text, the
+// empty list or the zero time, and the nine columns of who acted as its Source.
+func (r *auditRecordRow) stored() *auditlog.Stored {
+	var roles []string
+	if r.RoleName.Valid {
+		roles = append(roles, r.RoleName.StringVal)
+	}
+	for _, role := range r.OtherRoleNames {
+		if role.Valid {
+			roles = append(roles, role.StringVal)
+		}
+	}
+
+	return &auditlog.Stored{
+		ID: r.ID, At: r.CreatedAt, Act: auditlog.Act(r.Act), Form: auditlog.Form(r.Form.StringVal),
+		Source: eventsource.Stored{
+			Auth: r.Auth.StringVal, ActorUserID: r.ActorUserID.StringVal, ActorUsername: r.ActorUsername.StringVal,
+			PrincipalUserID: r.PrincipalUserID.StringVal, PrincipalUsername: r.PrincipalUsername.StringVal, PrincipalRole: r.PrincipalRole.StringVal,
+			SessionID: r.SessionID.StringVal, Process: r.Process.StringVal, RPC: r.RPC.StringVal,
+		},
+		Directory: r.Directory.StringVal, SubjectKind: auditlog.SubjectKind(r.SubjectKind), SubjectID: r.SubjectID, SubjectName: r.SubjectName.StringVal,
+		TenantID: r.TenantID.StringVal, TenantName: r.TenantName.StringVal, RoleNames: roles, RoleScope: auditlog.RoleScope(r.RoleScope.StringVal),
+		RecordKind: r.RecordKind.StringVal, RecordID: r.RecordID.StringVal, RecordWord: r.RecordWord.StringVal, RecordName: r.RecordName.StringVal,
+		GroupID: r.GroupID.StringVal, GroupName: r.GroupName.StringVal, OldValue: r.OldValue.StringVal, NewValue: r.NewValue.StringVal,
+		PeriodStart: r.PeriodStart.Time, PeriodEnd: r.PeriodEnd.Time,
+		SeatingTenantID: r.SeatingTenantID.StringVal, SeatingTenantName: r.SeatingTenantName.StringVal, Reason: r.Reason.StringVal,
+	}
 }
 
 func (store) TrustedDevices(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]impulse.UUID, error) {
@@ -751,6 +1088,266 @@ func (store) RevokeTrustedDevice(ctx context.Context, txn resource.ReadWriteTran
 	return nil
 }
 
+// tenantHoldingsMembership is one membership of a person as TenantHoldings reads it.
+type tenantHoldingsMembership struct {
+	Kind     string `spanner:"Kind"`
+	Axis     string `spanner:"Axis"`
+	DomainID string `spanner:"DomainId"`
+	Role     string `spanner:"Role"`
+}
+
+// tenantHoldingsPlace is one place of a person in a group, with where the group is kept,
+// as TenantHoldings reads it.
+type tenantHoldingsPlace struct {
+	ID       string `spanner:"Id"`
+	Kind     string `spanner:"Kind"`
+	Axis     string `spanner:"Axis"`
+	DomainID string `spanner:"DomainId"`
+}
+
+// tenantHoldingsRecordRole is one role of a person on a record, with its end, as
+// TenantHoldings reads it.
+type tenantHoldingsRecordRole struct {
+	Axis     string           `spanner:"Axis"`
+	DomainID string           `spanner:"DomainId"`
+	Resource string           `spanner:"Resource"`
+	RecordID string           `spanner:"RecordId"`
+	Role     string           `spanner:"Role"`
+	EndsAt   spanner.NullTime `spanner:"EndsAt"`
+}
+
+// tenantHoldingsLink is one identity link of a person as TenantHoldings reads it, with
+// the tenants whose directory it came through.
+type tenantHoldingsLink struct {
+	ID         string   `spanner:"Id"`
+	Method     string   `spanner:"Method"`
+	Connection string   `spanner:"Connection"`
+	Tenants    []string `spanner:"Tenants"`
+}
+
+// tenantHoldingsSession is one session of a person that has not ended, as TenantHoldings
+// reads it, with whether its impersonation record stands.
+type tenantHoldingsSession struct {
+	ID     string `spanner:"Id"`
+	Record bool   `spanner:"Record"`
+}
+
+// tenantHoldingsHeld is one impersonation record a person holds as actor that has not
+// ended, with whether its session stands, as TenantHoldings reads it.
+type tenantHoldingsHeld struct {
+	SessionID string `spanner:"SessionId"`
+	Session   bool   `spanner:"Session"`
+}
+
+// TenantHoldings reads the people a tenant's delete considers and what each holds, in
+// the caller's transaction, by two statements: the first starts from the tenant's key and
+// reaches each person's rows by their tables' indexes on the user, and the second reads,
+// for the people the first found, their sessions, the impersonation records they hold and
+// what the database removes with their rows. A row whose user is no account's id names
+// nobody, and a role on a record whose period has ended is left out, as RecordMemberships
+// leaves it (identity.Store.TenantHoldings).
+func (store) TenantHoldings(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]identity.PersonHoldings, error) {
+	stmt := spanner.Statement{SQL: "SELECT p.UserId, (SELECT u.Username FROM CrewSessionUsers u WHERE u.Id = p.UserId) AS Username, ARRAY(SELECT AS STRUCT m.Kind, m.Axis, m.DomainId, m.Role FROM CrewUserRoles@{FORCE_INDEX=CrewUserRolesByUserId} m WHERE m.UserId = p.UserId) AS Memberships, ARRAY(SELECT AS STRUCT g.Id, g.Kind, g.Axis, g.DomainId FROM CrewGroupMembers@{FORCE_INDEX=CrewGroupMembersByUserId} gm JOIN CrewGroups g ON g.Id = gm.GroupId WHERE gm.UserId = p.UserId) AS Places, ARRAY(SELECT AS STRUCT r.Axis, r.DomainId, r.Resource, r.RecordId, r.Role, r.EndsAt FROM CrewRecordUserRoles@{FORCE_INDEX=CrewRecordUserRolesByUserId} r WHERE r.UserId = p.UserId) AS RecordRoles, ARRAY(SELECT AS STRUCT i.Id, i.Method, i.Connection, ARRAY(SELECT d.SectorId FROM SectorDirectories d WHERE d.Method = i.Method AND d.Connection = i.Connection) AS Tenants FROM CrewSessionIdentities i WHERE i.UserId = p.UserId) AS Links FROM (SELECT m.UserId FROM CrewUserRoles m WHERE m.Kind = @kind AND m.Axis = @axis AND m.DomainId = @domain UNION DISTINCT SELECT gm.UserId FROM CrewGroups g JOIN CrewGroupMembers gm ON gm.GroupId = g.Id WHERE g.Kind = @groupKind AND g.Axis = @groupAxis AND g.DomainId = @groupDomain UNION DISTINCT SELECT r.UserId FROM CrewRecordUserRoles r WHERE r.Axis = @recordAxis AND r.DomainId = @recordDomain UNION DISTINCT SELECT i.UserId FROM SectorDirectories d JOIN CrewSessionIdentities i ON i.Method = d.Method AND i.Connection = d.Connection WHERE d.SectorId = @tenant) p ORDER BY p.UserId", Params: map[string]any{}}
+	held := access.NewMembershipKey(accesstypes.DomainPolicyScope(domain), "", "")
+	stmt.Params["kind"], stmt.Params["axis"], stmt.Params["domain"] = held.Kind, held.Axis, held.Domain
+	kept := access.NewGroupRoleKey("", accesstypes.DomainPolicyScope(domain), "")
+	stmt.Params["groupKind"], stmt.Params["groupAxis"], stmt.Params["groupDomain"] = kept.Kind, kept.Axis, kept.Domain
+	onRecords := access.NewRecordMembershipKey(accesstypes.NewRecordScope(domain, "", ""), "", "")
+	stmt.Params["recordAxis"], stmt.Params["recordDomain"] = onRecords.Axis, onRecords.Domain
+	now := time.Now()
+	stmt.Params["tenant"] = string(domain)
+	var people []identity.PersonHoldings
+	// ids are the people's ids as the statement read them, which no two of its rows share:
+	// the second statement is asked by them and its rows are matched by them.
+	var ids []string
+	if err := txn.SpannerReadOnlyTransaction().Query(ctx, stmt).Do(func(row *spanner.Row) error {
+		var user string
+		var username spanner.NullString
+		if err := row.ColumnByName("UserId", &user); err != nil {
+			return errors.Wrap(err, "spanner.Row.ColumnByName()")
+		}
+		if err := row.ColumnByName("Username", &username); err != nil {
+			return errors.Wrap(err, "spanner.Row.ColumnByName()")
+		}
+		id, ok := identity.UserID(accesstypes.User(user))
+		if !ok {
+			return nil
+		}
+		person := identity.PersonHoldings{ID: id, Username: username.StringVal, Found: username.Valid}
+		var memberships []*tenantHoldingsMembership
+		if err := row.ColumnByName("Memberships", &memberships); err != nil {
+			return errors.Wrap(err, "spanner.Row.ColumnByName()")
+		}
+		for _, m := range memberships {
+			person.Memberships = append(person.Memberships, access.MembershipKey{Kind: m.Kind, Axis: m.Axis, Domain: m.DomainID, Role: accesstypes.Role(m.Role), User: accesstypes.User(user)})
+		}
+		var places []*tenantHoldingsPlace
+		if err := row.ColumnByName("Places", &places); err != nil {
+			return errors.Wrap(err, "spanner.Row.ColumnByName()")
+		}
+		for _, place := range places {
+			groupID, err := impulse.UUIDFromString(place.ID)
+			if err != nil {
+				return errors.Wrap(err, "impulse.UUIDFromString()")
+			}
+			person.Places = append(person.Places, identity.GroupPlace{ID: groupID, Kind: place.Kind, Axis: place.Axis, Domain: place.DomainID})
+		}
+		var records []*tenantHoldingsRecordRole
+		if err := row.ColumnByName("RecordRoles", &records); err != nil {
+			return errors.Wrap(err, "spanner.Row.ColumnByName()")
+		}
+		for _, r := range records {
+			if r.EndsAt.Valid && !r.EndsAt.Time.After(now) {
+				continue
+			}
+			person.RecordRoles = append(person.RecordRoles, access.RecordMembershipKey{
+				Axis: r.Axis, Domain: r.DomainID, Resource: r.Resource, Record: r.RecordID, Role: accesstypes.Role(r.Role), User: accesstypes.User(user),
+			})
+		}
+		var links []*tenantHoldingsLink
+		if err := row.ColumnByName("Links", &links); err != nil {
+			return errors.Wrap(err, "spanner.Row.ColumnByName()")
+		}
+		for _, link := range links {
+			linkID, err := impulse.UUIDFromString(link.ID)
+			if err != nil {
+				return errors.Wrap(err, "impulse.UUIDFromString()")
+			}
+			person.Links = append(person.Links, identity.Link{ID: linkID, Method: sessioninfo.AuthMethod(link.Method), Connection: link.Connection})
+			for _, tenant := range link.Tenants {
+				if !slices.Contains(person.DirectoryTenants, accesstypes.Domain(tenant)) {
+					person.DirectoryTenants = append(person.DirectoryTenants, accesstypes.Domain(tenant))
+				}
+			}
+		}
+		slices.Sort(person.DirectoryTenants)
+		people = append(people, person)
+		ids = append(ids, user)
+
+		return nil
+	}); err != nil {
+		return nil, errors.Wrap(err, "spanner.RowIterator.Do()")
+	}
+	if len(people) == 0 {
+		return nil, nil
+	}
+
+	at := make(map[string]int, len(ids))
+	for i, id := range ids {
+		at[id] = i
+	}
+	costs := []int{
+		resource.DeleteCost{IndexEntries: 3}.Mutations(0),
+		resource.DeleteCost{IndexEntries: 3}.Mutations(0),
+		resource.DeleteCost{IndexEntries: 4}.Mutations(0),
+		resource.DeleteCost{IndexEntries: 4}.Mutations(0),
+		resource.DeleteCost{IndexEntries: 3}.Mutations(0),
+	}
+	stmt = spanner.Statement{SQL: "SELECT p.UserId, ARRAY(SELECT AS STRUCT s.Id, EXISTS (SELECT 1 FROM CrewSessionImpersonations r WHERE r.SessionId = s.Id AND r.EndedAt IS NULL) AS Record FROM CrewSessions s WHERE s.UserId = p.UserId AND s.Expired = FALSE) AS Sessions, ARRAY(SELECT AS STRUCT r.SessionId, EXISTS (SELECT 1 FROM CrewSessions s WHERE s.Id = r.SessionId AND s.Expired = FALSE) AS Session FROM CrewSessionUsers u JOIN CrewSessionImpersonations r ON r.ActorUsername = u.Username WHERE u.Id = p.UserId AND r.ActorRealm IS NULL AND r.EndedAt IS NULL) AS Held, (SELECT COUNT(*) FROM CrewSessionDeviceCodes c0 WHERE c0.UserId = p.UserId) AS WithUser0, (SELECT COUNT(*) FROM CrewSessionIdentities c0 WHERE c0.UserId = p.UserId) AS WithUser1, (SELECT COUNT(*) FROM CrewSessionMailLinks c0 WHERE c0.UserId = p.UserId) AS WithUser2, (SELECT COUNT(*) FROM CrewSessionTokens c0 WHERE c0.UserId = p.UserId) AS WithUser3, (SELECT COUNT(*) FROM CrewSessionTrustedDevices c0 WHERE c0.UserId = p.UserId) AS WithUser4 FROM (SELECT id AS UserId FROM UNNEST(@people) AS id) p ORDER BY p.UserId", Params: map[string]any{"people": ids}}
+	if err := txn.SpannerReadOnlyTransaction().Query(ctx, stmt).Do(func(row *spanner.Row) error {
+		var user string
+		if err := row.ColumnByName("UserId", &user); err != nil {
+			return errors.Wrap(err, "spanner.Row.ColumnByName()")
+		}
+		person := &people[at[user]]
+		var sessions []*tenantHoldingsSession
+		if err := row.ColumnByName("Sessions", &sessions); err != nil {
+			return errors.Wrap(err, "spanner.Row.ColumnByName()")
+		}
+		for _, session := range sessions {
+			sessionID, err := impulse.UUIDFromString(session.ID)
+			if err != nil {
+				return errors.Wrap(err, "impulse.UUIDFromString()")
+			}
+			person.Sessions = append(person.Sessions, identity.LiveSession{ID: sessionID, Record: session.Record})
+		}
+		var held []*tenantHoldingsHeld
+		if err := row.ColumnByName("Held", &held); err != nil {
+			return errors.Wrap(err, "spanner.Row.ColumnByName()")
+		}
+		for _, record := range held {
+			sessionID, err := impulse.UUIDFromString(record.SessionID)
+			if err != nil {
+				return errors.Wrap(err, "impulse.UUIDFromString()")
+			}
+			person.Held = append(person.Held, identity.HeldRecord{SessionID: sessionID, Session: record.Session})
+		}
+		for i, cost := range costs {
+			var count int64
+			if err := row.ColumnByName("WithUser"+strconv.Itoa(i), &count); err != nil {
+				return errors.Wrap(err, "spanner.Row.ColumnByName()")
+			}
+			person.WithUser += int(count) * cost
+		}
+
+		return nil
+	}); err != nil {
+		return nil, errors.Wrap(err, "spanner.RowIterator.Do()")
+	}
+
+	return people, nil
+}
+
+// DeleteCosts answers what the delete of one row of each of the Crew auth's tables
+// a tenant's delete takes costs in a commit, as the schema read at generation tells it:
+// the delete and an entry out of each of the table's indexes besides its key, with no
+// change record, since the declarations write none. The withdrawal of an invitation costs
+// what its update costs: the key, the columns ConsumeMailLink writes, and each index that
+// holds one of them, two where the column is in the index's key and one and its stored
+// columns otherwise. A table the schema does not hold costs nothing
+// (identity.Store.DeleteCosts).
+func (store) DeleteCosts() identity.TenantDeleteCosts {
+	return identity.TenantDeleteCosts{
+		Membership:       resource.DeleteCost{IndexEntries: 1}.Mutations(0),
+		Group:            resource.DeleteCost{IndexEntries: 1}.Mutations(0),
+		GroupMember:      resource.DeleteCost{IndexEntries: 1}.Mutations(0),
+		GroupRole:        resource.DeleteCost{IndexEntries: 1}.Mutations(0),
+		Role:             resource.DeleteCost{IndexEntries: 0}.Mutations(0),
+		Identity:         resource.DeleteCost{IndexEntries: 3}.Mutations(0),
+		User:             resource.DeleteCost{IndexEntries: 3}.Mutations(0),
+		RecordMembership: resource.DeleteCost{IndexEntries: 1}.Mutations(resource.ChangeRecordMutations()),
+		RecordGroupRole:  resource.DeleteCost{IndexEntries: 2}.Mutations(resource.ChangeRecordMutations()),
+		Invitation:       8,
+		SessionEnd:       5,
+		ImpersonationEnd: 3,
+	}
+}
+
+// RowsWithUser counts what the database's own rules add to the delete of the user's row,
+// in mutations: each row of each table that hangs on the user by a foreign key declared
+// ON DELETE CASCADE, as the schema read at generation holds them, with an entry out of
+// each of that table's indexes, counted in the caller's transaction
+// (identity.Store.RowsWithUser). The tables: CrewSessionDeviceCodes, CrewSessionIdentities, CrewSessionMailLinks, CrewSessionTokens, CrewSessionTrustedDevices.
+func (store) RowsWithUser(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) (int, error) {
+	stmt := spanner.Statement{
+		SQL:    "SELECT (SELECT COUNT(*) FROM CrewSessionDeviceCodes c0 WHERE c0.UserId = @userId), (SELECT COUNT(*) FROM CrewSessionIdentities c0 WHERE c0.UserId = @userId), (SELECT COUNT(*) FROM CrewSessionMailLinks c0 WHERE c0.UserId = @userId), (SELECT COUNT(*) FROM CrewSessionTokens c0 WHERE c0.UserId = @userId), (SELECT COUNT(*) FROM CrewSessionTrustedDevices c0 WHERE c0.UserId = @userId)",
+		Params: map[string]any{"userId": userID.String()},
+	}
+	costs := []int{
+		resource.DeleteCost{IndexEntries: 3}.Mutations(0),
+		resource.DeleteCost{IndexEntries: 3}.Mutations(0),
+		resource.DeleteCost{IndexEntries: 4}.Mutations(0),
+		resource.DeleteCost{IndexEntries: 4}.Mutations(0),
+		resource.DeleteCost{IndexEntries: 3}.Mutations(0),
+	}
+	rows := 0
+	if err := txn.SpannerReadOnlyTransaction().Query(ctx, stmt).Do(func(row *spanner.Row) error {
+		for i, cost := range costs {
+			var count int64
+			if err := row.Column(i, &count); err != nil {
+				return errors.Wrap(err, "spanner.Row.Column()")
+			}
+			rows += int(count) * cost
+		}
+
+		return nil
+	}); err != nil {
+		return 0, errors.Wrap(err, "spanner.RowIterator.Do()")
+	}
+
+	return rows, nil
+}
+
 // DirectoryOutsiders lists the people of the Crew auth who hold a role in the
 // sector, in it or in every sector, and have no sign-in through its directory: the
 // people the sector's directory-only switch keeps out while it is on, and who turning
@@ -776,6 +1373,107 @@ func (c *Client) DirectoryOutsiders(ctx context.Context, txn resource.ReadWriteT
 	}
 
 	return outsiders, nil
+}
+
+// SeatedCount counts the people of the Crew auth in the sector's own
+// list of its people (CrewSectorUser): who holds a role in the sector, in it or in
+// every sector, and, where the sector has a directory, who signs in through it,
+// one row a person, the list DirectoryOutsiders reads, in the caller's transaction. The
+// read of the sector's directory-only switch says it beside the people
+// DirectoryOutsiders counts (resource.TenantDirectoryRules.CountedBy), so a page that
+// shows the switch says how many of the sector's people it keeps out.
+func (c *Client) SeatedCount(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain) (int, error) {
+	query := crewresources.NewCrewSectorUserQuery().
+		AddColumns(crewresources.NewCrewSectorUserColumns().ID()).
+		Where(crewresources.NewCrewSectorUserQueryClause().DomainID().Equal(string(tenant)))
+	seated := 0
+	for _, err := range query.List(ctx, txn) {
+		if err != nil {
+			return 0, errors.Wrap(err, "crewresources.CrewSectorUserQuery.List()")
+		}
+		seated++
+	}
+
+	return seated, nil
+}
+
+// DirectoryAdministrators lists the people of the Crew auth who are the sector's own
+// administrators and have a password: the people who enter the sector with it and a
+// code mailed to them while it is directory only, the one way in beside its directory.
+// It reads the sector's own list of its people (CrewSectorUser, whose
+// AdministratorWithPassword column is the fact), in the caller's transaction. The
+// warning of the generated method that turns the switch on counts and names them
+// (resource.DirectoryPeople.Administrators).
+func (c *Client) DirectoryAdministrators(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain) ([]resource.DirectoryAdministrator, error) {
+	query := crewresources.NewCrewSectorUserQuery().
+		AddColumns(crewresources.NewCrewSectorUserColumns().ID().Username().Name()).
+		Where(crewresources.NewCrewSectorUserQueryClause().DomainID().Equal(string(tenant)).And().AdministratorWithPassword().Equal(true))
+	administrators := []resource.DirectoryAdministrator{}
+	for row, err := range query.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "crewresources.CrewSectorUserQuery.List()")
+		}
+		administrators = append(administrators, resource.DirectoryAdministrator{UserID: row.Data.ID, Username: row.Data.Username, Name: row.Data.Name})
+	}
+
+	return administrators, nil
+}
+
+// DirectoryInvitations lists the invitations of the Crew auth into the sector that are
+// not yet accepted and give one of the roles that administer a sector, by the auth's
+// permission engine's own names: each would make another of the sector's administrators,
+// who enters with a password and a code mailed to them while the sector is directory
+// only. It reads the sector's own list of its invitations (CrewSectorInvitation, whose
+// Pending column says the invitation stands), in the caller's transaction. The warning
+// of the generated method that turns the switch on counts and names them
+// (resource.DirectoryPeople.Invitations).
+func (c *Client) DirectoryInvitations(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain) ([]resource.DirectoryInvitation, error) {
+	administers := map[string]bool{}
+	for _, role := range c.manager.TenantAdministratorRoles() {
+		administers[string(role)] = true
+	}
+	query := crewresources.NewCrewSectorInvitationQuery().
+		AddColumns(crewresources.NewCrewSectorInvitationColumns().ID().Email().Name().RoleNames()).
+		Where(crewresources.NewCrewSectorInvitationQueryClause().DomainID().Equal(string(tenant)).And().Pending().Equal(true))
+	invitations := []resource.DirectoryInvitation{}
+	for row, err := range query.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "crewresources.CrewSectorInvitationQuery.List()")
+		}
+		for _, role := range row.Data.RoleNames {
+			if administers[role] {
+				invitations = append(invitations, resource.DirectoryInvitation{ID: row.Data.ID, Email: row.Data.Email, Name: row.Data.Name})
+
+				break
+			}
+		}
+	}
+
+	return invitations, nil
+}
+
+// SeatedAgainBySignIn reports whether a person of the Crew auth removed from the
+// sector is given its starting role again the next time they sign in: the sector's
+// row of SectorDirectories names a default seat, and the person has a sign-in identity
+// (CrewSessionIdentities) whose method and connection are that row's. The directory gives a
+// person who holds nothing in the sector that role at every sign-in
+// (identity.Manager.DirectorySeated). It is one statement past the declarations, as
+// UserID's is, read in the caller's transaction. The warning of the generated method
+// that removes a person from a sector asks it, and on yes says so
+// (identity.Tenant.SeatedAgainNote).
+func (c *Client) SeatedAgainBySignIn(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain, userID impulse.UUID) (bool, error) {
+	stmt := spanner.Statement{
+		SQL:    "SELECT EXISTS (SELECT 1 FROM CrewSessionIdentities i JOIN SectorDirectories d ON d.Method = i.Method AND d.Connection = i.Connection WHERE i.UserId = @userId AND d.SectorId = @tenant AND d.DefaultSeat IS NOT NULL AND d.DefaultSeat != '')",
+		Params: map[string]any{"userId": userID.String(), "tenant": string(tenant)},
+	}
+	var seated bool
+	if err := txn.SpannerReadOnlyTransaction().Query(ctx, stmt).Do(func(row *spanner.Row) error {
+		return row.Column(0, &seated)
+	}); err != nil {
+		return false, errors.Wrap(err, "spanner.RowIterator.Do()")
+	}
+
+	return seated, nil
 }
 
 // groupID answers a group's id as the declarations hold it, from the text the permission
@@ -844,12 +1542,43 @@ func (store) DescribeGroup(ctx context.Context, txn resource.ReadWriteTransactio
 	return nil
 }
 
-func (store) DeleteGroup(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error {
-	if err := crewresources.NewCrewGroupDeletePatch(id).Buffer(ctx, txn); err != nil {
-		return errors.Wrap(err, "crewresources.CrewGroupDeletePatch.Buffer()")
+func (store) DeleteGroup(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, everythingUnder bool) (*resource.DeleteLeft, error) {
+	// The group's delete takes its members and its roles (its @deleteCascade), and the
+	// application's rows that go with it (@deletedWith). The patch is not armed against
+	// a caller: the method that deletes the group has asked the caller's grants, the
+	// members and the roles are taken trusted, and the application's rows are checked as
+	// the request's caller. In a person's request the delete is that person's (deletedBy):
+	// a row it takes that keeps a change history records its delete as theirs.
+	patch := crewresources.NewCrewGroupDeletePatch(id)
+	if everythingUnder {
+		// Where the method that called declared a token (@deleteToken), the delete goes on
+		// it, and asks where it does not hold. Anywhere else it is code's word: every save
+		// asks everything again.
+		if token, declared := resource.DeleteTokenFrom(ctx); declared {
+			patch = patch.WithDeleteToken(token)
+		} else {
+			patch = patch.WithEverythingUnder()
+		}
+	}
+	if err := patch.Buffer(ctx, txn, deletedBy(ctx)...); err != nil {
+		return nil, errors.Wrap(err, "crewresources.CrewGroupDeletePatch.Buffer()")
 	}
 
-	return nil
+	return patch.Left(), nil
+}
+
+func (store) DeleteGroupWithTenant(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (*resource.DeleteLeft, error) {
+	// The tenant's delete took the application's rows under the tenant before it reached
+	// the groups: the group's delete takes its members and its roles, and leaves the
+	// application's rows out.
+	// Its roles on records keep a change history, which records their delete as the
+	// request's person's (deletedBy).
+	patch := crewresources.NewCrewGroupDeletePatch(id).WithEverythingUnder().WithLibraryRowsAlone()
+	if err := patch.Buffer(ctx, txn, deletedBy(ctx)...); err != nil {
+		return nil, errors.Wrap(err, "crewresources.CrewGroupDeletePatch.Buffer()")
+	}
+
+	return patch.Left(), nil
 }
 
 func (store) TenantGroups(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]impulse.UUID, error) {
@@ -1098,12 +1827,17 @@ func storedPeriod(start, end *time.Time) accesstypes.Period {
 	return period
 }
 
-// SetMembershipPeriod writes both columns, an absent start or end as NULL: the period
-// handed replaces the one the membership had.
-func (store) SetMembershipPeriod(ctx context.Context, txn resource.ReadWriteTransaction, key *access.MembershipKey, period accesstypes.Period) error {
+// SetMembershipPeriod writes both columns of the period and the reason, an absent start
+// or end and an empty reason as NULL: what is handed replaces what the membership had.
+func (store) SetMembershipPeriod(ctx context.Context, txn resource.ReadWriteTransaction, key *access.MembershipKey, period accesstypes.Period, reason string) error {
+	var why *string
+	if reason != "" {
+		why = &reason
+	}
 	patch := crewresources.NewCrewUserRoleUpdatePatch(key.Kind, key.Axis, key.Domain, string(key.Role), string(key.User)).
 		SetStartsAt(period.StartPtr()).
-		SetEndsAt(period.EndPtr())
+		SetEndsAt(period.EndPtr()).
+		SetReason(why)
 	if err := patch.Buffer(ctx, txn); err != nil {
 		return errors.Wrap(err, "crewresources.CrewUserRoleUpdatePatch.Buffer()")
 	}
@@ -1112,10 +1846,14 @@ func (store) SetMembershipPeriod(ctx context.Context, txn resource.ReadWriteTran
 }
 
 func (store) UserPeriods(ctx context.Context, txn resource.ReadOnlyTransaction, userID impulse.UUID) (*identity.UserPeriods, error) {
-	periods := &identity.UserPeriods{Memberships: map[access.MembershipKey]accesstypes.Period{}, Places: map[access.GroupMemberKey]accesstypes.Period{}}
+	periods := &identity.UserPeriods{
+		Memberships: map[access.MembershipKey]accesstypes.Period{},
+		Places:      map[access.GroupMemberKey]accesstypes.Period{},
+		Reasons:     map[access.MembershipKey]string{},
+	}
 	// The table's index by user leads with the person, the id of their account.
 	memberships := crewresources.NewCrewUserRoleQuery().
-		AddColumns(crewresources.NewCrewUserRoleColumns().Kind().Axis().DomainID().Role().UserID().StartsAt().EndsAt()).
+		AddColumns(crewresources.NewCrewUserRoleColumns().Kind().Axis().DomainID().Role().UserID().StartsAt().EndsAt().Reason()).
 		Where(crewresources.NewCrewUserRoleQueryClause().UserID().Equal(userID.String()))
 	for row, err := range memberships.List(ctx, txn) {
 		if err != nil {
@@ -1123,6 +1861,9 @@ func (store) UserPeriods(ctx context.Context, txn resource.ReadOnlyTransaction, 
 		}
 		key := access.MembershipKey{Kind: row.Data.Kind, Axis: row.Data.Axis, Domain: row.Data.DomainID, Role: accesstypes.Role(row.Data.Role), User: accesstypes.User(row.Data.UserID)}
 		periods.Memberships[key] = storedPeriod(row.Data.StartsAt, row.Data.EndsAt)
+		if row.Data.Reason != nil && *row.Data.Reason != "" {
+			periods.Reasons[key] = *row.Data.Reason
+		}
 	}
 	places := crewresources.NewCrewGroupMemberQuery().
 		AddColumns(crewresources.NewCrewGroupMemberColumns().GroupID().UserID().StartsAt().EndsAt()).
@@ -1182,14 +1923,13 @@ func (store) EndedAssignments(ctx context.Context, txn resource.ReadOnlyTransact
 	return memberships, places, nil
 }
 
-// RemoveEnded buffers each removal under the source that says the assignment ended by
-// itself (identity.EndedByItself): it is what a change record of the row holds in place
-// of a person's act.
+// RemoveEnded buffers each removal under the process that says the assignment ended by
+// itself (identity.EndedByItself): nobody made it.
 func (store) RemoveEnded(ctx context.Context, txn resource.ReadWriteTransaction, memberships []access.MembershipKey, places []access.GroupMemberKey) error {
 	for i := range memberships {
 		key := &memberships[i]
 		patch := crewresources.NewCrewUserRoleDeletePatch(key.Kind, key.Axis, key.Domain, string(key.Role), string(key.User))
-		if err := patch.Buffer(ctx, txn, identity.EndedByItself); err != nil {
+		if err := patch.Buffer(ctx, txn, eventsource.ProcessEvent(identity.EndedByItself)); err != nil {
 			return errors.Wrap(err, "crewresources.CrewUserRoleDeletePatch.Buffer()")
 		}
 	}
@@ -1198,7 +1938,7 @@ func (store) RemoveEnded(ctx context.Context, txn resource.ReadWriteTransaction,
 		if err != nil {
 			return err
 		}
-		if err := crewresources.NewCrewGroupMemberDeletePatch(id, string(place.User)).Buffer(ctx, txn, identity.EndedByItself); err != nil {
+		if err := crewresources.NewCrewGroupMemberDeletePatch(id, string(place.User)).Buffer(ctx, txn, eventsource.ProcessEvent(identity.EndedByItself)); err != nil {
 			return errors.Wrap(err, "crewresources.CrewGroupMemberDeletePatch.Buffer()")
 		}
 	}
@@ -1264,4 +2004,288 @@ func (store) GroupPeriods(ctx context.Context, txn resource.ReadOnlyTransaction,
 	}
 
 	return periods, nil
+}
+
+// SetRecordMembership writes the person's role on the record with its period: a row that
+// is not there is created, and one that is, committed or written earlier in this
+// transaction, keeps the time the role was given and takes the period handed. Each write
+// leaves its change event under the caller.
+func (store) SetRecordMembership(ctx context.Context, txn resource.ReadWriteTransaction, key *access.RecordMembershipKey, period accesstypes.Period) error {
+	create := crewresources.NewCrewRecordUserRoleCreatePatch(key.Axis, key.Domain, key.Resource, key.Record, string(key.Role), string(key.User)).
+		SetStartsAt(period.StartPtr()).
+		SetEndsAt(period.EndPtr()).
+		SetCreatedAt(spanner.CommitTimestamp).
+		OrSkip()
+	if err := create.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
+		return errors.Wrap(err, "crewresources.CrewRecordUserRoleCreatePatch.Buffer()")
+	}
+	if !create.RowSkipped() {
+		return nil
+	}
+	update := crewresources.NewCrewRecordUserRoleUpdatePatch(key.Axis, key.Domain, key.Resource, key.Record, string(key.Role), string(key.User)).
+		SetStartsAt(period.StartPtr()).
+		SetEndsAt(period.EndPtr())
+	if err := update.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
+		return errors.Wrap(err, "crewresources.CrewRecordUserRoleUpdatePatch.Buffer()")
+	}
+
+	return nil
+}
+
+// DeleteRecordMembership removes the person's role on the record, the delete recorded as
+// the request's person's (deletedBy). A role the person does not hold there is no error:
+// the delete stays buffered, as on a table that keeps no change records, and no change
+// record is written.
+func (store) DeleteRecordMembership(ctx context.Context, txn resource.ReadWriteTransaction, key *access.RecordMembershipKey) error {
+	patch := crewresources.NewCrewRecordUserRoleDeletePatch(key.Axis, key.Domain, key.Resource, key.Record, string(key.Role), string(key.User))
+	if err := patch.Buffer(ctx, txn, deletedBy(ctx)...); err != nil {
+		if httpio.HasNotFound(err) {
+			return nil
+		}
+
+		return errors.Wrap(err, "crewresources.CrewRecordUserRoleDeletePatch.Buffer()")
+	}
+
+	return nil
+}
+
+// SetRecordGroupRole writes the group's role on the record with its period, as
+// SetRecordMembership writes a person's.
+func (store) SetRecordGroupRole(ctx context.Context, txn resource.ReadWriteTransaction, key *access.RecordGroupRoleKey, period accesstypes.Period) error {
+	id, err := groupID(key.Group)
+	if err != nil {
+		return err
+	}
+	create := crewresources.NewCrewRecordGroupRoleCreatePatch(key.Axis, key.Domain, key.Resource, key.Record, string(key.Role), id).
+		SetStartsAt(period.StartPtr()).
+		SetEndsAt(period.EndPtr()).
+		SetCreatedAt(spanner.CommitTimestamp).
+		OrSkip()
+	if err := create.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
+		return errors.Wrap(err, "crewresources.CrewRecordGroupRoleCreatePatch.Buffer()")
+	}
+	if !create.RowSkipped() {
+		return nil
+	}
+	update := crewresources.NewCrewRecordGroupRoleUpdatePatch(key.Axis, key.Domain, key.Resource, key.Record, string(key.Role), id).
+		SetStartsAt(period.StartPtr()).
+		SetEndsAt(period.EndPtr())
+	if err := update.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
+		return errors.Wrap(err, "crewresources.CrewRecordGroupRoleUpdatePatch.Buffer()")
+	}
+
+	return nil
+}
+
+// DeleteRecordGroupRole removes the group's role on the record, as DeleteRecordMembership
+// removes a person's.
+func (store) DeleteRecordGroupRole(ctx context.Context, txn resource.ReadWriteTransaction, key *access.RecordGroupRoleKey) error {
+	id, err := groupID(key.Group)
+	if err != nil {
+		return err
+	}
+	patch := crewresources.NewCrewRecordGroupRoleDeletePatch(key.Axis, key.Domain, key.Resource, key.Record, string(key.Role), id)
+	if err := patch.Buffer(ctx, txn, deletedBy(ctx)...); err != nil {
+		if httpio.HasNotFound(err) {
+			return nil
+		}
+
+		return errors.Wrap(err, "crewresources.CrewRecordGroupRoleDeletePatch.Buffer()")
+	}
+
+	return nil
+}
+
+func (store) RecordRoles(ctx context.Context, txn resource.ReadWriteTransaction, at accesstypes.RecordScope) ([]access.RecordMembershipKey, []access.RecordGroupRoleKey, error) {
+	// Both tables' keys lead with the record: each list is the rows under the record's
+	// part of the key.
+	record := access.NewRecordMembershipKey(at, "", "")
+	people, err := recordMemberships(ctx, txn, crewresources.NewCrewRecordUserRoleQuery().
+		SetAxis(record.Axis).SetDomainID(record.Domain).SetResourceName(record.Resource).SetRecordID(record.Record))
+	if err != nil {
+		return nil, nil, err
+	}
+	groups, err := recordGroupRoles(ctx, txn, crewresources.NewCrewRecordGroupRoleQuery().
+		SetAxis(record.Axis).SetDomainID(record.Domain).SetResourceName(record.Resource).SetRecordID(record.Record))
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return people, groups, nil
+}
+
+func (store) RecordPeriods(ctx context.Context, txn resource.ReadWriteTransaction, at accesstypes.RecordScope) (*identity.RecordPeriods, error) {
+	// Both tables' keys lead with the record: each map is the rows under the record's part
+	// of the key, ended ones too.
+	record := access.NewRecordMembershipKey(at, "", "")
+	periods := &identity.RecordPeriods{People: map[access.RecordMembershipKey]accesstypes.Period{}, Groups: map[access.RecordGroupRoleKey]accesstypes.Period{}}
+	people := crewresources.NewCrewRecordUserRoleQuery().
+		SetAxis(record.Axis).SetDomainID(record.Domain).SetResourceName(record.Resource).SetRecordID(record.Record).
+		AddColumns(crewresources.NewCrewRecordUserRoleColumns().Axis().DomainID().ResourceName().RecordID().Role().UserID().StartsAt().EndsAt())
+	for row, err := range people.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "crewresources.CrewRecordUserRoleQuery.List()")
+		}
+		periods.People[recordMembershipKey(&row.Data)] = storedPeriod(row.Data.StartsAt, row.Data.EndsAt)
+	}
+	groups := crewresources.NewCrewRecordGroupRoleQuery().
+		SetAxis(record.Axis).SetDomainID(record.Domain).SetResourceName(record.Resource).SetRecordID(record.Record).
+		AddColumns(crewresources.NewCrewRecordGroupRoleColumns().Axis().DomainID().ResourceName().RecordID().Role().GroupID().StartsAt().EndsAt())
+	for row, err := range groups.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "crewresources.CrewRecordGroupRoleQuery.List()")
+		}
+		held := row.Data
+		key := access.RecordGroupRoleKey{
+			Axis: held.Axis, Domain: held.DomainID, Resource: held.ResourceName, Record: held.RecordID,
+			Role: accesstypes.Role(held.Role), Group: accesstypes.Group(held.GroupID.String()),
+		}
+		periods.Groups[key] = storedPeriod(held.StartsAt, held.EndsAt)
+	}
+
+	return periods, nil
+}
+
+func (store) TenantRecordRoles(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]access.RecordMembershipKey, []access.RecordGroupRoleKey, error) {
+	// Both tables' keys lead with the record's tenant: each list is the rows under the
+	// tenant's part of the key.
+	tenant := access.NewRecordMembershipKey(accesstypes.NewRecordScope(domain, "", ""), "", "")
+	people, err := recordMemberships(ctx, txn, crewresources.NewCrewRecordUserRoleQuery().
+		SetAxis(tenant.Axis).SetDomainID(tenant.Domain))
+	if err != nil {
+		return nil, nil, err
+	}
+	groups, err := recordGroupRoles(ctx, txn, crewresources.NewCrewRecordGroupRoleQuery().
+		SetAxis(tenant.Axis).SetDomainID(tenant.Domain))
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return people, groups, nil
+}
+
+func (store) RecordMemberships(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]access.RecordMembershipKey, error) {
+	// The table's index by user leads with the person, the id of their account. A role
+	// whose period has ended is left out.
+	query := crewresources.NewCrewRecordUserRoleQuery().
+		AddColumns(crewresources.NewCrewRecordUserRoleColumns().Axis().DomainID().ResourceName().RecordID().Role().UserID().EndsAt()).
+		Where(crewresources.NewCrewRecordUserRoleQueryClause().UserID().Equal(userID.String())).
+		Sort(crewresources.NewCrewRecordUserRoleSort().Axis().DomainID().ResourceName().RecordID().Role().UserID())
+	now := time.Now()
+	var keys []access.RecordMembershipKey
+	for row, err := range query.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "crewresources.CrewRecordUserRoleQuery.List()")
+		}
+		if row.Data.EndsAt != nil && !row.Data.EndsAt.After(now) {
+			continue
+		}
+		keys = append(keys, recordMembershipKey(&row.Data))
+	}
+
+	return keys, nil
+}
+
+func (store) GroupRecordRoles(ctx context.Context, txn resource.ReadWriteTransaction, groupID impulse.UUID) ([]access.RecordGroupRoleKey, error) {
+	// The table's index by group leads with the group. A role whose period has ended is
+	// left out.
+	query := crewresources.NewCrewRecordGroupRoleQuery().
+		AddColumns(crewresources.NewCrewRecordGroupRoleColumns().Axis().DomainID().ResourceName().RecordID().Role().GroupID().EndsAt()).
+		Where(crewresources.NewCrewRecordGroupRoleQueryClause().GroupID().Equal(groupID)).
+		Sort(crewresources.NewCrewRecordGroupRoleSort().Axis().DomainID().ResourceName().RecordID().Role().GroupID())
+	now := time.Now()
+	var keys []access.RecordGroupRoleKey
+	for row, err := range query.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "crewresources.CrewRecordGroupRoleQuery.List()")
+		}
+		held := row.Data
+		if held.EndsAt != nil && !held.EndsAt.After(now) {
+			continue
+		}
+		keys = append(keys, access.RecordGroupRoleKey{
+			Axis: held.Axis, Domain: held.DomainID, Resource: held.ResourceName, Record: held.RecordID,
+			Role: accesstypes.Role(held.Role), Group: accesstypes.Group(held.GroupID.String()),
+		})
+	}
+
+	return keys, nil
+}
+
+// RecordNamed reads what one record is called, for a row of the audit log: the word one
+// record of its kind is called, and the record's name, read by its key in the caller's
+// transaction from the column its kind names a record by, "" where the kind names none or
+// the record has none. A kind no role of the auth is held on is an error.
+func (store) RecordNamed(ctx context.Context, txn resource.ReadWriteTransaction, at accesstypes.RecordScope) (string, string, error) {
+	switch at.Resource() {
+	case "Missions":
+		name, err := recordName(ctx, txn, "SELECT Title FROM Missions WHERE Id = @id", at.Record())
+
+		return "mission", name, err
+	default:
+		return "", "", errors.Newf("no role of the Crew auth is held on one %s", at.Resource())
+	}
+}
+
+// recordName reads one record's name by the statement, "" where the record or its name is
+// not there.
+func recordName(ctx context.Context, txn resource.ReadWriteTransaction, sql, id string) (string, error) {
+	var name spanner.NullString
+	if err := txn.SpannerReadOnlyTransaction().Query(ctx, spanner.Statement{SQL: sql, Params: map[string]any{"id": id}}).Do(func(row *spanner.Row) error {
+		if err := row.Columns(&name); err != nil {
+			return errors.Wrap(err, "spanner.Row.Columns()")
+		}
+
+		return nil
+	}); err != nil {
+		return "", errors.Wrap(err, "spanner.RowIterator.Do()")
+	}
+
+	return name.StringVal, nil
+}
+
+// recordMemberships lists the rows a query of the people's roles on records reads, as
+// their keys, in the table's key order.
+func recordMemberships(ctx context.Context, txn resource.ReadWriteTransaction, query *crewresources.CrewRecordUserRoleQuery) ([]access.RecordMembershipKey, error) {
+	query = query.
+		AddColumns(crewresources.NewCrewRecordUserRoleColumns().Axis().DomainID().ResourceName().RecordID().Role().UserID()).
+		Sort(crewresources.NewCrewRecordUserRoleSort().Axis().DomainID().ResourceName().RecordID().Role().UserID())
+	var keys []access.RecordMembershipKey
+	for row, err := range query.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "crewresources.CrewRecordUserRoleQuery.List()")
+		}
+		keys = append(keys, recordMembershipKey(&row.Data))
+	}
+
+	return keys, nil
+}
+
+// recordMembershipKey is the key of a row of the people's roles on records.
+func recordMembershipKey(held *crewresources.CrewRecordUserRole) access.RecordMembershipKey {
+	return access.RecordMembershipKey{
+		Axis: held.Axis, Domain: held.DomainID, Resource: held.ResourceName, Record: held.RecordID,
+		Role: accesstypes.Role(held.Role), User: accesstypes.User(held.UserID),
+	}
+}
+
+// recordGroupRoles lists the rows a query of the groups' roles on records reads, as their
+// keys, in the table's key order.
+func recordGroupRoles(ctx context.Context, txn resource.ReadWriteTransaction, query *crewresources.CrewRecordGroupRoleQuery) ([]access.RecordGroupRoleKey, error) {
+	query = query.
+		AddColumns(crewresources.NewCrewRecordGroupRoleColumns().Axis().DomainID().ResourceName().RecordID().Role().GroupID()).
+		Sort(crewresources.NewCrewRecordGroupRoleSort().Axis().DomainID().ResourceName().RecordID().Role().GroupID())
+	var keys []access.RecordGroupRoleKey
+	for row, err := range query.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "crewresources.CrewRecordGroupRoleQuery.List()")
+		}
+		held := row.Data
+		keys = append(keys, access.RecordGroupRoleKey{
+			Axis: held.Axis, Domain: held.DomainID, Resource: held.ResourceName, Record: held.RecordID,
+			Role: accesstypes.Role(held.Role), Group: accesstypes.Group(held.GroupID.String()),
+		})
+	}
+
+	return keys, nil
 }

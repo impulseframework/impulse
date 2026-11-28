@@ -13,7 +13,24 @@ import (
 	"github.com/impulseframework/impulse/generation/parser/genlang"
 )
 
+// structsToResources extracts the table-backed resources of one package's structs and
+// runs the resolutions that read more than one of them (resolveAcrossResources).
 func (c *client) structsToResources(structs []*parser.Struct, validators ...structValidator) ([]*resourceInfo, error) {
+	resources, err := c.extractResources(structs, validators...)
+	if err != nil {
+		return nil, err
+	}
+	if err := c.resolveAcrossResources(resources); err != nil {
+		return nil, err
+	}
+
+	return resources, nil
+}
+
+// extractResources extracts the table-backed resources of one package's structs, each
+// resolved alone: the resolutions that read more than one of them are the caller's to run
+// (resolveAcrossResources), once.
+func (c *client) extractResources(structs []*parser.Struct, validators ...structValidator) ([]*resourceInfo, error) {
 	// structsByTable resolves a binding path's remote hops: each hop names Go
 	// fields on the struct backing the table the hop lands on.
 	structsByTable := make(map[string]*parser.Struct, len(structs))
@@ -49,7 +66,7 @@ func (c *client) structsToResources(structs []*parser.Struct, validators ...stru
 
 		// The annotations other kinds own: a method's frame, a view's table, and a
 		// field type's TypeScript type; and the name the library's flags resource holds.
-		if err := errors.Join(rejectRPCOnlyAnnotations(pStruct, annotations, "resource"), rejectRowsOf(pStruct, annotations, "table-backed resource"), rejectChangedBy(pStruct, annotations, "table-backed resource"), rejectTypescriptAnnotation(pStruct, annotations, "table-backed resource"), c.rejectReservedResourceName(pStruct, "table-backed resource")); err != nil {
+		if err := errors.Join(rejectRPCOnlyAnnotations(pStruct, annotations, "resource"), rejectClassAnnotation(pStruct, annotations, "table-backed resource"), rejectRowsOf(pStruct, annotations, "table-backed resource"), rejectChangedBy(pStruct, annotations, "table-backed resource"), rejectTypescriptAnnotation(pStruct, annotations, "table-backed resource"), c.rejectReservedResourceName(pStruct, "table-backed resource")); err != nil {
 			resourceErrors = append(resourceErrors, err)
 
 			continue
@@ -75,13 +92,19 @@ func (c *client) structsToResources(structs []*parser.Struct, validators ...stru
 			continue
 		}
 		resource.Fields = fields
-		if err := declareFieldEnumerations(pStruct, fields, annotations); err != nil {
+		if err := errors.Join(declareFieldEnumerations(pStruct, fields, annotations), declareRoleOf(pStruct, fields, annotations)); err != nil {
 			resourceErrors = append(resourceErrors, err)
 
 			continue
 		}
+		markDeletedWith(pStruct, fields, annotations)
 
 		if err := c.resolveResource(resource, pStruct, annotations, structsByTable, table); err != nil {
+			resourceErrors = append(resourceErrors, err)
+
+			continue
+		}
+		if err := c.declareRowWords(pStruct, annotations, resource.TenantLabel, &resource.rowWordsDecl); err != nil {
 			resourceErrors = append(resourceErrors, err)
 
 			continue
@@ -94,34 +117,54 @@ func (c *client) structsToResources(structs []*parser.Struct, validators ...stru
 		return nil, errors.Wrapf(errors.Join(resourceErrors...), "encountered %d errors converting structs to resources", len(resourceErrors))
 	}
 
+	return resources, nil
+}
+
+// resolveAcrossResources runs the checks and the resolutions that read more than one
+// resource, which can be answered only once every struct is extracted.
+func (c *client) resolveAcrossResources(resources []*resourceInfo) error {
 	// One tenant record per package, and one directories record: known only once
 	// every struct is extracted.
 	if err := rejectSecondTenant(resources); err != nil {
-		return nil, err
+		return err
 	}
 	if err := rejectSecondTenantDirectory(resources); err != nil {
-		return nil, err
+		return err
+	}
+
+	// A subject set's domain: may end on another resource's table, whose tenant
+	// column is known once every resource is extracted.
+	if err := c.checkSubjectDomainEnds(resources); err != nil {
+		return err
 	}
 
 	// A subject set's who: may name another resource's set, so the sets it
 	// names are checked once every resource is extracted.
 	if err := c.resolveExtractedSubjectSets(resources); err != nil {
-		return nil, err
+		return err
 	}
 
 	// Workflow chains cross resources, so they resolve — and the uniform
 	// state bindings synthesize — only once every resource is extracted.
 	if err := c.resolveWorkflows(resources); err != nil {
-		return nil, err
+		return err
 	}
 
 	// A @searchAlso names another table's field, so it resolves once every
 	// table-backed resource is extracted with its search facts.
 	if err := c.resolveSearchBranches(resources); err != nil {
-		return nil, err
+		return err
 	}
 
-	return resources, nil
+	// What is under a record crosses resources: a @deleteCascade is held to the schema,
+	// and the tenant record's description written, once every resource is extracted.
+	if err := c.resolveDeleteTrees(resources); err != nil {
+		return err
+	}
+
+	// What is under a record that holds roles crosses resources too: its ways and its
+	// names are read from the schema once every resource is extracted.
+	return c.resolveRecordRoles(resources)
 }
 
 // resolveResource applies everything a table-backed resource declares beyond its
@@ -288,6 +331,17 @@ func resolveResourceAnnotations(res *resourceInfo, annotations genlang.StructAnn
 	if annotations.Struct.Has(validateUpdateTypeKeyword) {
 		res.ValidateUpdateType = string(annotations.Struct.Get(validateUpdateTypeKeyword))
 	}
+	if annotations.Struct.Has(validateDeleteTypeKeyword) {
+		res.ValidateDeleteType = string(annotations.Struct.Get(validateDeleteTypeKeyword))
+	}
+	if annotations.Struct.Has(deleteCascadeKeyword) {
+		decl, err := parseDeleteCascade(res.Name(), annotations.Struct.Get(deleteCascadeKeyword))
+		if err != nil {
+			return err
+		}
+		res.deleteCascade = decl
+	}
+	res.holdsRoles = annotations.Struct.Has(holdsRolesKeyword)
 
 	// The list across tenants reads the scope and the suppressions resolved above.
 	return resolveListAcrossTenants(res, annotations)
@@ -302,6 +356,10 @@ func (c *client) resolveStructAnnotations(res *resourceInfo, pStruct *parser.Str
 	}
 	// The declaration's rules read the tenant record, so they resolve after it.
 	if err := resolveTenantDeclaration(res, pStruct, annotations); err != nil {
+		return err
+	}
+	// The row's name reads the tenant record too: the record's own name is @tenantName.
+	if err := c.declareRowName(res, pStruct, annotations); err != nil {
 		return err
 	}
 	if typeName, ok := c.enumerationOf(c.pluralize(pStruct.Name())); ok {
@@ -325,10 +383,14 @@ func deriveEnumerationResource(res *resourceInfo, typeName string) error {
 		{defaultsUpdateTypeKeyword, res.DefaultsUpdateType},
 		{validateCreateTypeKeyword, res.ValidateCreateType},
 		{validateUpdateTypeKeyword, res.ValidateUpdateType},
+		{validateDeleteTypeKeyword, res.ValidateDeleteType},
 	} {
 		if c.value != "" {
 			conflicts = append(conflicts, "@"+c.keyword)
 		}
+	}
+	if res.deleteCascade != nil {
+		conflicts = append(conflicts, "@"+deleteCascadeKeyword)
 	}
 	if slices.Contains(res.ManualAddResourceSets, PatchHandler) {
 		conflicts = append(conflicts, fmt.Sprintf("@%s(%s)", manualAddResourceSetKeyword, PatchHandler))
@@ -432,6 +494,10 @@ func (c *client) resolveVirtualResource(resource *resourceInfo, pStruct *parser.
 		return err
 	}
 
+	if err := c.declareRowName(resource, pStruct, annotations); err != nil {
+		return err
+	}
+
 	if err := resolveFieldFormerly(resource, pStruct, annotations); err != nil {
 		return err
 	}
@@ -466,7 +532,7 @@ func (c *client) structsToVirtualResources(structs []*parser.Struct, validators 
 			continue
 		}
 
-		if err := errors.Join(rejectRPCOnlyAnnotations(pStruct, annotations, "virtual resource"), rejectTypescriptAnnotation(pStruct, annotations, "virtual resource"), rejectTenantAnnotation(pStruct, annotations, "@"+virtualKeyword+" struct"), c.rejectReservedResourceName(pStruct, "virtual resource")); err != nil {
+		if err := errors.Join(rejectRPCOnlyAnnotations(pStruct, annotations, "virtual resource"), rejectClassAnnotation(pStruct, annotations, "virtual resource"), rejectTypescriptAnnotation(pStruct, annotations, "virtual resource"), rejectDeletedWith(pStruct, annotations, "a view (@"+virtualKeyword+")"), rejectTenantAnnotation(pStruct, annotations, "@"+virtualKeyword+" struct"), rejectHoldsRoles(pStruct, annotations), c.rejectReservedResourceName(pStruct, "virtual resource")); err != nil {
 			errs = append(errs, err)
 
 			continue
@@ -490,11 +556,15 @@ func (c *client) structsToVirtualResources(structs []*parser.Struct, validators 
 			continue
 		}
 		resource.Fields = fields
-		declareViewDeclarations(annotations, &resource.rowsOfDecl, &resource.publishDecl)
+		if err := c.declareView(pStruct, annotations, &resource.rowsOfDecl, &resource.publishDecl, &resource.rowWordsDecl); err != nil {
+			errs = append(errs, err)
+
+			continue
+		}
 
 		// A view declares the pickers its fields list and its order and page sizes as a
 		// table does, and its list handler and descriptor carry them the same way.
-		if err := errors.Join(declareFieldEnumerations(pStruct, fields, annotations), resolveResourcePaging(resource, annotations)); err != nil {
+		if err := errors.Join(declareFieldEnumerations(pStruct, fields, annotations), declareRoleOf(pStruct, fields, annotations), resolveResourcePaging(resource, annotations)); err != nil {
 			errs = append(errs, err)
 
 			continue
@@ -606,11 +676,11 @@ func newResourceFields(parent *resourceInfo, pStruct *parser.Struct, table *tabl
 
 			continue
 		}
-		if reserved, collides := reservedRowName(spannerTag, field.Name()); collides {
+		if refusal, collides := reservedRowNameRefusal(spannerTag, field.Name()); collides {
 			// The read statements' reserved output columns and the reserved
 			// per-row wire property: a colliding resource column would be
 			// indistinguishable from the envelope metadata.
-			field.AddError(fmt.Sprintf("column name %q is reserved for the row envelope", reserved))
+			field.AddError(refusal)
 
 			continue
 		}
@@ -662,6 +732,7 @@ func newResourceFields(parent *resourceInfo, pStruct *parser.Struct, table *tabl
 			ReferencedResource: tableColumn.ReferencedTable,
 			ReferencedField:    tableColumn.ReferencedColumn,
 			HasDefault:         tableColumn.HasDefault,
+			Default:            tableColumn.Default,
 			SpannerType:        tableColumn.SpannerType,
 			IsGenerated:        tableColumn.GenerationExpression != "",
 		})
@@ -806,7 +877,7 @@ func (c *client) structsToRPCMethods(structs []*parser.Struct, validators ...str
 		// The annotations other kinds own: a resource's bindings, a view's table, and a
 		// field type's TypeScript type; and the masking tag, which a method's request
 		// never carries.
-		if err := errors.Join(rejectBindingAnnotations(s, annotations, "RPC method", attributeKeyword), rejectRowsOf(s, annotations, "RPC method"), rejectChangedBy(s, annotations, "RPC method"), rejectTypescriptAnnotation(s, annotations, "RPC method"), rejectMaskingTags(s, "RPC method"), rejectFileAnnotations(s, annotations, "RPC method"), rejectTenantAnnotation(s, annotations, "@"+rpcKeyword+" struct"), rejectSearchAlso(s, annotations, "RPC method"), rejectListAcrossTenants(s, annotations, "RPC method"), rejectReservedMethodName(s)); err != nil {
+		if err := errors.Join(rejectBindingAnnotations(s, annotations, "RPC method", attributeKeyword), rejectRowsOf(s, annotations, "RPC method"), rejectRowWord(s, annotations, "RPC method"), rejectChangedBy(s, annotations, "RPC method"), rejectTypescriptAnnotation(s, annotations, "RPC method"), rejectDeletedWith(s, annotations, "a method (@"+rpcKeyword+")"), rejectMaskingTags(s, "RPC method"), rejectFileAnnotations(s, annotations, "RPC method"), rejectTenantAnnotation(s, annotations, "@"+rpcKeyword+" struct"), rejectSearchAlso(s, annotations, "RPC method"), rejectListAcrossTenants(s, annotations, "RPC method"), rejectRoleOf(s, annotations), rejectHoldsRoles(s, annotations), rejectReservedMethodName(s)); err != nil {
 			errs = append(errs, err)
 
 			continue
@@ -871,9 +942,11 @@ func (c *client) structsToRPCMethods(structs []*parser.Struct, validators ...str
 }
 
 // resolveRPCDeclarations applies a method's struct-level declarations in order: its
-// permission scope, its outlets, its transition, its answers, its upload, its warning,
-// its body limit and its words, its feature gate, its former names and its schedule,
-// which reads the others off the method.
+// permission scope, its outlets, its transition, whether its row offers it only to a
+// caller who enters the row's tenants, whether its row keeps it off the caller's own
+// account, its answers, its upload, its warning,
+// its body limit and its words, its feature gate, its former names, its classes and
+// its schedule, which reads the others off the method.
 func (c *client) resolveRPCDeclarations(rpcMethod *rpcMethodInfo, s *parser.Struct, annotations genlang.StructAnnotations, structsByName map[string]*parser.Struct) error {
 	if err := resolvePermissionScope(annotations, &rpcMethod.PermissionScope); err != nil {
 		return errors.Wrapf(err, "on %s", s.Name())
@@ -887,6 +960,14 @@ func (c *client) resolveRPCDeclarations(rpcMethod *rpcMethodInfo, s *parser.Stru
 		return err
 	}
 
+	if err := c.resolveCallerEnters(rpcMethod, s, annotations); err != nil {
+		return err
+	}
+
+	if err := c.resolveNotOnOwnAccount(rpcMethod, s, annotations); err != nil {
+		return err
+	}
+
 	if err := resolveAnswers(rpcMethod, s, annotations); err != nil {
 		return err
 	}
@@ -896,6 +977,10 @@ func (c *client) resolveRPCDeclarations(rpcMethod *rpcMethodInfo, s *parser.Stru
 	}
 
 	if err := resolveWarning(rpcMethod, s, annotations); err != nil {
+		return err
+	}
+
+	if err := resolveDeleteToken(rpcMethod, s, annotations); err != nil {
 		return err
 	}
 
@@ -914,6 +999,12 @@ func (c *client) resolveRPCDeclarations(rpcMethod *rpcMethodInfo, s *parser.Stru
 	if err := resolveRPCFormerly(rpcMethod, annotations, structsByName); err != nil {
 		return err
 	}
+
+	classes, err := resolveClasses(annotations.Struct, "struct "+s.Name())
+	if err != nil {
+		return err
+	}
+	rpcMethod.Classes = classes
 
 	return resolveSchedule(rpcMethod, s, annotations)
 }
@@ -1029,7 +1120,7 @@ func (c *client) structsToCompResources(structs []*parser.Struct, validators ...
 			continue
 		}
 
-		if err := errors.Join(rejectRPCOnlyAnnotations(s, annotations, "computed resource"), rejectTypescriptAnnotation(s, annotations, "computed resource"), rejectTenantAnnotation(s, annotations, "@"+computedKeyword+" struct"), rejectFormerlyAnnotations(s, annotations, "computed resource"), rejectSearchAlso(s, annotations, "computed resource"), rejectListAcrossTenants(s, annotations, "computed resource"), c.rejectReservedResourceName(s, "computed resource")); err != nil {
+		if err := errors.Join(rejectRPCOnlyAnnotations(s, annotations, "computed resource"), rejectClassAnnotation(s, annotations, "computed resource"), rejectRowName(s, annotations, "computed resource"), rejectTypescriptAnnotation(s, annotations, "computed resource"), rejectDeletedWith(s, annotations, "a computed resource (@"+computedKeyword+")"), rejectTenantAnnotation(s, annotations, "@"+computedKeyword+" struct"), rejectFormerlyAnnotations(s, annotations, "computed resource"), rejectSearchAlso(s, annotations, "computed resource"), rejectListAcrossTenants(s, annotations, "computed resource"), rejectHoldsRoles(s, annotations), c.rejectReservedResourceName(s, "computed resource")); err != nil {
 			resourceErrors = append(resourceErrors, err)
 
 			continue
@@ -1054,7 +1145,11 @@ func (c *client) structsToCompResources(structs []*parser.Struct, validators ...
 			Struct: s,
 			Shape:  shape,
 		}
-		declareViewDeclarations(annotations, &res.rowsOfDecl, &res.publishDecl)
+		if err := c.declareView(s, annotations, &res.rowsOfDecl, &res.publishDecl, &res.rowWordsDecl); err != nil {
+			resourceErrors = append(resourceErrors, err)
+
+			continue
+		}
 
 		if annotations.Struct.Has(suppressKeyword) {
 			if err := applyComputedSuppressDirectives(res, annotations.Struct.Get(suppressKeyword).Seq()); err != nil {
@@ -1143,6 +1238,13 @@ func (c *client) computedFields(res *computedResource, annotations genlang.Struc
 				arg := annotations.Fields[i].Get(enumerateKeyword)
 				field.enumerateArg = &arg
 			}
+		}
+		if annotations.Fields[i].Has(roleOfKeyword) {
+			auth, err := roleOfArgument(res.Name(), field.Field, annotations.Fields[i].Get(roleOfKeyword))
+			if err != nil {
+				errs = append(errs, err)
+			}
+			field.roleOfAuth = auth
 		}
 
 		if err := checkOpaqueField(res.Name(), field); err != nil {
@@ -1252,7 +1354,7 @@ func checkOpaqueInner(path string, shape *wireShape, seen map[*wireShape]bool) e
 // generatedSetMethods are the methods the generated set may declare on a resource's
 // struct (resourceFileTemplate), which no field of it may be named.
 func generatedSetMethods() []string {
-	return []string{"Resource", "DefaultConfig", "FileKeys", "SearchBranches", "SecretContext"}
+	return []string{"Resource", "DefaultConfig", "FileKeys", "GroupColumns", "NamedRows", "TenantBinding", "DeleteTree", "SearchBranches", "NameFields", "RecordedNames", "SecretContext"}
 }
 
 // reservedRowName reports whether a column or field name collides with one of
@@ -1263,13 +1365,31 @@ func reservedRowName(spannerTag, fieldName string) (string, bool) {
 			return reserved, true
 		}
 	}
-	for _, name := range []string{spannerTag, fieldName} {
-		if len(name) >= len(reservedCursorColumnPrefix) && strings.EqualFold(name[:len(reservedCursorColumnPrefix)], reservedCursorColumnPrefix) {
-			return reservedCursorColumnPrefix + "…", true
+	for _, prefix := range []string{reservedCursorColumnPrefix, reservedNameColumnPrefix} {
+		for _, name := range []string{spannerTag, fieldName} {
+			if len(name) >= len(prefix) && strings.EqualFold(name[:len(prefix)], prefix) {
+				return prefix + "…", true
+			}
 		}
 	}
 
 	return "", false
+}
+
+// reservedRowNameRefusal is what a field whose column or name collides with one of
+// the row envelope's reserved names is told: which name is reserved and, for the
+// prefix a looked-up name is selected under, the column it met and what to do.
+func reservedRowNameRefusal(spannerTag, fieldName string) (string, bool) {
+	reserved, collides := reservedRowName(spannerTag, fieldName)
+	if !collides {
+		return "", false
+	}
+	if reserved == reservedNameColumnPrefix+"…" {
+		return fmt.Sprintf("column %q (field %s) begins with %s, which a list selects the names it looks up under; rename the column and the field so that neither begins with %s",
+			spannerTag, fieldName, reservedNameColumnPrefix, reservedNameColumnPrefix), true
+	}
+
+	return fmt.Sprintf("column name %q is reserved for the row envelope", reserved), true
 }
 
 // validateNullability checks every field's nillability against its column's

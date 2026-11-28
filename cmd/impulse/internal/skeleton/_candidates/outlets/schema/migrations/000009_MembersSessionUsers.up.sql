@@ -3,36 +3,48 @@
 CREATE TABLE MembersSessionUsers (
   Id                 STRING(36) NOT NULL,
   Username           STRING(MAX) NOT NULL,
-  NormalizedUsername STRING(MAX) AS (NORMALIZE_AND_CASEFOLD(Username)) STORED,
+  -- The form a username is unique in and looked up by. A username with an @ in it reads
+  -- as an email address and is matched as the library compares two addresses: its ASCII
+  -- capital letters lowercased and every other character as written (LOWER over BYTES
+  -- treats its argument as ASCII), so two addresses the library tells apart are two
+  -- usernames. Any other username is matched in Unicode's normalization and case folding,
+  -- and normalized once more after the folding: the folding of a normalized name is not
+  -- always normalized, and without that a capital written in two code points and its
+  -- small letter in one would be two names.
+  NormalizedUsername STRING(MAX) AS (IF(STRPOS(Username, '@') > 0, CAST(LOWER(CAST(Username AS BYTES)) AS STRING), NORMALIZE(NORMALIZE_AND_CASEFOLD(Username)))) STORED,
   -- The person's name, as people read it ("Gale Reyes"); null for none. It identifies
   -- nobody: the username does. A directory's sign-in or an invitation fills it only
   -- where the person holds none, so the person's own change stands.
   Name               STRING(MAX),
-  -- The look the person chose for the pages: light or dark, and one of the palettes the
-  -- application offers, by its id; null for none chosen. The person's own pages write
-  -- it and nothing else does, so it follows them to every browser they sign in from.
+  -- The look the person chose for the pages: light, dark or as their device is set
+  -- ('device'), and one of the palettes the application offers, by its id; null for none
+  -- chosen. The person's own pages write it and nothing else does, so it follows them to
+  -- every browser they sign in from.
   LookScheme         STRING(MAX),
   LookPalette        STRING(MAX),
   PasswordHash       STRING(MAX),
   Disabled           BOOL NOT NULL DEFAULT (FALSE),
-  -- An operator set the password (a first password, a reset): the person changes it
-  -- before anything else is served (the session library's forced change).
+  -- An administrator required a new password of the person: they choose it before
+  -- anything else is served (the session library's forced change).
   PasswordChangeRequired BOOL NOT NULL DEFAULT (FALSE),
   -- The database's time at the insert and at the latest sign-in (null before the
   -- first); the session library writes both as commit timestamps.
   CreatedAt          TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   LastSignInAt       TIMESTAMP OPTIONS (allow_commit_timestamp = true),
   -- The person's email address, in two states, held apart from the username: Email as
-  -- the person gave it, NormalizedEmail the form uniqueness and lookups use, and
-  -- EmailVerifiedAt the database's time at which the person proved they read the
-  -- mailbox by following a link sent to it; null while the address is unverified. An
-  -- address is trusted for nothing until it is verified; an operator may put one on a
-  -- user by hand, unverified, which reserves it. No address is required.
+  -- the person gave it, NormalizedEmail the form uniqueness and lookups use (the address
+  -- with its ASCII capital letters lowercased and every other character as written,
+  -- which is how the library compares two addresses: LOWER over BYTES treats its
+  -- argument as ASCII and leaves every byte above 127 as it is), and EmailVerifiedAt the
+  -- database's time at which the person proved they read the mailbox by following a
+  -- link sent to it; null while the address is unverified. An address is trusted for
+  -- nothing until it is verified; an operator may put one on a user by hand, unverified,
+  -- which reserves it. No address is required.
   Email              STRING(MAX),
-  NormalizedEmail    STRING(MAX) AS (NORMALIZE_AND_CASEFOLD(Email)) STORED,
+  NormalizedEmail    STRING(MAX) AS (CAST(LOWER(CAST(Email AS BYTES)) AS STRING)) STORED,
   EmailVerifiedAt    TIMESTAMP OPTIONS (allow_commit_timestamp = true),
   CONSTRAINT CK_MembersSessionUsersId CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-  CONSTRAINT CK_MembersSessionUsersLookScheme CHECK (LookScheme IN ('light', 'dark')),
+  CONSTRAINT CK_MembersSessionUsersLookScheme CHECK (LookScheme IN ('light', 'dark', 'device')),
 ) PRIMARY KEY(Id);
 
 CREATE UNIQUE INDEX MembersSessionUsersByNormalizedUsername ON MembersSessionUsers(NormalizedUsername);

@@ -8,6 +8,7 @@ import (
 	"github.com/georgysavva/scany/v2/pgxscan"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/tracer"
@@ -15,25 +16,31 @@ import (
 )
 
 // factorCodeColumns are the factor codes table's columns, in factorCodeRow's order.
-const factorCodeColumns = `"Id", "PendingId", "Email", "CodeHash", "Attempts", "CreatedAt", "ExpiresAt", "ConsumedAt"`
+const factorCodeColumns = `"Id", "PendingId", "Email", "CodeHash", "Attempts", "CreatedAt", "ExpiresAt", "ConsumedAt", "InvitationId"`
 
 // factorCodeRow is a factor code as the table holds it.
 type factorCodeRow struct {
-	ID         impulse.UUID `db:"Id"`
-	PendingID  impulse.UUID `db:"PendingId"`
-	Email      string       `db:"Email"`
-	CodeHash   []byte       `db:"CodeHash"`
-	Attempts   int          `db:"Attempts"`
-	CreatedAt  time.Time    `db:"CreatedAt"`
-	ExpiresAt  time.Time    `db:"ExpiresAt"`
-	ConsumedAt *time.Time   `db:"ConsumedAt"`
+	ID           impulse.UUID  `db:"Id"`
+	PendingID    impulse.UUID  `db:"PendingId"`
+	Email        string        `db:"Email"`
+	CodeHash     []byte        `db:"CodeHash"`
+	Attempts     int           `db:"Attempts"`
+	CreatedAt    time.Time     `db:"CreatedAt"`
+	ExpiresAt    time.Time     `db:"ExpiresAt"`
+	ConsumedAt   *time.Time    `db:"ConsumedAt"`
+	InvitationID *impulse.UUID `db:"InvitationId"`
 }
 
 func (r *factorCodeRow) code() *dbtype.FactorCode {
-	return &dbtype.FactorCode{
+	c := &dbtype.FactorCode{
 		ID: r.ID, PendingID: r.PendingID, Email: r.Email, CodeHash: r.CodeHash, Attempts: r.Attempts,
 		CreatedAt: r.CreatedAt, ExpiresAt: r.ExpiresAt, ConsumedAt: r.ConsumedAt,
 	}
+	if r.InvitationID != nil {
+		c.InvitationID = impulse.NullUUIDFromUUID(*r.InvitationID)
+	}
+
+	return c
 }
 
 // trustedDeviceColumns are the trusted devices table's columns, in trustedDeviceRow's
@@ -90,8 +97,12 @@ func (s *SessionStorageDriver) InsertFactorCode(ctx context.Context, c *dbtype.F
 		if _, err := tx.Exec(ctx, consume, c.PendingID, now); err != nil {
 			return errors.Wrap(err, "pgx.Tx.Exec()")
 		}
-		insert := fmt.Sprintf(`INSERT INTO %s (%s) VALUES ($1, $2, $3, $4, 0, now(), $5, NULL)`, s.factorCodesTable(), factorCodeColumns)
-		if _, err := tx.Exec(ctx, insert, c.ID, c.PendingID, c.Email, c.CodeHash, c.ExpiresAt); err != nil {
+		var invitationID *impulse.UUID
+		if c.InvitationID.Valid {
+			invitationID = &c.InvitationID.UUID
+		}
+		insert := fmt.Sprintf(`INSERT INTO %s (%s) VALUES ($1, $2, $3, $4, 0, now(), $5, NULL, $6)`, s.factorCodesTable(), factorCodeColumns)
+		if _, err := tx.Exec(ctx, insert, c.ID, c.PendingID, c.Email, c.CodeHash, c.ExpiresAt, invitationID); err != nil {
 			return errors.Wrap(err, "pgx.Tx.Exec()")
 		}
 
@@ -179,7 +190,8 @@ func (s *SessionStorageDriver) FactorCodeState(ctx context.Context, id impulse.U
 }
 
 // InsertTrustedDevice inserts d, created at the database's time, unused and not
-// revoked, whatever d carries.
+// revoked, whatever d carries. It then removes the trusted devices that expired more than
+// 30 days ago.
 func (s *SessionStorageDriver) InsertTrustedDevice(ctx context.Context, d *dbtype.TrustedDevice) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -188,6 +200,7 @@ func (s *SessionStorageDriver) InsertTrustedDevice(ctx context.Context, d *dbtyp
 	if _, err := s.conn.Exec(ctx, query, d.ID, d.UserID, d.TokenHash, d.ExpiresAt); err != nil {
 		return errors.Wrap(err, "Queryer.Exec()")
 	}
+	trustedDevicesRemoval.remove(ctx, s.conn, s.trustedDevicesTable())
 
 	return nil
 }
@@ -207,13 +220,13 @@ func (s *SessionStorageDriver) queryTrustedDevices(ctx context.Context, query st
 }
 
 // TrustedDeviceByToken returns the device holding tokenHash that is live at now: not
-// revoked and not expired. Any other is NotFound.
-func (s *SessionStorageDriver) TrustedDeviceByToken(ctx context.Context, tokenHash []byte, now time.Time) (*dbtype.TrustedDevice, error) {
+// revoked, not expired, and remembered after rememberedAfter. Any other is NotFound.
+func (s *SessionStorageDriver) TrustedDeviceByToken(ctx context.Context, tokenHash []byte, now, rememberedAfter time.Time) (*dbtype.TrustedDevice, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	query := fmt.Sprintf(`SELECT %s FROM %s WHERE "TokenHash" = $1 AND "RevokedAt" IS NULL AND "ExpiresAt" > $2`, trustedDeviceColumns, s.trustedDevicesTable())
-	devices, err := s.queryTrustedDevices(ctx, query, tokenHash, now)
+	query := fmt.Sprintf(`SELECT %s FROM %s WHERE "TokenHash" = $1 AND "RevokedAt" IS NULL AND "ExpiresAt" > $2 AND "CreatedAt" > $3`, trustedDeviceColumns, s.trustedDevicesTable())
+	devices, err := s.queryTrustedDevices(ctx, query, tokenHash, now, rememberedAfter)
 	if err != nil {
 		return nil, err
 	}
@@ -258,16 +271,31 @@ func (s *SessionStorageDriver) RevokeTrustedDevice(ctx context.Context, tokenHas
 
 // RevokeTrustedDevices revokes every device of userID that is not revoked yet, at the
 // database's time.
-func (s *SessionStorageDriver) RevokeTrustedDevices(ctx context.Context, userID impulse.UUID) error {
+func (s *SessionStorageDriver) RevokeTrustedDevices(ctx context.Context, userID impulse.UUID, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	query := fmt.Sprintf(`UPDATE %s SET "RevokedAt" = now() WHERE "UserId" = $1 AND "RevokedAt" IS NULL`, s.trustedDevicesTable())
-	if _, err := s.conn.Exec(ctx, query, userID); err != nil {
-		return errors.Wrap(err, "Queryer.Exec()")
+	if record == nil {
+		if _, err := s.conn.Exec(ctx, query, userID); err != nil {
+			return errors.Wrap(err, "Queryer.Exec()")
+		}
+
+		return nil
 	}
 
-	return nil
+	return s.Transact(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, query, userID)
+		if err != nil {
+			return errors.Wrap(err, "pgx.Tx.Exec()")
+		}
+		// A revocation that found no device to revoke is no act, and is not recorded.
+		if tag.RowsAffected() == 0 {
+			return nil
+		}
+
+		return s.InsertAuditRecordIn(ctx, tx, record)
+	})
 }
 
 // TrustedDeviceState reads the device holding tokenHash whatever its state, for tests:

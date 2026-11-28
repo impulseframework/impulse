@@ -9,6 +9,9 @@ import { of } from 'rxjs';
 import { DeviceApprovalComponent, noRequestSentence } from './device-approval.component';
 import { noTokensSentence } from './tokens.component';
 
+/** What the server says of a code no device waits on. */
+const noDevice = 'No device is waiting for this code. Check the code, or start again on the device.';
+
 // The component takes the code the program printed as its input, else from the route's
 // userCode query parameter, else from a form; it looks the request up, says which program
 // asks for which outlet and until when, posts the decision, and says what was decided. A
@@ -190,10 +193,7 @@ describe('DeviceApprovalComponent decides', () => {
   });
 
   it('says no request waits when the decision is refused, the request having expired meanwhile, and asks for a code again', async () => {
-    const page = await pageOver(
-      { approve: { status: 404, body: { message: 'no pending device code' } } },
-      { input: 'BCDF-GHJK' },
-    );
+    const page = await pageOver({ approve: { status: 404, body: { message: noDevice } } }, { input: 'BCDF-GHJK' });
     await page.component.approve();
     await page.settle();
     expect(textOf(page.element.querySelector('.impulse-device-refused'))).toBe(noRequestSentence);
@@ -215,10 +215,7 @@ describe('DeviceApprovalComponent decides', () => {
 
 describe('DeviceApprovalComponent looks a code up', () => {
   it('says no request waits for a code the server refuses, with the form again, the code kept for correction', async () => {
-    const page = await pageOver(
-      { device: { status: 404, body: { message: 'no pending device code' } } },
-      { input: 'BCDF-GHJK' },
-    );
+    const page = await pageOver({ device: { status: 404, body: { message: noDevice } } }, { input: 'BCDF-GHJK' });
     expect(textOf(page.element.querySelector('.impulse-device-refused'))).toBe(
       'No request is waiting for that code. It may have expired or was already answered.',
     );

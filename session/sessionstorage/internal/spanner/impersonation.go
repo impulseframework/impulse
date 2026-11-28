@@ -9,6 +9,7 @@ import (
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/internal/spannertxn"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/tracer"
@@ -41,8 +42,8 @@ const (
 // impersonationColumns are the record's columns after the SessionId marker, in
 // the order the session query selects and Session reads them.
 var impersonationColumns = []string{
-	"ActorUsername", "ActorUserId", "ActorRealm", "SourceSessionId", "PrincipalKind", "PrincipalUserId", "PrincipalRole",
-	"Mask", "Reason", "StartedAt", "ExpiresAt", endedAtColumn, endReasonColumn,
+	"ActorUsername", "ActorUserId", "ActorRealm", "SourceSessionId", "PrincipalKind", "PrincipalUserId", "PrincipalUsername",
+	"PrincipalRole", "Mask", "Reason", "StartedAt", "ExpiresAt", endedAtColumn, endReasonColumn,
 }
 
 // impersonationSelect renders the impersonation columns for the session query:
@@ -78,13 +79,13 @@ func readImpersonation(row *spanner.Row, idx int, sessionID impulse.UUID) (*dbty
 	}
 
 	var (
-		actorUserID, actorRealm, sourceSessionID, principalUser, principalRole, mask, reason, endReason spanner.NullString
-		endedAt                                                                                         spanner.NullTime
+		actorUserID, actorRealm, sourceSessionID, principalUser, principalUsername, principalRole, mask, reason, endReason spanner.NullString
+		endedAt                                                                                                            spanner.NullTime
 	)
 	imp := &dbtype.Impersonation{SessionID: sessionID}
 	dests := []any{
-		&imp.ActorUsername, &actorUserID, &actorRealm, &sourceSessionID, &imp.PrincipalKind, &principalUser, &principalRole,
-		&mask, &reason, &imp.StartedAt, &imp.ExpiresAt, &endedAt, &endReason,
+		&imp.ActorUsername, &actorUserID, &actorRealm, &sourceSessionID, &imp.PrincipalKind, &principalUser, &principalUsername,
+		&principalRole, &mask, &reason, &imp.StartedAt, &imp.ExpiresAt, &endedAt, &endReason,
 	}
 	for i, dest := range dests {
 		if err := row.Column(idx, dest); err != nil {
@@ -95,6 +96,7 @@ func readImpersonation(row *spanner.Row, idx int, sessionID impulse.UUID) (*dbty
 
 	imp.ActorRealm = nullStringPtr(actorRealm)
 	imp.PrincipalUserID = nullStringPtr(principalUser)
+	imp.PrincipalUsername = nullStringPtr(principalUsername)
 	imp.PrincipalRole = nullStringPtr(principalRole)
 	imp.Mask = nullStringPtr(mask)
 	imp.Reason = nullStringPtr(reason)
@@ -173,6 +175,7 @@ func impersonationRow(id impulse.UUID, imp *dbtype.InsertImpersonation) map[stri
 		"SourceSessionId":      sourceSessionID,
 		"PrincipalKind":        imp.PrincipalKind,
 		"PrincipalUserId":      nullString(imp.PrincipalUserID),
+		"PrincipalUsername":    nullString(imp.PrincipalUsername),
 		"PrincipalRole":        nullString(imp.PrincipalRole),
 		"Mask":                 nullString(imp.Mask),
 		"Reason":               nullString(imp.Reason),
@@ -201,7 +204,7 @@ func (s *SessionStorageDriver) EndImpersonation(ctx context.Context, sessionID i
 	stmt.Params["id"] = sessionID
 	stmt.Params["reason"] = reason
 
-	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		if _, err := txn.Update(ctx, stmt); err != nil {
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
 		}
@@ -209,7 +212,7 @@ func (s *SessionStorageDriver) EndImpersonation(ctx context.Context, sessionID i
 		return nil
 	})
 	if err != nil {
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return nil
@@ -245,7 +248,7 @@ func (s *SessionStorageDriver) DestroyImpersonatedSessions(ctx context.Context, 
 	endRecords.Params["actor"] = actor
 	endRecords.Params["reason"] = string(sessioninfo.ImpersonationEndedByRevocation)
 
-	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		if _, err := txn.BatchUpdate(ctx, []spanner.Statement{expireSessions, endRecords}); err != nil {
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.BatchUpdate()")
 		}
@@ -253,7 +256,7 @@ func (s *SessionStorageDriver) DestroyImpersonatedSessions(ctx context.Context, 
 		return nil
 	})
 	if err != nil {
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return nil
@@ -289,7 +292,7 @@ func (s *SessionStorageDriver) DestroyImpersonatedSession(ctx context.Context, s
 	endRecord.Params["id"] = sessionID
 	endRecord.Params["reason"] = reason
 
-	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		if _, err := txn.BatchUpdate(ctx, []spanner.Statement{expireSession, endRecord}); err != nil {
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.BatchUpdate()")
 		}
@@ -297,7 +300,7 @@ func (s *SessionStorageDriver) DestroyImpersonatedSession(ctx context.Context, s
 		return nil
 	})
 	if err != nil {
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return nil

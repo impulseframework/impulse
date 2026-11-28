@@ -7,6 +7,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/securehash"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
@@ -71,8 +72,8 @@ func TestAuth_StoreMethods(t *testing.T) {
 		{
 			name: "UnlinkIdentity hands the driver the caller's judgment of a link and propagates the last-means-of-sign-in refusal",
 			prepare: func(db *Mockdb) {
-				db.EXPECT().UnlinkIdentity(gomock.Any(), link.ID, gomock.Not(gomock.Nil())).
-					DoAndReturn(func(_ context.Context, _ impulse.UUID, signsIn func(method sessioninfo.AuthMethod, connection string) bool) error {
+				db.EXPECT().UnlinkIdentity(gomock.Any(), link.ID, gomock.Not(gomock.Nil()), gomock.Nil()).
+					DoAndReturn(func(_ context.Context, _ impulse.UUID, signsIn func(method sessioninfo.AuthMethod, connection string) bool, _ *auditlog.Record) error {
 						if !signsIn(sessioninfo.MethodWorkOS, "conn") || signsIn(sessioninfo.MethodWorkOS, "closed") {
 							return errors.New("the driver was handed another judgment than the caller's")
 						}
@@ -83,58 +84,55 @@ func TestAuth_StoreMethods(t *testing.T) {
 			call: func(ctx context.Context, a *Auth[struct{}]) (any, error) {
 				return nil, a.UnlinkIdentity(ctx, link.ID, func(_ sessioninfo.AuthMethod, connection string) bool {
 					return connection == "conn"
-				})
+				}, nil)
 			},
 			wantErr: ErrLastSignInMethod,
 		},
 		{
 			name: "RemoveUserPassword hands the driver the identities that stand and propagates the last-means-of-sign-in refusal",
 			prepare: func(db *Mockdb) {
-				db.EXPECT().RemoveUserPassword(gomock.Any(), userID, []impulse.UUID{link.ID}).Return(refused)
+				db.EXPECT().RemoveUserPassword(gomock.Any(), userID, []impulse.UUID{link.ID}, gomock.Nil()).Return(refused)
 			},
 			call: func(ctx context.Context, a *Auth[struct{}]) (any, error) {
-				return nil, a.RemoveUserPassword(ctx, userID, []impulse.UUID{link.ID})
+				return nil, a.RemoveUserPassword(ctx, userID, []impulse.UUID{link.ID}, nil)
 			},
 			wantErr: ErrLastSignInMethod,
 		},
 		{
 			name: "RemoveProvenUserPassword hands the driver the proven hash and the identities that stand",
 			prepare: func(db *Mockdb) {
-				db.EXPECT().RemoveProvenUserPassword(gomock.Any(), userID, proven, []impulse.UUID{link.ID}).Return(nil)
+				db.EXPECT().RemoveProvenUserPassword(gomock.Any(), userID, proven, []impulse.UUID{link.ID}, gomock.Nil()).Return(nil)
 			},
 			call: func(ctx context.Context, a *Auth[struct{}]) (any, error) {
-				return nil, a.RemoveProvenUserPassword(ctx, userID, proven, []impulse.UUID{link.ID})
+				return nil, a.RemoveProvenUserPassword(ctx, userID, proven, []impulse.UUID{link.ID}, nil)
 			},
 		},
 		{
 			name: "RemoveProvenUserPassword propagates the refusal of a password that changed since it was proved",
 			prepare: func(db *Mockdb) {
-				db.EXPECT().RemoveProvenUserPassword(gomock.Any(), userID, proven, gomock.Nil()).Return(changed)
+				db.EXPECT().RemoveProvenUserPassword(gomock.Any(), userID, proven, gomock.Nil(), gomock.Nil()).Return(changed)
 			},
 			call: func(ctx context.Context, a *Auth[struct{}]) (any, error) {
-				return nil, a.RemoveProvenUserPassword(ctx, userID, proven, nil)
+				return nil, a.RemoveProvenUserPassword(ctx, userID, proven, nil, nil)
 			},
 			wantErr: ErrPasswordChanged,
 		},
 		{
-			name:    "ReplaceUserPassword hands the driver the hash and the mark, for its one transaction",
-			prepare: func(db *Mockdb) { db.EXPECT().ReplaceUserPassword(gomock.Any(), userID, chosen, true).Return(nil) },
+			name: "ChangeUserPassword hands the driver the proven hash beside the new one",
+			prepare: func(db *Mockdb) {
+				db.EXPECT().ChangeUserPassword(gomock.Any(), userID, proven, chosen, gomock.Nil()).Return(nil)
+			},
 			call: func(ctx context.Context, a *Auth[struct{}]) (any, error) {
-				return nil, a.ReplaceUserPassword(ctx, userID, chosen, true)
+				return nil, a.ChangeUserPassword(ctx, userID, proven, chosen, nil)
 			},
 		},
 		{
-			name:    "ChangeUserPassword hands the driver the proven hash beside the new one",
-			prepare: func(db *Mockdb) { db.EXPECT().ChangeUserPassword(gomock.Any(), userID, proven, chosen).Return(nil) },
-			call: func(ctx context.Context, a *Auth[struct{}]) (any, error) {
-				return nil, a.ChangeUserPassword(ctx, userID, proven, chosen)
+			name: "ChangeUserPassword propagates the refusal of a password that changed since it was proved",
+			prepare: func(db *Mockdb) {
+				db.EXPECT().ChangeUserPassword(gomock.Any(), userID, proven, chosen, gomock.Nil()).Return(changed)
 			},
-		},
-		{
-			name:    "ChangeUserPassword propagates the refusal of a password that changed since it was proved",
-			prepare: func(db *Mockdb) { db.EXPECT().ChangeUserPassword(gomock.Any(), userID, proven, chosen).Return(changed) },
 			call: func(ctx context.Context, a *Auth[struct{}]) (any, error) {
-				return nil, a.ChangeUserPassword(ctx, userID, proven, chosen)
+				return nil, a.ChangeUserPassword(ctx, userID, proven, chosen, nil)
 			},
 			wantErr: ErrPasswordChanged,
 		},
@@ -193,7 +191,7 @@ func TestAuth_ChangeUserPasswordNeedsAHash(t *testing.T) {
 	}
 	a := &Auth[struct{}]{userStorage: userStorage{sessionStorage: sessionStorage{db: NewMockdb(gomock.NewController(t))}}}
 
-	if err := a.ChangeUserPassword(t.Context(), impulse.Must(impulse.NewUUID()), proven, nil); err == nil {
+	if err := a.ChangeUserPassword(t.Context(), impulse.Must(impulse.NewUUID()), proven, nil, nil); err == nil {
 		t.Error("ChangeUserPassword() with no new hash error = nil, want a refusal before the driver is called")
 	}
 }

@@ -8,11 +8,21 @@ import (
 	"github.com/impulseframework/impulse/resource"
 )
 
+// The classes the application's actions carry (@class) and the ones the generator
+// gives the writes of its records, each under the name a permission mask refuses it
+// by: accesstypes.RefuseClass(ClassAccess). A mask written against a class
+// nothing carries any more does not compile, since its constant is gone from this file.
+const (
+	// ClassAccess is the class access.
+	ClassAccess accesstypes.ActionClass = "access"
+)
+
 // Collection returns the application's permission collection, computed by the Resource
 // Generator from the resource definitions and generated routes, for deployment tooling
 // such as role migration and bootstrap.
 func Collection() *resource.GeneratedCollection {
 	return resource.MustNewGeneratedCollection(resource.CollectionData{
+		Auths: []string{"staff"},
 		Resources: []resource.CollectionResource{
 			{
 				Name:        "Announcements",
@@ -47,6 +57,13 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "SetFeature",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+			},
+			{
+				Name:  "Tenants",
+				Scope: accesstypes.GlobalPermissionScope,
+				WriteClasses: []resource.WriteClassData{
+					{Permission: accesstypes.Delete, Classes: []accesstypes.ActionClass{ClassAccess}},
+				},
 			},
 		},
 	})

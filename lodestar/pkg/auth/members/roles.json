@@ -1,4 +1,5 @@
 {
+  "auth": "members",
   "roles": {
     "global": [
       {
@@ -70,9 +71,6 @@
                 "position"
               ],
               "condition": "filedBy = subject"
-            },
-            {
-              "resource": "ClientStatements"
             }
           ],
           "Read": [

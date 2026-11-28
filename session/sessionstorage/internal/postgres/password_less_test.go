@@ -10,8 +10,7 @@ import (
 
 // TestSessionStorageDriver_PasswordLessUser proves a password-less user (a user
 // provisioned for external sign-in) round-trips on the shipped schema with the auth
-// set, which the write of a password needs to end the user's sessions with it: the
-// user is created and read with no hash, gains a password, and loses it again.
+// set: the user is created and read with no hash, and gains a first password.
 func TestSessionStorageDriver_PasswordLessUser(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -44,13 +43,8 @@ func TestSessionStorageDriver_PasswordLessUser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := driver.ReplaceUserPassword(ctx, user.ID, hash, false); err != nil {
-		t.Fatalf("ReplaceUserPassword() error = %v", err)
+	if err := driver.SetFirstUserPassword(ctx, user.ID, hash, nil); err != nil {
+		t.Fatalf("SetFirstUserPassword() error = %v", err)
 	}
 	assertHash(true)
-
-	if err := driver.ReplaceUserPassword(ctx, user.ID, nil, false); err != nil {
-		t.Fatalf("ReplaceUserPassword(nil) error = %v", err)
-	}
-	assertHash(false)
 }

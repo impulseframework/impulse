@@ -15,6 +15,7 @@ import (
 
 	"github.com/ettle/strcase"
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse/internal/words"
 )
 
 // The invitation that makes a tenant, in an auth's generated management. Staff bring an
@@ -53,6 +54,9 @@ type identityTenantField struct {
 	// Wire is the field's name on the wire, which is the tag a grant on the tenant
 	// record names it by.
 	Wire string
+	// Column is the field's column of the record's table, which the list of tenants
+	// reads it by (identity_listedtenant.go).
+	Column string
 	// Required marks a field the record's create requires: its column takes no NULL and
 	// has no default. Text marks a field a form cannot leave zero when it is required: every
 	// required field but a boolean, whose zero is an answer.
@@ -76,15 +80,37 @@ type identityTenantInvitation struct {
 	fields []identityTenantField
 	// nameField is the field people call the tenant by (@tenantName), "" where the
 	// record marks none: the invitation page then says the application's word for one.
-	nameField string
+	// nameColumn is its column of the record's table, which a list that names a tenant
+	// in a line of text reads (identitySourceData.GroupRoleLines).
+	nameField  string
+	nameColumn string
+	// nameNullable says the name field is a pointer: a tenant may be given none. The name
+	// it points to is written converted to a string: the field's type may be one named
+	// over a string.
+	nameNullable bool
 	// directoryOnly is the record's directory-only switch, nil where it declares none
 	// (Type is unused: the switch is a yes or a no), and seats says the directories
 	// record keeps a default role.
 	directoryOnly *identityTenantField
 	seats         bool
+	// disabled is the record's column that says a tenant is disabled (@tenantDisabled),
+	// nil where the files read before the load mark none, which the load then refuses
+	// (Type is unused: it is a yes or a no): no invitation carries it, since a new tenant
+	// is made enabled, and the list of tenants shows it.
+	disabled *identityTenantField
+	// since is the field the record marks as when a tenant was made (@tenantSince), nil
+	// where it marks none (Type and the two marks unused): the list of tenants says it as
+	// Since. An invitation carries it only where the wire can write it, as any field.
+	since *identityTenantField
 	// imports are the imports the fields' types need, each as an import block writes
 	// it (importLine), the resources package's among them.
 	imports []string
+	// key is the record's one key field, which no invitation carries (the tenant's id
+	// is generated when it is made) and the list of tenants keys its rows by (Wire and
+	// the two marks unused), and keyImports the imports its type needs, kept apart
+	// from the fields' so the invitation's sources import nothing for it.
+	key        identityTenantField
+	keyImports []string
 }
 
 // The names of the three pieces, each the one place it is named.
@@ -98,6 +124,12 @@ func (i *identityInstance) invitedTenantName() string {
 
 func (i *identityInstance) withdrawInvitedTenantMethod() string {
 	return "Withdraw" + i.auth + "Invited" + i.tenant.name
+}
+
+// invitedTenantRoleName names one row of the list the invitation's starting role is
+// picked from.
+func (i *identityInstance) invitedTenantRoleName() string {
+	return i.auth + "Invited" + i.tenant.name + "Role"
 }
 
 // makesTenants reports whether the instance's auth is the one a tenant is made through:
@@ -114,9 +146,22 @@ func (i *identityInstance) invitesTenants() bool {
 	return i.makesTenants() && i.tenant.invitation != nil
 }
 
+// picksStartingRole reports whether the instance's invitation that makes a tenant
+// carries the role the people of the tenant's directory start with, picked from a list
+// of its own: invitesTenants, and the directories record keeps a default role. It holds
+// on an instance with no tenant and on one whose invitation was not read, as false.
+func (i *identityInstance) picksStartingRole() bool {
+	return i.invitesTenants() && i.tenant.invitation.seats
+}
+
 // InvitesTenants is invitesTenants for the templates.
 func (d *identitySourceData) InvitesTenants() bool {
 	return d.invitesTenants()
+}
+
+// PicksStartingRole is picksStartingRole for the templates.
+func (d *identitySourceData) PicksStartingRole() bool {
+	return d.picksStartingRole()
 }
 
 // InviteTenant, InvitedTenant and WithdrawInvitedTenant name the three pieces for the
@@ -131,6 +176,12 @@ func (d *identitySourceData) InvitedTenant() string {
 
 func (d *identitySourceData) WithdrawInvitedTenant() string {
 	return d.withdrawInvitedTenantMethod()
+}
+
+// InvitedTenantRole names one row of the list the invitation's starting role is picked
+// from, for the templates.
+func (d *identitySourceData) InvitedTenantRole() string {
+	return d.invitedTenantRoleName()
 }
 
 // TenantFields are the tenant record's fields an invitation carries.
@@ -149,6 +200,12 @@ func (d *identitySourceData) TenantNameField() string {
 	return d.tenant.invitation.nameField
 }
 
+// TenantNameNullable reports whether the name field is a *string, which a sender may
+// leave nil.
+func (d *identitySourceData) TenantNameNullable() bool {
+	return d.tenant.invitation.nameNullable
+}
+
 // TenantDirectoryOnly reports whether an invitation may say directory only,
 // TenantDirectoryOnlyField names the record's switch, and TenantSeats reports whether an
 // invitation may name the role the people of the tenant's directory start with.
@@ -160,22 +217,43 @@ func (d *identitySourceData) TenantDirectoryOnlyField() *identityTenantField {
 	return d.tenant.invitation.directoryOnly
 }
 
+// TenantDisabledField names the record's column that says a tenant is disabled
+// (@tenantDisabled): the list of tenants carries it. It is nil only where the files read
+// before the load mark none, and the load then refuses the record.
+func (d *identitySourceData) TenantDisabledField() *identityTenantField {
+	return d.tenant.invitation.disabled
+}
+
 func (d *identitySourceData) TenantSeats() bool {
 	return d.tenant.invitation.seats
 }
 
-// invitedTenantSources are the source files of the invitation that makes a tenant.
+// TenantDirectories reports whether the application declares a directories record, so
+// that a tenant made by an invitation can take the directory of the person who accepts
+// it. Where it declares none, no tenant has a directory, and what the invitation says
+// of itself leaves the directory out.
+func (d *identitySourceData) TenantDirectories() bool {
+	return len(d.tenant.directoryOutlets) > 0
+}
+
+// invitedTenantSources are the source files of the invitation that makes a tenant, and
+// the list its starting role is picked from where it carries one.
 func (r *resourceGenerator) invitedTenantSources(inst *identityInstance) []identitySourceFile {
 	if !inst.invitesTenants() {
 		return nil
 	}
 	needs := []identityTable{identityMailLinks, identityMemberships}
 
-	return []identitySourceFile{
+	files := []identitySourceFile{
 		{dir: inst.methods, name: fileStem(inst.inviteTenantMethod()), template: identityInviteTenantTemplate, needs: needs},
 		{dir: inst.methods, name: fileStem(r.pluralize(inst.invitedTenantName())), template: identityInvitedTenantsTemplate, needs: needs},
 		{dir: inst.methods, name: fileStem(inst.withdrawInvitedTenantMethod()), template: identityWithdrawInvitedTenantTemplate, needs: needs},
 	}
+	if inst.picksStartingRole() {
+		files = append(files, identitySourceFile{dir: inst.methods, name: fileStem(r.pluralize(inst.invitedTenantRoleName())), template: identityInvitedTenantRolesTemplate, needs: needs})
+	}
+
+	return files
 }
 
 // refuseInvitationNamesTaken refuses a tenant record whose name gives the invitation's
@@ -211,19 +289,23 @@ func (r *resourceGenerator) requireNewTenantColumn(inst *identityInstance) error
 // The annotations and tags the reading before the load looks for on a field.
 var (
 	fieldTenantName        = fieldAnnotation(tenantNameKeyword)
+	fieldTenantSince       = fieldAnnotation(tenantSinceKeyword)
+	fieldTenantDisabled    = fieldAnnotation(tenantDisabledKeyword)
 	fieldDirectoryDefault  = fieldAnnotation(directoryDefaultSeatKeyword)
 	fieldAnyAnnotation     = regexp.MustCompile(`(?m)^\s*@([a-zA-Z]+)`)
-	carriedFieldAnnotation = []string{tenantNameKeyword}
+	carriedFieldAnnotation = []string{tenantNameKeyword, tenantSinceKeyword}
 )
 
 // tenantInvitationIn reads the tenant record as an invitation carries it off a package's
 // sources and the schema: the record's fields the wire may write at create, less the
 // directory-only switch and every secret, each with its type as another package writes
-// it. It answers nil where the record cannot be read this way: a field the reading does
-// not know (an annotation it does not carry, a type it cannot name from another package)
-// stops it, and the invitation is then not generated, which holdIdentityTenantInvitation
-// refuses with the field's name once the packages are loaded. Only the syntax is read,
-// as tenantRecordIn reads it.
+// it and its column, and the record's key, which the list of tenants keys its rows by.
+// It answers nil where the record cannot be read this way: a field the reading does not
+// know (an annotation it does not carry, a type it cannot name from another package)
+// stops it, and so does a key of more than one column or of a type another package
+// cannot name; the invitation is then not generated, which holdIdentityTenantInvitation
+// refuses with what stopped the reading once the packages are loaded. Only the syntax
+// is read, as tenantRecordIn reads it.
 func (r *resourceGenerator) tenantInvitationIn(dir, record string) (*identityTenantInvitation, string, error) {
 	pkg, err := build.ImportDir(dir, 0)
 	if err != nil {
@@ -262,17 +344,13 @@ func (r *resourceGenerator) tenantInvitationIn(dir, record string) (*identityTen
 				switch {
 				case typeSpec.Name.Name == record:
 					naming := &typeNaming{file: file, pkgName: pkg.Name, pkgPath: resourcesPath, imports: map[string]bool{}}
-					why, err := out.readFields(structType, meta, naming)
+					keyNaming := &typeNaming{file: file, pkgName: pkg.Name, pkgPath: resourcesPath, imports: map[string]bool{}}
+					why, err := out.readFields(structType, meta, naming, keyNaming)
 					if err != nil || why != "" {
 						return nil, why, err
 					}
-					out.imports = slices.Sorted(func(yield func(string) bool) {
-						for imp := range naming.imports {
-							if !yield(imp) {
-								return
-							}
-						}
-					})
+					out.imports = sortedImports(naming.imports)
+					out.keyImports = sortedImports(keyNaming.imports)
 				case structCommentHas(gen, typeSpec, tenantDirectoryKeyword):
 					out.seats = annotatedColumn(structType, fieldDirectoryDefault) != ""
 				}
@@ -283,9 +361,21 @@ func (r *resourceGenerator) tenantInvitationIn(dir, record string) (*identityTen
 	return out, "", nil
 }
 
-// readFields reads the record's fields off its struct. why says, in words, what stopped
-// the reading, "" when the record was read.
-func (t *identityTenantInvitation) readFields(structType *ast.StructType, meta *tableMetadata, naming *typeNaming) (why string, err error) {
+// sortedImports are the import lines a reading noted, in order.
+func sortedImports(imports map[string]bool) []string {
+	return slices.Sorted(func(yield func(string) bool) {
+		for imp := range imports {
+			if !yield(imp) {
+				return
+			}
+		}
+	})
+}
+
+// readFields reads the record's fields off its struct, and its key, whose type is named
+// through keyNaming. why says, in words, what stopped the reading, "" when the record
+// was read.
+func (t *identityTenantInvitation) readFields(structType *ast.StructType, meta *tableMetadata, naming, keyNaming *typeNaming) (why string, err error) {
 	wire := strcase.NewCaser(false, nil, nil)
 	for _, field := range structType.Fields.List {
 		if len(field.Names) != 1 {
@@ -305,12 +395,33 @@ func (t *identityTenantInvitation) readFields(structType *ast.StructType, meta *
 			return "field " + name + " names no column of the table", nil
 		}
 		comment := field.Doc.Text() + field.Comment.Text()
+		if fieldTenantSince.MatchString(comment) {
+			// When a tenant was made is kept whether or not the wire writes it: the list
+			// of tenants says it as Since, and the switch below decides, as for any
+			// field, whether an invitation carries it.
+			t.since = &identityTenantField{Name: name, Wire: wire.ToCamel(name), Column: tag.Get(spannerTagKey)}
+		}
 		conditions := strings.Split(tag.Get(conditionsTagKey), ",")
 		switch {
 		case column.IsPrimaryKey:
+			if t.key.Name != "" {
+				return "the record's key is more than one column", nil
+			}
+			typeText, ok := keyNaming.name(field.Type)
+			if !ok {
+				return "the record's key has a type another package cannot name", nil
+			}
+			t.key = identityTenantField{Name: name, Type: typeText, Column: tag.Get(spannerTagKey)}
+
 			continue
 		case fieldDirectoryOnly.MatchString(comment):
-			t.directoryOnly = &identityTenantField{Name: name, Type: boolGoType, Wire: wire.ToCamel(name)}
+			t.directoryOnly = &identityTenantField{Name: name, Type: boolGoType, Wire: wire.ToCamel(name), Column: tag.Get(spannerTagKey)}
+
+			continue
+		case fieldTenantDisabled.MatchString(comment):
+			// A new tenant is made enabled, by the column's default: no invitation carries
+			// whether it is disabled, and the list of tenants shows it.
+			t.disabled = &identityTenantField{Name: name, Type: boolGoType, Wire: wire.ToCamel(name), Column: tag.Get(spannerTagKey)}
 
 			continue
 		case slices.Contains(conditions, outputOnlyCondition), column.GenerationExpression != "":
@@ -333,11 +444,11 @@ func (t *identityTenantInvitation) readFields(structType *ast.StructType, meta *
 			return "field " + name + " has a type another package cannot name", nil
 		}
 		if fieldTenantName.MatchString(comment) {
-			t.nameField = name
+			t.nameField, t.nameColumn, t.nameNullable = name, tag.Get(spannerTagKey), strings.HasPrefix(typeText, "*")
 		}
 		required := !column.IsNullable && !column.HasDefault
 		t.fields = append(t.fields, identityTenantField{
-			Name: name, Type: typeText, Wire: wire.ToCamel(name), Required: required, Text: required && typeText != boolGoType,
+			Name: name, Type: typeText, Wire: wire.ToCamel(name), Column: tag.Get(spannerTagKey), Required: required, Text: required && typeText != boolGoType,
 		})
 	}
 
@@ -448,13 +559,14 @@ func (n *typeNaming) importOf(qualifier string) (string, bool) {
 // tenantInvitationFields are the tenant record's fields an invitation carries, as the
 // load finds them: every field the wire may write at create, less every secret. The
 // directory-only switch is none of them: the wire never writes it (IsOutputOnly), and
-// the invitation carries it apart. The maker reads them (tenantMakerData), and the
-// reading before the load is held to them.
+// the invitation carries it apart. Nor is the column that says a tenant is disabled: a
+// new tenant is made enabled, by the column's default. The maker reads them
+// (tenantMakerData), and the reading before the load is held to them.
 func tenantInvitationFields(record *resourceInfo) []*resourceField {
 	var fields []*resourceField
 	for _, field := range record.Fields {
 		switch {
-		case field.IsPrimaryKey, field.IsOutputOnly(), field.IsInputOnly():
+		case field.IsPrimaryKey, field.IsOutputOnly(), field.IsInputOnly(), field == record.TenantDisabledField:
 		default:
 			fields = append(fields, field)
 		}
@@ -479,7 +591,7 @@ func (r *resourceGenerator) holdIdentityTenantInvitation() error {
 		// code, which gives a tenant whatever its create requires.
 		return nil
 	}
-	word := withArticle(strings.ToLower(strcase.ToCase(record.Name(), strcase.LowerCase, ' ')))
+	word := withArticle(words.InWords(record.Name()))
 	for _, field := range record.Fields {
 		switch {
 		case field.IsOutputOnly() || !field.IsInputOnly() || !field.IsRequired():
@@ -506,12 +618,24 @@ func (r *resourceGenerator) holdIdentityTenantInvitation() error {
 		if flag := inst.tenant.invitation.directoryOnly; flag != nil {
 			written = append(written, "the directory-only switch "+flag.Name+" "+flag.Wire)
 		}
+		if since := inst.tenant.invitation.since; since != nil {
+			written = append(written, "when it was made "+since.Name)
+		}
+		if disabled := inst.tenant.invitation.disabled; disabled != nil {
+			written = append(written, "whether it is disabled "+disabled.Name+" "+disabled.Wire)
+		}
 		var loaded []string
 		for _, field := range tenantInvitationFields(record) {
 			loaded = append(loaded, field.Name()+" "+field.WireName()+" required="+strconv.FormatBool(field.IsRequired()))
 		}
 		if flag := record.DirectoryOnlyField; flag != nil {
 			loaded = append(loaded, "the directory-only switch "+flag.Name()+" "+flag.WireName())
+		}
+		if since := record.TenantSinceField; since != nil {
+			loaded = append(loaded, "when it was made "+since.Name())
+		}
+		if disabled := record.TenantDisabledField; disabled != nil {
+			loaded = append(loaded, "whether it is disabled "+disabled.Name()+" "+disabled.WireName())
 		}
 		if !slices.Equal(written, loaded) {
 			return errors.Newf("struct %s: the invitation's sources were written for the fields [%s] and the loaded record carries [%s]; the two are read off the same files, so this is a fault of the generator's reading before the load: report it",

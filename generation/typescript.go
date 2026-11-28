@@ -44,6 +44,11 @@ type typescriptGenerator struct {
 	// record cannot make it: the decision reads the outlets' auths, which this generator
 	// does not know.
 	tenantCreation tenantCreation
+	// tenantDirectories says the package declares a tenant's directories record,
+	// whichever outlets serve it: the outlet filter notes it before it drops the records
+	// off the target outlet (applyOutletFilter), since the create-your-tenant route takes
+	// a directory wherever it is served.
+	tenantDirectories bool
 	// directoryRolePicker mirrors the resourceGenerator's choice of the list the role of
 	// the method that opens a tenant to its directory is picked from: the roles that
 	// exist in one tenant, of the auth whose generated identity client judges the role
@@ -95,8 +100,10 @@ func (t *typescriptGenerator) excludeFromOutlet(m *outletMembership, resourceNam
 }
 
 // validateOutletMemberReferences rejects a member that references a resource excluded
-// from the target outlet — a method's declared transition root, or the resource a
-// declared @enumerate names on a method's, resource's, or computed resource's field.
+// from the target outlet — a method's declared transition root, the resource of the row a
+// method names (@target), a resource whose rows offer a method (@callerEnters(Row, ...)),
+// or the resource a declared @enumerate names on a method's, resource's, or computed
+// resource's field.
 // The emitted metadata names such a resource through the Resources constant, which
 // the filtered constants file no longer declares; silently narrowing the metadata in
 // this client alone would misrepresent the member, so the mismatch fails generation
@@ -113,6 +120,14 @@ func (t *typescriptGenerator) validateOutletMemberReferences(resources []*resour
 	for _, method := range t.rpcMethods {
 		if tr := method.Transition; tr != nil && excluded(tr.RootResource) {
 			return errors.Newf("outlet %q: RPC method %s declares a transition on %s, which is not on the outlet; a client cannot carry a transition whose resource it does not emit — attach %s to the outlet via @%s, or move the method off it", t.targetOutlet(), method.Name(), tr.RootResource, tr.RootResource, outletKeyword)
+		}
+		if target := method.Target; target != nil && excluded(target.RootResource) {
+			return errors.Newf("outlet %q: RPC method %s names a row of %s (@%s), which is not on the outlet: the method's metadata names the resource, and this client does not emit it. Attach %s to the outlet via @%s, or move the method off it", t.targetOutlet(), method.Name(), target.RootResource, targetKeyword, target.RootResource, outletKeyword)
+		}
+		for _, row := range method.OfferedOn {
+			if excluded(row.RootResource) {
+				return errors.Newf("outlet %q: RPC method %s is offered on the rows of %s (@%s), which is not on the outlet: the method's metadata names the resource, and this client does not emit it. Attach %s to the outlet via @%s, or move the method off it", t.targetOutlet(), method.Name(), row.RootResource, callerEntersKeyword, row.RootResource, outletKeyword)
+			}
 		}
 		for _, field := range method.Fields {
 			if field.IsEnumerated() && excluded(field.EnumeratedResource()) {
@@ -149,8 +164,13 @@ func (t *typescriptGenerator) validateOutletMemberReferences(resources []*resour
 func (t *typescriptGenerator) applyOutletFilter(resources []*resourceInfo, computedResources []*computedResource) ([]*resourceInfo, []*computedResource, error) {
 	t.outletExcludedTables = make(map[string]struct{})
 	// The methods that turn the tenant record's directory-only switch are served with
-	// the record, and the ones that say how a tenant admits its directory's people with
-	// the directories record, so each leaves the outlet's constants with its record.
+	// the record, and the one that takes a tenant's directory, the ones that say how a
+	// tenant admits its directory's people and the ones of its word for its directory's
+	// second factor with the directories record, so each leaves the outlet's constants
+	// with its record.
+	// The action of the create-your-tenant route needs nothing here: the collection
+	// marks it an action no role is given, and such an action is in no outlet's
+	// constants (resource.CollectionResource.NoRole).
 	var tenant *resourceInfo
 	for _, res := range resources {
 		if res.IsTenant {
@@ -158,13 +178,26 @@ func (t *typescriptGenerator) applyOutletFilter(resources []*resourceInfo, compu
 		}
 	}
 	for _, res := range resources {
+		if res.IsTenantDirectory {
+			t.tenantDirectories = true
+		}
 		if res.declaresDirectoryOnly() && !res.OnOutlet(t.targetOutlet()) {
 			for _, method := range directoryOnlyMethodsOf(res.Name()) {
 				t.outletExcluded = append(t.outletExcluded, accesstypes.Resource(method.Name))
 			}
 		}
+		if tenant != nil && res.IsTenantDirectory && !res.OnOutlet(t.targetOutlet()) {
+			for _, method := range directoryTakeMethodsOf(tenant.Name()) {
+				t.outletExcluded = append(t.outletExcluded, accesstypes.Resource(method.Name))
+			}
+		}
 		if tenant != nil && res.IsTenantDirectory && res.DirectoryDefaultSeatField != nil && !res.OnOutlet(t.targetOutlet()) {
 			for _, method := range directoryRoleMethodsOf(tenant.Name()) {
+				t.outletExcluded = append(t.outletExcluded, accesstypes.Resource(method.Name))
+			}
+		}
+		if tenant != nil && res.IsTenantDirectory && res.DirectorySecondFactorField != nil && !res.OnOutlet(t.targetOutlet()) {
+			for _, method := range directoryFactorMethodsOf(tenant.Name()) {
 				t.outletExcluded = append(t.outletExcluded, accesstypes.Resource(method.Name))
 			}
 		}
@@ -348,15 +381,18 @@ func (t *typescriptGenerator) Generate() error {
 
 	// A field-scope @enumerate may name a computed resource, so the declarations
 	// resolve only now, against every kind, before the filter narrows the sets.
-	t.computedResources = computedResources
-	if err := t.resolveFieldEnumerations(resources, computedResources); err != nil {
+	if err := t.resolveParsedEnumerations(resources, computedResources); err != nil {
+		return err
+	}
+	// A field's @roleOf reads its auth's role file, as the Go target's does, so the
+	// metadata lists the roles the field may hold.
+	if err := t.resolveRoleFields(resources, computedResources); err != nil {
 		return err
 	}
 	if err := t.validatePickerSources(resources, computedResources); err != nil {
 		return err
 	}
 
-	t.resources = resources
 	// A view's @rowsOf names a table-backed resource, refusing a view of either kind,
 	// so it too resolves against every kind before the filter narrows the sets.
 	if err := t.resolveViewDeclarations(resources, computedResources); err != nil {
@@ -405,6 +441,26 @@ func (t *typescriptGenerator) Generate() error {
 	return nil
 }
 
+// resolveParsedEnumerations resolves every field-scope @enumerate against the resources
+// this target parsed, of every kind and on every outlet. The targets of one generation
+// share a client, and the target before this one left it holding its own outlet's
+// members; a name resolves against the client's sets, so they are this target's before
+// any name is looked up. Resolved against the earlier target's members, a field of this
+// outlet that names a resource of this outlet alone was refused as naming a resource
+// that does not exist.
+func (t *typescriptGenerator) resolveParsedEnumerations(resources []*resourceInfo, computedResources []*computedResource) error {
+	t.resources = resources
+	t.computedResources = computedResources
+
+	if err := t.resolveFieldEnumerations(resources, computedResources); err != nil {
+		return err
+	}
+
+	// The name fields read the enumerations resolved above, as the Go target's do, so
+	// the row types and the metadata name the fields the handlers serve.
+	return t.resolveNameFields(resources)
+}
+
 func (t *typescriptGenerator) runTypescriptEnumGeneration(namedTypes []*parser.NamedType) error {
 	if !t.genEnums {
 		return nil
@@ -450,12 +506,31 @@ func (t *typescriptGenerator) runTypescriptPermissionGeneration() error {
 		}
 	}
 
+	// A name field whose pointed-to name is PII is PII itself: its constant joins the
+	// resource's PII names, so a filter by it travels as one by that name does.
+	nameFields := make(tsNameFields)
+	for _, res := range t.resources {
+		resourceName := accesstypes.Resource(t.pluralize(res.Name()))
+		for _, name := range res.NameFields {
+			tag := accesstypes.Tag(name.WireName())
+			nameFields[resourceName] = append(nameFields[resourceName], tag)
+			if !name.IsPII() {
+				continue
+			}
+			if _, ok := piiResourceFields[resourceName]; !ok {
+				piiResourceFields[resourceName] = make(map[accesstypes.Tag]bool)
+			}
+			piiResourceFields[resourceName][tag] = true
+		}
+	}
+
 	templateData := tsConstantsData{
 		File:          t,
 		Data:          routerData,
 		RPCMethods:    t.rpcMethods,
 		ManualMethods: t.manualMethods(routerData.Methods),
 		PIIMap:        piiResourceFields,
+		NameFields:    nameFields,
 	}
 
 	output, err := t.generateTemplateOutput(typescriptConstantsTemplate, typescriptConstantsTemplate, templateData)
@@ -748,6 +823,11 @@ func (t *typescriptGenerator) resolveKeyEnumeration(field *resourceField) {
 
 			return
 		}
+	}
+	// A picker writes the key of the row picked. A foreign key to another column of the
+	// table (a code, a case number) holds that column's value, so it is typed in.
+	if t.referencesOutsideKey(field) {
+		return
 	}
 	if slices.Contains(t.routerResources, accesstypes.Resource(field.ReferencedResource)) {
 		field.IsEnumerated = true

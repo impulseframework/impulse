@@ -14,13 +14,15 @@ import (
 // keeps under a name, and with it the lock the count earned: the name may sign in
 // again. Every instance of the application lets the name through within a few seconds
 // of the commit, the time each trusts what it remembers of a name. A client held for
-// its own failed attempts, whatever the name, waits its hold out.
+// its own failed attempts, whatever the name, waits its hold out. It names the count by
+// its row of MembersListedSignInAttempt, the list a page shows, so a row of that list
+// offers it.
 //
 // @rpc
 // @outlet(portal)
 // @answers(204)
 type UnlockMembersSignIn struct {
-	// @target(MembersSessionSignInAttempt)
+	// @target(MembersListedSignInAttempt)
 	Name string `validate:"required"`
 }
 

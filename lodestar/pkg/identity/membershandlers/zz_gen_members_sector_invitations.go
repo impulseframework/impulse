@@ -26,9 +26,12 @@ func (h *Handlers) MembersSectorInvitations() http.HandlerFunc {
 		Name            *string       `json:"name"`
 		RoleNames       []string      `json:"roleNames"`
 		InvitedByUserID *impulse.UUID `json:"invitedByUserId"`
+		SentBy          *string       `json:"sentBy"`
 		CreatedAt       time.Time     `json:"createdAt"       index:"true"`
 		ExpiresAt       time.Time     `json:"expiresAt"`
 		ConsumedAt      *time.Time    `json:"consumedAt"`
+		WithdrawnAt     *time.Time    `json:"withdrawnAt"`
+		State           string        `json:"state"           index:"true"`
 		Pending         bool          `json:"pending"         index:"true"`
 	}
 
@@ -48,8 +51,9 @@ func (h *Handlers) MembersSectorInvitations() http.HandlerFunc {
 		}
 
 		// A live list registers before the query runs, so a commit that lands during
-		// the query is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, h.LiveService(), querySet, live.ListSubscription(querySet.Resource(), domain))
+		// the query is not missed; a refused request registers nothing. With it the
+		// request registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, h.LiveService(), querySet, live.ListSubscription(querySet.Resource(), domain))
 
 		res := membersresources.NewMembersSectorInvitationQueryFromQuerySet(querySet)
 
@@ -96,6 +100,10 @@ func (h *Handlers) MembersSectorInvitations() http.HandlerFunc {
 					if !row.Masked("invitedByUserId") {
 						rmap["invitedByUserId"] = rec.InvitedByUserID
 					}
+				case "SentBy":
+					if !row.Masked("sentBy") {
+						rmap["sentBy"] = rec.SentBy
+					}
 				case "CreatedAt":
 					if !row.Masked("createdAt") {
 						rmap["createdAt"] = rec.CreatedAt
@@ -107,6 +115,14 @@ func (h *Handlers) MembersSectorInvitations() http.HandlerFunc {
 				case "ConsumedAt":
 					if !row.Masked("consumedAt") {
 						rmap["consumedAt"] = rec.ConsumedAt
+					}
+				case "WithdrawnAt":
+					if !row.Masked("withdrawnAt") {
+						rmap["withdrawnAt"] = rec.WithdrawnAt
+					}
+				case "State":
+					if !row.Masked("state") {
+						rmap["state"] = rec.State
 					}
 				case "Pending":
 					if !row.Masked("pending") {
@@ -141,9 +157,12 @@ func (h *Handlers) MembersSectorInvitation() http.HandlerFunc {
 		Name            *string       `json:"name"`
 		RoleNames       []string      `json:"roleNames"`
 		InvitedByUserID *impulse.UUID `json:"invitedByUserId"`
+		SentBy          *string       `json:"sentBy"`
 		CreatedAt       time.Time     `json:"createdAt"`
 		ExpiresAt       time.Time     `json:"expiresAt"`
 		ConsumedAt      *time.Time    `json:"consumedAt"`
+		WithdrawnAt     *time.Time    `json:"withdrawnAt"`
+		State           string        `json:"state"`
 		Pending         bool          `json:"pending"`
 	}
 
@@ -162,8 +181,9 @@ func (h *Handlers) MembersSectorInvitation() http.HandlerFunc {
 		}
 
 		// A live row registers before the read runs, so a commit that lands during the
-		// read is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, h.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(id)))
+		// read is not missed; a refused request registers nothing. With it the request
+		// registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, h.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(id)))
 
 		res := membersresources.NewMembersSectorInvitationQueryFromQuerySet(querySet).SetID(id)
 
@@ -199,6 +219,10 @@ func (h *Handlers) MembersSectorInvitation() http.HandlerFunc {
 				if !row.Masked("invitedByUserId") {
 					rmap["invitedByUserId"] = rec.InvitedByUserID
 				}
+			case "SentBy":
+				if !row.Masked("sentBy") {
+					rmap["sentBy"] = rec.SentBy
+				}
 			case "CreatedAt":
 				if !row.Masked("createdAt") {
 					rmap["createdAt"] = rec.CreatedAt
@@ -210,6 +234,14 @@ func (h *Handlers) MembersSectorInvitation() http.HandlerFunc {
 			case "ConsumedAt":
 				if !row.Masked("consumedAt") {
 					rmap["consumedAt"] = rec.ConsumedAt
+				}
+			case "WithdrawnAt":
+				if !row.Masked("withdrawnAt") {
+					rmap["withdrawnAt"] = rec.WithdrawnAt
+				}
+			case "State":
+				if !row.Masked("state") {
+					rmap["state"] = rec.State
 				}
 			case "Pending":
 				if !row.Masked("pending") {

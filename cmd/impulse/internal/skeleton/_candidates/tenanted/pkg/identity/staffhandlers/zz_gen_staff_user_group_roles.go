@@ -20,16 +20,18 @@ import (
 
 func (h *Handlers) StaffUserGroupRoles() http.HandlerFunc {
 	type staffUserGroupRole struct {
-		UserID    impulse.UUID `json:"userId"    index:"true" perm:"-"`
-		Username  string       `json:"username"  index:"true"`
-		GroupID   impulse.UUID `json:"groupId"   index:"true" perm:"-"`
-		GroupName string       `json:"groupName" index:"true"`
-		Kind      string       `json:"kind"      index:"true" perm:"-"`
-		Axis      string       `json:"axis"      perm:"-"`
-		DomainID  string       `json:"domainId"  index:"true" perm:"-"`
-		Role      string       `json:"role"      index:"true" perm:"-"`
-		StartsAt  *time.Time   `json:"startsAt"`
-		EndsAt    *time.Time   `json:"endsAt"`
+		UserID     impulse.UUID `json:"userId"     index:"true"      perm:"-"`
+		Username   string       `json:"username"   index:"true"`
+		GroupID    impulse.UUID `json:"groupId"    index:"true"      perm:"-"`
+		GroupName  string       `json:"groupName"  index:"true"`
+		Kind       string       `json:"kind"       index:"true"      perm:"-"`
+		Axis       string       `json:"axis"       perm:"-"`
+		DomainID   string       `json:"domainId"   index:"true"      perm:"-"`
+		Role       string       `json:"role"       index:"true"      perm:"-"`
+		CreatedAt  time.Time    `json:"createdAt"`
+		StartsAt   *time.Time   `json:"startsAt"`
+		EndsAt     *time.Time   `json:"endsAt"`
+		DomainName *string      `json:"domainName" nameof:"DomainID" index:"true"`
 	}
 
 	type response []map[string]any
@@ -47,8 +49,9 @@ func (h *Handlers) StaffUserGroupRoles() http.HandlerFunc {
 		}
 
 		// A live list registers before the query runs, so a commit that lands during
-		// the query is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, h.LiveService(), querySet, live.ListSubscription(querySet.Resource(), ""))
+		// the query is not missed; a refused request registers nothing. With it the
+		// request registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, h.LiveService(), querySet, live.ListSubscription(querySet.Resource(), ""))
 
 		res := staffresources.NewStaffUserGroupRoleQueryFromQuerySet(querySet)
 
@@ -67,7 +70,7 @@ func (h *Handlers) StaffUserGroupRoles() http.HandlerFunc {
 			if !page.Add(row) {
 				break
 			}
-			rec := (*staffUserGroupRole)(&row.Data)
+			rec := &row.Data
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
@@ -103,6 +106,10 @@ func (h *Handlers) StaffUserGroupRoles() http.HandlerFunc {
 					if !row.Masked("role") {
 						rmap["role"] = rec.Role
 					}
+				case "CreatedAt":
+					if !row.Masked("createdAt") {
+						rmap["createdAt"] = rec.CreatedAt
+					}
 				case "StartsAt":
 					if !row.Masked("startsAt") {
 						rmap["startsAt"] = rec.StartsAt
@@ -111,6 +118,11 @@ func (h *Handlers) StaffUserGroupRoles() http.HandlerFunc {
 					if !row.Masked("endsAt") {
 						rmap["endsAt"] = rec.EndsAt
 					}
+				}
+			}
+			for _, name := range querySet.Names() {
+				if looked := row.Name(name.Field); looked != nil {
+					rmap[name.JSONName] = *looked
 				}
 			}
 			if capabilities := row.Capabilities(); capabilities != nil {
@@ -134,16 +146,18 @@ func (h *Handlers) StaffUserGroupRoles() http.HandlerFunc {
 
 func (h *Handlers) StaffUserGroupRole() http.HandlerFunc {
 	type response struct {
-		UserID    impulse.UUID `json:"userId"    index:"true" perm:"-"`
-		Username  string       `json:"username"`
-		GroupID   impulse.UUID `json:"groupId"   index:"true" perm:"-"`
-		GroupName string       `json:"groupName"`
-		Kind      string       `json:"kind"      index:"true" perm:"-"`
-		Axis      string       `json:"axis"      index:"true" perm:"-"`
-		DomainID  string       `json:"domainId"  index:"true" perm:"-"`
-		Role      string       `json:"role"      index:"true" perm:"-"`
-		StartsAt  *time.Time   `json:"startsAt"`
-		EndsAt    *time.Time   `json:"endsAt"`
+		UserID     impulse.UUID `json:"userId"     index:"true"      perm:"-"`
+		Username   string       `json:"username"`
+		GroupID    impulse.UUID `json:"groupId"    index:"true"      perm:"-"`
+		GroupName  string       `json:"groupName"`
+		Kind       string       `json:"kind"       index:"true"      perm:"-"`
+		Axis       string       `json:"axis"       index:"true"      perm:"-"`
+		DomainID   string       `json:"domainId"   index:"true"      perm:"-"`
+		Role       string       `json:"role"       index:"true"      perm:"-"`
+		CreatedAt  time.Time    `json:"createdAt"`
+		StartsAt   *time.Time   `json:"startsAt"`
+		EndsAt     *time.Time   `json:"endsAt"`
+		DomainName *string      `json:"domainName" nameof:"DomainID"`
 	}
 
 	decoder := NewQueryDecoder[staffresources.StaffUserGroupRole, response](h, accesstypes.Read)
@@ -165,8 +179,9 @@ func (h *Handlers) StaffUserGroupRole() http.HandlerFunc {
 		}
 
 		// A live row registers before the read runs, so a commit that lands during the
-		// read is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, h.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(userID, groupID, kind, axis, domainID, role)))
+		// read is not missed; a refused request registers nothing. With it the request
+		// registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, h.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(userID, groupID, kind, axis, domainID, role)))
 
 		res := staffresources.NewStaffUserGroupRoleQueryFromQuerySet(querySet).SetUserID(userID).SetGroupID(groupID).SetKind(kind).SetAxis(axis).SetDomainID(domainID).SetRole(role)
 
@@ -174,7 +189,7 @@ func (h *Handlers) StaffUserGroupRole() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		rec := (*response)(&row.Data)
+		rec := &row.Data
 		rmap := make(map[string]any)
 		for _, field := range querySet.Fields() {
 			switch string(field) {
@@ -210,6 +225,10 @@ func (h *Handlers) StaffUserGroupRole() http.HandlerFunc {
 				if !row.Masked("role") {
 					rmap["role"] = rec.Role
 				}
+			case "CreatedAt":
+				if !row.Masked("createdAt") {
+					rmap["createdAt"] = rec.CreatedAt
+				}
 			case "StartsAt":
 				if !row.Masked("startsAt") {
 					rmap["startsAt"] = rec.StartsAt
@@ -218,6 +237,11 @@ func (h *Handlers) StaffUserGroupRole() http.HandlerFunc {
 				if !row.Masked("endsAt") {
 					rmap["endsAt"] = rec.EndsAt
 				}
+			}
+		}
+		for _, name := range querySet.Names() {
+			if looked := row.Name(name.Field); looked != nil {
+				rmap[name.JSONName] = *looked
 			}
 		}
 		if capabilities := row.Capabilities(); capabilities != nil {

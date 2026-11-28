@@ -21,8 +21,9 @@ import (
 
 func (h *Handlers) RemoveStaffTenantRole() http.HandlerFunc {
 	type request struct {
-		UserID impulse.UUID `json:"userId"`
-		Role   string       `json:"role"`
+		UserID  impulse.UUID `json:"userId"`
+		Role    string       `json:"role"`
+		GroupID string       `json:"groupId"`
 	}
 
 	decoder := NewTargetedRPCDecoder[staffidentity.RemoveStaffTenantRole, request](h, accesstypes.Execute)
@@ -44,20 +45,23 @@ func (h *Handlers) RemoveStaffTenantRole() http.HandlerFunc {
 		// write or a read against the caller (Enforce) evaluates the same checker,
 		// scope, and decision instant.
 		ctx = resource.WithCaller(ctx, gate.Caller())
+		// The method's name rides the context too: who made a change
+		// (eventsource.UserEvent) reads it there, so every change record the body writes
+		// names the method.
+		ctx = resource.WithRPC(ctx, "RemoveStaffTenantRole")
 
 		p := (*staffidentity.RemoveStaffTenantRole)(params)
 
-		// The X-Warning header takes the value true or is left off the request: any
-		// other value is refused here, and the call is not run.
+		// A request that asks for the method's warning (X-Warning: true) is decoded
+		// and checked as the call is, and answers what Warning writes for it in
+		// place of running the call: the transaction below rolls back.
+		// The header takes the value true or is left off the request: any other value
+		// is refused here, and the call is not run.
 		asksWarning, err := resource.AsksWarning(r)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		if asksWarning {
-			// The method declares no warning (@warning): a request that asks for one
-			// is refused, and never runs the call.
-			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewBadRequestMessage("RemoveStaffTenantRole declares no warning: send the call without the X-Warning header"))
-		}
+		var warning *resource.Warning
 
 		// The rows the method writes are collected for the live pages, published once
 		// the commit lands and before the answer; a transaction that rolls back wrote
@@ -73,15 +77,28 @@ func (h *Handlers) RemoveStaffTenantRole() http.HandlerFunc {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		if err := h.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-			// Declared target: a row of the StaffTenantUserRole view.
+			// Declared target: a row of the StaffTenantHeldRole view.
 			// A view's row is one row of its query, and its key names a row in
 			// each tenant that holds one, so the gate locates it by the key
 			// within the request's tenant and judges any row-referencing
 			// condition on the caller's Execute grant against it, in one SELECT
 			// over that query in this transaction. No row there is NotFound: a
 			// missing row and another tenant's row answer alike.
-			if err := gate.EnforceView(ctx, txn, resource.ExecuteTarget{Resource: "StaffTenantUserRoles", Label: "StaffTenantUserRole", PKColumns: []string{"UserId", "Role"}, View: staffresources.StaffTenantUserRole{}}, p.UserID, p.Role); err != nil {
+			if err := gate.EnforceView(ctx, txn, resource.ExecuteTarget{Resource: "StaffTenantHeldRoles", Label: "StaffTenantHeldRole", PKColumns: []string{"UserId", "Role", "GroupId"}, View: staffresources.StaffTenantHeldRole{}}, p.UserID, p.Role, p.GroupID); err != nil {
 				return err
+			}
+
+			if asksWarning {
+				said, err := p.Warning(ctx, txn, h.RPCClient())
+				if err != nil {
+					return errors.Wrap(err, "RemoveStaffTenantRole.Warning()")
+				}
+				if err := resource.CheckWarning("RemoveStaffTenantRole", said); err != nil {
+					return errors.Wrap(err, "resource.CheckWarning()")
+				}
+				warning = said
+
+				return resource.ErrWarningAsked
 			}
 			if err := p.Execute(ctx, txn, h.RPCClient()); err != nil {
 				return errors.Wrap(err, "Transaction.Execute()")
@@ -92,11 +109,14 @@ func (h *Handlers) RemoveStaffTenantRole() http.HandlerFunc {
 
 			return nil
 		}); err != nil {
+			if asksWarning && resource.WarningAsked(err) {
+				return httpio.NewEncoder(w).Ok(warning)
+			}
 			if dryRun && resource.DryRunRolledBack(err) {
 				return httpio.NewEncoder(w).Ok(nil)
 			}
 
-			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "spanner.Client.ReadWriteTransaction()"))
+			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "resource.Client.ExecuteFunc()"))
 		}
 
 		live.Publish(ctx, w, h.LiveService(), h.liveDerivations, domain, touched)

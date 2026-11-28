@@ -19,14 +19,15 @@ import (
 
 func (h *Handlers) CrewGroupRoles() http.HandlerFunc {
 	type crewGroupRole struct {
-		GroupID   impulse.UUID `json:"groupId"   index:"true" perm:"-"`
-		Kind      string       `json:"kind"      index:"true" perm:"-"`
+		GroupID   impulse.UUID `json:"groupId"   index:"true"     perm:"-"`
+		Kind      string       `json:"kind"      index:"true"     perm:"-"`
 		Axis      string       `json:"axis"      perm:"-"`
 		DomainID  string       `json:"domainId"  perm:"-"`
 		Role      string       `json:"role"      perm:"-"`
 		CreatedAt time.Time    `json:"createdAt"`
 		StartsAt  *time.Time   `json:"startsAt"`
 		EndsAt    *time.Time   `json:"endsAt"`
+		GroupName *string      `json:"groupName" nameof:"GroupID" allow_filter:"true"`
 	}
 
 	type response []map[string]any
@@ -44,8 +45,9 @@ func (h *Handlers) CrewGroupRoles() http.HandlerFunc {
 		}
 
 		// A live list registers before the query runs, so a commit that lands during
-		// the query is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, h.LiveService(), querySet, live.ListSubscription(querySet.Resource(), ""))
+		// the query is not missed; a refused request registers nothing. With it the
+		// request registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, h.LiveService(), querySet, live.ListSubscription(querySet.Resource(), ""))
 
 		res := crewresources.NewCrewGroupRoleQueryFromQuerySet(querySet)
 
@@ -64,7 +66,7 @@ func (h *Handlers) CrewGroupRoles() http.HandlerFunc {
 			if !page.Add(row) {
 				break
 			}
-			rec := (*crewGroupRole)(&row.Data)
+			rec := &row.Data
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
@@ -100,6 +102,11 @@ func (h *Handlers) CrewGroupRoles() http.HandlerFunc {
 					if !row.Masked("endsAt") {
 						rmap["endsAt"] = rec.EndsAt
 					}
+				}
+			}
+			for _, name := range querySet.Names() {
+				if looked := row.Name(name.Field); looked != nil {
+					rmap[name.JSONName] = *looked
 				}
 			}
 			if capabilities := row.Capabilities(); capabilities != nil {

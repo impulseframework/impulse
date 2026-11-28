@@ -11,6 +11,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -20,6 +21,15 @@ func (StaffSessionAuthEvent) Resource() accesstypes.Resource {
 
 func (StaffSessionAuthEvent) DefaultConfig() resource.Config {
 	return defaultConfig()
+}
+
+// NamedRows names the columns that name a row of another resource the application lists
+// (SessionID): a create or an update sets one only to a row its caller can list, so the
+// library answers any other as a row that is not there.
+func (StaffSessionAuthEvent) NamedRows() []resource.NamedRow {
+	return []resource.NamedRow{
+		{Field: "SessionID", Resource: "StaffSessions", Table: "StaffSessions", KeyColumn: "Id"},
+	}
 }
 
 // staffSessionAuthEventRead mirrors the wire shape the resource routes list
@@ -369,11 +379,11 @@ func (p *StaffSessionAuthEventCreatePatch) ToStruct() *StaffSessionAuthEvent {
 	return p.patchSet.ToStruct()
 }
 
-func (p *StaffSessionAuthEventCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *StaffSessionAuthEventCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *StaffSessionAuthEventCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *StaffSessionAuthEventCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -533,11 +543,11 @@ func (p *StaffSessionAuthEventUpdatePatch) ToStruct() *StaffSessionAuthEvent {
 	return p.patchSet.ToStruct()
 }
 
-func (p *StaffSessionAuthEventUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *StaffSessionAuthEventUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *StaffSessionAuthEventUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *StaffSessionAuthEventUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -687,11 +697,11 @@ func NewStaffSessionAuthEventDeletePatch(sessionID impulse.UUID, seq int64) *Sta
 	return &StaffSessionAuthEventDeletePatch{patchSet: patchSet}
 }
 
-func (p *StaffSessionAuthEventDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *StaffSessionAuthEventDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *StaffSessionAuthEventDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *StaffSessionAuthEventDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

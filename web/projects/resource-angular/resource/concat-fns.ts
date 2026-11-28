@@ -6,8 +6,17 @@ export const concatFunctions = {
 };
 
 /**
+ * The values a row has for the given keys, in the keys' order, without the ones it has
+ * none for: a key the row leaves empty joins nothing, so no separator is left standing
+ * beside a value that is not there ("marshal", never " - marshal").
+ */
+function present(resource: Record<string, string>, args: string[]): string[] {
+  return args.map((arg) => resource[arg] ?? '').filter((part) => part !== '');
+}
+
+/**
  * Concatenates the strings corresponding to the given keys in the resource,
- * using a space separator.
+ * using a space separator. A key the resource has no value for is left out.
  * @param resource A record mapping keys to string values.
  * @param args Keys of the resource to concatenate.
  * @returns Concatenated string.
@@ -18,12 +27,13 @@ export const concatFunctions = {
 export function spaceConcat(resource: Record<string, string>, ...args: string[]): string {
   if (args.length === 0) return '';
   if (args.length === 1) return resource[args[0] ?? ''] ?? '';
-  return args.map((arg) => resource[arg] ?? '').join(' ');
+  return present(resource, args).join(' ');
 }
 
 /**
  * Concatenates the strings corresponding to the given keys in the resource,
- * using a hyphen separator.
+ * using a hyphen separator. A key the resource has no value for is left out, with its
+ * hyphen: a person with a login and no name reads 'marshal', never ' - marshal'.
  * @param resource A record mapping keys to string values.
  * @param args Keys of the resource to concatenate.
  * @returns Concatenated string.
@@ -34,7 +44,7 @@ export function spaceConcat(resource: Record<string, string>, ...args: string[])
 export function hyphenConcat(resource: Record<string, string>, ...args: string[]): string {
   if (args.length === 0) return '';
   if (args.length === 1) return resource[args[0] ?? ''] ?? '';
-  return args.map((arg) => resource[arg] ?? '').join(' - ');
+  return present(resource, args).join(' - ');
 }
 
 /**
@@ -49,14 +59,12 @@ export function spaceHyphenConcat(resource: Record<string, string>, ...args: str
   if (args.length === 0) return '';
   if (args.length === 1) return resource[args[0] || ''] || '';
 
-  const initialPart = args
-    .slice(0, -1)
-    .map((arg) => resource[arg] || '')
-    .join(' ');
+  const initialPart = present(resource, args.slice(0, -1)).join(' ');
 
   const lastPart = resource[args[args.length - 1] || ''] || '';
 
-  return `${initialPart} - ${lastPart}`;
+  // The hyphen stands between two parts that are both there.
+  return [initialPart, lastPart].filter((part) => part !== '').join(' - ');
 }
 
 /**
@@ -73,92 +81,10 @@ export function hyphenSpaceConcat(resource: Record<string, string>, ...args: str
 
   const initialPart = args[0] !== undefined ? resource[args[0]] || '' : '';
 
-  const lastPart = args
-    .slice(1, args.length)
-    .map((arg) => resource[arg] || '')
-    .join(' ');
+  const lastPart = present(resource, args.slice(1, args.length)).join(' ');
 
-  return `${initialPart} - ${lastPart}`;
-}
-
-/**
- * Concatenates the strings using a space separator.
- * @param args Strings to concatenate.
- * @returns Concatenated string.
- * @example
- * spaceConcatWithoutResource(['foo', 'bar', 'baz']); // returns 'foo bar baz'
- */
-export function spaceConcatWithoutResource(args: string[]): string {
-  if (args.length === 0) return '';
-  if (args.length === 1) return args[0] ?? '';
-  return args.map((arg) => arg ?? '').join(' ');
-}
-
-/**
- * Concatenates the strings using a hyphen separator.
- * @param args Strings to concatenate.
- * @returns Concatenated string.
- * @example
- * hyphenConcatWithoutResource(['foo', 'bar', 'baz']); // returns 'foo - bar - baz'
- */
-export function hyphenConcatWithoutResource(args: string[]): string {
-  if (args.length === 0) return '';
-  if (args.length === 1) return args[0] || '';
-  return args.join(' - ');
-}
-
-/**
- * Concatenates the given strings so that all but the last are joined with a space,
- * and the last string is appended with a " - " separator.
- * @param args Strings to concatenate.
- * @returns Concatenated string.
- * @example spaceHyphenConcatWithoutResource(['foo', 'bar', 'baz']) => 'foo bar - baz'
- */
-export function spaceHyphenConcatWithoutResource(args: string[]): string {
-  if (args.length === 0) return '';
-  if (args.length === 1) return args[0] || '';
-
-  const initialPart = args
-    .slice(0, -1)
-    .map((arg) => arg || '')
-    .join(' ');
-
-  const lastPart = args[args.length - 1] || '';
-
-  return `${initialPart} - ${lastPart}`;
-}
-
-/**
- * Concatenates the given strings so that all but the first are joined with a space,
- * and the first string is appended with a " - " separator.
- * @param args Strings to concatenate.
- * @returns Concatenated string.
- * @example hyphenSpaceConcatWithoutResource(['foo', 'bar', 'baz']) => 'foo - bar baz'
- */
-export function hyphenSpaceConcatWithoutResource(args: string[]): string {
-  if (args.length === 0) return '';
-  if (args.length === 1) return args[0] || '';
-
-  const initialPart = args[0] || '';
-
-  const lastPart = args
-    .slice(1, args.length)
-    .map((arg) => arg || '')
-    .join(' ');
-
-  return `${initialPart} - ${lastPart}`;
-}
-
-/**
- * Concatenates the given strings without any space,
- * @param args Strings to concatenate.
- * @returns Concatenated string.
- * @example noSpaceConcatWithoutResource(['foo', 'bar', 'baz']) => 'foobarbaz'
- */
-export function noSpaceConcatWithoutResource(args: string[]): string {
-  if (args.length === 0) return '';
-  if (args.length === 1) return args[0] || '';
-  return args.join('');
+  // The hyphen stands between two parts that are both there.
+  return [initialPart, lastPart].filter((part) => part !== '').join(' - ');
 }
 
 /**

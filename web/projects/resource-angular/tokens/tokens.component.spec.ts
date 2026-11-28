@@ -14,6 +14,9 @@ import { provideResourceTesting } from '@impulseframework/resource-angular/testi
 
 import { noTokensSentence, TokensComponent, tokenIntro } from './tokens.component';
 
+/** What the server says of a token that is not there. */
+const noToken = 'This token is already revoked or expired, or it does not exist.';
+
 // The component configures itself from the descriptor's tokens block: it lists the
 // person's live tokens as served, each kind in its own words, issues an application token
 // by name for an outlet (chosen among several, fixed where there is one) and shows the
@@ -357,12 +360,12 @@ describe('TokensComponent revokes a token', () => {
   });
 
   it("renders the server's refusal in place when no live token answers to the id", async () => {
-    const page = await pageOver({ revoke: { status: 404, body: { message: 'no live token' } } });
+    const page = await pageOver({ revoke: { status: 404, body: { message: noToken } } });
     trashOf(page, 2).click();
     await page.settle();
     inDialog('.impulse-action-confirm')!.click();
     await turn();
     await page.settle();
-    expect(alertOf(page)).toBe('no live token');
+    expect(alertOf(page)).toBe(noToken);
   });
 });

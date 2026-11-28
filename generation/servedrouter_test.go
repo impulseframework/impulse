@@ -625,7 +625,7 @@ func Test_servedRouterData(t *testing.T) {
 				if o.AuthPackage != "" || o.Getter != "" || o.Receiver != "h" || o.HookField != "Default" || o.SessionInterface != "DefaultSession" || o.StubType != "routerDefaultSessionStub" {
 					t.Errorf("default outlet = %+v", o)
 				}
-				if o.AuthLabel != "sessions (azure)" || o.MethodsPath != "/api/user/methods" || o.Pending != (servedPending{Status: "/api/user/pending", Confirm: "/api/user/pending/confirm", Cancel: "/api/user/pending/cancel", SendCode: "/api/user/pending/code", VerifyCode: "/api/user/pending/code/verify", EnrollEmail: "/api/user/pending/email"}) {
+				if o.AuthLabel != "sessions (azure)" || o.MethodsPath != "/api/user/methods" || o.Pending != (servedPending{Status: "/api/user/pending", Cancel: "/api/user/pending/cancel", SendCode: "/api/user/pending/code", VerifyCode: "/api/user/pending/code/verify", EnrollEmail: "/api/user/pending/email"}) {
 					t.Errorf("default outlet's session = %+v", o)
 				}
 				if len(o.Methods) != 1 || o.Methods[0].Name != "azure" || o.Methods[0].Kind != "azure" || o.Methods[0].Label != "Microsoft" || o.Methods[0].Accessor != "Azure" || o.Methods[0].LoginPath != "/api/user/azure/login" || strings.Join(o.Methods[0].Handlers, ",") != "AzureLogin,AzureCallback,AzureFrontChannelLogout" {
@@ -645,19 +645,27 @@ func Test_servedRouterData(t *testing.T) {
 					}
 					paths = append(paths, route.Method+" "+route.Path+" "+route.Handler+guard)
 				}
-				want := "GET /api/user/methods Methods,GET /api/user/session Authenticated,DELETE /api/user/session Logout,GET /api/user/pending PendingStatus,GET /api/user/sign-in-means SignInMeans," +
+				want := "GET /api/user/methods Methods,GET /api/user/session Authenticated,DELETE /api/user/session Logout,GET /api/user/pending PendingStatus,GET /api/user/sign-in-means SignInMeans,GET /api/user/sessions OwnSessions,GET /api/user/tenants OwnTenants," +
 					"GET /api/user/azure/login AzureLogin,GET /api/user/azure/callback AzureCallback,GET /api/user/azure/logout AzureFrontChannelLogout," +
-					"POST /api/user/pending/confirm PendingConfirmWithPassword (xsrf),POST /api/user/pending/cancel PendingCancel (xsrf)," +
+					"POST /api/user/pending/cancel PendingCancel (xsrf)," +
 					"POST /api/user/pending/code PendingSendCode (xsrf),POST /api/user/pending/code/verify PendingVerifyCode (xsrf),POST /api/user/pending/email PendingEnrollEmail (xsrf),POST /api/user/browser/forget ForgetBrowser (xsrf),POST /api/user/name ChangeName (xsrf),POST /api/user/look ChangeLook (xsrf)," +
-					"POST /api/user/invitation InvitationOpen (xsrf)," +
+					"POST /api/user/username ChangeUsername (xsrf),POST /api/user/username/free UsernameFree (xsrf),POST /api/user/sessions/end EndOwnSession (xsrf),POST /api/user/sessions/end-others EndOtherSessions (xsrf),POST /api/user/browser/forget-all ForgetBrowsers (xsrf),POST /api/user/tenants/leave LeaveTenant (xsrf)," +
+					"POST /api/user/invitation InvitationOpen (xsrf),POST /api/user/email/confirm EmailConfirm (xsrf)," +
 					"POST /api/user/invitation/accept InvitationAccept (xsrf),POST /api/user/email EmailAdd (xsrf),POST /api/user/email/verify EmailVerify (xsrf)"
 				if got := strings.Join(paths, ","); got != want {
 					t.Errorf("routes = %s, want %s", got, want)
 				}
-				if len(o.OpenRoutes) != 8 || len(o.GuardedRoutes) != 9 || len(o.ValidatedRoutes) != 3 {
-					t.Errorf("open, guarded, validated = %d, %d, %d; want 8, 9, 3", len(o.OpenRoutes), len(o.GuardedRoutes), len(o.ValidatedRoutes))
+				if len(o.OpenRoutes) != 10 || len(o.GuardedRoutes) != 15 || len(o.ValidatedRoutes) != 3 {
+					t.Errorf("open, guarded, validated = %d, %d, %d; want 10, 15, 3", len(o.OpenRoutes), len(o.GuardedRoutes), len(o.ValidatedRoutes))
 				}
-				if o.Invitation != (servedInvitation{Open: "/api/user/invitation", Accept: "/api/user/invitation/accept"}) || o.Email != (servedEmail{Add: "/api/user/email", Verify: "/api/user/email/verify"}) || o.SignUp != nil {
+				if o.ChangeUsername != "/api/user/username" || o.UsernameFree != "/api/user/username/free" || o.OwnSessionsList != "/api/user/sessions" ||
+					o.OwnSessionsEnd != "/api/user/sessions/end" || o.OwnSessionsEndOthers != "/api/user/sessions/end-others" || o.ForgetBrowsers != "/api/user/browser/forget-all" {
+					t.Errorf("the paths of the person's own username, sessions and remembered browsers = %q, %q, %q, %q, %q, %q", o.ChangeUsername, o.UsernameFree, o.OwnSessionsList, o.OwnSessionsEnd, o.OwnSessionsEndOthers, o.ForgetBrowsers)
+				}
+				if o.OwnTenantsList != "/api/user/tenants" || o.OwnTenantsLeave != "/api/user/tenants/leave" {
+					t.Errorf("the paths of the person's own tenants = %q, %q", o.OwnTenantsList, o.OwnTenantsLeave)
+				}
+				if o.Invitation != (servedInvitation{Open: "/api/user/invitation", Accept: "/api/user/invitation/accept"}) || o.Email != (servedEmail{Add: "/api/user/email", Verify: "/api/user/email/verify", Confirm: "/api/user/email/confirm"}) || o.SignUp != nil || o.PasswordReset != nil {
 					t.Errorf("invitation, email, sign-up = %+v, %+v, %+v; want the invitation without sign-up, the email routes, no sign-up", o.Invitation, o.Email, o.SignUp)
 				}
 				// An auth with no password method mounts no first password: there is none
@@ -696,9 +704,11 @@ func Test_servedRouterData(t *testing.T) {
 				for _, route := range data.Outlets[0].Routes {
 					crewRoutes = append(crewRoutes, route.Method+" "+route.Path)
 				}
-				if want := "GET /api/user/methods,GET /api/user/session,DELETE /api/user/session,GET /api/user/pending,GET /api/user/sign-in-means,POST /api/user/password/login,POST /api/user/password/change,POST /api/user/password/remove,POST /api/user/pending/confirm,POST /api/user/pending/cancel," +
+				if want := "GET /api/user/methods,GET /api/user/session,DELETE /api/user/session,GET /api/user/pending,GET /api/user/sign-in-means,GET /api/user/sessions,GET /api/user/tenants,POST /api/user/password/login,POST /api/user/password/change,POST /api/user/password/remove,POST /api/user/password/strength,POST /api/user/pending/confirm,POST /api/user/pending/cancel," +
 					"POST /api/user/pending/code,POST /api/user/pending/code/verify,POST /api/user/pending/email,POST /api/user/browser/forget,POST /api/user/name,POST /api/user/look," +
-					"POST /api/user/invitation,POST /api/user/invitation/sign-up,POST /api/user/sign-up,POST /api/user/sign-up/open,POST /api/user/sign-up/complete," +
+					"POST /api/user/username,POST /api/user/username/free,POST /api/user/sessions/end,POST /api/user/sessions/end-others,POST /api/user/browser/forget-all,POST /api/user/tenants/leave," +
+					"POST /api/user/invitation,POST /api/user/invitation/sign-up,POST /api/user/email/confirm,POST /api/user/sign-up,POST /api/user/sign-up/open,POST /api/user/sign-up/complete," +
+					"POST /api/user/password-reset,POST /api/user/password-reset/open,POST /api/user/password-reset/complete," +
 					"POST /api/user/invitation/accept,POST /api/user/email,POST /api/user/email/verify,POST /api/user/first-password/code,POST /api/user/first-password," +
 					"GET /api/user/tokens,POST /api/user/tokens,POST /api/user/tokens/revoke,GET /api/user/device,POST /api/user/device/approve,POST /api/user/device/deny"; strings.Join(crewRoutes, ",") != want {
 					t.Errorf("crew routes = %v, want %s", crewRoutes, want)
@@ -706,6 +716,9 @@ func Test_servedRouterData(t *testing.T) {
 				crewOutlet := data.Outlets[0]
 				if !crewOutlet.IssuesTokens || len(crewOutlet.ValidatedRoutes) != 11 || strings.Join(crewOutlet.ExtraHandlers, ",") != "DeviceAuthorize,DeviceToken" {
 					t.Errorf("the issuing outlet = %+v, want the token page's six validated routes after the account's five and the device flow's two handlers", crewOutlet)
+				}
+				if want := (servedPasswordReset{Request: "/api/user/password-reset", Open: "/api/user/password-reset/open", Complete: "/api/user/password-reset/complete"}); crewOutlet.PasswordReset == nil || *crewOutlet.PasswordReset != want {
+					t.Errorf("password reset = %+v, want the three routes on an auth with the password method", crewOutlet.PasswordReset)
 				}
 				if crewOutlet.FirstPassword == nil || *crewOutlet.FirstPassword != (servedFirstPassword{SendCode: "/api/user/first-password/code", Set: "/api/user/first-password"}) {
 					t.Errorf("first password = %+v, want the code's and the password's routes on an auth with the password method", crewOutlet.FirstPassword)
@@ -1055,35 +1068,50 @@ func Test_servedRouterTemplates(t *testing.T) {
 			outlets: []*routerOutlet{{name: "default", prefix: "api", servesSessions: true, auth: &outletAuth{importPath: "example.com/acme/beacon/pkg/config", methods: []AuthMethod{AzureMethod("azure")}}, webApp: "/"}},
 			wantRouter: []string{
 				"// Package router serves the application.",
-				"//\tevery request: tracing, hooks.Outermost, request logging, SecurityHeaders, httpio.WithParams",
+				"//\tevery request: tracing, hooks.Outermost, request logging, SecurityHeaders, httpio.WithParams, NameEnvironment\n",
 				"//\tdefault (/api), sessions (azure):",
-				"//\t  NoCaching, CompressionMiddleware, ReleaseHeader, StartSession, SetXSRFToken: GET /api/user/methods, GET /api/user/session, DELETE /api/user/session, GET /api/user/pending, GET /api/user/sign-in-means, GET /api/user/azure/login, GET /api/user/azure/callback, GET /api/user/azure/logout",
-				"//\t  + ValidateXSRFToken: POST /api/user/pending/confirm, POST /api/user/pending/cancel, POST /api/user/pending/code, POST /api/user/pending/code/verify, POST /api/user/pending/email, POST /api/user/browser/forget, POST /api/user/name, POST /api/user/look",
+				"//\t  NoCaching, CompressionMiddleware, ReleaseHeader, StartSession, SetXSRFToken: GET /api/user/methods, GET /api/user/session, DELETE /api/user/session, GET /api/user/pending, GET /api/user/sign-in-means, GET /api/user/sessions, GET /api/user/tenants, GET /api/user/azure/login, GET /api/user/azure/callback, GET /api/user/azure/logout",
+				"//\t  + ValidateXSRFToken: POST /api/user/pending/cancel, POST /api/user/pending/code, POST /api/user/pending/code/verify, POST /api/user/pending/email, POST /api/user/browser/forget, POST /api/user/name, POST /api/user/look, " +
+					"POST /api/user/username, POST /api/user/username/free, POST /api/user/sessions/end, POST /api/user/sessions/end-others, POST /api/user/browser/forget-all, POST /api/user/tenants/leave,",
 				"//\t  + ValidateSession, ValidateXSRFToken, CheckAPIVersion: hooks.Default\n//\t  + ValidateSession, ValidateXSRFToken, CheckAPIVersion, hooks.Default, EnforceReadOnlyMask: generatedRoutes",
 				"\t// The default outlet's session surface.\n\tDefaultSession\n",
 				"type DefaultSession interface {\n\tStartSession(next http.Handler) http.Handler\n",
 				"\tMethods(list *session.MethodList) http.HandlerFunc\n",
-				"\tPendingStatus() http.HandlerFunc\n\tPendingConfirmWithPassword() http.HandlerFunc\n\tPendingCancel() http.HandlerFunc\n\tPendingSendCode() http.HandlerFunc\n\tPendingVerifyCode() http.HandlerFunc\n\tPendingEnrollEmail() http.HandlerFunc\n\t// ForgetBrowser forgets the browser the second factor remembered for the signed-in\n\t// person, from their account page (session.Auth.ForgetBrowser); it validates the\n\t// session itself.\n\tForgetBrowser() http.HandlerFunc\n" +
+				"\tPendingStatus() http.HandlerFunc\n\tPendingCancel() http.HandlerFunc\n\tPendingSendCode() http.HandlerFunc\n\tPendingVerifyCode() http.HandlerFunc\n\tPendingEnrollEmail() http.HandlerFunc\n\t// ForgetBrowser forgets the browser the second factor remembered for the signed-in\n\t// person, from their account page (session.Auth.ForgetBrowser); it validates the\n\t// session itself.\n\tForgetBrowser() http.HandlerFunc\n" +
 					"\t// ChangeName writes the signed-in person's own name, from their account page\n\t// (session.Auth.ChangeName); it validates the session itself.\n\tChangeName() http.HandlerFunc\n" +
 					"\t// SignInMeans answers what the signed-in person signs in with, a password or none\n\t// and the directory sign-ins linked to them, to their account page\n\t// (session.Auth.SignInMeans); it validates the session itself.\n\tSignInMeans() http.HandlerFunc\n" +
 					"\t// ChangeLook keeps the look the signed-in person chose, so it follows them to\n\t// every browser (session.Auth.ChangeLook); it validates the session itself.\n\tChangeLook() http.HandlerFunc\n" +
+					"\t// ChangeUsername writes the signed-in person's own username, from their account\n\t// page (session.Auth.ChangeUsername); it validates the session itself.\n\tChangeUsername() http.HandlerFunc\n" +
+					"\t// UsernameFree answers whether a username the signed-in person types is free, to\n\t// their account page (session.Auth.UsernameFree); it validates the session itself.\n\tUsernameFree() http.HandlerFunc\n" +
+					"\t// OwnSessions answers where the signed-in person is signed in, to their account\n\t// page (session.Auth.OwnSessions); it validates the session itself.\n\tOwnSessions() http.HandlerFunc\n" +
+					"\t// EndOwnSession signs the signed-in person out of one other browser of theirs, from\n\t// their account page (session.Auth.EndOwnSession); it validates the session itself.\n\tEndOwnSession() http.HandlerFunc\n" +
+					"\t// EndOtherSessions signs the signed-in person out of every browser but this one,\n\t// from their account page (session.Auth.EndOtherSessions); it validates the session\n\t// itself.\n\tEndOtherSessions() http.HandlerFunc\n" +
+					"\t// ForgetBrowsers forgets every browser the second factor remembered for the\n\t// signed-in person, from their account page (session.Auth.ForgetBrowsers); it\n\t// validates the session itself.\n\tForgetBrowsers() http.HandlerFunc\n" +
+					"\t// OwnTenants answers the signed-in person's tenants, with the roles held in each, to\n\t// their account page (session.Auth.OwnTenants); it validates the session itself.\n\tOwnTenants() http.HandlerFunc\n" +
+					"\t// LeaveTenant takes the signed-in person out of one of their tenants, from their\n\t// account page (session.Auth.LeaveTenant); it validates the session itself.\n\tLeaveTenant() http.HandlerFunc\n" +
 					"\t// The invitation the login page was sent to, opened (session.InvitationHandlers.Open): the sign-in that follows carries it.\n\tInvitationOpen() http.HandlerFunc\n" +
 					"\t// The invitation accepted by a person already signed in (session.InvitationHandlers.Accept).\n\tInvitationAccept() http.HandlerFunc\n" +
 					"\t// A signed-in person's email address, added by mailing it a verification link (session.EmailHandlers.Add).\n\tEmailAdd() http.HandlerFunc\n" +
 					"\t// The address verified from the mailed link (session.EmailHandlers.Verify).\n\tEmailVerify() http.HandlerFunc\n" +
+					"\t// An address an administrator set for a person, confirmed from the link mailed to it (session.EmailHandlers.Confirm).\n\tEmailConfirm() http.HandlerFunc\n" +
 					"\t// The azure registration's login, callback and front-channel logout (azure.Method).\n\tAzureLogin() http.HandlerFunc\n\tAzureCallback() http.HandlerFunc\n\tAzureFrontChannelLogout() http.HandlerFunc\n}",
-				"\t\tbounded := r.With(resource.BodyLimit(BodyLimit), resource.NoDryRunOrWarning())\n\t\tguarded := bounded.With(h.ValidateXSRFToken)\n\t\tbounded.Get(\"/api/user/methods\", h.Methods(&session.MethodList{\n\t\t\tMethods: []session.AdvertisedMethod{\n\t\t\t\t{Name: \"azure\", Label: \"Microsoft\", Path: \"/api/user/azure/login\"},\n\t\t\t},\n\t\t\tPending: session.PendingRoutes{\n\t\t\t\tStatus: \"/api/user/pending\", Confirm: \"/api/user/pending/confirm\", Cancel: \"/api/user/pending/cancel\",\n\t\t\t\tSendCode: \"/api/user/pending/code\", VerifyCode: \"/api/user/pending/code/verify\", EnrollEmail: \"/api/user/pending/email\",\n\t\t\t},\n" +
-					"\t\t\tForgetBrowser: \"/api/user/browser/forget\",\n" +
-					"\t\t\tChangeName:    \"/api/user/name\",\n" +
-					"\t\t\tSignInMeans:   \"/api/user/sign-in-means\",\n" +
-					"\t\t\tChangeLook:    \"/api/user/look\",\n" +
-					"\t\t\tInvitation:    session.InvitationRoutes{Open: \"/api/user/invitation\", Accept: \"/api/user/invitation/accept\"},\n\t\t\tEmail:         session.EmailRoutes{Add: \"/api/user/email\", Verify: \"/api/user/email/verify\"},\n\t\t}))\n",
+				"\t\tbounded := r.With(resource.BodyLimit(BodyLimit), resource.NoDryRunOrWarning())\n\t\tguarded := bounded.With(h.ValidateXSRFToken)\n\t\tbounded.Get(\"/api/user/methods\", h.Methods(&session.MethodList{\n\t\t\tMethods: []session.AdvertisedMethod{\n\t\t\t\t{Name: \"azure\", Label: \"Microsoft\", Path: \"/api/user/azure/login\"},\n\t\t\t},\n\t\t\tPending: session.PendingRoutes{\n\t\t\t\tStatus: \"/api/user/pending\", Cancel: \"/api/user/pending/cancel\",\n\t\t\t\tSendCode: \"/api/user/pending/code\", VerifyCode: \"/api/user/pending/code/verify\", EnrollEmail: \"/api/user/pending/email\",\n\t\t\t},\n" +
+					"\t\t\tForgetBrowser:  \"/api/user/browser/forget\",\n" +
+					"\t\t\tChangeName:     \"/api/user/name\",\n" +
+					"\t\t\tSignInMeans:    \"/api/user/sign-in-means\",\n" +
+					"\t\t\tChangeLook:     \"/api/user/look\",\n" +
+					"\t\t\tChangeUsername: \"/api/user/username\",\n" +
+					"\t\t\tUsernameFree:   \"/api/user/username/free\",\n" +
+					"\t\t\tOwnSessions:    session.OwnSessionsRoutes{List: \"/api/user/sessions\", End: \"/api/user/sessions/end\", EndOthers: \"/api/user/sessions/end-others\"},\n" +
+					"\t\t\tForgetBrowsers: \"/api/user/browser/forget-all\",\n" +
+					"\t\t\tOwnTenants:     session.OwnTenantsRoutes{List: \"/api/user/tenants\", Leave: \"/api/user/tenants/leave\"},\n" +
+					"\t\t\tInvitation:     session.InvitationRoutes{Open: \"/api/user/invitation\", Accept: \"/api/user/invitation/accept\"},\n\t\t\tEmail:          session.EmailRoutes{Add: \"/api/user/email\", Verify: \"/api/user/email/verify\", Confirm: \"/api/user/email/confirm\"},\n\t\t}))\n",
 				"\t\tguarded.Post(\"/api/user/invitation\", h.InvitationOpen())\n",
-				"\t\tguarded.Post(\"/api/user/pending/confirm\", h.PendingConfirmWithPassword())\n\t\tguarded.Post(\"/api/user/pending/cancel\", h.PendingCancel())\n",
-				"\tServerVersion() string\n",
+				"\t\tguarded.Post(\"/api/user/pending/cancel\", h.PendingCancel())\n\t\tguarded.Post(\"/api/user/pending/code\", h.PendingSendCode())\n",
+				"\tServerVersion() string\n\t// ServerEnvironment is the name of the environment this server runs in, the\n\t// configuration's APP_ENVIRONMENT: what every answer names (resource.NameEnvironment)\n\t// and the About pop-up of a browser application shows. Production is told no name\n\t// and reports none, so its answers name no environment.\n\tServerEnvironment() string\n",
 				"func New(h Handlers, hooks Hooks) *chi.Mux {",
 				"\tr := chi.NewRouter()\n\t// The release this server was built from: every outlet names it on each answer\n\t// (X-Api-Version), and each session outlet's version check compares a browser\n\t// application's against it.\n\tserverVersion := h.ServerVersion()\n",
-				"\tr.Use(tracer.NewHandler())\n\tr.Use(hooks.Outermost...)\n\tr.Use(logger.NewRequestLogger(h.LogExporter()))\n\tr.Use(h.SecurityHeaders)\n\tr.Use(httpio.WithParams)\n",
+				"\tr.Use(tracer.NewHandler())\n\tr.Use(hooks.Outermost...)\n\tr.Use(logger.NewRequestLogger(h.LogExporter()))\n\tr.Use(h.SecurityHeaders)\n\tr.Use(httpio.WithParams)\n\t// The environment this server runs in, named on every answer (X-Environment) where the\n\t// application reports one: production reports none.\n\tr.Use(resource.NameEnvironment(h.ServerEnvironment()))\n",
 				"\tLogExporter() logger.Exporter\n",
 				"\tValidateXSRFToken(next http.Handler) http.Handler\n\t// EnforceReadOnlyMask refuses a write from a session that views as someone else\n\t// read-only (session.Auth.EnforceReadOnlyMask). The router mounts it itself in front\n\t// of the routes a signed-in person calls on their own account and of the outlet's\n\t// generated routes, so it holds wherever the application's hook registers those and\n\t// whether or not the hook mounts it.\n\tEnforceReadOnlyMask(next http.Handler) http.Handler\n",
 				"\t\tbounded.Get(\"/api/user/azure/logout\", h.AzureFrontChannelLogout())\n",
@@ -1099,13 +1127,15 @@ func Test_servedRouterTemplates(t *testing.T) {
 			wantNoRouterImports: []string{"example.com/acme/beacon/pkg/config"},
 			wantRouterTest: []string{
 				"var routerRootChain = []string{\"LogExporter\", \"SecurityHeaders\"}",
+				"func TestGeneratedRouterEnvironment(t *testing.T) {",
+				"\t\t\tstub.serverEnvironment = tt.environment\n\t\t\trr := httptest.NewRecorder()\n\t\t\tNew(stub, Hooks{}).ServeHTTP(rr, httptest.NewRequestWithContext(t.Context(), http.MethodGet, \"/no-such-route\", http.NoBody))\n\n\t\t\tif got := rr.Header().Values(resource.ServerEnvironmentHeader); !slices.Equal(got, tt.want) {",
 				"func (s *routerHandlersStub) LogExporter() logger.Exporter {\n\tif s.exporter != nil {\n\t\treturn s.exporter\n\t}\n\n\treturn &routerLogExporterStub{rec: s.rec}\n}",
 				"func (s *routerLogExporterStub) Middleware() func(http.Handler) http.Handler {\n\treturn s.rec.Middleware(\"LogExporter\")\n}",
 				"type routerDefaultSessionStub struct {\n\trec    *routerCallRecorder\n\tprefix string\n}",
 				"func (s *routerDefaultSessionStub) AzureFrontChannelLogout() http.HandlerFunc {",
 				"func (s *routerDefaultSessionStub) Methods(*session.MethodList) http.HandlerFunc {\n\treturn s.rec.RecordHandlerCall(s.prefix + \"Methods\")\n}",
 				"\t\t{url: \"/api/user/azure/logout\", suffix: \"/user/azure/logout\", method: http.MethodGet, handler: \"AzureFrontChannelLogout\"},",
-				"\t\t{url: \"/api/user/pending/confirm\", suffix: \"/user/pending/confirm\", method: http.MethodPost, handler: \"PendingConfirmWithPassword\", xsrf: true},",
+				"\t\t{url: \"/api/user/pending/cancel\", suffix: \"/user/pending/cancel\", method: http.MethodPost, handler: \"PendingCancel\", xsrf: true},",
 				"\t\t{url: \"/api/user/email/verify\", suffix: \"/user/email/verify\", method: http.MethodPost, handler: \"EmailVerify\", xsrf: true, validated: true},",
 				"\t\t\tswitch {\n\t\t\tcase tt.validated:\n\t\t\t\twant = slices.Concat(want, chain.guards, chain.mask)\n\t\t\tcase tt.xsrf:\n\t\t\t\twant = append(want, chain.guards[1])\n\t\t\t}",
 				"\t\tguards: []string{\"ValidateSession\", \"ValidateXSRFToken\"},\n\t\tmask:   []string{\"EnforceReadOnlyMask\"},",
@@ -1118,7 +1148,7 @@ func Test_servedRouterTemplates(t *testing.T) {
 				"\t\t{url: \"/generated-router-page/deep/link\", handler: \"Assets\", deepLink: \"DeepLink\"},",
 				"func TestGeneratedRouterAPIVersion(t *testing.T) {",
 				"\t\t{\n\t\t\tprefix: \"/api/\", server: \"2.0.0\", inRange: \"0.0.1\", below: \"\", above: \"2.0.1\",\n\t\t},",
-				"\tserverVersion string\n\t// exporter is where the request log goes when a test sets one, the console for the\n\t// request log test; nil hands the router the recording stub.\n\texporter logger.Exporter\n}\n\nfunc (s *routerHandlersStub) ServerVersion() string {\n\treturn s.serverVersion\n}",
+				"\tserverVersion string\n\t// serverEnvironment is the environment's name the stub reports; empty, production's.\n\tserverEnvironment string\n\t// exporter is where the request log goes when a test sets one, the console for the\n\t// request log test; nil hands the router the recording stub.\n\texporter logger.Exporter\n}\n\nfunc (s *routerHandlersStub) ServerVersion() string {\n\treturn s.serverVersion\n}\n\nfunc (s *routerHandlersStub) ServerEnvironment() string {\n\treturn s.serverEnvironment\n}",
 				"\t\t\tDefault: func(r chi.Router, generated func(chi.Router)) {\n\t\t\t\tr.Use(rec.Middleware(\"DefaultHook\"))\n\t\t\t\tgenerated(r)\n\t\t\t},",
 			},
 			wantNotRouterTest: []string{"BindAuth", "routerPortalSessionStub", "PasswordLogin", "TestGeneratedRouterRoot", "files: []routerFileRoute"},
@@ -1183,7 +1213,7 @@ func Test_servedRouterTemplates(t *testing.T) {
 			wantRouter: []string{
 				"//\tdefault (/api), sessions of the crew auth (password):",
 				"//\t  BindAuth(crew.Name), NoCaching, CompressionMiddleware, ReleaseHeader, StartSession, SetXSRFToken: GET /api/user/methods, GET /api/user/session, DELETE /api/user/session, GET /api/user/pending, GET /api/user/sign-in-means",
-				"//\t  + ValidateXSRFToken: POST /api/user/password/login, POST /api/user/password/change, POST /api/user/password/remove, POST /api/user/pending/confirm, POST /api/user/pending/cancel, POST /api/user/pending/code, POST /api/user/pending/code/verify, POST /api/user/pending/email, POST /api/user/browser/forget, POST /api/user/name, POST /api/user/look",
+				"//\t  + ValidateXSRFToken: POST /api/user/password/login, POST /api/user/password/change, POST /api/user/password/remove, POST /api/user/password/strength, POST /api/user/pending/confirm, POST /api/user/pending/cancel, POST /api/user/pending/code, POST /api/user/pending/code/verify, POST /api/user/pending/email, POST /api/user/browser/forget, POST /api/user/name, POST /api/user/look",
 				"//\tportal (/portal/api), sessions of the members auth (google):",
 				"//\t  + ValidateSession, ValidateXSRFToken, EnforceReadOnlyMask: POST /api/user/invitation/accept, POST /api/user/email, POST /api/user/email/verify, POST /api/user/first-password/code, POST /api/user/first-password, GET /api/user/tokens, POST /api/user/tokens, POST /api/user/tokens/revoke, GET /api/user/device, POST /api/user/device/approve, POST /api/user/device/deny",
 				"//\tdroids (/droids), bearer tokens of the crew auth:\n//\t  BindAuth(crew.Name), NoCaching, CompressionMiddleware, ReleaseHeader: POST /droids/oauth/device/authorize, POST /droids/oauth/token\n//\t  + ValidateToken: hooks.Droids, generatedDroidsRoutes",
@@ -1192,25 +1222,33 @@ func Test_servedRouterTemplates(t *testing.T) {
 				"\t// Portal returns the portal outlet's session surface: the members auth's.\n\tPortal() PortalSession\n",
 				"type PortalSession interface {",
 				"\t// The google registration's login and callback (google.Method).\n\tGoogleLogin() http.HandlerFunc\n\tGoogleCallback() http.HandlerFunc\n}",
-				"\t// The password method's login, password change and password removal (session.PasswordMethod); the change and the removal validate the session themselves, outside ValidateSession.\n\tPasswordLogin() http.HandlerFunc\n\tPasswordChange() http.HandlerFunc\n\tPasswordRemove() http.HandlerFunc\n}",
+				"\t// The password method's login, password change, password removal and password strength (session.PasswordMethod); the change and the removal validate the session themselves, outside ValidateSession, and the strength question needs none.\n\tPasswordLogin() http.HandlerFunc\n\tPasswordChange() http.HandlerFunc\n\tPasswordRemove() http.HandlerFunc\n\tPasswordStrength() http.HandlerFunc\n}",
 				"\t\tguarded.Post(\"/api/user/password/login\", h.PasswordLogin())",
 				"\t\tguarded.Post(\"/api/user/password/change\", h.PasswordChange())",
 				// A person removes their own password beside where they change it, and the
 				// account page is told the path.
 				"\t\tguarded.Post(\"/api/user/password/remove\", h.PasswordRemove())",
-				"\t\t\tChangePassword: \"/api/user/password/change\",\n\t\t\tRemovePassword: \"/api/user/password/remove\",",
+				"\t\tguarded.Post(\"/api/user/password/strength\", h.PasswordStrength())",
+				"\t\t\tChangePassword:   \"/api/user/password/change\",\n\t\t\tRemovePassword:   \"/api/user/password/remove\",\n\t\t\tPasswordStrength: \"/api/user/password/strength\",",
 				"\t\t\t\t{Name: \"google\", Label: \"Google\", Path: \"/portal/api/user/google/login\"},",
-				"\tBindAuth(name string) func(http.Handler) http.Handler\n",
 				"\t// Droids returns the droids outlet's token surface: the machine outlet the application\n\t// registers on the crew auth's Auth (session.RegisterMachineOutlet), whose token\n\t// check binds each request to the person its bearer token acts for.\n\tDroids() DroidsTokens\n",
 				"// DroidsTokens is the droids outlet's token surface: the token check of the machine\n// outlet the application registers on the crew auth's Auth\n// (session.RegisterMachineOutlet(auth, \"droids\")), which a *session.MachineOutlet satisfies.",
 				"type DroidsTokens interface {\n\tValidateToken(next http.Handler) http.Handler\n}",
 				"\t// A command-line client's device authorization started (session.DeviceHandlers.Authorize): the client is told the code the person types; mounted under each machine outlet the auth issues tokens for.\n\tDeviceAuthorize() http.HandlerFunc\n\t// The device flow's token endpoint (session.DeviceHandlers.Token): the client's polls for its pair, and the refresh grant; mounted under each machine outlet the auth issues tokens for.\n\tDeviceToken() http.HandlerFunc\n\t// The pending device authorization the person's code names, for the approval page (session.DeviceHandlers.Lookup).\n\tDeviceLookup() http.HandlerFunc\n\t// The device authorization approved by the signed-in person, as themselves (session.DeviceHandlers.Approve).\n\tDeviceApprove() http.HandlerFunc\n\t// The device authorization denied (session.DeviceHandlers.Deny).\n\tDeviceDeny() http.HandlerFunc\n\t// The signed-in person's live tokens (session.ApplicationTokenHandlers.List).\n\tTokensList() http.HandlerFunc\n\t// An application token issued to the signed-in person for a program of their own, the secret shown once (session.ApplicationTokenHandlers.Create).\n\tTokensCreate() http.HandlerFunc\n\t// A token of the signed-in person's revoked (session.ApplicationTokenHandlers.Revoke).\n\tTokensRevoke() http.HandlerFunc\n",
 				"\tPortalDeepLink(next http.Handler) http.Handler\n\tPortalAssets() http.HandlerFunc\n",
-				"\t\tr.Use(h.BindAuth(crew.Name))\n\t\tr.Use(h.NoCaching)",
-				"\t// The droids outlet (/droids): machine clients carrying bearer tokens of the crew auth, so the group\n\t// carries no session handling and no XSRF guard. The device flow's endpoints, where a\n\t// command-line client obtains its tokens with a person's approval, sit in front of the\n\t// token check; everything else sits behind it.\n\tr.Group(func(r chi.Router) {\n\t\tr.Use(h.BindAuth(crew.Name))\n\t\tr.Use(h.NoCaching)\n\t\tr.Use(h.CompressionMiddleware())\n\t\tr.Use(resource.ReleaseHeader(serverVersion))\n\n\t\tbounded := r.With(resource.BodyLimit(BodyLimit), resource.NoDryRunOrWarning())\n\t\tbounded.Post(\"/droids/oauth/device/authorize\", h.DeviceAuthorize())\n\t\tbounded.Post(\"/droids/oauth/token\", h.DeviceToken())\n\n\t\tr.Group(func(r chi.Router) {\n\t\t\tr.Use(h.Droids().ValidateToken)\n\n\t\t\tregisterGenerated(r, hooks.Droids, \"Droids\", func(r chi.Router) {\n\t\t\t\tgeneratedDroidsRoutes(r, h)\n\t\t\t})\n\t\t})\n\t})",
+				"\t\tr.Use(resource.BindAuth(crew.Name))\n\t\tr.Use(h.NoCaching)",
+				"\t\tr.Use(resource.BindAuth(members.Name))\n\t\tr.Use(h.NoCaching)",
+				"\t// The droids outlet (/droids): machine clients carrying bearer tokens of the crew auth, so the group\n\t// carries no session handling and no XSRF guard. The device flow's endpoints, where a\n\t// command-line client obtains its tokens with a person's approval, sit in front of the\n\t// token check; everything else sits behind it.\n\tr.Group(func(r chi.Router) {\n\t\tr.Use(resource.BindAuth(crew.Name))\n\t\tr.Use(h.NoCaching)\n\t\tr.Use(h.CompressionMiddleware())\n\t\tr.Use(resource.ReleaseHeader(serverVersion))\n\n\t\tbounded := r.With(resource.BodyLimit(BodyLimit), resource.NoDryRunOrWarning())\n\t\tbounded.Post(\"/droids/oauth/device/authorize\", h.DeviceAuthorize())\n\t\tbounded.Post(\"/droids/oauth/token\", h.DeviceToken())\n\n\t\tr.Group(func(r chi.Router) {\n\t\t\tr.Use(h.Droids().ValidateToken)\n\n\t\t\tregisterGenerated(r, hooks.Droids, \"Droids\", func(r chi.Router) {\n\t\t\t\tgeneratedDroidsRoutes(r, h)\n\t\t\t})\n\t\t})\n\t})",
 				"\t\t\t\tExempt: []string{\n\t\t\t\t\t\"/api/user/invitation/accept\",\n\t\t\t\t\t\"/api/user/email\",\n\t\t\t\t\t\"/api/user/email/verify\",\n\t\t\t\t\t\"/api/user/first-password/code\",\n\t\t\t\t\t\"/api/user/first-password\",\n\t\t\t\t\t\"/api/user/tokens\",\n\t\t\t\t\t\"/api/user/tokens\",\n\t\t\t\t\t\"/api/user/tokens/revoke\",\n\t\t\t\t\t\"/api/user/device\",\n\t\t\t\t\t\"/api/user/device/approve\",\n\t\t\t\t\t\"/api/user/device/deny\",\n\t\t\t\t},",
 				"\t\t\taccount.Post(\"/api/user/email/verify\", h.EmailVerify())\n\t\t\taccount.Post(\"/api/user/first-password/code\", h.FirstPasswordSendCode())\n\t\t\taccount.Post(\"/api/user/first-password\", h.FirstPasswordSet())\n",
-				"\t\t\tFirstPassword:  session.FirstPasswordRoutes{SendCode: \"/api/user/first-password/code\", Set: \"/api/user/first-password\"},\n",
+				"\t\t\tFirstPassword:    session.FirstPasswordRoutes{SendCode: \"/api/user/first-password/code\", Set: \"/api/user/first-password\"},\n",
+				// The reset link is asked for, opened and completed behind the XSRF guard alone, as
+				// the confirmation of an address an administrator set is: neither needs a session.
+				"\t\t\tPasswordReset:    session.PasswordResetRoutes{Request: \"/api/user/password-reset\", Open: \"/api/user/password-reset/open\", Complete: \"/api/user/password-reset/complete\"},\n",
+				"guarded.Post(\"/api/user/password-reset\", h.PasswordResetRequest())",
+				"guarded.Post(\"/api/user/password-reset/open\", h.PasswordResetOpen())",
+				"guarded.Post(\"/api/user/password-reset/complete\", h.PasswordResetComplete())",
+				"guarded.Post(\"/api/user/email/confirm\", h.EmailConfirm())",
 				"\t// The code of a first password, mailed to the confirmed address of a signed-in person who has no password (session.FirstPasswordHandlers.SendCode).\n\tFirstPasswordSendCode() http.HandlerFunc\n\t// The first password of a signed-in person who has none, set with the mailed code (session.FirstPasswordHandlers.Set).\n\tFirstPasswordSet() http.HandlerFunc\n",
 				"\t\t\taccount.Get(\"/api/user/tokens\", h.TokensList())\n\t\t\taccount.Post(\"/api/user/tokens\", h.TokensCreate())\n\t\t\taccount.Post(\"/api/user/tokens/revoke\", h.TokensRevoke())\n\t\t\taccount.Get(\"/api/user/device\", h.DeviceLookup())\n\t\t\taccount.Post(\"/api/user/device/approve\", h.DeviceApprove())\n\t\t\taccount.Post(\"/api/user/device/deny\", h.DeviceDeny())\n",
 				"\t// Droids runs inside the droids outlet's token group: r already sits behind\n\t// BindAuth(crew.Name) and the token check, and generated registers the outlet's generated\n\t// routes. Nil registers them directly.\n\tDroids func(r chi.Router, generated func(chi.Router))",
@@ -1224,7 +1262,7 @@ func Test_servedRouterTemplates(t *testing.T) {
 				"The root alone sends the browser to the default outlet's\n\t// application; every other unmatched path is 404.\n\tr.Get(\"/\", func(w http.ResponseWriter, req *http.Request) {\n\t\thttp.Redirect(w, req, \"/console/\", http.StatusTemporaryRedirect)\n\t})\n\n\treturn r\n}",
 				"\tDroids func(r chi.Router, generated func(chi.Router))",
 			},
-			wantNotRouter:       []string{"h.Portal().StartSession", "droidsSession", "catch-all", "DroidsAuth", "Auth(next http.Handler)", "PortalDeviceAuthorize", "DeviceAuthorize() http.HandlerFunc\n\t// The device flow's token endpoint (session.DeviceHandlers.Token): the client's polls for its pair, and the refresh grant; mounted under each machine outlet the auth issues tokens for.\n\tDeviceToken() http.HandlerFunc\n\t// The pending device authorization the person's code names, for the approval page (session.DeviceHandlers.Lookup).\n\tDeviceLookup() http.HandlerFunc\n\t// The device authorization approved by the signed-in person, as themselves (session.DeviceHandlers.Approve).\n\tDeviceApprove() http.HandlerFunc\n\t// The device authorization denied (session.DeviceHandlers.Deny).\n\tDeviceDeny() http.HandlerFunc\n\t// The signed-in person's live tokens (session.ApplicationTokenHandlers.List).\n\tTokensList() http.HandlerFunc\n\t// An application token issued to the signed-in person for a program of their own, the secret shown once (session.ApplicationTokenHandlers.Create).\n\tTokensCreate() http.HandlerFunc\n\t// A token of the signed-in person's revoked (session.ApplicationTokenHandlers.Revoke).\n\tTokensRevoke() http.HandlerFunc\n\t// The google registration's login and callback (google.Method)."},
+			wantNotRouter:       []string{"BindAuth(name string)", "h.BindAuth", "h.Portal().StartSession", "droidsSession", "catch-all", "DroidsAuth", "Auth(next http.Handler)", "PortalDeviceAuthorize", "DeviceAuthorize() http.HandlerFunc\n\t// The device flow's token endpoint (session.DeviceHandlers.Token): the client's polls for its pair, and the refresh grant; mounted under each machine outlet the auth issues tokens for.\n\tDeviceToken() http.HandlerFunc\n\t// The pending device authorization the person's code names, for the approval page (session.DeviceHandlers.Lookup).\n\tDeviceLookup() http.HandlerFunc\n\t// The device authorization approved by the signed-in person, as themselves (session.DeviceHandlers.Approve).\n\tDeviceApprove() http.HandlerFunc\n\t// The device authorization denied (session.DeviceHandlers.Deny).\n\tDeviceDeny() http.HandlerFunc\n\t// The signed-in person's live tokens (session.ApplicationTokenHandlers.List).\n\tTokensList() http.HandlerFunc\n\t// An application token issued to the signed-in person for a program of their own, the secret shown once (session.ApplicationTokenHandlers.Create).\n\tTokensCreate() http.HandlerFunc\n\t// A token of the signed-in person's revoked (session.ApplicationTokenHandlers.Revoke).\n\tTokensRevoke() http.HandlerFunc\n\t// The google registration's login and callback (google.Method)."},
 			wantRouterImports:   []string{"example.com/acme/beacon/pkg/auth/crew", "example.com/acme/beacon/pkg/auth/members"},
 			wantNoRouterImports: []string{"github.com/impulseframework/impulse/resource/shipped"},
 			wantRouterTest: []string{
@@ -1236,6 +1274,7 @@ func Test_servedRouterTemplates(t *testing.T) {
 				"func (s *routerDefaultSessionStub) PasswordLogin() http.HandlerFunc {",
 				"func (s *routerDefaultSessionStub) PasswordChange() http.HandlerFunc {",
 				"func (s *routerDefaultSessionStub) PasswordRemove() http.HandlerFunc {",
+				"func (s *routerDefaultSessionStub) PasswordStrength() http.HandlerFunc {",
 				"func (s *routerPortalSessionStub) GoogleCallback() http.HandlerFunc {",
 				"\tportal *routerPortalSessionStub\n",
 				"\t\tportal:                   &routerPortalSessionStub{rec: rec, prefix: \"Portal\"},",
@@ -1244,6 +1283,7 @@ func Test_servedRouterTemplates(t *testing.T) {
 				"\t\t{url: \"/api/user/password/login\", suffix: \"/user/password/login\", method: http.MethodPost, handler: \"PasswordLogin\", xsrf: true},",
 				"\t\t{url: \"/api/user/password/change\", suffix: \"/user/password/change\", method: http.MethodPost, handler: \"PasswordChange\", xsrf: true},",
 				"\t\t{url: \"/api/user/password/remove\", suffix: \"/user/password/remove\", method: http.MethodPost, handler: \"PasswordRemove\", xsrf: true},",
+				"\t\t{url: \"/api/user/password/strength\", suffix: \"/user/password/strength\", method: http.MethodPost, handler: \"PasswordStrength\", xsrf: true},",
 				"// routerDroidsTokensStub records the droids outlet's token check under a name prefix, so a chain\n// says whose tokens a request passed.\ntype routerDroidsTokensStub struct {\n\trec    *routerCallRecorder\n\tprefix string\n}\n\nfunc (s *routerDroidsTokensStub) ValidateToken(next http.Handler) http.Handler {\n\treturn s.rec.Middleware(s.prefix + \"ValidateToken\")(next)\n}",
 				"\tdroids *routerDroidsTokensStub\n",
 				"\t\tdroids:                   &routerDroidsTokensStub{rec: rec, prefix: \"Droids\"},",
@@ -1253,7 +1293,7 @@ func Test_servedRouterTemplates(t *testing.T) {
 				"\t\t{url: \"/api/user/tokens\", suffix: \"/user/tokens\", method: http.MethodGet, handler: \"TokensList\", xsrf: true, validated: true},",
 				"\t\t{url: \"/api/user/device/deny\", suffix: \"/user/device/deny\", method: http.MethodPost, handler: \"DeviceDeny\", xsrf: true, validated: true},",
 				"\t\t{url: \"/droids/oauth/device/authorize\", suffix: \"/oauth/device/authorize\", method: http.MethodPost, handler: \"DeviceAuthorize\"},\n\t\t{url: \"/droids/oauth/token\", suffix: \"/oauth/token\", method: http.MethodPost, handler: \"DeviceToken\"},",
-				"func (s *routerHandlersStub) BindAuth(name string) func(http.Handler) http.Handler {",
+				"\t\t\tif auth := resource.BoundAuth(r.Context()); auth != \"\" && r.Context().Value(routerBindRecorded{}) == nil {\n\t\t\t\trec.chain = append(rec.chain, \"BindAuth(\"+auth+\")\")\n",
 				"\t\t\tDroids: func(r chi.Router, generated func(chi.Router)) {",
 				"\t\t{url: \"/console/generated-router-page/deep/link\", handler: \"Assets\", deepLink: \"DeepLink\"},",
 				"// redirects to the default outlet's application, calling no handler, and that an\n",
@@ -1261,7 +1301,7 @@ func Test_servedRouterTemplates(t *testing.T) {
 				"\t\t{name: \"the root redirects\", url: \"/\", code: http.StatusTemporaryRedirect, location: \"/console/\"},",
 				"\t\t{name: \"an unmatched path is not found\", url: \"/generated-router-unmatched\", code: http.StatusNotFound},",
 			},
-			wantNotRouterTest: []string{"FrontChannelLogout", "catch-all"},
+			wantNotRouterTest: []string{"FrontChannelLogout", "catch-all", "func (s *routerHandlersStub) BindAuth"},
 		},
 		{
 			name: "a default outlet without a browser application redirects the root to the first outlet that serves one",
@@ -1340,7 +1380,7 @@ func Test_servedRouterTemplates(t *testing.T) {
 			outlets: []*routerOutlet{{name: "default", prefix: "api", servesSessions: true, auth: &outletAuth{importPath: "example.com/acme/beacon/pkg/auth/crew", methods: []AuthMethod{PasswordMethod(), PersonaMethod("persona")}}}},
 			wantRouter: []string{
 				"//\tdefault (/api), sessions (password, persona):",
-				"GET /api/user/pending, GET /api/user/sign-in-means, GET /api/user/persona/login, GET /api/user/persona/callback\n",
+				"GET /api/user/pending, GET /api/user/sign-in-means, GET /api/user/sessions, GET /api/user/tenants, GET /api/user/persona/login, GET /api/user/persona/callback\n",
 				"\t// The persona registration's login and callback (oidc.Method), where the Auth registered it: the persona provider is configured in the first environment and its pull requests, and the handlers are nil elsewhere.\n\tPersonaLogin() http.HandlerFunc\n\tPersonaCallback() http.HandlerFunc\n}",
 				"\t\tbounded := r.With(resource.BodyLimit(BodyLimit), resource.NoDryRunOrWarning())\n\t\tguarded := bounded.With(h.ValidateXSRFToken)\n" +
 					"\t\t// A method the Auth registers only where its provider is configured (persona): the\n\t\t// surface has its handlers there and nil elsewhere, so its routes are mounted and\n\t\t// the login page is told of it only where it is.\n" +
@@ -1396,6 +1436,93 @@ func Test_servedRouterTemplates(t *testing.T) {
 			for _, notWant := range tt.wantNotRouterTest {
 				if strings.Contains(routerTest, notWant) {
 					t.Errorf("router test must not contain %q:\n%s", notWant, routerTest)
+				}
+			}
+		})
+	}
+}
+
+// Test_servedRouter_passwordConfirmation pins that the password confirmation of a
+// pending sign-in is served exactly where the outlet's auth registers a password method.
+// With none, nobody holds a password to confirm with: the router mounts no confirm
+// route, the outlet's session surface names no handler for one, the login page is told
+// of none, and the generated test neither stubs nor walks one. The rest of the pending
+// sign-in (its status, its cancel and the mailed code) is served either way.
+func Test_servedRouter_passwordConfirmation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		methods []AuthMethod
+		want    bool
+	}{
+		{name: "one directory method", methods: []AuthMethod{AzureMethod("azure")}},
+		{name: "a directory method and the personas", methods: []AuthMethod{GoogleMethod("google"), PersonaMethod("persona")}},
+		{name: "the password method", methods: []AuthMethod{PasswordMethod()}, want: true},
+		{name: "the password method beside a directory method", methods: []AuthMethod{GoogleMethod("google"), PasswordMethod()}, want: true},
+	}
+	r := &resourceGenerator{client: &client{}}
+	r.router = packageDir("pkg/router")
+	r.resource = packageDir("pkg/resources")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			auth := &outletAuth{importPath: "example.com/acme/beacon/pkg/auth/crew", methods: tt.methods}
+			outlets := []*routerOutlet{{name: "default", prefix: "api", servesSessions: true, auth: auth, webApp: "/"}}
+			data := r.servedRouterData(outlets, nil, nil, nil)
+			o := data.Outlets[0]
+
+			wantConfirm := ""
+			if tt.want {
+				wantConfirm = "/api/user/pending/confirm"
+			}
+			if want := (servedPending{Status: "/api/user/pending", Confirm: wantConfirm, Cancel: "/api/user/pending/cancel", SendCode: "/api/user/pending/code", VerifyCode: "/api/user/pending/code/verify", EnrollEmail: "/api/user/pending/email"}); o.Pending != want {
+				t.Errorf("pending routes = %+v, want %+v", o.Pending, want)
+			}
+			mounted := slices.ContainsFunc(o.Routes, func(route servedRoute) bool { return route.Handler == pendingConfirmHandler })
+			guarded := slices.ContainsFunc(o.GuardedRoutes, func(route servedRoute) bool { return route.Handler == pendingConfirmHandler && route.XSRF })
+			if mounted != tt.want || guarded != tt.want {
+				t.Errorf("the confirm route is mounted = %v, behind the XSRF guard = %v; want %v for both", mounted, guarded, tt.want)
+			}
+
+			router := render(t, r, "servedRouterTemplate", servedRouterTemplate, data)
+			routerTest := render(t, r, "servedRouterTestTemplate", servedRouterTestTemplate, data)
+			confirmation := []struct {
+				in, source, text string
+			}{
+				{in: "the router's session surface", source: router, text: "\tPendingConfirmWithPassword() http.HandlerFunc\n"},
+				{in: "the router's routes", source: router, text: "guarded.Post(\"/api/user/pending/confirm\", h.PendingConfirmWithPassword())"},
+				{in: "the routes the login page is told", source: router, text: "Confirm: \"/api/user/pending/confirm\", Cancel: \"/api/user/pending/cancel\","},
+				{in: "the router's chain comment", source: router, text: "POST /api/user/pending/confirm"},
+				{in: "the generated test's stub", source: routerTest, text: "func (s *routerDefaultSessionStub) PendingConfirmWithPassword() http.HandlerFunc {"},
+				{in: "the generated test's routes", source: routerTest, text: "{url: \"/api/user/pending/confirm\", suffix: \"/user/pending/confirm\", method: http.MethodPost, handler: \"PendingConfirmWithPassword\", xsrf: true},"},
+			}
+			for _, c := range confirmation {
+				if got := strings.Contains(c.source, c.text); got != tt.want {
+					t.Errorf("%s: %q is there = %v, want %v", c.in, c.text, got, tt.want)
+				}
+			}
+			if !tt.want {
+				for name, source := range map[string]string{"the router": router, "the generated test": routerTest} {
+					for _, text := range []string{"PendingConfirmWithPassword", "/user/pending/confirm", "password confirmation"} {
+						if strings.Contains(source, text) {
+							t.Errorf("%s of an auth with no password method must not say %q", name, text)
+						}
+					}
+				}
+			}
+			// What does not need a password is served either way.
+			for _, text := range []string{
+				"\tPendingStatus() http.HandlerFunc\n",
+				"\tPendingCancel() http.HandlerFunc\n",
+				"guarded.Post(\"/api/user/pending/cancel\", h.PendingCancel())",
+				"guarded.Post(\"/api/user/pending/code/verify\", h.PendingVerifyCode())",
+				"Pending: session.PendingRoutes{\n\t\t\t\tStatus: \"/api/user/pending\", ",
+				"SendCode: \"/api/user/pending/code\", VerifyCode: \"/api/user/pending/code/verify\", EnrollEmail: \"/api/user/pending/email\",",
+			} {
+				if !strings.Contains(router, text) {
+					t.Errorf("router missing %q", text)
 				}
 			}
 		})
@@ -1712,13 +1839,13 @@ func Test_servedRouterTemplates_words(t *testing.T) {
 			fileRoutes:   fileRoutes,
 			wordedRoutes: wordedRoutes,
 			wantRouter: []string{
-				"//\tevery request: tracing, hooks.Outermost, request logging (always, Warning and above), SecurityHeaders, httpio.WithParams\n//\t  by hand under /beacons/: request log on event, traces off\n//\tdefault (/api), sessions of the crew auth (password):\n",
+				"//\tevery request: tracing, hooks.Outermost, request logging (always, Warning and above), SecurityHeaders, httpio.WithParams, NameEnvironment\n//\t  by hand under /beacons/: request log on event, traces off\n//\tdefault (/api), sessions of the crew auth (password):\n",
 				"//\t  + ValidateSession, ValidateXSRFToken, CheckAPIVersion: hooks.Default\n//\t  + ValidateSession, ValidateXSRFToken, CheckAPIVersion, hooks.Default, EnforceReadOnlyMask: generatedRoutes\n//\t  GET /api/widgets/{widgetID}/content: request log never, traces off\n//\tdroids (/droids), bearer tokens of the crew auth, request log on event, traces off:\n//\t  BindAuth(crew.Name), NoCaching, CompressionMiddleware, ReleaseHeader: POST /droids/oauth/device/authorize, POST /droids/oauth/token\n//\t  + ValidateToken: hooks.Droids, generatedDroidsRoutes\n//\t  by hand under /droids/telemetry/: request log never, traces capped at 0.5\n//\t  POST /droids/ingest: request log sampled at 0.5\n//\tportal (/portal/api), sessions of the members auth (google), traces capped at 0.1:\n",
 				"//\tscheduled (/_scheduled), Cloud Scheduler's token:\n//\t  NoCaching, CompressionMiddleware, ReleaseHeader, SchedulerAuth: generatedScheduledRoutes\n//\t  POST /_scheduled/prune-logs: request log on event\n//\n",
 				"// None is mounted at /: the root alone redirects to /console/, the default outlet's application.\n//\n// The request log word and the trace setting named at each place are the nearest\n// declarations, a route's over its outlet's and an outlet's over the application\n// default; a request under none writes its entry always and its spans follow the front\n// end. The root's request logger decides each entry when the request ends, and a handler\n// may change its own request's word through logger.FromReq(r).SetPolicy.\npackage router\n",
 				"\tr.Use(tracer.NewHandler(tracer.Surfaces(map[string]tracer.Traces{\n\t\t\"/api/widgets/{widgetID}/content\": tracer.TracesOff(),\n\t\t\"/beacons/\":                       tracer.TracesOff(),\n\t\t\"/droids/\":                        tracer.TracesOff(),\n\t\t\"/droids/telemetry/\":              tracer.TracesCapped(0.5),\n\t\t\"/portal/api/\":                    tracer.TracesCapped(0.1),\n\t})))\n\tr.Use(hooks.Outermost...)\n",
 				"\t// word a request starts with, the application default or the word of the longest\n\t// prefix declared by hand that the path sits under; an outlet's word, a route's own\n\t// and a handler's own request override it on the way down.\n\tr.Use(logger.NewRequestLogger(h.LogExporter(),\n\t\tlogger.DefaultPolicy(logger.Always().MinSeverity(logging.Warning)),\n\t\tlogger.PolicyByPrefix(map[string]logger.Policy{\n\t\t\t\"/beacons/\":          logger.OnEvent(),\n\t\t\t\"/droids/telemetry/\": logger.Never(),\n\t\t}),\n\t))\n\tr.Use(h.SecurityHeaders)\n",
-				"\tr.Group(func(r chi.Router) {\n\t\t// Every request under the outlet writes its request log on event, except under\n\t\t// the prefixes declared by hand beneath it, which keep their own word.\n\t\tr.Use(outletRequestLog(logger.OnEvent(), \"/droids/telemetry/\"))\n\t\tr.Use(h.BindAuth(crew.Name))\n\t\tr.Use(h.NoCaching)\n\t\tr.Use(h.CompressionMiddleware())\n\t\tr.Use(resource.ReleaseHeader(serverVersion))\n\n\t\tbounded := r.With(resource.BodyLimit(BodyLimit), resource.NoDryRunOrWarning())\n",
+				"\tr.Group(func(r chi.Router) {\n\t\t// Every request under the outlet writes its request log on event, except under\n\t\t// the prefixes declared by hand beneath it, which keep their own word.\n\t\tr.Use(outletRequestLog(logger.OnEvent(), \"/droids/telemetry/\"))\n\t\tr.Use(resource.BindAuth(crew.Name))\n\t\tr.Use(h.NoCaching)\n\t\tr.Use(h.CompressionMiddleware())\n\t\tr.Use(resource.ReleaseHeader(serverVersion))\n\n\t\tbounded := r.With(resource.BodyLimit(BodyLimit), resource.NoDryRunOrWarning())\n",
 				"\tfor _, prefix := range []string{\"/api/\", \"/portal/api/\", \"/_scheduled/\"} {",
 				"\t// The droids outlet's not-found handler carries the outlet's word, so an unknown path\n\t// under its prefix is logged as its requests are.\n\tr.Route(\"/droids/\", func(r chi.Router) {\n\t\t// Every request under the outlet writes its request log on event, except under\n\t\t// the prefixes declared by hand beneath it, which keep their own word.\n\t\tr.Use(outletRequestLog(logger.OnEvent(), \"/droids/telemetry/\"))\n\t\tr.NotFound(func(w http.ResponseWriter, _ *http.Request) {\n",
 				"func outletRequestLog(word logger.Policy, mountedPrefixes ...string) func(http.Handler) http.Handler {\n\tsetWord := logger.WithPolicy(word)\n",
@@ -1745,7 +1872,7 @@ func Test_servedRouterTemplates_words(t *testing.T) {
 			r:       plain,
 			outlets: alone,
 			wantRouter: []string{
-				"//\tevery request: tracing, hooks.Outermost, request logging, SecurityHeaders, httpio.WithParams\n//\tdefault (/api), sessions (password), request log on event:\n",
+				"//\tevery request: tracing, hooks.Outermost, request logging, SecurityHeaders, httpio.WithParams, NameEnvironment\n//\tdefault (/api), sessions (password), request log on event:\n",
 				"\tr.Use(tracer.NewHandler())\n",
 				"\tr.Use(logger.NewRequestLogger(h.LogExporter()))\n",
 				"\tr.Group(func(r chi.Router) {\n\t\t// Every request under the outlet writes its request log on event.\n\t\tr.Use(logger.WithPolicy(logger.OnEvent()))\n\t\tr.Use(h.NoCaching)\n",

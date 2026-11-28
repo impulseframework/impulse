@@ -70,10 +70,14 @@ type Controller interface {
 	// with them, such as a tenant's list of its people.
 	TenantAdministratorRoles() []accesstypes.Role
 
+	// Auth returns the name of the auth whose roles the engine holds, empty for
+	// an engine opened under no auth's name (see Client.Auth).
+	Auth() string
+
 	// UserPermissionDigest returns user's structural grant enumeration within
-	// scope — the frontend digest payload: resource → permission → granted or
-	// conditional, denied targets absent, nothing folded (see
-	// Client.UserPermissionDigest).
+	// scope — the frontend digest payload: resource → permission → granted,
+	// conditional on time or conditional, denied targets absent, nothing
+	// folded (see Client.UserPermissionDigest).
 	UserPermissionDigest(ctx context.Context, user accesstypes.User, scope accesstypes.Scope) (accesstypes.PermissionDigest, error)
 
 	// ForUser returns the request-bound permission checker for user, whose
@@ -138,23 +142,30 @@ type UserManager interface {
 	// Errors if role doesn't exist in scope: a default role of scope's kind
 	// or a custom role held in scope — or, for one domain, in every domain.
 	// A custom role held in one domain alone cannot be assigned in every
-	// domain.
+	// domain. A custom role deleted at the moment it is given is not given:
+	// the call answers that the role does not exist.
 	AddRoleUsers(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, users ...accesstypes.User) error
 
 	// AddUserRoles assigns roles to user, the memberships held in scope, each
-	// with no period: it counts until it is removed, and a role the user held
-	// for a period loses the period. Errors if any role doesn't exist in
-	// scope, as AddRoleUsers defines it.
+	// with no period and no reason: it counts until it is removed, and a role
+	// the user held for a period loses the period and the reason it was given
+	// for. Errors if any role doesn't exist in scope, as AddRoleUsers defines
+	// it. A custom role deleted at the moment it is given is not given: the
+	// call answers that the role does not exist, and the user keeps the roles
+	// the call gave before that one.
 	AddUserRoles(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, roles ...accesstypes.Role) error
 
 	// AssignUserRole gives user the role in scope for the period: the role
 	// counts from the period's start, where it has one, until its end, where
-	// it has one, with no row written in between. Assigning again is how a
-	// period changes: the period handed replaces the one the assignment had.
+	// it has one, with no row written in between. reason says why the role is
+	// given, one line of plain text that is empty for none (ValidateReason),
+	// kept with the membership and listed with it (UserRolesHeld). Assigning
+	// again is how a period changes: the period and the reason handed replace
+	// the ones the assignment had, so nothing edits a reason by itself.
 	// Errors as AddUserRoles does, if the period ends at or before its start,
-	// and if it puts an end or a start on the Super Administrator role, which
-	// takes neither.
-	AssignUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period) error
+	// if it puts an end or a start on the Super Administrator role, which
+	// takes neither, and if the reason is not one line.
+	AssignUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string) error
 
 	// DeleteRoleUsers removes users from role, the memberships held in scope.
 	// Errors if role doesn't exist.
@@ -174,6 +185,42 @@ type UserManager interface {
 	// ValidatePeriod first.
 	Membership(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, held RoleReader) (MembershipKey, error)
 
+	// AssignRecordUserRole gives user the role on one record of a tenant for
+	// the period, replacing the period of one the person holds there: the role's
+	// grants then count on that record and what it reaches, and nowhere else of
+	// the tenant. The role is a domain role the role file marks for the record's
+	// kind (Role.HeldOn), the kind one the collection marks as a record that
+	// holds roles, and the period one the role can carry; anything else is a
+	// 400. The library never looks the record up.
+	AssignRecordUserRole(ctx context.Context, at accesstypes.RecordScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period) error
+
+	// DeleteRecordUserRoles takes the roles user holds on the record away. A
+	// role the person does not hold there is no error.
+	DeleteRecordUserRoles(ctx context.Context, at accesstypes.RecordScope, user accesstypes.User, roles ...accesstypes.Role) error
+
+	// RecordHolders returns who holds what on the record and has not ended, one
+	// whose period has not begun among them: the people's first, then the
+	// groups', each with the group's name.
+	RecordHolders(ctx context.Context, at accesstypes.RecordScope) ([]RecordHolder, error)
+
+	// DeleteRecordRoles takes every role held on the record away, a person's
+	// and a group's: what the record's deletion does.
+	DeleteRecordRoles(ctx context.Context, at accesstypes.RecordScope) error
+
+	// RolesHeldOn lists the roles that can be held on a record of the kind,
+	// the domain roles the role file marks for it, with their descriptions,
+	// sorted by name.
+	RolesHeldOn(record accesstypes.Resource) []RoleInfo
+
+	// RecordMembership answers the key of the row that says user holds role on
+	// the record, for a caller that writes it inside a transaction of its own
+	// instead of through AssignRecordUserRole. Errors as AssignRecordUserRole
+	// does, less the period: a caller that writes the row with a period asks
+	// ValidatePeriod first. The caller commits the row and then calls
+	// Controller.PolicyChanged. A row to remove needs no check and is spelled
+	// by NewRecordMembershipKey.
+	RecordMembership(ctx context.Context, at accesstypes.RecordScope, user accesstypes.User, role accesstypes.Role) (RecordMembershipKey, error)
+
 	// UserRoles returns the roles user holds now, keyed by where each is held:
 	// the memberships of their own and the roles of every group they are in,
 	// each role listed once in each place, and none that is outside its
@@ -185,6 +232,15 @@ type UserManager interface {
 	// group alone is somebody. The Super Administrator role is listed only
 	// where the user's own membership holds it: no group gives it.
 	UserRoles(ctx context.Context, user accesstypes.User, scopes ...accesstypes.PolicyScope) (accesstypes.RoleCollection, error)
+
+	// UserRolesHeld returns the roles user holds as one list, each with where
+	// it comes from: a membership of their own, with its period and the
+	// reason it was given for, or a group they are in that holds the role
+	// (see HeldRole). A role held both ways is listed once for each. The
+	// person's own are the memberships that have not ended, one whose period
+	// has not begun among them; the ones through a group are the ones
+	// UserRoles counts now.
+	UserRolesHeld(ctx context.Context, user accesstypes.User) ([]HeldRole, error)
 
 	// TenantsAdministered lists the tenants user administers now, sorted: the
 	// tenant domains where they hold one of the application's tenant
@@ -209,13 +265,25 @@ type UserManager interface {
 	// does not exist or the description is empty.
 	DescribeGroup(ctx context.Context, group accesstypes.Group, description string) error
 
-	// DeleteGroup removes group. Errors if the group does not exist, or still
-	// has a member or holds a role: a group goes once it is emptied. A member
-	// or a role whose period has ended goes with it.
+	// DeleteGroup removes group with its members and the roles it holds. Errors
+	// if the group does not exist.
 	DeleteGroup(ctx context.Context, group accesstypes.Group) error
 
 	// Groups returns the groups kept in scope, sorted by name.
 	Groups(ctx context.Context, scope accesstypes.PolicyScope) ([]GroupInfo, error)
+
+	// GroupContents returns the groups kept in scope, sorted by name, each
+	// with how many people are in it and the roles it holds (see
+	// GroupContent). Both count what has not ended, an assignment whose
+	// period has not begun among it.
+	GroupContents(ctx context.Context, scope accesstypes.PolicyScope) ([]GroupContent, error)
+
+	// GroupRoleLosers returns the people who lose role in scope when group
+	// stops holding it there: the people in the group now who hold the role
+	// there through this group and in no other way, sorted. A person who also
+	// holds it themselves, through another group, or in every tenant when
+	// scope is one tenant, keeps it and is not listed.
+	GroupRoleLosers(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role) ([]accesstypes.User, error)
 
 	// UserGroups returns the groups user is in, wherever each is kept.
 	UserGroups(ctx context.Context, user accesstypes.User) ([]GroupInfo, error)
@@ -243,7 +311,10 @@ type UserManager interface {
 	// or in every domain. A group kept in one domain holds roles in that
 	// domain alone. No group holds the Super Administrator role. Errors if
 	// the group does not exist or a role doesn't exist in scope, as
-	// AddRoleUsers defines it. Each role is given with no period.
+	// AddRoleUsers defines it. Each role is given with no period. A custom
+	// role deleted at the moment it is given is not given: the call answers
+	// that the role does not exist, and the group keeps the roles the call
+	// gave before that one.
 	AddGroupRoles(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, roles ...accesstypes.Role) error
 
 	// AssignGroupRole gives group the role in scope for the period, replacing
@@ -267,6 +338,25 @@ type UserManager interface {
 	// remove needs no check and is spelled by NewGroupRoleKey.
 	GroupRole(ctx context.Context, group accesstypes.Group, kept, scope accesstypes.PolicyScope, role accesstypes.Role, held RoleReader) (GroupRoleKey, error)
 
+	// AssignRecordGroupRole gives group the role on one record of a tenant for
+	// the period, replacing the period of one the group holds there. Errors as
+	// AssignRecordUserRole does, and if the group is not kept in the record's
+	// tenant or is not there.
+	AssignRecordGroupRole(ctx context.Context, group accesstypes.Group, at accesstypes.RecordScope, role accesstypes.Role, period accesstypes.Period) error
+
+	// DeleteRecordGroupRoles takes the roles group holds on the record away. A
+	// role the group does not hold there is no error.
+	DeleteRecordGroupRoles(ctx context.Context, group accesstypes.Group, at accesstypes.RecordScope, roles ...accesstypes.Role) error
+
+	// RecordGroupRole answers the key of the row that says group holds role on
+	// the record, for a caller that writes it inside a transaction of its own
+	// instead of through AssignRecordGroupRole. kept is where the group is
+	// kept, read by the caller with the group's row. Errors as
+	// AssignRecordGroupRole does, less the period. The caller commits the row
+	// and then calls Controller.PolicyChanged. A row to remove needs no check
+	// and is spelled by NewRecordGroupRoleKey.
+	RecordGroupRole(ctx context.Context, group accesstypes.Group, kept accesstypes.PolicyScope, at accesstypes.RecordScope, role accesstypes.Role) (RecordGroupRoleKey, error)
+
 	// UserPermissions returns user's effective permissions in each scope —
 	// what the user holds there, from memberships held in the scope and in
 	// every domain, default and custom roles alike, answered from the policy
@@ -289,7 +379,10 @@ type UserManager interface {
 	// such roles with no exact match is an error, never a guess. A
 	// directory names roles without regard to case (a Google group is an
 	// email address), so the name it asserts resolves here to the spelling
-	// the role file or AddRole gave the role.
+	// the role file or AddRole gave the role. Case is the case of ASCII
+	// letters alone: a letter from outside ASCII matches only itself, so a
+	// name written with a look-alike letter (the Kelvin sign for k, the long
+	// s for s) is no role's.
 	ResolveRole(ctx context.Context, scope accesstypes.PolicyScope, name string) (accesstypes.Role, bool, error)
 
 	// Roles returns the roles that exist in scope, sorted by name, each with
@@ -302,13 +395,17 @@ type UserManager interface {
 
 	// DeleteRole removes a custom role held in scope with its grants. Returns
 	// false with an error if the role has members in scope, if a group holds
-	// it there, or if it is a default role. The delete is scoped to the given
-	// scope.
+	// it there, if it is held in every domain and a person or a group holds
+	// it in one domain, or if it is a default role. The delete is scoped to
+	// the given scope.
 	DeleteRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error)
 
 	// AddRolePermission grants permission to role scope-wide: the permission is
 	// held with no resource attachment. Errors if role is not a custom role
-	// held in scope.
+	// held in scope, and if the release has no such permission: one its
+	// permission collection does not list. A load of the policy holds a stored
+	// scope-wide grant to the same rule, and skips and reports one that fails
+	// it (SkippedGrant).
 	AddRolePermission(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, permission accesstypes.Permission) error
 
 	// DeleteRolePermission removes a scope-wide permission from role. Errors
@@ -316,18 +413,44 @@ type UserManager interface {
 	DeleteRolePermission(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, permission accesstypes.Permission) error
 
 	// AddRolePermissionResources grants permission on resources to role.
-	// Errors if role is not a custom role held in scope.
+	// Errors if role is not a custom role held in scope. A resource the
+	// release does not declare the permission on, or one of another scope
+	// than the role's, refuses the whole call, as AddRoleGrant refuses one.
 	AddRolePermissionResources(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, permission accesstypes.Permission, resources ...accesstypes.Resource) error
 
 	// AddRoleGrant grants permission on one resource to role, limited by
 	// condition ("" is unconditional). Errors if role is not a custom role
 	// held in scope.
+	//
+	// A Client writes a role no grant the running release, whose collection
+	// New is given, cannot use: a permission the release does not have, a
+	// permission it does not declare on the resource or the field, and an
+	// action no role is given are each refused as a bad request that says
+	// which and why, and nothing of the call is written. Such a grant would
+	// be left out when the policy loads (SkippedGrant) and give nothing, and
+	// a name nobody declared is one nobody can say the meaning of. All of a
+	// resource's fields ("Resource.*") is the resource's own name, and a role
+	// file gives the same grant with "*" among a grant's fields.
+	//
+	// The grant is held to the rest of the rule a role file's grants are held
+	// to as well, and refused as a bad request in the role file's own
+	// sentence: the resource is of the role's scope (a global resource for a
+	// role held globally, a domain's for a role held in a domain or in every
+	// domain), Update is not given on what the release marks immutable (Update
+	// on all of a resource's fields does not reach such a field), and
+	// the condition parses and reads only the attributes the resource declares
+	// and the subject vocabulary the application declares. A load of the
+	// policy holds a role's stored grant to the same rule: a grant in the store
+	// that breaks it, a condition that reads an attribute the release does not
+	// declare among them, is left out when the policy loads and reported
+	// (SkippedGrant), and the role's other grants hold.
 	AddRoleGrant(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, permission accesstypes.Permission, resource accesstypes.Resource, condition string) error
 
 	// AddRoleGrants writes the grants to role as one store write rather than
 	// one per grant; grants the role already holds are left as they are.
 	// Errors if role is not a custom role held in scope or a grant names no
-	// resource.
+	// resource. One grant AddRoleGrant would refuse, by its names, its scope
+	// or its condition, refuses the whole call.
 	AddRoleGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, grants ...GrantRow) error
 
 	// ChangeRoleGrants removes the removals from role and adds the additions
@@ -335,7 +458,10 @@ type UserManager interface {
 	// change or after it, never between, and a failure leaves them as they
 	// were. Additions the role already holds are left as they are; removals
 	// it does not hold are ignored. Errors if role is not a custom role held
-	// in scope or a grant names no resource.
+	// in scope or a grant names no resource. An addition is held to what the
+	// release declares and to the role file's rule, as AddRoleGrant holds it,
+	// and one that is refused refuses the whole change. A removal is held to
+	// nothing, so a grant the release no longer declares can be taken away.
 	ChangeRoleGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, removals, additions []GrantRow) error
 
 	// DeleteRolePermissionResources removes every grant of permission on the
@@ -349,8 +475,10 @@ type UserManager interface {
 	DeleteRoleGrant(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, permission accesstypes.Permission, resource accesstypes.Resource, condition string) error
 
 	// DeleteAllRolePermissions removes all permissions from role, scope-wide
-	// and resource-specific alike. Errors if role is not a custom role held
-	// in scope.
+	// and resource-specific alike. Each row is removed by the columns the
+	// store holds it under, so a row no write could have made, which a load
+	// skips and reports, is removed with the rest. Errors if role is not a
+	// custom role held in scope.
 	DeleteAllRolePermissions(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) error
 
 	// RoleUsers returns the users who hold role in scope now, each once,
@@ -374,11 +502,23 @@ type UserManager interface {
 	// if role doesn't exist in scope.
 	RolePermissions(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) (accesstypes.RolePermissionCollection, error)
 
-	// RoleGrants returns the role's resource grants as held, keyed by
-	// permission and resource, with the conditions each resource is granted
-	// under (sorted; "" is the unconditional grant): the store's rows for a
-	// custom role held in scope (or, for one domain, in every domain), the
-	// file's grants for a default role. Scope-wide grants are not included.
-	// Errors if role doesn't exist in scope.
-	RoleGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (map[accesstypes.Permission]map[accesstypes.Resource][]string, error)
+	// RoleGrants returns the role's resource grants, keyed by permission and
+	// resource, each with the condition the resource is granted under (sorted
+	// by it; "" is the unconditional grant): the store's rows for a custom
+	// role held in scope (or, for one domain, in every domain), the file's
+	// grants for a default role. A stored row the running release cannot use
+	// is listed too, marked with why (RoleGrant.Skipped): a load of the
+	// policy leaves it out, so the role does not hold it. Scope-wide grants
+	// are not included. Errors if role doesn't exist in scope.
+	RoleGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (map[accesstypes.Permission]map[accesstypes.Resource][]RoleGrant, error)
+
+	// SkippedStoredGrants answers, for each row of the role grants table given, why a
+	// load of the policy leaves the row out, in the order given: "" for a row its role
+	// holds. A row a load leaves out is one the running release cannot use, said in
+	// the sentence RoleGrants says it in (RoleGrant.Skipped, SkippedGrant), or one
+	// stored under the name of a role the release's role file defines, whose grants
+	// are the release's alone (ShadowedRole). It reads nothing: the caller read the
+	// rows, and the answer is the rule a load holds each row to. A row whose columns
+	// spell no scope a store writes is an error.
+	SkippedStoredGrants(grants []StoredGrant) ([]string, error)
 }

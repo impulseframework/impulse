@@ -15,9 +15,9 @@ import (
 // binding; CrewMembers anchoring the crews subject set (domain-scoped, so its
 // subquery derives a tenancy filter); UserProfiles anchoring the
 // approvalLimit subject value (global — no filter), the dotted homeSector, and
-// the timestamp-typed clearedUntil now can compare against. Every subject entry
-// carries the comparison type of the column it yields, as generation derives
-// it.
+// the timestamp-typed clearedUntil now can compare against; Ships, the first
+// hop of shipClass, a tenant's table. Every subject entry carries the
+// comparison type of the column it yields, as generation derives it.
 func loweringFixtureCollection(t *testing.T) *GeneratedCollection {
 	t.Helper()
 
@@ -57,6 +57,39 @@ func loweringFixtureCollection(t *testing.T) *GeneratedCollection {
 				{Name: "clearedUntil", UserColumn: "UserId", Column: "ClearedUntil", Type: AttributeTypeTimestamp},
 			},
 		},
+		{
+			// A table that is no tenant's whose rows belong to tenants through a parent:
+			// a pool is kept at one station or at none, and the set says where its tenant
+			// is found.
+			Name:  "PoolMembers",
+			Scope: accesstypes.GlobalPermissionScope,
+			SubjectSets: []SubjectBindingData{
+				{
+					Name: "pools", UserColumn: "UserId", Column: "PoolId", Type: AttributeTypeString,
+					Domain: &DomainBindingData{Column: "PoolId", Path: []BindingHop{{Table: "Pools", JoinColumn: "Id", Column: "StationId"}}},
+				},
+			},
+		},
+		{
+			// The table shipClass's path reaches first, a tenant's: a write that moves
+			// the path reads it within the request's tenant.
+			Name:        "Ships",
+			Scope:       accesstypes.DomainPermissionScope,
+			Permissions: []accesstypes.Permission{accesstypes.List},
+			Domain:      &DomainBindingData{Column: "StationId"},
+		},
+		{
+			// A table that is no tenant's whose rows each carry their tenant themselves:
+			// the set names that column of its own row, and its way to a tenant has no hop.
+			Name:  "Keyholders",
+			Scope: accesstypes.GlobalPermissionScope,
+			SubjectSets: []SubjectBindingData{
+				{
+					Name: "keys", UserColumn: "UserId", Column: "KeyId", Type: AttributeTypeString,
+					Domain: &DomainBindingData{Column: "StationId"},
+				},
+			},
+		},
 	}})
 	if err != nil {
 		t.Fatalf("NewGeneratedCollection() error = %v", err)
@@ -78,7 +111,8 @@ var ratComparer = cmp.Comparer(func(a, b *big.Rat) bool {
 // derived tenancy filter, subject values render scalar subqueries, facts bind
 // as the reserved named parameters, and the post-write overlay reads the
 // proposed value's parameter for touched columns and the existing column
-// otherwise.
+// otherwise, a join path leaving through the proposed key, its first hop held
+// to the request's tenant, where the write touches the key.
 func TestLowerCondition_rendering(t *testing.T) {
 	t.Parallel()
 
@@ -111,6 +145,32 @@ func TestLowerCondition_rendering(t *testing.T) {
 			source:  "crew IN subject.crews",
 			wantSQL: "CASE WHEN `t`.`CrewId` IS NULL THEN NULL ELSE EXISTS (SELECT 1 FROM `CrewMembers` `ca1` WHERE `ca1`.`UserId` = @subject AND `ca1`.`CrewId` = `t`.`CrewId`) END",
 
+			wantNamed: []string{"subject"},
+		},
+		{
+			name:        "a set on a global table that names its own way to a tenant is kept to the request's tenant",
+			source:      "crew IN subject.pools",
+			partitioned: true,
+			wantSQL:     "CASE WHEN `t`.`CrewId` IS NULL THEN NULL ELSE EXISTS (SELECT 1 FROM `PoolMembers` `ca1` WHERE `ca1`.`UserId` = @subject AND `ca1`.`PoolId` = `t`.`CrewId` AND EXISTS (SELECT 1 FROM `Pools` `ca2` WHERE `ca2`.`Id` = `ca1`.`PoolId` AND `ca2`.`StationId` = @domain)) END",
+			wantNamed:   []string{"domain", "subject"},
+		},
+		{
+			name:        "a set on a global table whose rows carry their tenant compares the anchor's own column to the request's tenant",
+			source:      "crew IN subject.keys",
+			partitioned: true,
+			wantSQL:     "CASE WHEN `t`.`CrewId` IS NULL THEN NULL ELSE EXISTS (SELECT 1 FROM `Keyholders` `ca1` WHERE `ca1`.`UserId` = @subject AND `ca1`.`KeyId` = `t`.`CrewId` AND `ca1`.`StationId` = @domain) END",
+			wantNamed:   []string{"domain", "subject"},
+		},
+		{
+			name:      "that set in a global request reads every tenant's rows",
+			source:    "crew IN subject.keys",
+			wantSQL:   "CASE WHEN `t`.`CrewId` IS NULL THEN NULL ELSE EXISTS (SELECT 1 FROM `Keyholders` `ca1` WHERE `ca1`.`UserId` = @subject AND `ca1`.`KeyId` = `t`.`CrewId`) END",
+			wantNamed: []string{"subject"},
+		},
+		{
+			name:      "the same set in a global request reads every tenant's rows",
+			source:    "crew IN subject.pools",
+			wantSQL:   "CASE WHEN `t`.`CrewId` IS NULL THEN NULL ELSE EXISTS (SELECT 1 FROM `PoolMembers` `ca1` WHERE `ca1`.`UserId` = @subject AND `ca1`.`PoolId` = `t`.`CrewId`) END",
 			wantNamed: []string{"subject"},
 		},
 		{
@@ -210,6 +270,34 @@ func TestLowerCondition_rendering(t *testing.T) {
 			name:           "post-write reference outside a write context",
 			source:         "new.estimatedCost <= 5",
 			wantErrContain: "outside a write context",
+		},
+		{
+			// An update that sets the departure column moves the path: it leaves
+			// through the proposed key, and the first hop reads its row only in the
+			// request's tenant, as an insert's does.
+			name:        "post-write join-path attribute whose departure column the update touches",
+			source:      "new.shipClass = 'Freighter'",
+			partitioned: true,
+			proposed:    map[string]any{"ShipId": "s2"},
+			wantSQL:     "(SELECT `ca1`.`Class` FROM `Ships` `ca1` WHERE `ca1`.`Id` = @_c1 AND `ca1`.`StationId` = @domain) = @_c2",
+			wantParams:  []QueryParam{{Name: "_c1", Value: "s2"}, {Name: "_c2", Value: "Freighter"}},
+			wantNamed:   []string{"_c1", "domain"},
+		},
+		{
+			// An update that leaves the departure column alone reads the path as the
+			// unqualified attribute does, through the stored key.
+			name:        "post-write join-path attribute whose departure column the update does not touch",
+			source:      "new.shipClass = 'Freighter'",
+			partitioned: true,
+			proposed:    map[string]any{"State": "open"},
+			wantSQL:     "(SELECT `ca1`.`Class` FROM `Ships` `ca1` WHERE `ca1`.`Id` = `t`.`ShipId`) = @_c1",
+			wantParams:  []QueryParam{{Name: "_c1", Value: "Freighter"}},
+		},
+		{
+			name:           "post-write join-path attribute outside a write context",
+			source:         "new.shipClass = 'Freighter'",
+			partitioned:    true,
+			wantErrContain: "new.shipClass outside a write context",
 		},
 		{
 			name:           "unknown subject set",

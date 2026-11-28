@@ -10,6 +10,12 @@ import { elementTypeOf } from '../format-fns';
 export type FieldRenderer = 'bytes' | 'array' | 'object' | 'date' | 'number' | 'boolean' | 'enumerated' | 'text';
 
 /**
+ * The renderers that present a value and never take one: a field drawn by one of them is
+ * in view mode whatever the form's mode, so a form cannot be filled through it.
+ */
+export const READ_ONLY_RENDERERS: ReadonlySet<FieldRenderer> = new Set<FieldRenderer>(['bytes', 'array', 'object']);
+
+/**
  * Which control draws a field, from its generated display type: `bytes` and `object`
  * their own read-only presentations, every type ending in `[]` the array of its element
  * type, `date` and `civildate` the date control, `boolean` and `nullboolean` the boolean

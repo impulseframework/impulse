@@ -27,6 +27,7 @@ func (h *Handlers) StaffTenantGroupRoles() http.HandlerFunc {
 		CreatedAt time.Time    `json:"createdAt"`
 		StartsAt  *time.Time   `json:"startsAt"`
 		EndsAt    *time.Time   `json:"endsAt"`
+		Losing    int64        `json:"losing"`
 	}
 
 	type response []map[string]any
@@ -45,8 +46,9 @@ func (h *Handlers) StaffTenantGroupRoles() http.HandlerFunc {
 		}
 
 		// A live list registers before the query runs, so a commit that lands during
-		// the query is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, h.LiveService(), querySet, live.ListSubscription(querySet.Resource(), domain))
+		// the query is not missed; a refused request registers nothing. With it the
+		// request registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, h.LiveService(), querySet, live.ListSubscription(querySet.Resource(), domain))
 
 		res := staffresources.NewStaffTenantGroupRoleQueryFromQuerySet(querySet)
 
@@ -97,6 +99,10 @@ func (h *Handlers) StaffTenantGroupRoles() http.HandlerFunc {
 					if !row.Masked("endsAt") {
 						rmap["endsAt"] = rec.EndsAt
 					}
+				case "Losing":
+					if !row.Masked("losing") {
+						rmap["losing"] = rec.Losing
+					}
 				}
 			}
 			if capabilities := row.Capabilities(); capabilities != nil {
@@ -127,6 +133,7 @@ func (h *Handlers) StaffTenantGroupRole() http.HandlerFunc {
 		CreatedAt time.Time    `json:"createdAt"`
 		StartsAt  *time.Time   `json:"startsAt"`
 		EndsAt    *time.Time   `json:"endsAt"`
+		Losing    int64        `json:"losing"`
 	}
 
 	decoder := NewQueryDecoder[staffresources.StaffTenantGroupRole, response](h, accesstypes.Read)
@@ -145,8 +152,9 @@ func (h *Handlers) StaffTenantGroupRole() http.HandlerFunc {
 		}
 
 		// A live row registers before the read runs, so a commit that lands during the
-		// read is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, h.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(groupID, role)))
+		// read is not missed; a refused request registers nothing. With it the request
+		// registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, h.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(groupID, role)))
 
 		res := staffresources.NewStaffTenantGroupRoleQueryFromQuerySet(querySet).SetGroupID(groupID).SetRole(role)
 
@@ -185,6 +193,10 @@ func (h *Handlers) StaffTenantGroupRole() http.HandlerFunc {
 			case "EndsAt":
 				if !row.Masked("endsAt") {
 					rmap["endsAt"] = rec.EndsAt
+				}
+			case "Losing":
+				if !row.Masked("losing") {
+					rmap["losing"] = rec.Losing
 				}
 			}
 		}

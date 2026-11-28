@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/accesstypes"
 )
 
 // AuthMethod names a way a person proved who they are. Sign-in methods use the
@@ -38,22 +39,34 @@ const (
 	MethodApplication AuthMethod = "application"
 	// MethodEmailCode records the library's own second factor: a one-time code mailed
 	// to the user's address and entered at the pending step (Pending().SendCode() and
-	// VerifyCode()). It has no connection.
+	// VerifyCode()). It has no connection. Only the library records it: an event under
+	// it that an application reports is refused.
 	MethodEmailCode AuthMethod = "email-code"
 	// MethodTrustedDevice records that a browser the person asked to be remembered
 	// after a second factor stood in for it: the trusted device cookie named a live
-	// device of the user. It has no connection.
+	// device of the user. It has no connection. Only the library records it: an event
+	// under it that an application reports is refused.
 	MethodTrustedDevice AuthMethod = "trusted-device"
 	// MethodAttestedByEvidence records that the identity provider attested to a second
 	// factor in the sign-in's token (an amr claim naming mfa): the provider ran one at
 	// this sign-in. Its connection is the sign-in's and IDPAMR what the provider
-	// asserted.
+	// asserted. Only the library records it: an event under it that an application
+	// reports is refused.
 	MethodAttestedByEvidence AuthMethod = "attested-by-evidence"
 	// MethodAttestedByDeclaration records that the registration declares the sign-in's
 	// connection as a directory that enforces a second factor (Attesting() on the
 	// Google and Entra organization slots): the application administers the directory
-	// and vouches for it. Its connection is the sign-in's.
+	// and vouches for it. Its connection is the sign-in's. Only the library records
+	// it: an event under it that an application reports is refused.
 	MethodAttestedByDeclaration AuthMethod = "attested-by-declaration"
+	// MethodVouchedByTenant records that the tenant whose directory the sign-in came
+	// through says the directory asks its people for a second factor of its own
+	// (signin.DeclaredDirectory.SecondFactor), so the sign-in was not held for the mailed
+	// code the Auth's sign-in settings ask of everyone. Its connection is the sign-in's.
+	// It is the tenant's word and no evidence: it stands in for the settings' hold alone,
+	// never for a hold a sign-in policy answers, so it is no attestation (Attests). Only
+	// the library records it: an event under it that an application reports is refused.
+	MethodVouchedByTenant AuthMethod = "vouched-by-tenant"
 )
 
 // Attests reports whether m is an attestation event's method: the sign-in's connection
@@ -64,9 +77,10 @@ func (m AuthMethod) Attests() bool {
 
 // SecondFactor reports whether m records a second factor on a session: a step beyond
 // the sign-in that established it. The library's own are the mailed code
-// (MethodEmailCode), a remembered browser standing in for it (MethodTrustedDevice) and a
-// connection's attestation (Attests); a step the application records under a name of
-// its own is one too, since that is what such a name is for. The methods that establish
+// (MethodEmailCode), a remembered browser standing in for it (MethodTrustedDevice), a
+// connection's attestation (Attests) and a tenant's word for its own directory
+// (MethodVouchedByTenant); a step the application records under a name of its own is
+// one too, since that is what such a name is for. The methods that establish
 // a session or link an identity are none: a password, a directory, an impersonation, a
 // link confirmation, a session the application starts itself, a token.
 func (m AuthMethod) SecondFactor() bool {
@@ -176,7 +190,10 @@ type Identity struct {
 	// account that holds no name yet, and never over a name the account holds. It is an
 	// attribute, never a key.
 	Name string
-	// EmailVerified reports whether the method asserts the email is verified.
+	// EmailVerified reports whether the method vouches for the email: Google's method
+	// alone does, and only for an address Google is the authority for (a Gmail address,
+	// a Workspace account's). No other method's word is kept, whatever it fills in
+	// here: an address nothing vouches for is confirmed by the code mailed to it.
 	EmailVerified bool
 	// Claims is the method's verified payload (ID-token claims or WorkOS profile). It
 	// is passed to resolvers and custom data hooks.
@@ -242,7 +259,10 @@ type PendingIdentity struct {
 	Identity Identity
 	Reason   PendingReason
 	// UserID and Username name the user the identity waits on. This includes an
-	// user the sign-in has just provisioned.
+	// user the sign-in has just provisioned. They name nobody (a null UserID and an
+	// empty Username) for the one wait that comes before any user: the acceptance of
+	// an invitation through an identity that asserts no address, or one its method did
+	// not verify, held for the code mailed to the invited address.
 	UserID    impulse.NullUUID
 	Username  string
 	ExpiresAt time.Time
@@ -270,6 +290,17 @@ const (
 	UserProvisioned UserSource = "provisioned"
 )
 
+// UserDirectory is an organization's directory that an identity linked to a user came
+// through, with the tenants that declare it as their own. The session library reads it
+// for a sign-in with the reader the Auth was given (session.Auth.SetDirectoryAdmission).
+type UserDirectory struct {
+	Method     AuthMethod
+	Connection string
+	// Tenants are the tenants that declare the directory, in the reader's order: one at
+	// most where a directory is one tenant's, none for a directory no tenant declares.
+	Tenants []accesstypes.Domain
+}
+
 // SignInUser is the user an Auth sign-in resolved to. NewSessionRequest.User
 // carries it to the sign-in policy and the custom session data resolver.
 type SignInUser struct {
@@ -285,6 +316,13 @@ type SignInUser struct {
 	// link's tenant, or the resolution's signin.Tenant for a link made in this sign-in. It is empty
 	// for a password sign-in.
 	Tenant string
+	// Directories are the organizations' directories the user's identity links came
+	// through, each once, oldest link first, with the tenants that declare each. The
+	// sign-in sets it before the sign-in policy runs, where the Auth holds a directory
+	// reader (session.Auth.SetDirectoryAdmission). It is empty on an Auth that holds
+	// none, for a user with no such link, and where no policy is asked. A personal
+	// account is no organization's directory and is not listed.
+	Directories []UserDirectory
 }
 
 // Provisioned reports whether the sign-in created the user.
@@ -310,6 +348,15 @@ const (
 	// RefusedIdentityRejected is the code for an external identity the application's
 	// user resolver rejected (for example, no invite or roster entry).
 	RefusedIdentityRejected LoginRefusalCode = "identity_rejected"
+	// RefusedAddressHeldUnconfirmed is the code for a sign-in that would make a new
+	// account and proves an address an account with a password holds unconfirmed. No
+	// second account is made: the person signs in to that account with its password,
+	// and the code mailed to the address confirms it.
+	RefusedAddressHeldUnconfirmed LoginRefusalCode = "address_held_unconfirmed"
+	// RefusedAddressHeldNoPassword is the code for the same sign-in where the account
+	// that holds the address has no password to sign in with: an administrator settles
+	// it.
+	RefusedAddressHeldNoPassword LoginRefusalCode = "address_held_no_password"
 	// RefusedByPolicy is the code for a sign-in the application's policy denied (for
 	// example, password sign-in for a tenant that requires SSO).
 	RefusedByPolicy LoginRefusalCode = "policy_denied"
@@ -332,17 +379,50 @@ const (
 	RefusedInvitationOnly LoginRefusalCode = "invitation_only"
 	// RefusedInvitationExpired is the code for a sign-in that an invitation alone
 	// admitted, through a sign-in method that is invite only, whose invitation had expired
-	// or been used by the time the sign-in accepted it.
+	// or been used by the time the sign-in accepted it. It is also the code for a sign-in
+	// code mailed for an invitation, and for the sign-in that entered it, once that
+	// invitation was used, withdrawn or ran out.
 	RefusedInvitationExpired LoginRefusalCode = "invitation_expired"
 	// RefusedInvitationAddress is the code for a sign-in or an acceptance that carried
 	// an invitation for another address. An invitation is accepted only by the account
 	// it was mailed to: the address the sign-in asserts, the directory's for an external
 	// identity and the account's own for a password one or a person signed in, differs
 	// from the invited one, so the sign-in or acceptance is refused, the invitation left
-	// standing and nothing consumed. An account that holds no address accepts by the
-	// link. The login page names the invited address and asks for a sign-in with that
-	// account.
+	// standing and nothing consumed. The link proves no address: an account that names
+	// itself and has not confirmed the invited address is held, at a sign-in, for the
+	// code mailed to that address, and its acceptance by hand, where nothing can wait,
+	// is refused with this code and a sentence that says to sign in again from the
+	// invitation's link. The login page names the invited address and asks for a
+	// sign-in with that account.
 	RefusedInvitationAddress LoginRefusalCode = "invitation_address"
+	// RefusedInvitationSpent is the code for a sign-in code asked for or entered to
+	// accept an invitation that takes no more codes: twenty-five were entered for it
+	// and none of them accepted it. The count is the invitation's own, across every
+	// sign-in that carried it, and never starts again, so nothing more is mailed for
+	// the invitation and no code is compared with one. The person asks whoever invited
+	// them for a new invitation.
+	RefusedInvitationSpent LoginRefusalCode = "invitation_spent"
+	// RefusedAddressSpent is the code for a sign-in code asked for or entered for an
+	// address a person typed at the code step, once twenty-five wrong codes were entered
+	// for that address. The count is the address's, across every account and sign-in
+	// that typed it; no time resets it, only the right code does. Nothing more is mailed
+	// to the address from this step and no code is compared. The person asks an
+	// administrator to put the address on their account.
+	RefusedAddressSpent LoginRefusalCode = "address_spent"
+	// RefusedCodesSpent is the code for a sign-in code asked for or entered for an account
+	// that holds an address, once twenty-five wrong codes were entered for the account.
+	// The count is the account's, across every sign-in that waited on its own code, and no
+	// time resets it; the right code does, while the count is not spent. Once it is,
+	// nothing more is mailed to the account from this step and no code is compared, until
+	// the person chooses a password at a reset link or an administrator clears the count's
+	// row.
+	RefusedCodesSpent LoginRefusalCode = "codes_spent"
+	// RefusedInvitationNotOpen is the code for a sign-in code mailed for an invitation
+	// and entered in a browser that does not have that invitation open: it carries no
+	// invitation, or another one. The code is not compared and nothing is written, and it
+	// takes its place in the invitation's count. The person opens the invitation's link
+	// again and enters the code.
+	RefusedInvitationNotOpen LoginRefusalCode = "invitation_not_open"
 	// RefusedGuestAccount is the code for an identity that is a guest of its directory
 	// (Identity.Guest), which the standard account rule refuses.
 	RefusedGuestAccount LoginRefusalCode = "guest_account"
@@ -352,26 +432,49 @@ const (
 	// RefusedPersonalAccount is the code for an Entra token of a Microsoft personal
 	// account under a registration that admits work or school accounts only.
 	RefusedPersonalAccount LoginRefusalCode = "personal_account"
-	// RefusedNoTenant is the code for a person who is a member of no tenant, under the
-	// tenant policy (signin.TenantPolicy), which admits such a person only when it was
-	// built with signin.AdmitWithoutTenant.
+	// RefusedNoTenant is the code for a person who is a member of no tenant, or whose
+	// every tenant is disabled, under the tenant policy (signin.TenantPolicy), which
+	// admits such a person only when it was built with signin.AdmitWithoutTenant.
 	RefusedNoTenant LoginRefusalCode = "no_tenant"
-	// RefusedConnectionNotInTenant is the code for a sign-in through a directory by a
+	// RefusedConnectionNotInTenant is the code for a sign-in through a directory that
+	// the tenant policy refuses: by a person whose account a directory-only tenant's
+	// directory signs in, when the sign-in came through another directory, or by a
 	// person whose every tenant admits its people through its own directory only, none
-	// of which is the directory the sign-in came through, under the tenant policy.
+	// of which is the directory the sign-in came through.
 	RefusedConnectionNotInTenant LoginRefusalCode = "connection_not_in_tenant"
-	// RefusedDirectoryOnly is the code for a sign-in that is not through a directory (a
-	// password, a personal account, a session the application starts itself) by a
-	// person whose every tenant admits its people through its own directory only,
-	// under the tenant policy.
+	// RefusedDirectoryOnly is the code for a sign-in with a password by a person whose
+	// account a directory-only tenant's directory signs in, or whose every tenant admits
+	// its people through its own directory only, under the tenant policy.
 	RefusedDirectoryOnly LoginRefusalCode = "directory_only"
+	// RefusedDirectoryOnlySession is the code for a session the application starts
+	// itself, with no password and through no directory, for a person whose account a
+	// directory-only tenant's directory signs in, or whose every tenant admits its people
+	// through its own directory only, under the tenant policy. It is told apart from
+	// RefusedDirectoryOnly so that a login page speaks of no password where the person
+	// typed none.
+	RefusedDirectoryOnlySession LoginRefusalCode = "directory_only_session"
+	// RefusedDirectoryOnlyPersonalAccount is the code for a sign-in with a personal
+	// account (through Google or Microsoft, with an account that is in no
+	// organization's directory) by a person whose account a directory-only tenant's
+	// directory signs in, or whose every tenant admits its people through its own
+	// directory only, under the tenant policy. It is told apart from
+	// RefusedDirectoryOnly so that a login page says what is true of how the person
+	// signed in: they used no password, and are asked for their organization's account.
+	// The code names nothing of the person or of their tenants.
+	RefusedDirectoryOnlyPersonalAccount LoginRefusalCode = "directory_only_personal_account"
 	// RefusedOtherTenant is the code for a role in a tenant that is refused because the
 	// person belongs to another tenant, in an application where a person belongs to
 	// one (the identity package's WithOneTenantPerPerson). The session library never
 	// answers it itself: the application's hooks do, and a sign-in ends on it when the
-	// invitation it carries, or the default role of the directory it came through,
-	// would seat the person in a second tenant.
+	// invitation it carries would seat the person in a second tenant. A sign-in through
+	// the directory of a tenant that is open to it is not refused: the identity
+	// package's hook moves the person to the directory's tenant.
 	RefusedOtherTenant LoginRefusalCode = "other_tenant"
+	// RefusedSecondDirectory is the code for a sign-in through one tenant's directory
+	// that reached an account which already signs in through another tenant's
+	// directory. An account signs in through one tenant's directory at most, so nothing
+	// is linked.
+	RefusedSecondDirectory LoginRefusalCode = "second_directory"
 	// RefusedOrganizationAccountRequired is the code for a sign-in or an acceptance that
 	// carried an invitation which makes a tenant entered through its directory only
 	// (NewTenant.DirectoryOnly), by a person who did not come through an organization's
@@ -390,6 +493,7 @@ const (
 	// code sent stands, with one fewer attempt left.
 	RefusedInvalidCode LoginRefusalCode = "invalid_code"
 	// RefusedCodeExpired is the code for an email code entered after the one sent
-	// expired, was used, or took its last attempt; the page asks for a new one.
+	// expired, was used, took its last attempt, or was mailed to an address the account
+	// no longer holds; the page asks for a new one.
 	RefusedCodeExpired LoginRefusalCode = "code_expired"
 )

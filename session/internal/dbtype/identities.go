@@ -58,12 +58,10 @@ func UnlinkKeepsSignIn(links []*SessionIdentity, unlinked impulse.UUID, signsIn 
 		others++
 	}
 	if others > 0 {
-		return httpio.NewConflictMessageWithError(ErrLastSignInMethod,
-			"none of the other identities linked to the user can sign them in any more, so this one is their only means of sign-in: "+
-				"link a directory sign-in the login page offers first, or give the user a password")
+		return httpio.NewConflictMessageWithError(ErrLastSignInMethod, LastWorkingSignInIdentityMessage)
 	}
 
-	return httpio.NewConflictMessageWithError(ErrLastSignInMethod, "the user has no other means of sign-in: link another directory sign-in first, or give the user a password")
+	return httpio.NewConflictMessageWithError(ErrLastSignInMethod, LastSignInIdentityMessage)
 }
 
 // ErrPasswordChanged is returned when a password write that follows a proof of the
@@ -120,7 +118,7 @@ func (p PasswordProof) Check(held PasswordProof) error {
 		return nil
 	}
 	if len(held) == 0 || subtle.ConstantTimeCompare(p, held) != 1 {
-		return httpio.NewConflictMessageWithError(ErrPasswordChanged, "the password has changed since it was checked: check it again and retry")
+		return httpio.NewConflictMessageWithError(ErrPasswordChanged, PasswordChangedMessage)
 	}
 
 	return nil
@@ -136,6 +134,37 @@ type User struct {
 	// for a user with no password, as UserIn and LockUserIn read it: what a sign-in's
 	// own proof is checked against in the transaction that inserts on its strength.
 	PasswordProof PasswordProof
+	// EmailConfirmed says the row holds an address its person has confirmed, as UserIn
+	// and LockUserIn read it: a sign-in through a directory that does not vouch for the
+	// address is held for a mailed code while it is false (signinflow.decideSignIn).
+	EmailConfirmed bool
+	// EmailHeld says the row holds an address, confirmed or not, as UserIn and
+	// LockUserIn read it: a first link made on a name alone waits for the code mailed
+	// to it, and is refused where the row holds none (signinflow.nameAloneHold).
+	EmailHeld bool
+	// Email is the address the row holds, nil for none, and EmailConfirmedAt when its
+	// person confirmed it, nil for an address not confirmed and for none, as UserIn and
+	// LockUserIn read them: a confirmation by a mailed link is decided on them
+	// (signinflow.ConfirmAddressByLink).
+	Email            *string
+	EmailConfirmedAt *time.Time
+}
+
+// CodeAddress is the address a mailed sign-in code confirms, carried by the sign-in that
+// completes a wait with the account's own code: it is written on the account, confirmed,
+// in the transaction that inserts the session, or with the acceptance of an invitation
+// that rests on that code, and only while the account still holds what it held when the
+// code was checked (signinflow.decideAndInsert, signinflow.acceptInvitation).
+type CodeAddress struct {
+	// Held is the address the account held when the code was checked, byte for byte,
+	// nil for none.
+	Held *string
+	// Email is the address the code confirms: Held's own spelling where the account
+	// holds an address, else the address the person gave, which the code was mailed to.
+	Email string
+	// Written is set by the sign-in: the address was written, in the transaction that
+	// committed.
+	Written bool
 }
 
 // SignInConflict is a driver's classification of the error a sign-in's transaction
@@ -154,4 +183,7 @@ const (
 	// LockConflict is the database ending the transaction to break a deadlock or a
 	// serialization failure between racing sign-ins; the sign-in runs once more.
 	LockConflict
+	// EmailConflict is the users table refusing an address another user holds: one that
+	// a racing transaction wrote on another account at the same moment.
+	EmailConflict
 )

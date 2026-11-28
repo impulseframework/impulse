@@ -4,9 +4,11 @@ import (
 	"context"
 	"net/http"
 	"slices"
+	"time"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage"
@@ -27,6 +29,16 @@ type SignInMeans struct {
 	// that sign nobody in any more, and then the password is their only means of
 	// sign-in and its removal is refused.
 	Directories []LinkedDirectory `json:"directories"`
+	// DirectoryAddress reports whether the user signs in through an organization's
+	// directory, so their address is the directory's and is not changed here: the
+	// judgment a change of the address is refused by (directoryPerson).
+	DirectoryAddress bool `json:"directoryAddress"`
+	// PasswordDisabled reports that a password does not sign the user in, whether or not
+	// they hold one, because the tenants' sign-in settings refuse it: the Auth's check
+	// (SetPasswordDisabledCheck) says the tenant policy would refuse it. A page then
+	// draws no Password line, and the first password is refused. It is false on an Auth
+	// with no check or no password method.
+	PasswordDisabled bool `json:"passwordDisabled"`
 }
 
 // LinkedDirectory is a sign-in method of the login page that an identity linked to a
@@ -84,15 +96,45 @@ func (p *AuthAPI[S, U, Tx]) SignsInThrough(method sessioninfo.AuthMethod, connec
 // DirectoryName answers what the Auth's sign-in registrations call the directory an
 // identity of method and connection came through, for a sentence that names it to a
 // person: name is the name a registration that takes the connection gives it (a listed
-// Entra tenant's or Workspace's name, a provider's), "" where none names it, and label
-// is the label of the button of the first registration of the login page that takes
-// the connection, "" where the page offers none. A sentence says the name where there
+// Entra tenant's or Workspace's name), "" where none names it, and label is the label
+// of the button of the first registration of the login page that takes the connection,
+// "" where the page offers none. An organization's own identity provider (the OpenID
+// Connect method) is named by the label of its registration where the page gives it
+// one: its connection is the key the application registered it under, which no person
+// knows it by (connectionSaid). A sentence says the name where there
 // is one and otherwise the directory by the button a person signs in to it with, never
 // the connection itself, which for an Entra tenant is an id. It reads nothing: the
 // answer is what the registrations fixed in code. It closes registration, as every read
 // of the Auth's methods does.
 func (p *AuthAPI[S, U, Tx]) DirectoryName(method sessioninfo.AuthMethod, connection string) (name, label string) {
 	return p.auth.directoryName(method, connection)
+}
+
+// TenantName answers what people call a tenant, by its key, from the names the
+// application set (SetTenantNames): "" where it set none, for a tenant they do not know
+// and for no key. A sentence that names a tenant to a person says it by this and never by
+// the key, which is an id. It reads nothing.
+func (p *AuthAPI[S, U, Tx]) TenantName(tenant accesstypes.Domain) string {
+	return p.auth.tenantName(string(tenant))
+}
+
+// SessionTimeout answers how long a session of the Auth may sit idle before it times out:
+// what the application set (WithSessionTimeout), and ten minutes where it set none. A list
+// that says which sessions are live reads it, so the list and a request are judged by one
+// length. It reads nothing.
+func (p *AuthAPI[S, U, Tx]) SessionTimeout() time.Duration {
+	return p.auth.baseSession.SessionTimeout
+}
+
+// SignInFailureLimit answers how many failed sign-ins within the window lock a name: the
+// limit the Auth's password method counts by, and the library's default where no
+// password method set one. The generated list of the failed sign-ins shows a name's
+// count beside it and asks at each query, since the limit is fixed when the password
+// method is registered, which an application may do after it builds its identity
+// client. It reads nothing, and unlike every other read of the Auth's methods it does
+// not close registration: it is asked while the application is still wiring the Auth.
+func (p *AuthAPI[S, U, Tx]) SignInFailureLimit() int {
+	return p.auth.signInFailureLimit()
 }
 
 // directoryName is DirectoryName: the registrations of the login page first, in its
@@ -113,8 +155,8 @@ func (a *Auth[S, U, Tx]) directoryName(method sessioninfo.AuthMethod, connection
 		if external.AdmitsConnection != nil && !external.AdmitsConnection(connection) {
 			continue
 		}
-		if name == "" && external.ConnectionName != nil {
-			name = external.ConnectionName(connection)
+		if name == "" {
+			name = m.connectionSaid(registered, connection)
 		}
 		if label == "" {
 			label = m.labels[registered]
@@ -122,6 +164,22 @@ func (a *Auth[S, U, Tx]) directoryName(method sessioninfo.AuthMethod, connection
 	}
 
 	return name, label
+}
+
+// connectionSaid is the name the external registration under registered gives the
+// organization behind connection, as people read it: the registration's label where its
+// method leaves the naming to it (labelName), and otherwise the method's own name for
+// the connection, "" where it has none.
+func (m *signInMethods[Tx]) connectionSaid(registered, connection string) string {
+	if said := m.labelName(registered); said != "" {
+		return said
+	}
+	external := m.external[registered]
+	if external.ConnectionName == nil {
+		return ""
+	}
+
+	return external.ConnectionName(connection)
 }
 
 // signsIn reports whether an identity of method and connection counts as a means of
@@ -165,13 +223,45 @@ func (a *Auth[S, U, Tx]) signInMeans(ctx context.Context, userID impulse.UUID, l
 	if err != nil {
 		return nil, errors.Wrap(err, "sessionstorage.AuthStore.IdentitiesByUser()")
 	}
+	means := a.signInMeansOf(user, links, labels)
+	if means.PasswordDisabled, err = a.passwordDisabled(ctx, userID); err != nil {
+		return nil, err
+	}
 
-	return a.signInMeansOf(user, links, labels), nil
+	return means, nil
+}
+
+// passwordDisabled answers whether the tenants' sign-in settings disable userID's
+// password: the Auth's check (SetPasswordDisabledCheck), and false, with nothing asked,
+// on an Auth that holds no check or registers no password method. The check is handed
+// the directories the account signs in through, read with the Auth's directory reader
+// (SetDirectoryAdmission), and none, with the store not asked, on an Auth that holds
+// no reader. The read of what a person signs in with, the first password and the
+// password reset link ask it.
+func (a *Auth[S, U, Tx]) passwordDisabled(ctx context.Context, userID impulse.UUID) (bool, error) {
+	if a.passwordDisabledCheck == nil || !a.registered().passwordRegistered() {
+		return false, nil
+	}
+	var directories []sessioninfo.UserDirectory
+	if a.directories != nil {
+		read, err := a.storage.UserDirectories(ctx, userID, a.directories)
+		if err != nil {
+			return false, errors.Wrap(err, "sessionstorage.AuthStore.UserDirectories()")
+		}
+		directories = read
+	}
+	disabled, err := a.passwordDisabledCheck(ctx, userID, directories)
+	if err != nil {
+		return false, errors.Wrap(err, "signin.PasswordDisabledCheck()")
+	}
+
+	return disabled, nil
 }
 
 // signInMeansOf is what user signs in with, given the identities linked to them: the
 // registrations a link can sign them in through (signsInThrough), each once, in the
-// page's order and under its label in labels.
+// page's order and under its label in labels, and whether a link came through an
+// organization's directory (organizationLinked).
 func (a *Auth[S, U, Tx]) signInMeansOf(user *sessionstorage.SessionUser, links []*sessionstorage.SessionIdentity, labels map[string]string) *SignInMeans {
 	reached := map[string]bool{}
 	for _, link := range links {
@@ -179,7 +269,7 @@ func (a *Auth[S, U, Tx]) signInMeansOf(user *sessionstorage.SessionUser, links [
 			reached[name] = true
 		}
 	}
-	means := &SignInMeans{Password: user.PasswordHash != nil, Directories: []LinkedDirectory{}}
+	means := &SignInMeans{Password: user.PasswordHash != nil, Directories: []LinkedDirectory{}, DirectoryAddress: organizationLinked(links)}
 	for _, name := range a.registered().offeredNames() {
 		if reached[name] {
 			means.Directories = append(means.Directories, LinkedDirectory{Name: name, Label: labels[name]})
@@ -190,11 +280,12 @@ func (a *Auth[S, U, Tx]) signInMeansOf(user *sessionstorage.SessionUser, links [
 }
 
 // SignInMeans is the handler a signed-in person's account page reads what they sign in
-// with from: {"password", "directories": [{"name", "label"}]} (see SignInMeans the
-// type), for the session's user and nobody else. The page hides the change and the
-// removal of a password from a person who holds none, offers the removal only where a
-// directory sign-in can sign the person in, and names what the removal leaves by its
-// label. The server's own refusals stand whatever the page shows.
+// with from: {"password", "directories": [{"name", "label"}], "directoryAddress",
+// "passwordDisabled"} (see SignInMeans the type), for the session's user and nobody
+// else. The page hides the change and the removal of a password from a person who holds
+// none, offers the removal only where a directory sign-in can sign the person in, names
+// what the removal leaves by its label, and offers no change of an address that is a
+// directory's. The server's own refusals stand whatever the page shows.
 //
 // The handler validates the session itself, as the name change does, so it is routed
 // beside it, outside ValidateSession, and its path is named to the page as the methods

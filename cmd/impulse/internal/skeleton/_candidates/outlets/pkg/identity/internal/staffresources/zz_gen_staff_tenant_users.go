@@ -26,20 +26,28 @@ func (StaffTenantUser) DefaultConfig() resource.Config {
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; staffTenantUserReadSets holds one Set per read operation.
 type staffTenantUserRead struct {
-	ID                     impulse.UUID `json:"id"                     perm:"-"`
-	DomainID               string       `json:"domainId"`
-	Username               string       `json:"username"`
-	Name                   *string      `json:"name"`
-	Email                  *string      `json:"email"`
-	EmailVerifiedAt        *time.Time   `json:"emailVerifiedAt"`
-	Disabled               bool         `json:"disabled"`
-	PasswordChangeRequired bool         `json:"passwordChangeRequired"`
-	CreatedAt              time.Time    `json:"createdAt"`
-	LastSignInAt           *time.Time   `json:"lastSignInAt"`
-	HeldElsewhere          bool         `json:"heldElsewhere"`
-	HeldGlobally           bool         `json:"heldGlobally"`
-	OutsideDirectory       bool         `json:"outsideDirectory"`
-	CannotEnter            *string      `json:"cannotEnter"`
+	ID                        impulse.UUID `json:"id"                        perm:"-"`
+	DomainID                  string       `json:"domainId"`
+	Username                  string       `json:"username"`
+	Name                      *string      `json:"name"`
+	DisplayName               string       `json:"displayName"`
+	Email                     *string      `json:"email"`
+	EmailVerifiedAt           *time.Time   `json:"emailVerifiedAt"`
+	Disabled                  bool         `json:"disabled"`
+	PasswordChangeRequired    bool         `json:"passwordChangeRequired"`
+	CreatedAt                 time.Time    `json:"createdAt"`
+	LastSignInAt              *time.Time   `json:"lastSignInAt"`
+	Roles                     []string     `json:"roles"`
+	LockedUntil               *time.Time   `json:"lockedUntil"`
+	HeldElsewhere             bool         `json:"heldElsewhere"`
+	HeldGlobally              bool         `json:"heldGlobally"`
+	HeldHere                  bool         `json:"heldHere"`
+	HeldInEveryTenant         bool         `json:"heldInEveryTenant"`
+	ManagedHere               bool         `json:"managedHere"`
+	ManagedByAnotherDirectory bool         `json:"managedByAnotherDirectory"`
+	OutsideDirectory          bool         `json:"outsideDirectory"`
+	CannotEnter               *string      `json:"cannotEnter"`
+	AdministratorWithPassword bool         `json:"administratorWithPassword"`
 }
 
 var staffTenantUserReadSets resource.SetCache[StaffTenantUser, staffTenantUserRead]
@@ -152,16 +160,24 @@ func (c *StaffTenantUserColumns) All() *StaffTenantUserColumns {
 		"DomainID",
 		"Username",
 		"Name",
+		"DisplayName",
 		"Email",
 		"EmailVerifiedAt",
 		"Disabled",
 		"PasswordChangeRequired",
 		"CreatedAt",
 		"LastSignInAt",
+		"Roles",
+		"LockedUntil",
 		"HeldElsewhere",
 		"HeldGlobally",
+		"HeldHere",
+		"HeldInEveryTenant",
+		"ManagedHere",
+		"ManagedByAnotherDirectory",
 		"OutsideDirectory",
 		"CannotEnter",
+		"AdministratorWithPassword",
 	}
 
 	return c
@@ -187,6 +203,12 @@ func (c *StaffTenantUserColumns) Username() *StaffTenantUserColumns {
 
 func (c *StaffTenantUserColumns) Name() *StaffTenantUserColumns {
 	c.fields = append(c.fields, "Name")
+
+	return c
+}
+
+func (c *StaffTenantUserColumns) DisplayName() *StaffTenantUserColumns {
+	c.fields = append(c.fields, "DisplayName")
 
 	return c
 }
@@ -227,6 +249,18 @@ func (c *StaffTenantUserColumns) LastSignInAt() *StaffTenantUserColumns {
 	return c
 }
 
+func (c *StaffTenantUserColumns) Roles() *StaffTenantUserColumns {
+	c.fields = append(c.fields, "Roles")
+
+	return c
+}
+
+func (c *StaffTenantUserColumns) LockedUntil() *StaffTenantUserColumns {
+	c.fields = append(c.fields, "LockedUntil")
+
+	return c
+}
+
 func (c *StaffTenantUserColumns) HeldElsewhere() *StaffTenantUserColumns {
 	c.fields = append(c.fields, "HeldElsewhere")
 
@@ -239,6 +273,30 @@ func (c *StaffTenantUserColumns) HeldGlobally() *StaffTenantUserColumns {
 	return c
 }
 
+func (c *StaffTenantUserColumns) HeldHere() *StaffTenantUserColumns {
+	c.fields = append(c.fields, "HeldHere")
+
+	return c
+}
+
+func (c *StaffTenantUserColumns) HeldInEveryTenant() *StaffTenantUserColumns {
+	c.fields = append(c.fields, "HeldInEveryTenant")
+
+	return c
+}
+
+func (c *StaffTenantUserColumns) ManagedHere() *StaffTenantUserColumns {
+	c.fields = append(c.fields, "ManagedHere")
+
+	return c
+}
+
+func (c *StaffTenantUserColumns) ManagedByAnotherDirectory() *StaffTenantUserColumns {
+	c.fields = append(c.fields, "ManagedByAnotherDirectory")
+
+	return c
+}
+
 func (c *StaffTenantUserColumns) OutsideDirectory() *StaffTenantUserColumns {
 	c.fields = append(c.fields, "OutsideDirectory")
 
@@ -247,6 +305,12 @@ func (c *StaffTenantUserColumns) OutsideDirectory() *StaffTenantUserColumns {
 
 func (c *StaffTenantUserColumns) CannotEnter() *StaffTenantUserColumns {
 	c.fields = append(c.fields, "CannotEnter")
+
+	return c
+}
+
+func (c *StaffTenantUserColumns) AdministratorWithPassword() *StaffTenantUserColumns {
+	c.fields = append(c.fields, "AdministratorWithPassword")
 
 	return c
 }
@@ -275,6 +339,10 @@ func (p StaffTenantUserQueryPartialClause) Username() StaffTenantUserQueryIdent[
 	return StaffTenantUserQueryIdent[string]{Ident: resource.NewIdent[string]("Username", p.partialClause, true)}
 }
 
+func (p StaffTenantUserQueryPartialClause) DisplayName() StaffTenantUserQueryIdent[string] {
+	return StaffTenantUserQueryIdent[string]{Ident: resource.NewIdent[string]("DisplayName", p.partialClause, false)}
+}
+
 func (p StaffTenantUserQueryPartialClause) HeldElsewhere() StaffTenantUserQueryIdent[bool] {
 	return StaffTenantUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("HeldElsewhere", p.partialClause, true)}
 }
@@ -283,8 +351,28 @@ func (p StaffTenantUserQueryPartialClause) HeldGlobally() StaffTenantUserQueryId
 	return StaffTenantUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("HeldGlobally", p.partialClause, true)}
 }
 
+func (p StaffTenantUserQueryPartialClause) HeldHere() StaffTenantUserQueryIdent[bool] {
+	return StaffTenantUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("HeldHere", p.partialClause, true)}
+}
+
+func (p StaffTenantUserQueryPartialClause) HeldInEveryTenant() StaffTenantUserQueryIdent[bool] {
+	return StaffTenantUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("HeldInEveryTenant", p.partialClause, true)}
+}
+
+func (p StaffTenantUserQueryPartialClause) ManagedHere() StaffTenantUserQueryIdent[bool] {
+	return StaffTenantUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("ManagedHere", p.partialClause, true)}
+}
+
+func (p StaffTenantUserQueryPartialClause) ManagedByAnotherDirectory() StaffTenantUserQueryIdent[bool] {
+	return StaffTenantUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("ManagedByAnotherDirectory", p.partialClause, true)}
+}
+
 func (p StaffTenantUserQueryPartialClause) OutsideDirectory() StaffTenantUserQueryIdent[bool] {
 	return StaffTenantUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("OutsideDirectory", p.partialClause, true)}
+}
+
+func (p StaffTenantUserQueryPartialClause) AdministratorWithPassword() StaffTenantUserQueryIdent[bool] {
+	return StaffTenantUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("AdministratorWithPassword", p.partialClause, true)}
 }
 
 type StaffTenantUserQueryClause struct {
@@ -369,6 +457,10 @@ func (c *staffTenantUserSort) Name() *StaffTenantUserSort {
 	return c.addField("Name")
 }
 
+func (c *staffTenantUserSort) DisplayName() *StaffTenantUserSort {
+	return c.addField("DisplayName")
+}
+
 func (c *staffTenantUserSort) Email() *StaffTenantUserSort {
 	return c.addField("Email")
 }
@@ -393,6 +485,14 @@ func (c *staffTenantUserSort) LastSignInAt() *StaffTenantUserSort {
 	return c.addField("LastSignInAt")
 }
 
+func (c *staffTenantUserSort) Roles() *StaffTenantUserSort {
+	return c.addField("Roles")
+}
+
+func (c *staffTenantUserSort) LockedUntil() *StaffTenantUserSort {
+	return c.addField("LockedUntil")
+}
+
 func (c *staffTenantUserSort) HeldElsewhere() *StaffTenantUserSort {
 	return c.addField("HeldElsewhere")
 }
@@ -401,12 +501,32 @@ func (c *staffTenantUserSort) HeldGlobally() *StaffTenantUserSort {
 	return c.addField("HeldGlobally")
 }
 
+func (c *staffTenantUserSort) HeldHere() *StaffTenantUserSort {
+	return c.addField("HeldHere")
+}
+
+func (c *staffTenantUserSort) HeldInEveryTenant() *StaffTenantUserSort {
+	return c.addField("HeldInEveryTenant")
+}
+
+func (c *staffTenantUserSort) ManagedHere() *StaffTenantUserSort {
+	return c.addField("ManagedHere")
+}
+
+func (c *staffTenantUserSort) ManagedByAnotherDirectory() *StaffTenantUserSort {
+	return c.addField("ManagedByAnotherDirectory")
+}
+
 func (c *staffTenantUserSort) OutsideDirectory() *StaffTenantUserSort {
 	return c.addField("OutsideDirectory")
 }
 
 func (c *staffTenantUserSort) CannotEnter() *StaffTenantUserSort {
 	return c.addField("CannotEnter")
+}
+
+func (c *staffTenantUserSort) AdministratorWithPassword() *StaffTenantUserSort {
+	return c.addField("AdministratorWithPassword")
 }
 
 type StaffTenantUserSort struct {

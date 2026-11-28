@@ -62,10 +62,10 @@ func optionalTime(t time.Time) *time.Time {
 
 // sessionInsertStatement renders the insert of a session row, created and
 // updated at the database's time. With the user columns enabled it also writes UserId,
-// AuthenticatedAt (the same time, or NULL for a preauth session) and
-// ProviderSessionId.
+// AuthenticatedAt (the same time, or NULL for a preauth session), ProviderSessionId
+// and Browser.
 func (s *SessionStorageDriver) sessionInsertStatement(id impulse.UUID, insertSession *dbtype.InsertSession, req *sessioninfo.NewSessionRequest) (query string, args []any) {
-	args = make([]any, 0, 5)
+	args = make([]any, 0, 7)
 	args = append(args, id, insertSession.Username, insertSession.Expired)
 	if !s.users {
 		return fmt.Sprintf(`
@@ -88,10 +88,10 @@ func (s *SessionStorageDriver) sessionInsertStatement(id impulse.UUID, insertSes
 
 	return fmt.Sprintf(`
 		INSERT INTO %s
-			("Id", "Username", "CreatedAt", "UpdatedAt", "Expired", "UserId", "AuthenticatedAt", "ProviderSessionId", "ProviderSessionIssuer")
+			("Id", "Username", "CreatedAt", "UpdatedAt", "Expired", "UserId", "AuthenticatedAt", "ProviderSessionId", "ProviderSessionIssuer", "Browser")
 		VALUES
-			($1, $2, now(), now(), $3, $4, %s, $5, $6)
-		`, s.sessionTable(), authenticatedAt), append(args, userID, user.ProviderSessionID, user.ProviderSessionIssuer)
+			($1, $2, now(), now(), $3, $4, %s, $5, $6, $7)
+		`, s.sessionTable(), authenticatedAt), append(args, userID, user.ProviderSessionID, user.ProviderSessionIssuer, user.Browser)
 }
 
 // initialAuthEvent chains the insert of the new session's auth events
@@ -187,9 +187,9 @@ func (s *SessionStorageDriver) DestroySessionsByProviderSessionID(ctx context.Co
 		return errors.New("DestroySessionsByProviderSessionID needs the auth schema: use Auth storage")
 	}
 
-	txn, err := s.conn.Begin(ctx)
+	txn, err := s.begin(ctx)
 	if err != nil {
-		return errors.Wrap(err, "Queryer.Begin()")
+		return errors.Wrap(err, "SessionStorageDriver.begin()")
 	}
 	defer func() {
 		_ = txn.Rollback(ctx)

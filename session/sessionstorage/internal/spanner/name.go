@@ -6,7 +6,8 @@ import (
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
-	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/internal/spannertxn"
+	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/tracer"
 	"google.golang.org/grpc/codes"
@@ -32,7 +33,7 @@ func (s *SessionStorageDriver) SetUserName(ctx context.Context, userID impulse.U
 	}
 	if _, err := s.spanner.Apply(ctx, []*spanner.Mutation{spanner.UpdateMap(s.userTableName, row)}); err != nil {
 		if spanner.ErrCode(err) == codes.NotFound {
-			return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+			return dbtype.AccountNotFound(userID)
 		}
 
 		return errors.Wrap(err, "spanner.Client.Apply()")
@@ -47,14 +48,14 @@ func (s *SessionStorageDriver) ClaimUserName(ctx context.Context, userID impulse
 	defer span.End()
 
 	var claimed bool
-	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		var err error
 		claimed, err = s.ClaimUserNameIn(ctx, txn, userID, name)
 
 		return err
 	})
 	if err != nil {
-		return false, errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return false, errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return claimed, nil

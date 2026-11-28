@@ -1,6 +1,10 @@
 package transition
 
 import (
+	"errors"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -57,9 +61,55 @@ func wantContains(t *testing.T, a *app.App, rel string, want, notWant []string) 
 	}
 }
 
+// wantNoTenantPageFiles reports a file of the tenant pages in the console: the list of
+// tenants, a tenant's page and the dialog a person who signed up creates their own tenant
+// through are the library's, so the browser half writes no configuration of All tenants
+// and no dialog of the application's own.
+func wantNoTenantPageFiles(t *testing.T, a *app.App) {
+	t.Helper()
+
+	for _, rel := range []string{"web/console/src/app/configs/tenants.config.ts", "web/console/src/app/components/ui/new-tenant"} {
+		if _, err := os.Stat(a.Abs(rel)); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("%s was written (stat error %v): the tenant pages are the library's", rel, err)
+		}
+	}
+}
+
+// wantNoSignInPageOfItsOwn reports a file the browser half wrote of a tenant's Sign-in
+// settings page of the application's own: the library draws the page, and the routes and
+// the menu file place it, so nothing lies under the reference's old place for it and no
+// file names its component.
+func wantNoSignInPageOfItsOwn(t *testing.T, a *app.App) {
+	t.Helper()
+
+	if _, err := os.Stat(a.Abs("web/console/src/app/components/ui/sign-in")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("web/console/src/app/components/ui/sign-in/ was written (stat error %v): the library draws the tenant's Sign-in settings page", err)
+	}
+	var written []string
+	err := filepath.WalkDir(a.Abs("web"), func(p string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			written = append(written, p)
+		}
+
+		return err
+	})
+	if err != nil {
+		t.Fatalf("filepath.WalkDir() error = %v", err)
+	}
+	for _, p := range written {
+		data, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatalf("os.ReadFile() error = %v", err)
+		}
+		if strings.Contains(filepath.Base(p), "tenant-sign-in") || strings.Contains(string(data), "tenant-sign-in") {
+			t.Errorf("%s is or names a tenant sign-in page of the application's own", p)
+		}
+	}
+}
+
 // TestTenancyBrowser pins the browser half of add tenancy over the base skeleton's
-// console: the tenant menus ahead of the others in the menu file, the feature flags entry
-// in the place outside every tenant, Configuration named in the frame's configuration,
+// console: the tenant menus ahead of the others in the menu file, the Feature flags page
+// placed as it was, Configuration named in the frame's configuration,
 // the routes in the tenant shape, the reference's, and a sign-in arriving at the root.
 func TestTenancyBrowser(t *testing.T) {
 	t.Parallel()
@@ -67,23 +117,26 @@ func TestTenancyBrowser(t *testing.T) {
 	a, ch := applyTenancy(t, "Tenants", tenancyWithBrowser(t, nil))
 
 	menus := "web/console/src/app/app.menus.ts"
-	// The Tenants menu holds the list alone: nobody creates a tenant directly, so the menu
-	// file gains no entry that would, and no dialog service for one. The page staff bring
-	// a tenant in from is among the auth's pages the System menu already places.
+	// The Tenants menu holds the library's list of tenants and the invitation that opens on
+	// it: nobody creates a tenant directly, so the menu file gains no entry that would, and
+	// no dialog service for one. The invitations still waiting are listed on that page,
+	// above the tenants.
 	wantContains(t, a, menus, []string{
-		"import { resourcePage } from '@impulseframework/resource-angular/resource-route-generator';\n",
-		"import { tenantSignInPage } from '@components/ui/sign-in/sign-in.routes';\n",
-		"import { tenantsConfig } from './configs/tenants.config';\n",
-		"export function appMenus(actions: FrameActions): Menu[] {\n  return [\n    {\n      label: 'Tenants',",
-		"          entries: [resourcePage(tenantsConfig, resourceMeta)],\n",
+		"import {\n  identityMenuPages,\n  inviteTenantAction,\n  tenantSignInPage,\n  tenantsPage,\n} from '@impulseframework/resource-angular/identity-pages';\n",
+		"export function appMenus(): Menu[] {\n  return [\n    {\n      label: 'Tenants',",
+		"          entries: [\n            tenantsPage(apiDescriptor, resourceMeta, { auth: 'Staff' }),\n            inviteTenantAction(apiDescriptor, resourceMeta, { auth: 'Staff' }),\n          ],\n",
 		"...identityMenuPages(apiDescriptor, resourceMeta, { auth: 'Staff', scope: 'domain' }),",
 		"...identityMenuPages(apiDescriptor, resourceMeta, { auth: 'Staff', scope: 'global' }),",
-		"      label: 'Tenant',\n      groups: [{ entries: [tenantSignInPage] }],\n    },\n    {\n      label: 'System',",
-		"              run: () => actions.featureFlags(),\n              place: 'outside',\n              permission: { resource: Resources.FeatureFlags, permission: Permissions.List },\n",
-	}, []string{"New tenant", "openNewTenantDialog", "MatDialog", "Permissions.Create"})
-	if got := read(t, a, menus); strings.Count(got, "import { identityMenuPages }") != 1 || strings.Count(got, "label: 'System'") != 1 {
+		"      label: 'Tenant',\n      groups: [{ entries: [tenantSignInPage(apiDescriptor, { auth: 'Staff' })] }],\n    },\n    {\n      label: 'System',",
+		"            featureFlagsPage(resourceMeta),\n",
+	}, []string{"New tenant", "openNewTenantDialog", "MatDialog", "Permissions.Create", "FrameActions", "place: 'outside'", "tenantsConfig", "resource-route-generator"})
+	// The library's identity pages give the menu file both the auth's pages and the
+	// tenant's Sign-in settings page, through one import statement.
+	if got := read(t, a, menus); strings.Count(got, "from '@impulseframework/resource-angular/identity-pages';") != 1 || strings.Count(got, "label: 'System'") != 1 {
 		t.Errorf("%s repeats an import or a menu:\n%s", menus, got)
 	}
+	wantNoSignInPageOfItsOwn(t, a)
+	wantNoTenantPageFiles(t, a)
 
 	wantContains(t, a, "web/console/src/app/app.config.ts", []string{
 		"    provideFrame({\n      name: 'Solo',\n      home: 'dashboard',\n      outside: { label: 'Configuration', icon: 'settings' },\n      menus: appMenus,\n    }),\n",
@@ -98,6 +151,11 @@ func TestTenancyBrowser(t *testing.T) {
 	if diff := cmp.Diff(wantRoutes, read(t, a, "web/console/src/app/app.routes.ts")); diff != "" {
 		t.Errorf("routes mismatch (-want +got):\n%s", diff)
 	}
+	wantContains(t, a, "web/console/src/app/app.routes.ts", []string{
+		"import { identityRoutes, tenantSignInRoute, tenantsRoute } from '@impulseframework/resource-angular/identity-pages';\n",
+		"          tenantSignInRoute(apiDescriptor, { auth: 'Staff' }),\n",
+		"          tenantsRoute(apiDescriptor, resourceMeta, { auth: 'Staff' }),\n",
+	}, []string{"tenantsConfig", "resource-route-generator"})
 
 	// The sign-in page is the base's but for the landing: the rest of it, the application's
 	// name among it, is as it was.
@@ -120,6 +178,59 @@ func TestTenancyBrowser(t *testing.T) {
 		if !strings.Contains(did, want) {
 			t.Errorf("Did lacks %q:\n%s", want, did)
 		}
+	}
+}
+
+// Test_addImports pins how the menu file gains the reference's imports: a statement it
+// holds is left, names from a module it imports names from already join that statement,
+// on one line where it fits the skeletons' width and a name a line where it does not, and
+// a statement of another module goes after its last import.
+func Test_addImports(t *testing.T) {
+	t.Parallel()
+
+	const (
+		pages = "import { identityMenuPages } from '@impulseframework/resource-angular/identity-pages';\n"
+		frame = "import { Menu } from '@impulseframework/resource-angular/auth-frame';\n"
+		body  = "\nexport function appMenus(): Menu[] {\n  return [];\n}\n"
+	)
+	tests := []struct {
+		name       string
+		text, want string
+		imports    []string
+	}{
+		{
+			name:    "a statement the file holds is left",
+			text:    frame + pages + body,
+			imports: []string{pages},
+			want:    frame + pages + body,
+		},
+		{
+			name:    "names from a module the file imports from join its statement",
+			text:    frame + pages + body,
+			imports: []string{"import { identityMenuPages, tenantSignInPage } from '@impulseframework/resource-angular/identity-pages';\n"},
+			want:    frame + "import { identityMenuPages, tenantSignInPage } from '@impulseframework/resource-angular/identity-pages';\n" + body,
+		},
+		{
+			name:    "a statement that would pass the width takes a name a line",
+			text:    pages + frame + body,
+			imports: []string{"import { tenantSignInPage, tenantSignInRoute, directoryGroupsPage } from '@impulseframework/resource-angular/identity-pages';\n"},
+			want:    "import {\n  identityMenuPages,\n  tenantSignInPage,\n  tenantSignInRoute,\n  directoryGroupsPage,\n} from '@impulseframework/resource-angular/identity-pages';\n" + frame + body,
+		},
+		{
+			name:    "a statement of another module goes after the last import",
+			text:    pages + frame + body,
+			imports: []string{"import { tenantsConfig } from './configs/tenants.config';\n"},
+			want:    pages + frame + "import { tenantsConfig } from './configs/tenants.config';\n" + body,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if diff := cmp.Diff(tt.want, addImports(tt.text, tt.imports)); diff != "" {
+				t.Errorf("addImports() mismatch (-want +got):\n%s", diff)
+			}
+		})
 	}
 }
 
@@ -152,78 +263,113 @@ func TestTenancyBrowserEdited(t *testing.T) {
 	}
 }
 
-// TestTenancyBrowserMenuSpec pins what add tenancy does to the menu file's test. The
-// library draws the page staff bring a tenant in from for the auth a tenant is made
-// through, among that auth's pages the System menu places, so the base skeleton's test,
-// which lists those pages, gains it after Mailed links, in the record's words. A console
-// whose auth makes no tenant has no such page and its test is left; a test that lists the
-// pages in another form is left and the brief says what it gains.
-func TestTenancyBrowserMenuSpec(t *testing.T) {
+// TestTenancyBrowserDialogsSpec pins what add tenancy does to the test of the dialogs.
+// The base skeleton's test expects the dialog that invites a person to ask for no place,
+// and once there are tenants that dialog asks for the tenant, so a test still as the
+// skeleton rendered it, for the console's auth, is written again as the tenanted
+// skeleton's, which has no test of that dialog. A test of the application's own is left
+// and the brief says what it must expect; an application with no such test, or with the
+// tenanted skeleton's already, is left without a word.
+func TestTenancyBrowserDialogsSpec(t *testing.T) {
 	t.Parallel()
 
-	spec := "web/console/src/" + appMenusSpecFile
-	base := skeletonWeb(t, appMenusSpecFile)
-	listed := "      'Mailed links',\n      'Sessions',\n"
-	if !strings.Contains(base, listed) {
-		t.Fatalf("the base skeleton's menu test does not list the System menu's pages as this test reads them (%q):\n%s", listed, base)
+	spec := "web/console/src/" + appDialogsSpecFile
+	base := skeletonWeb(t, appDialogsSpecFile)
+	reference, err := referenceText(TenancyReferenceCandidate, appDialogsSpecFile)
+	if err != nil {
+		t.Fatal(err)
 	}
-	// through is an application a tenant is made through the staff auth of: the auth is
-	// bound to the default outlet, which serves the tenant record.
-	through := func(specText string) func(files map[string]string) {
+	// The reference's test names no tenant and no auth, so in the record's words and for
+	// any auth it is the reference's as it is.
+	for _, word := range []string{"tenant", "Tenant", "Staff", "staff"} {
+		if strings.Contains(reference, word) {
+			t.Fatalf("the %s skeleton's %s holds %q, which this test expects it not to:\n%s", TenancyReferenceCandidate, appDialogsSpecFile, word, reference)
+		}
+	}
+	with := func(specText string) func(files map[string]string) {
 		return func(files map[string]string) {
-			files["pkg/config/data.go"] = makerConfig
-			files["pkg/auth/staff/staff.go"] = staffPackage(t, "staff.go")
-			files["cmd/generate/resourcegenerator/main.go"] = boundProgram(t)
 			files[spec] = specText
 		}
 	}
+	said := func(ch *Change) string {
+		return strings.Join(append(append([]string{}, ch.Did...), ch.Skipped...), "\n")
+	}
+	wantDid := spec + ": written again as the tenanted skeleton's, which has no test of the dialog that invites a person: the base skeleton's test expects that dialog to ask for no place, and with service areas it asks for the service area"
 
-	t.Run("the skeleton's test gains the page after Mailed links, in the record's words", func(t *testing.T) {
+	t.Run("the skeleton's test is written again as the tenanted skeleton's, in the record's words", func(t *testing.T) {
 		t.Parallel()
 
-		a, ch := applyTenancy(t, "ServiceAreas", tenancyWithBrowser(t, through(base)))
-		want := strings.Replace(base, listed, "      'Mailed links',\n      'Invited service areas',\n      'Sessions',\n", 1)
-		if diff := cmp.Diff(want, read(t, a, spec)); diff != "" {
-			t.Errorf("menu test mismatch (-want +got):\n%s", diff)
+		a, ch := applyTenancy(t, "ServiceAreas", tenancyWithBrowser(t, with(base)))
+		if diff := cmp.Diff(reference, read(t, a, spec)); diff != "" {
+			t.Errorf("dialogs test mismatch (-want +got):\n%s", diff)
 		}
-		if did := strings.Join(ch.Did, "\n"); !strings.Contains(did, spec+": the pages the System menu places gain Invited service areas, the page staff bring a service area in from, after Mailed links") {
-			t.Errorf("Did does not say the menu test gained the page:\n%s", did)
+		if did := strings.Join(ch.Did, "\n"); !strings.Contains(did, wantDid) {
+			t.Errorf("Did does not say the dialogs test was written again:\n%s", did)
 		}
 	})
 
-	t.Run("a console whose auth makes no tenant keeps its test", func(t *testing.T) {
+	t.Run("the skeleton's test as impulse new renders it for another auth is written again for that auth", func(t *testing.T) {
 		t.Parallel()
 
 		a, ch := applyTenancy(t, "ServiceAreas", tenancyWithBrowser(t, func(files map[string]string) {
-			files[spec] = base
+			for _, rel := range boundWebFiles {
+				files["web/console/src/"+rel] = names.Rename(files["web/console/src/"+rel], skeleton.PlaceholderAuth, "people")
+			}
+			files[spec] = names.Rename(base, skeleton.PlaceholderAuth, "people")
 		}))
-		if diff := cmp.Diff(base, read(t, a, spec)); diff != "" {
-			t.Errorf("menu test mismatch (-want +got):\n%s", diff)
+		got := read(t, a, spec)
+		if diff := cmp.Diff(reference, got); diff != "" {
+			t.Errorf("dialogs test mismatch (-want +got):\n%s", diff)
 		}
-		if said := strings.Join(append(ch.Did, ch.Skipped...), "\n"); strings.Contains(said, appMenusSpecFile) {
-			t.Errorf("the brief speaks of a menu test that was left as it is:\n%s", said)
+		for _, placeholder := range []string{"Staff", "staff", "STAFF"} {
+			if strings.Contains(got, placeholder) {
+				t.Errorf("%s names the placeholder %q", spec, placeholder)
+			}
+		}
+		if did := strings.Join(ch.Did, "\n"); !strings.Contains(did, wantDid) {
+			t.Errorf("Did does not say the dialogs test was written again:\n%s", did)
 		}
 	})
 
-	t.Run("a test in another form is left, and the brief says what it gains", func(t *testing.T) {
+	t.Run("a test of the application's own is left, and the brief says what it must expect", func(t *testing.T) {
 		t.Parallel()
 
-		own := "// the application's own menu test\n"
-		a, ch := applyTenancy(t, "ServiceAreas", tenancyWithBrowser(t, through(own)))
+		own := "// the application's own dialogs test\n"
+		a, ch := applyTenancy(t, "ServiceAreas", tenancyWithBrowser(t, with(own)))
 		if got := read(t, a, spec); got != own {
-			t.Errorf("menu test = %q, want it left", got)
+			t.Errorf("dialogs test = %q, want it left", got)
 		}
-		if skipped := strings.Join(ch.Skipped, "\n"); !strings.Contains(skipped, spec+" does not list the pages the System menu places as the skeleton's test does ('Mailed links', then 'Sessions'), so it was left as it is: the System menu gains Invited service areas, the page staff bring a service area in from, after Mailed links") {
-			t.Errorf("Skipped does not say what the menu test gains:\n%s", skipped)
+		if skipped := strings.Join(ch.Skipped, "\n"); !strings.Contains(skipped, spec+" was edited since the skeleton rendered it, so it was left as it is: the dialog that invites a person now asks for the service area, so a test that expects it to ask for no place, as the base skeleton's does, fails until it expects the service area or is taken out") {
+			t.Errorf("Skipped does not say what the dialogs test must expect:\n%s", skipped)
+		}
+	})
+
+	t.Run("no such test, or the tenanted skeleton's already, is left without a word", func(t *testing.T) {
+		t.Parallel()
+
+		a, ch := applyTenancy(t, "ServiceAreas", tenancyWithBrowser(t, nil))
+		if _, err := os.Stat(a.Abs(spec)); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("%s was written where the application had none (stat error %v)", spec, err)
+		}
+		if got := said(ch); strings.Contains(got, appDialogsSpecFile) {
+			t.Errorf("the brief speaks of a dialogs test the application does not have:\n%s", got)
+		}
+
+		a, ch = applyTenancy(t, "ServiceAreas", tenancyWithBrowser(t, with(reference)))
+		if diff := cmp.Diff(reference, read(t, a, spec)); diff != "" {
+			t.Errorf("dialogs test mismatch (-want +got):\n%s", diff)
+		}
+		if got := said(ch); strings.Contains(got, appDialogsSpecFile) {
+			t.Errorf("the brief speaks of a dialogs test that was left as it is:\n%s", got)
 		}
 	})
 }
 
 // TestTenancyBrowserAuth pins the browser half for an application whose auth is not the
-// skeletons' placeholder, as impulse new --auth people renders the base: the copied
-// pages read the auth's own role resource, the routes are found as rendered and written
-// in the tenant shape, and the menus ask the library for the auth's pages and speak of
-// it. Nothing the step writes names the placeholder.
+// skeletons' placeholder, as impulse new --auth people renders the base: the routes are
+// found as rendered and written in the tenant shape, and the menus ask the library for
+// the auth's pages, the tenant's Sign-in settings page among them, and speak of it.
+// Nothing the step writes names the placeholder.
 func TestTenancyBrowserAuth(t *testing.T) {
 	t.Parallel()
 
@@ -235,19 +381,7 @@ func TestTenancyBrowserAuth(t *testing.T) {
 	src := "web/console/src/app/"
 	placeholder := []string{"Staff", "staff", "STAFF"}
 
-	// The page names no role resource of its own: the role is picked in the method's
-	// dialog, which reads the picker from the generated metadata. Its spec scripts the
-	// auth's list of a tenant's roles.
-	wantContains(t, a, src+"components/ui/sign-in/tenant-sign-in.component.ts", []string{
-		"import { ServiceAreaDirectories, ServiceAreas } from '@app/service/zz_gen_resources';",
-	}, placeholder)
-	wantContains(t, a, src+"components/ui/sign-in/tenant-sign-in.component.spec.ts", []string{
-		"PeopleServiceAreaDirectoryRoles: { List: 'granted' },",
-		"case `${environment.apiUrl}/service-areas/${acmeID}/people-service-area-directory-roles`:",
-	}, placeholder)
-	for _, f := range tenantWebFiles {
-		wantContains(t, a, "web/console/src/"+f.rel, nil, placeholder)
-	}
+	wantNoTenantPageFiles(t, a)
 
 	reference, err := referenceText(TenancyReferenceCandidate, appRoutesFile)
 	if err != nil {
@@ -262,10 +396,15 @@ func TestTenancyBrowserAuth(t *testing.T) {
 		"// The people's accounts across the whole application",
 		"...identityRoutes(apiDescriptor, resourceMeta, { auth: 'People', scope: 'global' }),",
 		"...identityRoutes(apiDescriptor, resourceMeta, { auth: 'People', scope: 'domain' }).map(underTenant),",
+		"tenantSignInRoute(apiDescriptor, { auth: 'People' }),",
+		"tenantsRoute(apiDescriptor, resourceMeta, { auth: 'People' }),",
 	}, placeholder)
 	wantContains(t, a, src+"app.menus.ts", []string{
 		"side of the People auth's generated management.",
 		"...identityMenuPages(apiDescriptor, resourceMeta, { auth: 'People', scope: 'domain' }),",
+		"groups: [{ entries: [tenantSignInPage(apiDescriptor, { auth: 'People' })] }],",
+		"tenantsPage(apiDescriptor, resourceMeta, { auth: 'People' }),",
+		"inviteTenantAction(apiDescriptor, resourceMeta, { auth: 'People' }),",
 	}, placeholder)
 
 	if skipped := strings.Join(ch.Skipped, "\n"); strings.Contains(skipped, "web/console/") {
@@ -402,123 +541,125 @@ func TestTenancyBrowserSignIn(t *testing.T) {
 	}
 }
 
+// TestTenancyWords pins the record's words as the screen shows them and inside a
+// sentence: a record whose name ends in a plural acronym keeps its letters where there
+// are several, and a record of two words is spelled as before.
+func TestTenancyWords(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		table                                          string
+		wantOne, wantMany, wantOneLower, wantManyLower string
+	}{
+		{table: "PartnerAPIs", wantOne: "Partner api", wantMany: "Partner APIs", wantOneLower: "partner api", wantManyLower: "partner APIs"},
+		{table: "ServiceAreas", wantOne: "Service area", wantMany: "Service areas", wantOneLower: "service area", wantManyLower: "service areas"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.table, func(t *testing.T) {
+			t.Parallel()
+
+			tn := Tenancy{Table: tt.table}
+			got := []string{tn.one(), tn.many(), tn.oneLower(), tn.manyLower()}
+			want := []string{tt.wantOne, tt.wantMany, tt.wantOneLower, tt.wantManyLower}
+			if diff := cmp.Diff(want, got); diff != "" {
+				t.Errorf("one(), many(), oneLower(), manyLower() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 // TestTenancyBrowserRecordWords pins the record's words in everything the browser half
 // writes, for a record of two words: every name the generator derives from the record
-// (its resources, their bodies' types, the client's properties, the routes, the route
-// parameter, the directories record's tenant field), every word the screen shows, and the
-// library's own words left as they are (a Microsoft Entra tenant, its tenant id, the
-// copied components' names).
+// (its resources, the routes, the route parameter) and every word the screen shows. The
+// tenant pages are the library's, which reads the record's words from the generated
+// description: no file is written for them.
 func TestTenancyBrowserRecordWords(t *testing.T) {
 	t.Parallel()
 
 	a, ch := applyTenancy(t, "ServiceAreas", tenancyWithBrowser(t, nil))
 	src := "web/console/src/app/"
 
-	wantContains(t, a, src+"components/ui/sign-in/sign-in.routes.ts", []string{
-		"permission: { resource: Resources.ServiceAreaDirectories, permission: Permissions.List },",
-		"export const tenantSignInPage = page({",
-	}, []string{"TenantDirectories"})
-	wantContains(t, a, src+"components/ui/sign-in/tenant-sign-in.component.ts", []string{
-		"import { ServiceAreaDirectories, ServiceAreas } from '@app/service/zz_gen_resources';",
-		"serviceAreaID = input.required<string>();",
-		"this.api.serviceAreas.read([params.tenant])",
-		"this.api.domain(params.tenant as Domain).serviceAreaDirectories.list()",
-		"private own = computed(() => this.api.domain(this.serviceAreaID() as Domain));",
-		// The record's own methods, each named for the record: the two that turn the
-		// switch and the two that say how it admits its directory's people.
-		"canMakeOnly = computed(() => this.permissions() && this.own().makeServiceAreaDirectoryOnly.can());",
-		"canEndOnly = computed(() => this.permissions() && this.own().endServiceAreaDirectoryOnly.can());",
-		"canOpen = computed(() => this.permissions() && this.own().openServiceAreaToDirectory.can());",
-		"canInviteOnly = computed(() => this.permissions() && this.own().makeServiceAreaInviteOnly.can());",
-		"Methods.MakeServiceAreaDirectoryOnly,",
-		"() => this.own().makeServiceAreaDirectoryOnly.warning({}),",
-		"Methods.OpenServiceAreaToDirectory,",
-		"await this.run(Methods.EndServiceAreaDirectoryOnly, 'Turn directory only off', {",
-		"await this.run(Methods.MakeServiceAreaInviteOnly, 'Make invite only', {",
-		"export class TenantSignInComponent {",
-		// The directory's own word stays: a Microsoft Entra tenant is not the record's.
-		"azure: 'Microsoft Entra tenant',",
-		"await this.own().serviceAreaDirectories.create({});",
-	}, []string{"tenantID", ".tenants.", "Resources.Tenants", "TenantDirectoryOnly", "TenantToDirectory", "TenantInviteOnly"})
-	wantContains(t, a, src+"components/ui/sign-in/tenant-sign-in.component.html", []string{
-		"<h1>Who may enter {{ tenantName() || 'this service area' }}</h1>",
-		"Google Workspace or a Microsoft Entra tenant. A service area has one directory, and a directory belongs to one service area.",
-		"Make {{ mine.connection }} this service area's directory",
-		"Your role in this service area does not cover its directory.",
-		"@if (directoryOnly() !== undefined) {",
-		"An administrator of this service area sets this, in the service area.",
-	}, nil)
-	wantContains(t, a, src+"components/ui/sign-in/tenant-sign-in.component.spec.ts", []string{
-		"const workspace: ServiceAreaDirectories = { id: 'd-1', serviceAreaId: acmeID, method: 'google', connection: 'acme.example' };",
-		// The list the role is picked from is named for the record too.
-		"StaffServiceAreaDirectoryRoles: { List: 'granted' },",
-		"global: { ServiceAreas: { Read: 'granted', Update: 'granted' } },",
-		"case `${environment.apiUrl}/service-areas/${acmeID}/service-area-directories`:",
-		"case `${environment.apiUrl}/service-areas/${acmeID}/staff-service-area-directory-roles`:",
-		"MakeServiceAreaDirectoryOnly: { Execute: 'granted' },",
-		"EndServiceAreaDirectoryOnly: { Execute: 'granted' },",
-		"OpenServiceAreaToDirectory: { Execute: 'granted' },",
-		"MakeServiceAreaInviteOnly: { Execute: 'granted' },",
-		"'make-service-area-directory-only',",
-		"'end-service-area-directory-only',",
-		"'open-service-area-to-directory',",
-		"'make-service-area-invite-only',",
-		"expect(calls('open-service-area-to-directory')).toEqual([{ role: 'TenantAdministrator' }]);",
-		"fixture.componentRef.setInput('serviceAreaID', acmeID);",
-		"'Your role in this service area does not cover its directory.',",
-		"expect(texts('.make-directory')).toEqual([\"Make acme.example this service area's directory\"]);",
-	}, []string{"tenantID", "/tenants/", "TenantDirectoryOnly", "tenant-directory-only", "TenantToDirectory", "tenant-to-directory", "TenantInviteOnly", "tenant-invite-only", "TenantDirectoryRoles", "tenant-directory-roles"})
-	wantContains(t, a, src+"configs/tenants.config.ts", []string{
-		"import { Resources, ServiceAreas } from '@app/service/zz_gen_constants';",
-		"export const tenantsConfig = rootConfig({",
-		"page: { label: 'All service areas', icon: 'domain' },",
-		"title: 'Service areas',",
-		"primaryResource: Resources.ServiceAreas,",
-		// The list names a service area; its id, which nobody types, shows on the row
-		// page alone, read only.
-		"{ id: ServiceAreas.fieldName.name },",
-		"field({ name: ServiceAreas.fieldName.id, label: 'Id', cols: 4, readOnly: true }),",
-		"label: 'Service area',",
-	}, nil)
-	wantContains(t, a, src+"components/ui/new-tenant/new-tenant-dialog.component.ts", []string{
-		"import { apiDescriptor, CreateServiceArea, CreateServiceAreaAnswer, createServiceAreaRoute } from '@app/service/zz_gen_api';",
-		"const body: CreateServiceArea = this.form.getRawValue();",
-		// The person who signed up creates their own through the generated route.
-		"this.http.post<CreateServiceAreaAnswer>(`${environment.apiUrl}/${createServiceAreaRoute}`, body)",
-		// A name another service area carries is refused in the record's word, which the
-		// generated description carries; the reference's word is never written here.
-		"named ${name} already exists. Choose another name.`;",
-		"apiDescriptor.domainRoute?.word?.one",
-		"export function openNewTenantDialog(dialog: MatDialog)",
-		// Nobody creates the record directly: the dialog holds no create through the client.
-	}, []string{".create(body)", "selfService", "injectApi"})
-	wantContains(t, a, src+"components/ui/new-tenant/new-tenant-dialog.component.html", []string{
-		"<h2 mat-dialog-title>Create your service area</h2>",
-		"You are signed in and hold no service area. Name yours:",
-		"What people call the service area, wherever it is listed. It can be changed later.",
-		"Create service area</button>",
-	}, []string{"New service area", "you are its first administrator"})
-	wantContains(t, a, src+"components/ui/new-tenant/new-tenant-dialog.component.spec.ts", []string{
-		"toContain('Create your service area')",
-		"http.expectOne(`${environment.apiUrl}/${createServiceAreaRoute}`)",
-		"expect(fixture.componentInstance.error()).toBe('A service area named West already exists. Choose another name.');",
-	}, []string{"New service area", "path: '/service-areas'"})
+	// The library draws the service area's Sign-in settings page and the list of service
+	// areas from the generated description, which carries the record's names; the menu
+	// file and the routes place them, and nothing of them is the application's own.
+	wantNoSignInPageOfItsOwn(t, a)
+	wantNoTenantPageFiles(t, a)
 	wantContains(t, a, src+"app.menus.ts", []string{
 		"      label: 'Service areas',",
-		"          entries: [resourcePage(tenantsConfig, resourceMeta)],",
-		"      label: 'Service area',\n      groups: [{ entries: [tenantSignInPage] }],",
-	}, []string{"Resources.Tenants", "New service area", "Permissions.Create"})
+		"          entries: [\n            tenantsPage(apiDescriptor, resourceMeta, { auth: 'Staff' }),\n            inviteTenantAction(apiDescriptor, resourceMeta, { auth: 'Staff' }),\n          ],",
+		"      label: 'Service area',\n      groups: [{ entries: [tenantSignInPage(apiDescriptor, { auth: 'Staff' })] }],",
+	}, []string{"Resources.Tenants", "New service area", "Permissions.Create", "tenantsConfig"})
 	wantContains(t, a, src+"app.routes.ts", []string{
 		"// The tenant segment, service-areas/:serviceAreaID, mirroring the API's",
-		"resourceRoutes(tenantsConfig, resourceMeta)",
-	}, []string{"tenants/:tenantID"})
+		"          tenantsRoute(apiDescriptor, resourceMeta, { auth: 'Staff' }),\n",
+		"          tenantSignInRoute(apiDescriptor, { auth: 'Staff' }),\n",
+	}, []string{"tenants/:tenantID", "tenantsConfig"})
 
 	did := strings.Join(ch.Did, "\n")
 	// The generator expects the record in the file named for it in snake case.
 	if !strings.Contains(did, "pkg/resources/service_areas.go: the ServiceArea resource struct") {
 		t.Errorf("Did does not write the record into service_areas.go:\n%s", did)
 	}
-	if !strings.Contains(did, "the service area's sign-in page") || !strings.Contains(did, "with every name and word of the reference's Tenant record the ServiceArea record's") {
+	if !strings.Contains(did, "Service areas (All service areas, in the place outside every service area)") || !strings.Contains(did, "Service area (Sign-in settings)") {
 		t.Errorf("Did does not speak of service areas:\n%s", did)
+	}
+}
+
+// TestRecordWordsInCode pins what the rename does to a TypeScript file that is not a
+// spec: the record's word is renamed in the text of its string literals, quoted or
+// template, since that is where a component holds a sentence it says from its code, and
+// nowhere else: not in its code, not in a template literal's expressions, not in its
+// comments, and not where a literal holds a name in code or the directory's own word.
+func TestRecordWordsInCode(t *testing.T) {
+	t.Parallel()
+
+	tn := Tenancy{Table: "ServiceAreas"}
+	for _, tt := range []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "a template literal's sentence, around its expression",
+			in:   "words: `${this.nameOf(directory)} will no longer be this tenant's directory, and it is free for another tenant.`,",
+			want: "words: `${this.nameOf(directory)} will no longer be this service area's directory, and it is free for another service area.`,",
+		},
+		{
+			name: "a quoted sentence, single and double, one and many",
+			in:   "title = 'Remove this tenant?';\nhint = \"The tenant's people keep their roles in other tenants.\";\nheading = 'Tenant and directory';",
+			want: "title = 'Remove this service area?';\nhint = \"The service area's people keep their roles in other service areas.\";\nheading = 'Service area and directory';",
+		},
+		{
+			name: "an expression is code, and a literal inside it is a literal",
+			in:   "return `${this.tenant.value()?.name ?? 'this tenant'} has no directory. Ask the tenant's administrator.`;",
+			want: "return `${this.tenant.value()?.name ?? 'this service area'} has no directory. Ask the service area's administrator.`;",
+		},
+		{
+			name: "an expression that holds braces and a template literal of its own",
+			in:   "return `Open to ${names.map((n) => { return `the tenant ${n}`; }).join(', ')} and to no other tenant.`;",
+			want: "return `Open to ${names.map((n) => { return `the service area ${n}`; }).join(', ')} and to no other service area.`;",
+		},
+		{
+			name: "the code and its comments are left, and an apostrophe in a comment opens no literal",
+			in:   "/** The tenant's row: a tenant has one. */\ntenant = resource({ params: () => ({ tenant: this.tenantID() }) });\n// the tenant's name, or 'this tenant'\nlabel = 'Every tenant';",
+			want: "/** The tenant's row: a tenant has one. */\ntenant = resource({ params: () => ({ tenant: this.serviceAreaID() }) });\n// the tenant's name, or 'this tenant'\nlabel = 'Every service area';",
+		},
+		{
+			name: "a name in code that a literal holds is left, and so is the directory's own word",
+			in:   "selector: 'app-tenant-sign-in',\ntemplateUrl: './tenant-sign-in.component.html',\nazure: 'Microsoft Entra tenant',\nhint: 'Its tenant id, as Microsoft shows it.',",
+			want: "selector: 'app-tenant-sign-in',\ntemplateUrl: './tenant-sign-in.component.html',\nazure: 'Microsoft Entra tenant',\nhint: 'Its tenant id, as Microsoft shows it.',",
+		},
+		{
+			name: "an escaped quote does not end a literal",
+			in:   "a = 'the tenant\\'s own';\nb = `a \\` in a tenant ${x} \\${tenant}`;",
+			want: "a = 'the service area\\'s own';\nb = `a \\` in a service area ${x} \\${service area}`;",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := tn.inRecordWords("app/components/ui/sign-in/tenant-sign-in.component.ts", tt.in); got != tt.want {
+				t.Errorf("inRecordWords() =\n%s\nwant\n%s", got, tt.want)
+			}
+		})
 	}
 }

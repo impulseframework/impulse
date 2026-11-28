@@ -128,7 +128,7 @@ export const appConfig: ApplicationConfig = {
     // The XSRF cookie is the crew auth's (pkg/auth/crew, XSRFCookie): HttpClient echoes it in
     // the X-XSRF-TOKEN header on every mutating request, and the server verifies the echo.
     // The one interceptor adds the release header to the console's own same-origin
-    // HttpClient calls (the login POST, the ship's log, the watch desk); it judges nothing.
+    // HttpClient calls (the login POST, a session held as someone else); it judges nothing.
     provideHttpClient(withInterceptors([apiVersionInterceptor]), withXsrfConfiguration({ cookieName: 'crew-xsrf' })),
     // The console installs as a progressive web app. The service worker (ngsw-worker.js,
     // which the production build emits beside ngsw.json from the workspace's
@@ -145,11 +145,11 @@ export const appConfig: ApplicationConfig = {
     // Demonstrates: webapp.installable, webapp.update-notice.
     provideServiceWorker('ngsw-worker.js', { enabled: !isDevMode(), registrationStrategy: 'registerWhenStable:30000' }),
     provideAppUpdate(),
-    // The look the person chose, light or dark and one of the palettes named here, the
-    // ids of theme.scss's palette map in the same order, applied before the first page
-    // renders, remembered in the browser and kept with the person's account, so it
-    // follows them to another device (the frame writes it there); Appearance in the
-    // person's menu is where they choose.
+    // The look the person chose, light, dark or as their device is set, and one of the
+    // palettes named here, the ids of theme.scss's palette map in the same order, applied
+    // before the first page renders, remembered in the browser and kept with the person's
+    // account, so it follows them to another device (the frame writes it there);
+    // Appearance in the person's menu is where they choose.
     //
     // Demonstrates: webapp.theme-choice.
     provideTheme({

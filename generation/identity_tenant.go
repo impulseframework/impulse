@@ -67,6 +67,11 @@ func (i *identityInstance) picksRoles() bool {
 	return i.tenant != nil && !i.rolesSynced && i.has(identityMemberships)
 }
 
+// roleAloneFields are the fields of a request that names the role alone, as Go writes
+// them over the role asked about: what a method that gives a role in one tenant, or on one
+// of its records, is asked with.
+const roleAloneFields = "Role: string(role)"
+
 // tenantGiving is one method a person gives a role with by hand in one tenant, whose
 // role field picks from the roles that exist in the tenant: the method's struct, and
 // the fields its request names the role in, as Go writes them.
@@ -77,9 +82,9 @@ type tenantGiving struct {
 
 // tenantGivings are the methods of one tenant whose role field picks from the tenant's
 // roles, each where the instance writes it: the one that gives a person a role, the
-// create and the invitation that start a person with one, and the one that gives a
-// group a role. The list a role is picked from offers the roles one of them takes from
-// the caller (the generated CouldGive), so it reads the same sources the methods are
+// invitation that starts a person with one, and the one that gives a group a role. The
+// list a role is picked from offers, for each, the roles that method takes from the
+// caller (the generated CouldGive), so it reads the same sources the methods are
 // written from and names none the instance does not hold.
 func (i *identityInstance) tenantGivings() []tenantGiving {
 	if i.tenant == nil {
@@ -89,10 +94,9 @@ func (i *identityInstance) tenantGivings() []tenantGiving {
 	sources := slices.Concat(i.tenantMethodSources(), i.groupMethodSources())
 	var givings []tenantGiving
 	for _, giving := range []tenantGiving{
-		{Method: "Assign" + subject + "Role", Fields: "Role: string(role)"},
-		{Method: "Create" + subject + "User", Fields: "Roles: []string{string(role)}"},
+		{Method: "Assign" + subject + "Role", Fields: roleAloneFields},
 		{Method: "Invite" + subject + "User", Fields: "Roles: []string{string(role)}"},
-		{Method: "Give" + subject + "GroupRole", Fields: "Role: string(role)"},
+		{Method: "Give" + subject + "GroupRole", Fields: roleAloneFields},
 	} {
 		written := slices.ContainsFunc(sources, func(file identitySourceFile) bool {
 			return file.tenant && file.name == fileStem(giving.Method) &&
@@ -113,9 +117,10 @@ func (d *identitySourceData) TenantGivings() []tenantGiving {
 }
 
 // OffersRolesToGive reports whether the list a tenant's role is picked from offers the
-// roles the caller could give and no other: the instance's package answers the role
-// file's grants (grants.go), and a method of the tenant picks from the list. Without
-// either the list is every role of the tenant, limited by its own grant alone.
+// roles the caller could give with the method that asks and no other: the instance's
+// package answers the role file's grants (grants.go), and a method of the tenant picks
+// from the list. Without either the list is every role of the tenant, limited by its
+// own grant alone, and names no method.
 func (d *identitySourceData) OffersRolesToGive() bool {
 	return d.judgesRoleChanges() && len(d.tenantGivings()) > 0
 }
@@ -201,7 +206,7 @@ func (i *identityInstance) tenantMethodSources() []identitySourceFile {
 		if i.password {
 			files = append(files,
 				method("Require"+subject+"PasswordChange", identityRequirePasswordChangeTemplate, identityUsers),
-				method("Set"+subject+"TemporaryPassword", identitySetTemporaryPasswordTemplate, identityUsers),
+				method("Send"+subject+"UserPasswordResetLink", identitySendPasswordResetLinkTemplate, identityUsers, identityMailLinks),
 			)
 		}
 		if !i.usernameIsEmail {
@@ -210,11 +215,11 @@ func (i *identityInstance) tenantMethodSources() []identitySourceFile {
 				method("Set"+subject+"UserEmail", identitySetUserEmailTemplate, identityUsers),
 			)
 		}
-		if i.createsUsers() {
-			files = append(files, method("Create"+subject+"User", identityTenantCreateUserTemplate, identityUsers, identityMemberships))
-		}
 		if !i.rolesSynced {
-			files = append(files, method("Assign"+subject+"Role", identityTenantAssignRoleTemplate, identityMemberships))
+			files = append(files,
+				method("Assign"+subject+"Role", identityTenantAssignRoleTemplate, identityMemberships),
+				method("Remove"+subject+"User", identityTenantRemoveUserTemplate, identityUsers, identityMemberships),
+			)
 		}
 	}
 	if i.hasList(listIdentitiesSuffix) {
@@ -233,6 +238,7 @@ func (i *identityInstance) tenantMethodSources() []identitySourceFile {
 		files = append(files,
 			method("Invite"+subject+"User", identityTenantInviteUserTemplate, identityMailLinks, identityMemberships),
 			method("Withdraw"+subject+"Invitation", identityWithdrawInvitationTemplate, identityMailLinks, identityMemberships),
+			method("Resend"+subject+"Invitation", identityResendInvitationTemplate, identityMailLinks, identityMemberships),
 		)
 	}
 
@@ -244,9 +250,24 @@ func (d *identitySourceData) Subject() string {
 	return d.subject(d.ForTenant)
 }
 
-// SubjectUser is the struct whose row a method names a person by: the users table's for
-// the whole application, and the tenant's list of people for a tenant.
+// SubjectUser is the struct whose row a method names a person by: the list of the
+// accounts a page shows, the whole application's (identity_holdings.go) or the tenant's
+// people. A method so names the row the page offers it on, and the server answers for
+// that row whether the caller may run it.
 func (d *identitySourceData) SubjectUser() string {
+	if d.ForTenant {
+		return d.TenantUser()
+	}
+	if d.listsHeldRoles() {
+		return d.ListedUser()
+	}
+
+	return d.User()
+}
+
+// PickedUser is the struct a method's input picks a person from: the tenant's people for a
+// tenant, and the users table's declaration for the whole application.
+func (d *identitySourceData) PickedUser() string {
 	if d.ForTenant {
 		return d.TenantUser()
 	}
@@ -254,24 +275,30 @@ func (d *identitySourceData) SubjectUser() string {
 	return d.User()
 }
 
-// SubjectIdentity is the struct whose row a method names an identity by: the identities
-// table's for the whole application, and the tenant's list of its people's identities
-// for a tenant.
+// SubjectIdentity is the struct whose row a method names an identity by: the tenant's
+// list of its people's identities for a tenant; for the whole application, its list of
+// the identities that says who manages each account where the application has a tenant
+// record (identity_holdings.go), so that a grant's condition reads it, and the
+// declaration over the identities table where it has none.
 func (d *identitySourceData) SubjectIdentity() string {
 	if d.ForTenant {
 		return d.TenantIdentity()
+	}
+	if d.listsIdentities() {
+		return d.ListedIdentity()
 	}
 
 	return d.Identity()
 }
 
-// SubjectMailLink is the struct whose row a method names an invitation by: the mail
-// links table's for the whole application, and the tenant's list of invitations for a
-// tenant.
+// SubjectMailLink is the struct whose row a method names an invitation by: the list of
+// the mailed links a page shows for the whole application (ListedMailLink), and the
+// tenant's list of invitations for a tenant, so a row of the list a page shows offers
+// the methods.
 func (d *identitySourceData) SubjectMailLink() string {
 	if d.ForTenant {
 		return d.TenantMailLink()
 	}
 
-	return d.MailLink()
+	return d.ListedMailLink()
 }

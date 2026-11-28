@@ -11,6 +11,8 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
+	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/shopspring/decimal"
 )
@@ -21,6 +23,60 @@ func (Pilot) Resource() accesstypes.Resource {
 
 func (Pilot) DefaultConfig() resource.Config {
 	return defaultConfig()
+}
+
+// NamedRows names the columns that name a row of another resource the application lists
+// (UserID): a create or an update sets one only to a row its caller can list, so the
+// library answers any other as a row that is not there.
+func (Pilot) NamedRows() []resource.NamedRow {
+	return []resource.NamedRow{
+		{Field: "UserID", Resource: "CrewSessionUsers", Table: "CrewSessionUsers", KeyColumn: "Id"},
+	}
+}
+
+// DeleteTree describes what keeps a Pilot from being deleted: the kinds with a
+// row directly under a Pilot that the database does not remove with it, each
+// with the columns that name the Pilot. A delete of a Pilot with
+// such a row is refused in a sentence that says what is in the way.
+func (Pilot) DeleteTree() *resource.DeleteTree {
+	return &resource.DeleteTree{
+		Record: "Pilots",
+		Words:  resource.DeleteWords{One: "pilot", Many: "pilots"},
+		Key:    []string{"Id"},
+		Cost:   resource.DeleteCost{IndexEntries: 2, Files: 0},
+		Under: []resource.DeleteKind{
+			{
+				Resource: "Commendations",
+				Words:    resource.DeleteWords{One: "commendation", Many: "commendations"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"PilotId"}, Table: "Pilots", References: []string{"Id"}},
+					},
+				},
+			},
+		},
+	}
+}
+
+// NameFields names the resource's name fields: beside each id that points to a row with
+// a name, the name of that row, which a list shows, sorts by and filters by. A name is
+// looked up in the pointed-to table by the id; it is no column of this resource.
+func (Pilot) NameFields() []resource.NameField {
+	return []resource.NameField{
+		{Field: "UserName", Key: "UserID", Resource: "CrewSessionUsers", Tag: "username", Table: "CrewSessionUsers", KeyColumn: "Id", NameColumn: "Username", TenantColumn: ""},
+	}
+}
+
+// RecordedNames names the rows a change record of the resource keeps the name of:
+// for each field that points at a row with a name, where the name is read. A
+// tracked write that changes such a field reads the name in its own transaction,
+// and the change record keeps it beside the id.
+func (Pilot) RecordedNames() []resource.NameField {
+	return []resource.NameField{
+		{Field: "", Key: "UserID", Resource: "CrewSessionUsers", Tag: "username", Table: "CrewSessionUsers", KeyColumn: "Id", NameColumn: "Username", TenantColumn: ""},
+	}
 }
 
 // pilotRead mirrors the wire shape the resource routes list
@@ -225,6 +281,10 @@ func (p PilotQueryPartialClause) UserID() PilotQueryIdent[string] {
 	return PilotQueryIdent[string]{Ident: resource.NewIdent[string]("UserID", p.partialClause, true)}
 }
 
+func (p PilotQueryPartialClause) DisplayName() PilotQueryIdent[string] {
+	return PilotQueryIdent[string]{Ident: resource.NewIdent[string]("DisplayName", p.partialClause, true)}
+}
+
 type PilotQueryClause struct {
 	clause resource.QueryClause
 }
@@ -369,11 +429,11 @@ func (p *PilotCreatePatch) ToStruct() *Pilot {
 	return p.patchSet.ToStruct()
 }
 
-func (p *PilotCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *PilotCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *PilotCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *PilotCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -501,11 +561,11 @@ func (p *PilotUpdatePatch) ToStruct() *Pilot {
 	return p.patchSet.ToStruct()
 }
 
-func (p *PilotUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *PilotUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *PilotUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *PilotUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -643,11 +703,11 @@ func NewPilotDeletePatch(id impulse.UUID) *PilotDeletePatch {
 	return &PilotDeletePatch{patchSet: patchSet}
 }
 
-func (p *PilotDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *PilotDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *PilotDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *PilotDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -672,4 +732,20 @@ func (p *PilotDeletePatch) ID() impulse.UUID {
 // Diff is intended for unit testing, and reports the differences between two values using github.com/google/go-cmp/cmp
 func (p *PilotDeletePatch) Diff(got *PilotDeletePatch, opts ...cmp.Option) string {
 	return resource.PatchSetDiff(opts...)(p.patchSet, got.patchSet)
+}
+
+// RefuseImpersonatorAsPilotSubject asks, of one write of the pilot
+// record, what a record that decides what a person may do is asked in a session that
+// acts as someone else: nobody writes the row that decides it for themselves. op is the
+// write, key the row's key (empty for an add whose id is generated) and patchSet the
+// write's fields. The record's generated write, where it has one, calls it once the
+// operation is decoded, ahead of the create, the change and the delete, and the delete
+// of a row taken with the record it is under (resource.NewTakenRows) calls it as a
+// removal, so the two ask the same. It answers nil outside such a session.
+func RefuseImpersonatorAsPilotSubject(ctx context.Context, txn resource.ReadWriteTransaction, op resource.OperationType, key resource.KeySet, patchSet *resource.PatchSet[Pilot]) error {
+	if err := identity.RefuseImpersonatorAsRowSubject(ctx, txn, op, key, patchSet, "pilot", "UserID"); err != nil {
+		return errors.Wrap(err, "identity.RefuseImpersonatorAsRowSubject()")
+	}
+
+	return nil
 }

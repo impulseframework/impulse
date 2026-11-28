@@ -28,6 +28,7 @@ func (h *Handlers) MembersSectorUserRoles() http.HandlerFunc {
 		CreatedAt   time.Time    `json:"createdAt"`
 		StartsAt    *time.Time   `json:"startsAt"`
 		EndsAt      *time.Time   `json:"endsAt"`
+		Reason      *string      `json:"reason"`
 	}
 
 	type response []map[string]any
@@ -46,8 +47,9 @@ func (h *Handlers) MembersSectorUserRoles() http.HandlerFunc {
 		}
 
 		// A live list registers before the query runs, so a commit that lands during
-		// the query is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, h.LiveService(), querySet, live.ListSubscription(querySet.Resource(), domain))
+		// the query is not missed; a refused request registers nothing. With it the
+		// request registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, h.LiveService(), querySet, live.ListSubscription(querySet.Resource(), domain))
 
 		res := membersresources.NewMembersSectorUserRoleQueryFromQuerySet(querySet)
 
@@ -102,6 +104,10 @@ func (h *Handlers) MembersSectorUserRoles() http.HandlerFunc {
 					if !row.Masked("endsAt") {
 						rmap["endsAt"] = rec.EndsAt
 					}
+				case "Reason":
+					if !row.Masked("reason") {
+						rmap["reason"] = rec.Reason
+					}
 				}
 			}
 			if capabilities := row.Capabilities(); capabilities != nil {
@@ -133,6 +139,7 @@ func (h *Handlers) MembersSectorUserRole() http.HandlerFunc {
 		CreatedAt   time.Time    `json:"createdAt"`
 		StartsAt    *time.Time   `json:"startsAt"`
 		EndsAt      *time.Time   `json:"endsAt"`
+		Reason      *string      `json:"reason"`
 	}
 
 	decoder := NewQueryDecoder[membersresources.MembersSectorUserRole, response](h, accesstypes.Read)
@@ -151,8 +158,9 @@ func (h *Handlers) MembersSectorUserRole() http.HandlerFunc {
 		}
 
 		// A live row registers before the read runs, so a commit that lands during the
-		// read is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, h.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(userID, role)))
+		// read is not missed; a refused request registers nothing. With it the request
+		// registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, h.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(userID, role)))
 
 		res := membersresources.NewMembersSectorUserRoleQueryFromQuerySet(querySet).SetUserID(userID).SetRole(role)
 
@@ -195,6 +203,10 @@ func (h *Handlers) MembersSectorUserRole() http.HandlerFunc {
 			case "EndsAt":
 				if !row.Masked("endsAt") {
 					rmap["endsAt"] = rec.EndsAt
+				}
+			case "Reason":
+				if !row.Masked("reason") {
+					rmap["reason"] = rec.Reason
 				}
 			}
 		}

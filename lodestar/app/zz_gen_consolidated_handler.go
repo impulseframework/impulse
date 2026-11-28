@@ -12,6 +12,8 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/lodestar/pkg/resources"
 	"github.com/impulseframework/impulse/lodestar/pkg/router"
@@ -67,12 +69,24 @@ func (a *App) PatchResources() http.HandlerFunc {
 	}
 	distressCallDecoder := NewDecoder[resources.DistressCall, distressCallRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)
 
+	type distressRelayRequest struct {
+		ID             impulse.UUID     `json:"-"`
+		SectorID       impulse.UUID     `json:"-"`
+		CaseNumber     string           `json:"caseNumber"     immutable:"true"`
+		AnswersRelayID impulse.NullUUID `json:"answersRelayId" immutable:"true"`
+		Message        string           `json:"message"`
+		RelayedByName  string           `json:"-"`
+		RelayedAt      time.Time        `json:"-"`
+	}
+	distressRelayDecoder := NewDecoder[resources.DistressRelay, distressRelayRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)
+
 	type hangarPassRequest struct {
 		ID         impulse.UUID     `json:"-"`
 		SectorID   impulse.UUID     `json:"-"`
 		HangarID   impulse.UUID     `json:"hangarId"`
-		UserID     *string          `json:"userId"     sqltype:"STRING(36)"`
-		SquadronID impulse.NullUUID `json:"squadronId"`
+		UserID     *string          `json:"userId"     immutable:"true"     sqltype:"STRING(36)"`
+		SquadronID impulse.NullUUID `json:"squadronId" immutable:"true"`
+		GroupID    impulse.NullUUID `json:"groupId"    immutable:"true"`
 		LevelID    string           `json:"levelId"    sqltype:"STRING(64)"`
 		ExpiresAt  *time.Time       `json:"expiresAt"`
 	}
@@ -143,8 +157,8 @@ func (a *App) PatchResources() http.HandlerFunc {
 	refitDecoder := NewDecoder[resources.Refit, refitRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)
 
 	type refitTaskRequest struct {
-		RefitID      impulse.UUID `json:"-"`
 		TaskNumber   int64        `json:"-"`
+		RefitID      impulse.UUID `json:"-"`
 		Instructions string       `json:"instructions"`
 		Done         bool         `json:"done"`
 		Notes        *string      `json:"notes"`
@@ -157,16 +171,19 @@ func (a *App) PatchResources() http.HandlerFunc {
 		Name          string       `json:"name"`
 		Region        string       `json:"region"`
 		Established   civil.Date   `json:"established"`
+		ChartedAt     time.Time    `json:"-"`
 		DirectoryOnly bool         `json:"-"`
+		Disabled      bool         `json:"disabled"`
 	}
 	sectorDecoder := NewDecoder[resources.Sector, sectorRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)
 
 	type sectorDirectoryRequest struct {
-		ID          impulse.UUID `json:"-"`
-		SectorID    impulse.UUID `json:"-"`
-		Method      string       `json:"-"`
-		Connection  string       `json:"-"`
-		DefaultSeat *string      `json:"-"`
+		ID               impulse.UUID `json:"-"`
+		SectorID         impulse.UUID `json:"-"`
+		Method           string       `json:"-"`
+		Connection       string       `json:"-"`
+		DefaultSeat      *string      `json:"-"`
+		AsksSecondFactor bool         `json:"-"`
 	}
 	sectorDirectoryDecoder := NewDecoder[resources.SectorDirectory, sectorDirectoryRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)
 
@@ -189,6 +206,7 @@ func (a *App) PatchResources() http.HandlerFunc {
 		RoleID      string       `json:"roleId"      sqltype:"STRING(64)"`
 		Tonnage     int64        `json:"tonnage"`
 		Hardened    bool         `json:"hardened"`
+		InService   bool         `json:"inService"`
 	}
 	shipClassDecoder := NewDecoder[resources.ShipClass, shipClassRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)
 
@@ -240,7 +258,7 @@ func (a *App) PatchResources() http.HandlerFunc {
 		defer span.End()
 
 		var (
-			eventSource = resource.UserEvent(ctx)
+			eventSource = eventsource.UserEvent(ctx)
 			resp        response
 		)
 		userPermissions := a.UserPermissions(r)
@@ -249,13 +267,28 @@ func (a *App) PatchResources() http.HandlerFunc {
 		// writes reaches it once the commit lands, never inside the transaction.
 		tenantsWritten := false
 
+		// The rows deleted by each of the request's deletes that left rows under its record,
+		// summed: the answer is a 202 with it where one left any.
+		var left *resource.DeleteLeft
+
+		// A remove that does not bring the token its question gave asks first: the request
+		// is then run with no read-write transaction open, and one is opened only where
+		// there was nothing to ask. A request that holds nothing but removes that bring
+		// their tokens is a save of a delete, and its transaction is opened at repeatable
+		// read (resource.Executor.ExecuteDeleteFunc).
+		deleteRun, err := resource.DeleteRunOf(r)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
 		// The rows the transaction writes are collected for the live pages, published
 		// once the commit lands and before the answer, each under the domain its
 		// operation was decoded in.
 		ctx, touched := resource.CollectTouchedRows(ctx)
-		if err := a.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		if err := a.ResourceClient().ExecuteDeleteFunc(ctx, deleteRun, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 			resp = response{}
 			tenantsWritten = false
+			left = nil
 			r, err := resource.CloneRequest(r)
 			if err != nil {
 				return errors.Wrap(err, "resource.CloneRequest()")
@@ -276,6 +309,28 @@ func (a *App) PatchResources() http.HandlerFunc {
 					req, err := op.ReqWithPattern("/{resource}/{id}")
 					if err != nil {
 						return errors.Wrap(err, "op.ReqWithPattern()")
+					}
+
+					// This record's rows decide what a person may do, so nobody writes the
+					// row that decides it for themselves while they act as someone else,
+					// whatever the session's mask keeps, an exception that keeps this
+					// record's writes included. The caller's grants answer first.
+					//
+					// A row that names a person: the rule is asked about the person the
+					// row names before the write and the person it names after it.
+					//
+					// The questions are written once for the record, in the resources
+					// package (RefuseImpersonatorAsClientContactSubject), and the delete of a
+					// row taken with the record it is under asks them too. A row that goes
+					// with its tenant, and a column that records who made a row, are the
+					// rule's stated limits: identity.RefuseImpersonatorAsRowSubject says
+					// what closes each.
+					subjectKey := resource.KeySet{}
+					if op.Type != resource.OperationCreate {
+						subjectKey = subjectKey.Add("ID", httpio.Param[impulse.UUID](req, "id"))
+					}
+					if err := resources.RefuseImpersonatorAsClientContactSubject(ctx, txn, op.Type, subjectKey, patchSet); err != nil {
+						return errors.Wrap(err, "resources.RefuseImpersonatorAsClientContactSubject()")
 					}
 
 					switch op.Type {
@@ -347,6 +402,28 @@ func (a *App) PatchResources() http.HandlerFunc {
 						return errors.Wrap(err, "op.ReqWithPattern()")
 					}
 
+					// This record's rows decide what a person may do, so nobody writes the
+					// row that decides it for themselves while they act as someone else,
+					// whatever the session's mask keeps, an exception that keeps this
+					// record's writes included. The caller's grants answer first.
+					//
+					// A row that names a person: the rule is asked about the person the
+					// row names before the write and the person it names after it.
+					//
+					// The questions are written once for the record, in the resources
+					// package (RefuseImpersonatorAsPilotSubject), and the delete of a
+					// row taken with the record it is under asks them too. A row that goes
+					// with its tenant, and a column that records who made a row, are the
+					// rule's stated limits: identity.RefuseImpersonatorAsRowSubject says
+					// what closes each.
+					subjectKey := resource.KeySet{}
+					if op.Type != resource.OperationCreate {
+						subjectKey = subjectKey.Add("ID", httpio.Param[impulse.UUID](req, "id"))
+					}
+					if err := resources.RefuseImpersonatorAsPilotSubject(ctx, txn, op.Type, subjectKey, patchSet); err != nil {
+						return errors.Wrap(err, "resources.RefuseImpersonatorAsPilotSubject()")
+					}
+
 					switch op.Type {
 					case resource.OperationCreate:
 						patch, err := resources.NewPilotCreatePatchFromPatchSet(patchSet)
@@ -400,6 +477,27 @@ func (a *App) PatchResources() http.HandlerFunc {
 					req, err := op.ReqWithPattern("/{resource}/{id1}/{id2}", resource.RequireCreatePath())
 					if err != nil {
 						return errors.Wrap(err, "op.ReqWithPattern()")
+					}
+
+					// This record's rows decide what a person may do, so nobody writes the
+					// row that decides it for themselves while they act as someone else,
+					// whatever the session's mask keeps, an exception that keeps this
+					// record's writes included. The caller's grants answer first.
+					//
+					// A row that names a person: the rule is asked about the person the
+					// row names before the write and the person it names after it.
+					//
+					// The questions are written once for the record, in the resources
+					// package (RefuseImpersonatorAsPilotCertificationSubject), and the delete of a
+					// row taken with the record it is under asks them too. A row that goes
+					// with its tenant, and a column that records who made a row, are the
+					// rule's stated limits: identity.RefuseImpersonatorAsRowSubject says
+					// what closes each.
+					subjectKey := resource.KeySet{}
+					subjectKey = subjectKey.Add("UserID", httpio.Param[string](req, "id1"))
+					subjectKey = subjectKey.Add("CertificationID", httpio.Param[string](req, "id2"))
+					if err := resources.RefuseImpersonatorAsPilotCertificationSubject(ctx, txn, op.Type, subjectKey, patchSet); err != nil {
+						return errors.Wrap(err, "resources.RefuseImpersonatorAsPilotCertificationSubject()")
 					}
 
 					switch op.Type {
@@ -495,17 +593,27 @@ func (a *App) PatchResources() http.HandlerFunc {
 							}
 						case resource.OperationDelete:
 							id := httpio.Param[impulse.UUID](req, "id")
-							if err := resources.NewSectorDeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
+							// A sector is disabled before it is deleted, so nobody of it is at work in it
+							// while its records go. The caller's grants answer first.
+							if err := patchSet.Permitted(ctx, txn); err != nil {
+								return errors.Wrap(err, "resource.PatchSet.Permitted()")
+							}
+							if err := resource.RequireTenantDisabled(ctx, txn, "Sectors", "Id", "Disabled", accesstypes.Domain(id.String()), "sector"); err != nil {
+								return errors.Wrap(err, "resource.RequireTenantDisabled()")
+							}
+							patch := resources.NewSectorDeletePatchFromPatchSet(id, patchSet)
+							// A tenant's delete takes what each auth holds for it: the accounts that were its alone,
+							// the roles held in it, its groups, its custom roles and its invitations.
+							patch.DeleteAlso(a.CrewIdentity().TenantKinds(accesstypes.Domain(id.String()))...)
+							patch.DeleteAlso(a.MembersIdentity().TenantKinds(accesstypes.Domain(id.String()))...)
+							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "resources.SectorDeletePatch.Buffer()")
 							}
-							// A tenant that goes takes what each auth holds for it, in this transaction:
-							// the roles people hold in it, the custom roles made in it and the
-							// invitations into it that still stand.
-							if err := a.CrewIdentity().ClearTenant(ctx, txn, accesstypes.Domain(id.String())); err != nil {
-								return errors.Wrap(err, "CrewIdentity().ClearTenant()")
-							}
-							if err := a.MembersIdentity().ClearTenant(ctx, txn, accesstypes.Domain(id.String())); err != nil {
-								return errors.Wrap(err, "MembersIdentity().ClearTenant()")
+							if taken := patch.Left(); taken != nil {
+								if left == nil {
+									left = &resource.DeleteLeft{}
+								}
+								left.Deleted += taken.Deleted
 							}
 						}
 
@@ -592,8 +700,54 @@ func (a *App) PatchResources() http.HandlerFunc {
 							}
 						case resource.OperationDelete:
 							id := httpio.Param[impulse.UUID](req, "id")
-							if err := resources.NewDistressCallDeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
+							patch := resources.NewDistressCallDeletePatchFromPatchSet(id, patchSet)
+							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "resources.DistressCallDeletePatch.Buffer()")
+							}
+							if taken := patch.Left(); taken != nil {
+								if left == nil {
+									left = &resource.DeleteLeft{}
+								}
+								left.Deleted += taken.Deleted
+							}
+						}
+					case "distress-relays":
+						patchSet, err := distressRelayDecoder.DecodeOperation(op, userPermissions, accesstypes.DomainScope(domain))
+						if err != nil {
+							return errors.Wrap(err, "distressRelayDecoder.DecodeOperation()")
+						}
+
+						req, err := op.ReqWithPattern("/sectors/{sectorID}/{resource}/{id}")
+						if err != nil {
+							return errors.Wrap(err, "op.ReqWithPattern()")
+						}
+
+						switch op.Type {
+						case resource.OperationCreate:
+							patch, err := resources.NewDistressRelayCreatePatchFromPatchSet(patchSet)
+							if err != nil {
+								return errors.Wrap(err, "distressRelayCreatePatchFromPatchSet()")
+							}
+							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
+								return errors.Wrap(err, "resources.DistressRelayCreatePatch.Buffer()")
+							}
+							resp["distressRelays"] = append(resp["distressRelays"], patch.ID())
+						case resource.OperationUpdate:
+							id := httpio.Param[impulse.UUID](req, "id")
+							if err := resources.NewDistressRelayUpdatePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
+								return errors.Wrap(err, "resources.DistressRelayUpdatePatch.Buffer()")
+							}
+						case resource.OperationDelete:
+							id := httpio.Param[impulse.UUID](req, "id")
+							patch := resources.NewDistressRelayDeletePatchFromPatchSet(id, patchSet)
+							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
+								return errors.Wrap(err, "resources.DistressRelayDeletePatch.Buffer()")
+							}
+							if taken := patch.Left(); taken != nil {
+								if left == nil {
+									left = &resource.DeleteLeft{}
+								}
+								left.Deleted += taken.Deleted
 							}
 						}
 					case "hangar-passes":
@@ -605,6 +759,33 @@ func (a *App) PatchResources() http.HandlerFunc {
 						req, err := op.ReqWithPattern("/sectors/{sectorID}/{resource}/{id}")
 						if err != nil {
 							return errors.Wrap(err, "op.ReqWithPattern()")
+						}
+
+						// This record's rows decide what a person may do, so nobody writes the
+						// row that decides it for themselves while they act as someone else,
+						// whatever the session's mask keeps, an exception that keeps this
+						// record's writes included. The caller's grants answer first.
+						//
+						// A row that names a person: the rule is asked about the person the
+						// row names before the write and the person it names after it.
+						//
+						// A row that names a set of people reaches every person in the set:
+						// the rule is asked whether the real person is in the set the row
+						// names, before the write and after it. The set is asked by its own
+						// declaration, so the rule and the policy agree on who is in it.
+						//
+						// The questions are written once for the record, in the resources
+						// package (RefuseImpersonatorAsHangarPassSubject), and the delete of a
+						// row taken with the record it is under asks them too. A row that goes
+						// with its tenant, and a column that records who made a row, are the
+						// rule's stated limits: identity.RefuseImpersonatorAsRowSubject says
+						// what closes each.
+						subjectKey := resource.KeySet{}
+						if op.Type != resource.OperationCreate {
+							subjectKey = subjectKey.Add("ID", httpio.Param[impulse.UUID](req, "id"))
+						}
+						if err := resources.RefuseImpersonatorAsHangarPassSubject(ctx, txn, op.Type, subjectKey, patchSet); err != nil {
+							return errors.Wrap(err, "resources.RefuseImpersonatorAsHangarPassSubject()")
 						}
 
 						switch op.Type {
@@ -656,8 +837,17 @@ func (a *App) PatchResources() http.HandlerFunc {
 							}
 						case resource.OperationDelete:
 							id := httpio.Param[impulse.UUID](req, "id")
-							if err := resources.NewMissionDeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
+							patch := resources.NewMissionDeletePatchFromPatchSet(id, patchSet)
+							// A record's delete takes the roles held on it, each auth's.
+							patch.DeleteAlso(a.CrewIdentity().RecordKinds(accesstypes.NewRecordScope(domain, "Missions", id.String()))...)
+							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "resources.MissionDeletePatch.Buffer()")
+							}
+							if taken := patch.Left(); taken != nil {
+								if left == nil {
+									left = &resource.DeleteLeft{}
+								}
+								left.Deleted += taken.Deleted
 							}
 						}
 					case "mission-documents":
@@ -727,8 +917,15 @@ func (a *App) PatchResources() http.HandlerFunc {
 							}
 						case resource.OperationDelete:
 							id := httpio.Param[impulse.UUID](req, "id")
-							if err := resources.NewRefitDeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
+							patch := resources.NewRefitDeletePatchFromPatchSet(id, patchSet)
+							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "resources.RefitDeletePatch.Buffer()")
+							}
+							if taken := patch.Left(); taken != nil {
+								if left == nil {
+									left = &resource.DeleteLeft{}
+								}
+								left.Deleted += taken.Deleted
 							}
 						}
 					case "refit-tasks":
@@ -803,26 +1000,15 @@ func (a *App) PatchResources() http.HandlerFunc {
 
 						switch op.Type {
 						case resource.OperationCreate:
-							patch, err := resources.NewSectorDirectoryCreatePatchFromPatchSet(patchSet)
-							if err != nil {
-								return errors.Wrap(err, "sectorDirectoryCreatePatchFromPatchSet()")
-							}
-							// A directory is never typed in: the row takes the directory the caller is
-							// signed in through, held to the rules of a sector's directory. The
-							// caller's grants answer first, so a caller they refuse learns nothing
-							// from a rule.
+							// A sector's directory is taken with the sector's own
+							// method, behind the statement that the caller is authorized to act
+							// for the organization: the record's create writes nothing. The
+							// caller's grants answer first.
 							if err := patchSet.Permitted(ctx, txn); err != nil {
 								return errors.Wrap(err, "resource.PatchSet.Permitted()")
 							}
-							directory, err := NewSectorDirectoryRules().NamedBy(a.CrewIdentity().DirectoryName, a.MembersIdentity().DirectoryName).FromSession(ctx, txn, domain)
-							if err != nil {
-								return errors.Wrap(err, "resource.TenantDirectoryRules.FromSession()")
-							}
-							patch.SetMethod(string(directory.Method)).SetConnection(directory.Connection)
-							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
-								return errors.Wrap(err, "resources.SectorDirectoryCreatePatch.Buffer()")
-							}
-							resp["sectorDirectories"] = append(resp["sectorDirectories"], patch.ID())
+
+							return httpio.NewBadRequestMessage("A sector's directory is not created directly. Take it with TakeSectorDirectory, which says what taking it does before anything is written.")
 						case resource.OperationUpdate:
 							id := httpio.Param[impulse.UUID](req, "id")
 							if err := resources.NewSectorDirectoryUpdatePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
@@ -840,6 +1026,11 @@ func (a *App) PatchResources() http.HandlerFunc {
 							}
 							if err := resources.NewSectorDirectoryDeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "resources.SectorDirectoryDeletePatch.Buffer()")
+							}
+							// The directory's removal is recorded in the audit log of the auth whose people
+							// the directories record's outlets sign in.
+							if err := a.CrewIdentity().RecordTenantSignIn(ctx, txn, domain, auditlog.ActDirectoryRemoved, ""); err != nil {
+								return errors.Wrap(err, "CrewIdentity().RecordTenantSignIn()")
 							}
 						}
 					case "ships":
@@ -902,8 +1093,15 @@ func (a *App) PatchResources() http.HandlerFunc {
 							}
 						case resource.OperationDelete:
 							id := httpio.Param[impulse.UUID](req, "id")
-							if err := resources.NewSortieDeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
+							patch := resources.NewSortieDeletePatchFromPatchSet(id, patchSet)
+							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "resources.SortieDeletePatch.Buffer()")
+							}
+							if taken := patch.Left(); taken != nil {
+								if left == nil {
+									left = &resource.DeleteLeft{}
+								}
+								left.Deleted += taken.Deleted
 							}
 						}
 					case "sortie-expenses":
@@ -947,6 +1145,30 @@ func (a *App) PatchResources() http.HandlerFunc {
 						req, err := op.ReqWithPattern("/sectors/{sectorID}/{resource}/{id}")
 						if err != nil {
 							return errors.Wrap(err, "op.ReqWithPattern()")
+						}
+
+						// This record's rows decide what a person may do, so nobody writes the
+						// row that decides it for themselves while they act as someone else,
+						// whatever the session's mask keeps, an exception that keeps this
+						// record's writes included. The caller's grants answer first.
+						//
+						// A row a person's set or value is read through: a change that sets
+						// the column it is read from is refused on the row the real person's
+						// own is read through, and a change that leaves the column alone
+						// asks nothing.
+						//
+						// The questions are written once for the record, in the resources
+						// package (RefuseImpersonatorAsSquadronSubject), and the delete of a
+						// row taken with the record it is under asks them too. A row that goes
+						// with its tenant, and a column that records who made a row, are the
+						// rule's stated limits: identity.RefuseImpersonatorAsRowSubject says
+						// what closes each.
+						subjectKey := resource.KeySet{}
+						if op.Type != resource.OperationCreate {
+							subjectKey = subjectKey.Add("ID", httpio.Param[impulse.UUID](req, "id"))
+						}
+						if err := resources.RefuseImpersonatorAsSquadronSubject(ctx, txn, op.Type, subjectKey, patchSet); err != nil {
+							return errors.Wrap(err, "resources.RefuseImpersonatorAsSquadronSubject()")
 						}
 
 						switch op.Type {
@@ -1004,6 +1226,27 @@ func (a *App) PatchResources() http.HandlerFunc {
 							return errors.Wrap(err, "op.ReqWithPattern()")
 						}
 
+						// This record's rows decide what a person may do, so nobody writes the
+						// row that decides it for themselves while they act as someone else,
+						// whatever the session's mask keeps, an exception that keeps this
+						// record's writes included. The caller's grants answer first.
+						//
+						// A row that names a person: the rule is asked about the person the
+						// row names before the write and the person it names after it.
+						//
+						// The questions are written once for the record, in the resources
+						// package (RefuseImpersonatorAsSquadronMembershipSubject), and the delete of a
+						// row taken with the record it is under asks them too. A row that goes
+						// with its tenant, and a column that records who made a row, are the
+						// rule's stated limits: identity.RefuseImpersonatorAsRowSubject says
+						// what closes each.
+						subjectKey := resource.KeySet{}
+						subjectKey = subjectKey.Add("SquadronID", httpio.Param[impulse.UUID](req, "id1"))
+						subjectKey = subjectKey.Add("UserID", httpio.Param[string](req, "id2"))
+						if err := resources.RefuseImpersonatorAsSquadronMembershipSubject(ctx, txn, op.Type, subjectKey, patchSet); err != nil {
+							return errors.Wrap(err, "resources.RefuseImpersonatorAsSquadronMembershipSubject()")
+						}
+
 						switch op.Type {
 						case resource.OperationCreate:
 							id1 := httpio.Param[impulse.UUID](req, "id1")
@@ -1056,8 +1299,15 @@ func (a *App) PatchResources() http.HandlerFunc {
 							}
 						case resource.OperationDelete:
 							id := httpio.Param[impulse.UUID](req, "id")
-							if err := resources.NewWingDeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
+							patch := resources.NewWingDeletePatchFromPatchSet(id, patchSet)
+							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "resources.WingDeletePatch.Buffer()")
+							}
+							if taken := patch.Left(); taken != nil {
+								if left == nil {
+									left = &resource.DeleteLeft{}
+								}
+								left.Deleted += taken.Deleted
 							}
 						}
 					default:
@@ -1082,6 +1332,11 @@ func (a *App) PatchResources() http.HandlerFunc {
 			if err := a.LiveService().Signal(ctx, resource.KindTenants); err != nil {
 				logger.FromCtx(ctx).Errorf("tenants: signaling the tenants kind failed; the other instances reload at their backstop: %v", err)
 			}
+		}
+		if left != nil {
+			// A delete that took what fits one save answers the rows it deleted: the same
+			// request, sent again, goes on.
+			return httpio.NewEncoder(w).StatusCodeWithBody(http.StatusAccepted, left)
 		}
 
 		return httpio.NewEncoder(w).Ok(resp)

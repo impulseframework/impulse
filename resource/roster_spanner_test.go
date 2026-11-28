@@ -295,7 +295,9 @@ func TestTenantRoster_follows(t *testing.T) {
 	}{
 		{name: "the signal reloads the second roster at once", signals: true, backstop: time.Hour, within: 2 * time.Second},
 		{name: "the backstop brings the row in without a signal", backstop: 50 * time.Millisecond, within: 2 * time.Second},
-		{name: "a failed reread keeps the last set until the next succeeds", signals: true, backstop: time.Hour, failReads: true, within: 2 * time.Second},
+		// The second signal comes inside the pause after the failed reread, so the reread
+		// that brings the row in is the first lookup's past the pause, a second later.
+		{name: "a failed reread keeps the last set until the next succeeds", signals: true, backstop: time.Hour, failReads: true, within: 5 * time.Second},
 	}
 
 	for i, tt := range tests {
@@ -335,7 +337,9 @@ func TestTenantRoster_follows(t *testing.T) {
 			if !first.Has("beta") {
 				t.Fatal("first.Has(beta) = false right after Add; a write must be visible at once")
 			}
-			if second.Has("beta") {
+			// A roster on a short backstop may have reread already, by its tick or by this
+			// very lookup, so only the rosters that wait for the signal are asked.
+			if tt.signals && second.Has("beta") {
 				t.Fatal("second.Has(beta) = true before any reload")
 			}
 			secondClient.fail.Store(tt.failReads)
@@ -359,6 +363,13 @@ func TestTenantRoster_follows(t *testing.T) {
 			}
 			if !eventually(t, tt.within, func() bool { return second.Has("beta") }) {
 				t.Fatalf("the second roster did not show beta within %s", tt.within)
+			}
+
+			// The first roster heard the signal too. Its lookup returns once the reread that
+			// followed the signal has landed, so that reread cannot land behind the Remove
+			// below and bring the row back.
+			if !first.Has("beta") {
+				t.Fatal("first.Has(beta) = false once its reread landed; the row is committed")
 			}
 
 			// The first instance's delete path: the commit, then Remove, then the signal.
@@ -414,8 +425,9 @@ func TestTenantRoster_HasPerformsNoRead(t *testing.T) {
 }
 
 // TestTenantRoster_concurrentHas pins the set's safety under the race detector: lookups
-// never wait on, and never tear under, the writers (Add, Remove and the rereads a tight
-// backstop and a stream of signals drive).
+// never tear under the writers (Add, Remove and the rereads a tight backstop and a
+// stream of signals drive), whether a lookup is answered from the copy as it stands or
+// rereads the table first.
 func TestTenantRoster_concurrentHas(t *testing.T) {
 	t.Parallel()
 
@@ -490,19 +502,37 @@ func TestTenantRoster_stopsWithContext(t *testing.T) {
 	if !r.Has("alpha") {
 		t.Error("Has(alpha) = false after the context ended; the last set stays")
 	}
+	// The lookup found the copy past its backstop, and read nothing: the roster is kept
+	// current until the context ends and no longer.
+	if got := counting.reads.Load(); got != reads {
+		t.Errorf("reads after a lookup past the backstop, once the context ended = %d, want %d", got, reads)
+	}
 }
 
 // stationColumns names the declaration the roster tests' fixture carries: the
-// directory-only flag on Stations and the StationDirectories rows with their default
-// seat.
+// directory-only and disabled flags on Stations and the StationDirectories rows with
+// their default seat and the station's word for its directory's second factor.
 var stationColumns = &TenantDeclarationColumns{
 	DirectoryOnly:        "DirectoryOnly",
+	Disabled:             "Disabled",
 	DirectoriesTable:     "StationDirectories",
 	TenantColumn:         "StationId",
 	MethodColumn:         "Method",
 	ConnectionColumn:     "Connection",
 	DirectoriesKeyColumn: "Id",
 	DefaultSeatColumn:    "DefaultSeat",
+	SecondFactorColumn:   "AsksSecondFactor",
+}
+
+// vouchForStationDirectory sets the station's word that its directory, the row
+// declareStation wrote at that index, asks its people for a second factor of its own.
+func vouchForStationDirectory(t *testing.T, db *initiator.SpannerDB, id accesstypes.Domain, index int) {
+	t.Helper()
+
+	mutation := spanner.Update("StationDirectories", []string{"Id", "AsksSecondFactor"}, []any{string(id) + "-" + strconv.Itoa(index), true})
+	if _, err := db.Apply(t.Context(), []*spanner.Mutation{mutation}); err != nil {
+		t.Fatalf("spanner.Client.Apply() error = %v", err)
+	}
 }
 
 // seatStationDirectory sets the default seat of a station's directory, the row
@@ -511,6 +541,17 @@ func seatStationDirectory(t *testing.T, db *initiator.SpannerDB, id accesstypes.
 	t.Helper()
 
 	mutation := spanner.Update("StationDirectories", []string{"Id", "DefaultSeat"}, []any{string(id) + "-" + strconv.Itoa(index), string(seat)})
+	if _, err := db.Apply(t.Context(), []*spanner.Mutation{mutation}); err != nil {
+		t.Fatalf("spanner.Client.Apply() error = %v", err)
+	}
+}
+
+// disableStation sets whether a station is disabled, as the tenant record's edit commits
+// it.
+func disableStation(t *testing.T, db *initiator.SpannerDB, id accesstypes.Domain, disabled bool) {
+	t.Helper()
+
+	mutation := spanner.Update(stationsTable, []string{stationsKey, "Disabled"}, []any{string(id), disabled})
 	if _, err := db.Apply(t.Context(), []*spanner.Mutation{mutation}); err != nil {
 		t.Fatalf("spanner.Client.Apply() error = %v", err)
 	}
@@ -533,12 +574,13 @@ func declareStation(t *testing.T, db *initiator.SpannerDB, id accesstypes.Domain
 }
 
 // TestTenantRoster_declarations pins the declaration half of the copy over the
-// emulator: a roster built with WithTenantDeclarations reads each station's flag and
+// emulator: a roster built with WithTenantDeclarations reads each station's flags and
 // directories in the snapshot of its keys, answers Declarations from the copy (a
 // station declaring nothing answers an empty declaration, one the set does not hold
-// nil), and a roster built without the option answers nil for every station; after a
-// write, Reload brings the copy current at once, as the records' generated write paths
-// call it.
+// nil), and a roster built without the option answers nil for every station; columns
+// that name the disabled column and no directories record answer, for every station,
+// whether it is disabled; after a write, Reload brings the copy current at once, as the
+// records' generated write paths call it.
 func TestTenantRoster_declarations(t *testing.T) {
 	t.Parallel()
 
@@ -548,6 +590,9 @@ func TestTenantRoster_declarations(t *testing.T) {
 	tests := []struct {
 		name     string
 		declared bool
+		// columns are the columns the roster is built with when declared, stationColumns
+		// when nil.
+		columns *TenantDeclarationColumns
 		// declare writes the declarations before Start; redeclare after it, before Reload.
 		declare   func(t *testing.T, db *initiator.SpannerDB)
 		redeclare func(t *testing.T, db *initiator.SpannerDB)
@@ -574,6 +619,53 @@ func TestTenantRoster_declarations(t *testing.T) {
 				declareStation(t, db, "alpha", true, workspace)
 			},
 			want: map[accesstypes.Domain]*signin.TenantDeclaration{"alpha": nil, "beta": nil, "gamma": nil, "delta": nil},
+		},
+		{
+			name:     "each station is disabled as its row holds it",
+			declared: true,
+			declare: func(t *testing.T, db *initiator.SpannerDB) {
+				declareStation(t, db, "alpha", true, workspace)
+				disableStation(t, db, "alpha", true)
+				disableStation(t, db, "gamma", true)
+			},
+			want: map[accesstypes.Domain]*signin.TenantDeclaration{
+				"alpha": {DirectoryOnly: true, Directories: []signin.Directory{workspace}, Disabled: true},
+				"beta":  {},
+				"gamma": {Disabled: true},
+				"delta": nil,
+			},
+		},
+		{
+			name:     "a station disabled or enabled after Start is so in the copy once Reload runs",
+			declared: true,
+			declare: func(t *testing.T, db *initiator.SpannerDB) {
+				disableStation(t, db, "alpha", true)
+			},
+			redeclare: func(t *testing.T, db *initiator.SpannerDB) {
+				disableStation(t, db, "alpha", false)
+				disableStation(t, db, "beta", true)
+			},
+			want: map[accesstypes.Domain]*signin.TenantDeclaration{
+				"alpha": {},
+				"beta":  {Disabled: true},
+				"gamma": {},
+				"delta": nil,
+			},
+		},
+		{
+			name:     "columns that name the disabled column and no directories record answer, for every station, whether it is disabled",
+			declared: true,
+			columns:  &TenantDeclarationColumns{Disabled: "Disabled"},
+			declare: func(t *testing.T, db *initiator.SpannerDB) {
+				declareStation(t, db, "alpha", true, workspace)
+				disableStation(t, db, "beta", true)
+			},
+			want: map[accesstypes.Domain]*signin.TenantDeclaration{
+				"alpha": {},
+				"beta":  {Disabled: true},
+				"gamma": {},
+				"delta": nil,
+			},
 		},
 		{
 			name:     "Reload after a write brings the copy current",
@@ -605,7 +697,11 @@ func TestTenantRoster_declarations(t *testing.T) {
 
 			var opts []TenantRosterOption
 			if tt.declared {
-				opts = append(opts, WithTenantDeclarations(stationColumns))
+				columns := tt.columns
+				if columns == nil {
+					columns = stationColumns
+				}
+				opts = append(opts, WithTenantDeclarations(columns))
 			}
 			r := NewTenantRoster(client, stationsTable, stationsKey, opts...)
 			if err := r.Start(ctx); err != nil {
@@ -707,25 +803,37 @@ func TestNewTenantDeclarationReader(t *testing.T) {
 	t.Parallel()
 
 	workspace := signin.Directory{Method: sessioninfo.MethodGoogle, Connection: "frontier.example"}
-	db, _ := tenantDatabase(t, "declaration-reader", "alpha", "beta")
+	db, _ := tenantDatabase(t, "declaration-reader", "alpha", "beta", "gamma")
 	declareStation(t, db, "alpha", true, workspace)
-	reader := NewTenantDeclarationReader(stationsTable, stationsKey, stationColumns)
+	disableStation(t, db, "gamma", true)
+	disabledAlone := &TenantDeclarationColumns{Disabled: "Disabled"}
 
 	tests := []struct {
-		name   string
-		tenant accesstypes.Domain
-		want   *signin.TenantDeclaration
+		name string
+		// columns are the columns the reader is built with, stationColumns when nil.
+		columns *TenantDeclarationColumns
+		tenant  accesstypes.Domain
+		want    *signin.TenantDeclaration
 	}{
 		{name: "a declared station: its flag and its directory", tenant: "alpha", want: &signin.TenantDeclaration{DirectoryOnly: true, Directories: []signin.Directory{workspace}}},
 		{name: "a station declaring nothing: an empty declaration", tenant: "beta", want: &signin.TenantDeclaration{}},
+		{name: "a disabled station: disabled", tenant: "gamma", want: &signin.TenantDeclaration{Disabled: true}},
 		{name: "a station the table does not hold: nil", tenant: "nowhere", want: nil},
 		{name: "an empty tenant: nil, with no read", tenant: "", want: nil},
+		{name: "columns that name the disabled column and no directories record: a disabled station is disabled", columns: disabledAlone, tenant: "gamma", want: &signin.TenantDeclaration{Disabled: true}},
+		{name: "columns that name the disabled column and no directories record: a station that is not disabled says only that", columns: disabledAlone, tenant: "alpha", want: &signin.TenantDeclaration{}},
+		{name: "columns that name the disabled column and no directories record: a station the table does not hold is nil", columns: disabledAlone, tenant: "nowhere", want: nil},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
+			columns := tt.columns
+			if columns == nil {
+				columns = stationColumns
+			}
+			reader := NewTenantDeclarationReader(stationsTable, stationsKey, columns)
 			var got *signin.TenantDeclaration
 			if _, err := db.ReadWriteTransaction(t.Context(), func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 				declaration, err := reader(ctx, txn, tt.tenant)
@@ -745,19 +853,65 @@ func TestNewTenantDeclarationReader(t *testing.T) {
 	}
 }
 
+// TestOutsideSignIn pins the sign-in policy's reader asked outside a sign-in over the
+// emulator: each read is a transaction of its own, and it answers as the reader does in
+// the sign-in's transaction, the flag and the directories of a declared station, an
+// empty declaration for a station declaring nothing, and nil for a station the table
+// does not hold or an empty tenant.
+func TestOutsideSignIn(t *testing.T) {
+	t.Parallel()
+
+	workspace := signin.Directory{Method: sessioninfo.MethodGoogle, Connection: "frontier.example"}
+	db, _ := tenantDatabase(t, "outside-sign-in", "alpha", "beta")
+	declareStation(t, db, "alpha", true, workspace)
+	declarations := OutsideSignIn(db.Client, NewTenantDeclarationReader(stationsTable, stationsKey, stationColumns))
+
+	tests := []struct {
+		name   string
+		tenant accesstypes.Domain
+		want   *signin.TenantDeclaration
+	}{
+		{name: "a declared station: its flag and its directory", tenant: "alpha", want: &signin.TenantDeclaration{DirectoryOnly: true, Directories: []signin.Directory{workspace}}},
+		{name: "a station declaring nothing: an empty declaration", tenant: "beta", want: &signin.TenantDeclaration{}},
+		{name: "a station the table does not hold: nil", tenant: "nowhere", want: nil},
+		{name: "an empty tenant: nil", tenant: "", want: nil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := declarations(t.Context(), tt.tenant)
+			if err != nil {
+				t.Fatalf("OutsideSignIn() error = %v", err)
+			}
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("OutsideSignIn()(%q) mismatch (-want +got):\n%s", tt.tenant, diff)
+			}
+		})
+	}
+}
+
 // TestNewTenantDirectoryReader pins the sign-in's directory reader over the emulator:
 // in the read-write transaction it is handed it answers the station whose directory it
-// is with the row's default seat ("" where the row names none); nothing for a directory
-// no station has; and nothing without a directories record, whatever the directory.
+// is with the row's default seat ("" where the row names none) and the station's word
+// for the directory's second factor (false where the record carries no such column);
+// nothing for a directory no station has; and nothing without a directories record,
+// whatever the directory.
 func TestNewTenantDirectoryReader(t *testing.T) {
 	t.Parallel()
 
 	workspace := signin.Directory{Method: sessioninfo.MethodGoogle, Connection: "frontier.example"}
 	entra := signin.Directory{Method: sessioninfo.MethodAzure, Connection: "6f2c1b7e-0000-4000-8000-000000000001"}
+	vouched := signin.Directory{Method: sessioninfo.MethodGoogle, Connection: "vouched.example"}
 	db, _ := tenantDatabase(t, "directory-reader", "alpha", "beta", "gamma")
 	declareStation(t, db, "alpha", true, workspace)
 	declareStation(t, db, "beta", false, entra)
+	declareStation(t, db, "gamma", false, vouched)
 	seatStationDirectory(t, db, "alpha", 0, "Clerk")
+	vouchForStationDirectory(t, db, "gamma", 0)
+	noWord := *stationColumns
+	noWord.SecondFactorColumn = ""
 
 	tests := []struct {
 		name      string
@@ -767,6 +921,8 @@ func TestNewTenantDirectoryReader(t *testing.T) {
 	}{
 		{name: "a station's directory: the station with its seat", columns: stationColumns, directory: workspace, want: []signin.DeclaredDirectory{{Tenant: "alpha", DefaultSeat: "Clerk"}}},
 		{name: "a row naming no seat: the empty seat", columns: stationColumns, directory: entra, want: []signin.DeclaredDirectory{{Tenant: "beta"}}},
+		{name: "a station that vouches: the word with the station", columns: stationColumns, directory: vouched, want: []signin.DeclaredDirectory{{Tenant: "gamma", SecondFactor: true}}},
+		{name: "a record without the column: the word false", columns: &noWord, directory: vouched, want: []signin.DeclaredDirectory{{Tenant: "gamma"}}},
 		{name: "a directory no station has: nothing", columns: stationColumns, directory: signin.Directory{Method: sessioninfo.MethodGoogle, Connection: "elsewhere.example"}, want: []signin.DeclaredDirectory{}},
 		{name: "a record without the seat column: the seat empty", columns: &TenantDeclarationColumns{DirectoryOnly: "DirectoryOnly", DirectoriesTable: "StationDirectories", TenantColumn: "StationId", MethodColumn: "Method", ConnectionColumn: "Connection"}, directory: workspace, want: []signin.DeclaredDirectory{{Tenant: "alpha"}}},
 		{name: "no directories record: nothing, with no read", columns: nil, directory: workspace, want: nil},

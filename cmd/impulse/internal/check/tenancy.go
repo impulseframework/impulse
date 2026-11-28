@@ -191,7 +191,7 @@ func rosterStarted(a *app.App, r *app.RosterConstruction) (started, followed boo
 	}
 	for _, e := range entries {
 		name := e.Name()
-		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") || strings.HasPrefix(name, "zz_gen_") {
+		if e.IsDir() || !app.GoToolReads(name) || strings.HasSuffix(name, "_test.go") || strings.HasPrefix(name, "zz_gen_") {
 			continue
 		}
 		rel := path.Join(r.Package, name)

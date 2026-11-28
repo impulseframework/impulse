@@ -11,6 +11,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -20,6 +21,34 @@ func (MembersGroupRole) Resource() accesstypes.Resource {
 
 func (MembersGroupRole) DefaultConfig() resource.Config {
 	return defaultConfig()
+}
+
+// NamedRows names the columns that name a row of another resource the application lists
+// (GroupID): a create or an update sets one only to a row its caller can list, so the
+// library answers any other as a row that is not there.
+func (MembersGroupRole) NamedRows() []resource.NamedRow {
+	return []resource.NamedRow{
+		{Field: "GroupID", Resource: "MembersGroups", Table: "MembersGroups", KeyColumn: "Id"},
+	}
+}
+
+// NameFields names the resource's name fields: beside each id that points to a row with
+// a name, the name of that row, which a list shows, sorts by and filters by. A name is
+// looked up in the pointed-to table by the id; it is no column of this resource.
+func (MembersGroupRole) NameFields() []resource.NameField {
+	return []resource.NameField{
+		{Field: "GroupName", Key: "GroupID", Resource: "MembersGroups", Tag: "name", Table: "MembersGroups", KeyColumn: "Id", NameColumn: "Name", TenantColumn: ""},
+	}
+}
+
+// RecordedNames names the rows a change record of the resource keeps the name of:
+// for each field that points at a row with a name, where the name is read. A
+// tracked write that changes such a field reads the name in its own transaction,
+// and the change record keeps it beside the id.
+func (MembersGroupRole) RecordedNames() []resource.NameField {
+	return []resource.NameField{
+		{Field: "", Key: "GroupID", Resource: "MembersGroups", Tag: "name", Table: "MembersGroups", KeyColumn: "Id", NameColumn: "Name", TenantColumn: ""},
+	}
 }
 
 // membersGroupRoleRead mirrors the wire shape the resource routes list
@@ -441,11 +470,11 @@ func (p *MembersGroupRoleCreatePatch) ToStruct() *MembersGroupRole {
 	return p.patchSet.ToStruct()
 }
 
-func (p *MembersGroupRoleCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *MembersGroupRoleCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *MembersGroupRoleCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *MembersGroupRoleCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -617,11 +646,11 @@ func (p *MembersGroupRoleUpdatePatch) ToStruct() *MembersGroupRole {
 	return p.patchSet.ToStruct()
 }
 
-func (p *MembersGroupRoleUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *MembersGroupRoleUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *MembersGroupRoleUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *MembersGroupRoleUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -783,11 +812,11 @@ func NewMembersGroupRoleDeletePatch(groupID impulse.UUID, kind string, axis stri
 	return &MembersGroupRoleDeletePatch{patchSet: patchSet}
 }
 
-func (p *MembersGroupRoleDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *MembersGroupRoleDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *MembersGroupRoleDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *MembersGroupRoleDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

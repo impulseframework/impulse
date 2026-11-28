@@ -22,6 +22,15 @@ func (StaffUserGroupRole) DefaultConfig() resource.Config {
 	return resource.Config{}
 }
 
+// NameFields names the resource's name fields: beside each id that points to a row with
+// a name, the name of that row, which a list shows, sorts by and filters by. A name is
+// looked up in the pointed-to table by the id; it is no column of this resource.
+func (StaffUserGroupRole) NameFields() []resource.NameField {
+	return []resource.NameField{
+		{Field: "DomainName", Key: "DomainID", Resource: "Tenants", Tag: "name", Table: "Tenants", KeyColumn: "Id", NameColumn: "Name", TenantColumn: ""},
+	}
+}
+
 // staffUserGroupRoleRead mirrors the wire shape the resource routes list
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; staffUserGroupRoleReadSets holds one Set per read operation.
@@ -34,6 +43,7 @@ type staffUserGroupRoleRead struct {
 	Axis      string       `json:"axis"      perm:"-"`
 	DomainID  string       `json:"domainId"  perm:"-"`
 	Role      string       `json:"role"      perm:"-"`
+	CreatedAt time.Time    `json:"createdAt"`
 	StartsAt  *time.Time   `json:"startsAt"`
 	EndsAt    *time.Time   `json:"endsAt"`
 }
@@ -212,6 +222,7 @@ func (c *StaffUserGroupRoleColumns) All() *StaffUserGroupRoleColumns {
 		"Axis",
 		"DomainID",
 		"Role",
+		"CreatedAt",
 		"StartsAt",
 		"EndsAt",
 	}
@@ -263,6 +274,12 @@ func (c *StaffUserGroupRoleColumns) DomainID() *StaffUserGroupRoleColumns {
 
 func (c *StaffUserGroupRoleColumns) Role() *StaffUserGroupRoleColumns {
 	c.fields = append(c.fields, "Role")
+
+	return c
+}
+
+func (c *StaffUserGroupRoleColumns) CreatedAt() *StaffUserGroupRoleColumns {
+	c.fields = append(c.fields, "CreatedAt")
 
 	return c
 }
@@ -415,6 +432,10 @@ func (c *staffUserGroupRoleSort) DomainID() *StaffUserGroupRoleSort {
 
 func (c *staffUserGroupRoleSort) Role() *StaffUserGroupRoleSort {
 	return c.addField("Role")
+}
+
+func (c *staffUserGroupRoleSort) CreatedAt() *StaffUserGroupRoleSort {
+	return c.addField("CreatedAt")
 }
 
 func (c *staffUserGroupRoleSort) StartsAt() *StaffUserGroupRoleSort {

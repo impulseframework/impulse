@@ -14,10 +14,17 @@ type clientOptions struct {
 	signal            ChangeSignal
 	heartbeatInterval time.Duration
 	onReloadError     func(error)
-	collection        PermissionCollection
-	roleFile          RoleFile
-	roleFileSet       bool
-	superMethods      []accesstypes.Resource
+	// collection is what the running release declares: the argument New takes,
+	// which New sets here for the engine it builds.
+	collection  PermissionCollection
+	roleFile    RoleFile
+	roleFileSet bool
+	// roleFiles counts the times WithDefaultRoles was applied: New refuses more than
+	// one, since an engine holds the roles of one auth.
+	roleFiles int
+	// auth is the name of the auth the role file is of (WithDefaultRoles).
+	auth         string
+	superMethods []accesstypes.Resource
 	// tenantAdministrators are the roles whose holders administer a tenant
 	// (WithTenantAdministratorRoles).
 	tenantAdministrators []accesstypes.Role
@@ -30,26 +37,33 @@ func defaultClientOptions() *clientOptions {
 	}
 }
 
-// logReloadError is the default reload-error hook: every background failure
-// and every policy finding reaches the log, so none is silent.
+// logReloadError is the default reload-error hook: every reload that failed,
+// a check's or the background loop's, and every policy finding reaches the
+// log, so none is silent.
 func logReloadError(err error) {
 	log.Printf("access: %v", err)
 }
 
 // WithChangeSignal wires a push hint that propagates policy changes between
-// instances in near-realtime. This is the intended configuration: the
-// application adapts its one signal channel through ChangeSignalFunc. Without
-// it, changes propagate within one heartbeat interval.
+// instances in near-realtime: an instance that receives a hint reads the
+// policy store before its next check answers (before the first check after
+// the pause, where a reload has just failed). This is the intended
+// configuration: the application adapts its one signal channel through
+// ChangeSignalFunc. Without it, changes propagate within one heartbeat
+// interval.
 func WithChangeSignal(s ChangeSignal) Option {
 	return func(o *clientOptions) {
 		o.signal = s
 	}
 }
 
-// WithHeartbeatInterval overrides how often the policy store is re-read for
-// changes (default 1m). It bounds cross-instance staleness when no
-// ChangeSignal is configured, and otherwise backstops a broken signal.
-// Non-positive values keep the default.
+// WithHeartbeatInterval overrides the bound on cross-instance staleness
+// (default 1m): no check is answered from a snapshot whose store read began
+// longer ago than this. The background loop re-reads the policy store at this
+// interval, and a check that finds the interval passed, as the first check
+// after an instance sat idle does, re-reads before it answers. It is the
+// whole bound when no ChangeSignal is configured, and otherwise backstops a
+// broken signal. Non-positive values keep the default.
 func WithHeartbeatInterval(d time.Duration) Option {
 	return func(o *clientOptions) {
 		if d > 0 {
@@ -58,15 +72,17 @@ func WithHeartbeatInterval(d time.Duration) Option {
 	}
 }
 
-// WithReloadErrorHandler replaces the hook that receives background failures
-// (policy reloads and change-signal announce/watch errors) and what a load
-// found in the store that this release cannot use as written: a grant it
-// skipped (*SkippedGrant), a custom role a default shadows (*ShadowedRole),
-// memberships naming a role nothing defines (*OrphanedMembership). While
-// reloads fail the Client keeps serving the last good policy snapshot, so this
-// hook is where persistent staleness and the findings become visible. The
-// default writes each one to the standard log; wire alerting here when the
-// log is not enough.
+// WithReloadErrorHandler replaces the hook that receives every policy reload
+// that failed or was refused, whether a check or the background loop made it,
+// the change-signal announce/watch errors, and what a load found in the store
+// that this release cannot use as written: a grant it skipped (*SkippedGrant),
+// a custom role a default shadows (*ShadowedRole), memberships naming a role
+// nothing defines (*OrphanedMembership). Once a snapshot exists a failed
+// reload fails no request: the Client keeps serving the last good policy
+// snapshot, so this hook is where persistent staleness and the findings
+// become visible. A first load that fails is returned to the check that made
+// it as well. The default writes each one to the standard log; wire alerting
+// here when the log is not enough.
 func WithReloadErrorHandler(f func(error)) Option {
 	return func(o *clientOptions) {
 		if f != nil {
@@ -75,22 +91,9 @@ func WithReloadErrorHandler(f func(error)) Option {
 	}
 }
 
-// WithPermissionCollection tells the Client what the running release declares:
-// its permissions, resources and fields. A stored grant naming one the release
-// does not declare (after a rollback, or once a release drops a resource) is
-// then left out of the snapshot and reported as a SkippedGrant instead of
-// being carried as a grant nothing can check. Without it, names are not
-// checked; conditions are checked either way. WithDefaultRoles sets the
-// collection too, so an application with a role file does not need this.
-func WithPermissionCollection(c PermissionCollection) Option {
-	return func(o *clientOptions) {
-		o.collection = c
-	}
-}
-
 // WithDefaultRoles gives the Client the release's default roles: the role
 // file embedded in the application binary, validated against the collection
-// the release declares. The default roles are policy that travels with the
+// New is given. The default roles are policy that travels with the
 // release — the store holds no row for them: the snapshot compiles them from
 // the file, a global role held in the global partition and a domain role held
 // in every tenant domain, a membership names one by name alone, and the
@@ -102,12 +105,41 @@ func WithPermissionCollection(c PermissionCollection) Option {
 // or carries a condition the vocabulary refuses fails New, so the release
 // does not start. The shapes the file may carry but probably should not (see
 // Warning) do not fail it; Client.CheckPolicy returns them for the deploy's
-// migrate step to print. The collection must not be nil.
-func WithDefaultRoles(collection PermissionCollection, file RoleFile) Option {
+// migrate step to print.
+//
+// auth is the name of the auth whose roles the file declares, as its package
+// names it (its Name), which is the name generation knows the auth by: New
+// refuses a name the collection's generation did not know
+// (PermissionCollection.Auths), saying the name given and the names known,
+// since no set is labeled for such a name and the file would be held to none
+// of its auth's sets. An application declares its subject sets once for all of
+// its auths, and each set describes the people of one of them: the role-file
+// check holds this file to the sets of its own auth, so a set that describes
+// another auth's people is never flagged here for a grant only that auth's
+// roles could write (UnreadSetWarning). A grant of the file whose condition
+// reads a set that describes another auth's people fails New, naming the
+// grant, the set and both auths: the set is looked up by the other auth's
+// ids, so it says nothing about the people who hold the role. The engine
+// holds a grant written to a custom role, and one found in the store, to the
+// same rule under the same name. A set that names no auth is any auth's to
+// read. An empty auth is refused where the collection knows several auths.
+// Where it knows one or none, it refuses no grant for whose people its set
+// describes, and looks at every set.
+//
+// The file carries its auth's name as well (its auth key, RoleConfig.Auth), and
+// New takes it only under that name: a file that carries another name, a file
+// that carries none handed over under a name, and a file that carries one
+// handed over under none are each refused. An engine opens with its own auth's
+// file or not at all.
+//
+// New takes one role file: the option given a second time is refused, since an
+// engine holds the roles of one auth.
+func WithDefaultRoles(file RoleFile, auth string) Option {
 	return func(o *clientOptions) {
-		o.collection = collection
 		o.roleFile = file
 		o.roleFileSet = true
+		o.roleFiles++
+		o.auth = auth
 	}
 }
 
@@ -119,10 +151,9 @@ func WithDefaultRoles(collection PermissionCollection, file RoleFile) Option {
 // condition, whatever the role file grants anybody: a super administrator
 // gives and takes any role of the auth for any person, in the global
 // partition and in every tenant, so one who can sign in can take the power
-// to fix what is broken. With a collection (WithDefaultRoles,
-// WithPermissionCollection) New refuses a method the release does not declare
-// at the global scope with Execute. Without the option the role is defined
-// and holds nothing of its own.
+// to fix what is broken. New refuses a method the release's collection does
+// not declare at the global scope with Execute. Without the option the role
+// is defined and holds nothing of its own.
 func WithSuperAdministratorMethods(methods ...accesstypes.Resource) Option {
 	return func(o *clientOptions) {
 		o.superMethods = methods

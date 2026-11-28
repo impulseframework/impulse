@@ -7,7 +7,7 @@ import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { RESOURCE_DOMAIN } from '@impulseframework/resource-angular/types';
 import { firstValueFrom } from 'rxjs';
 import { FrameConfig } from './frame';
-import { provideFrameTesting, specTransport } from './frame-testing';
+import { provideFrameTesting, SpecServer, specTransport } from './frame-testing';
 import { Menu, page } from './menu';
 import { homeGuard, outsideGuard } from './place.guard';
 import { PlaceService } from './place.service';
@@ -92,8 +92,14 @@ describe('PlaceService', () => {
   beforeEach(() => localStorage.clear());
   afterEach(() => localStorage.clear());
 
-  const signIn = async (digest: PermissionDigest, config: Partial<FrameConfig> = {}): Promise<PlaceService> => {
-    const transport = specTransport({ digests: { '': digest }, domains });
+  const signIn = async (
+    digest: PermissionDigest,
+    config: Partial<FrameConfig> = {},
+    server: SpecServer = {},
+  ): Promise<PlaceService> => {
+    server.digests = { '': digest };
+    server.domains ??= domains;
+    const transport = specTransport(server);
     TestBed.configureTestingModule({ providers: [provideFrameTesting(transport, { menus, ...config }, routes)] });
     await firstValueFrom(TestBed.inject(AuthService).checkUserSession());
     harness = await RouterTestingHarness.create();
@@ -119,13 +125,13 @@ describe('PlaceService', () => {
     const reason = 'Aardvark admits only people who sign in through its own directory. You signed in with a password.';
     const transport = specTransport({
       digests: { '': holdsNothing },
-      domains: [...domains, { domain: 'c-id', name: 'Aardvark', closed: reason }],
+      domains: [...domains, { domain: 'c-id', name: 'Aardvark', unavailable: reason }],
     });
     TestBed.configureTestingModule({ providers: [provideFrameTesting(transport, { menus }, routes)] });
     await firstValueFrom(TestBed.inject(AuthService).checkUserSession());
     const places = TestBed.inject(PlaceService);
     expect(places.places().map((place) => place.label)).toEqual(['Acme', 'Zenith']);
-    expect(places.closed()).toEqual([{ id: 'c-id', label: 'Aardvark', reason }]);
+    expect(places.unavailable()).toEqual([{ id: 'c-id', label: 'Aardvark', reason }]);
   });
 
   it('lists only the tenants for a person whose grant outside them no menu entry answers to', async () => {
@@ -204,6 +210,51 @@ describe('PlaceService', () => {
     expect(localStorage.getItem(rememberKey)).toBe('a-id');
     await go('/login');
     expect(localStorage.getItem(rememberKey)).toBe('a-id');
+    expect(await go('/')).toBe('/tenants/a-id/dashboard');
+  });
+
+  // An accepted invitation's landing. The server names the tenant an invitation seated the
+  // person in on the first session read after the acceptance, and on no later one.
+  const gale = { authenticated: true, username: 'gale', email: 'gale@spec.example' };
+
+  it('lands a person who has just accepted an invitation into a tenant in that tenant, whatever else they hold and wherever they last worked', async () => {
+    localStorage.setItem(rememberKey, 'b-id');
+    const server: SpecServer = { session: { ...gale, invitedTenant: 'a-id' } };
+    await signIn(holdsOutside, {}, server);
+    // The login page reads the session again before it hands the person on, and the
+    // server names the tenant once.
+    server.session = gale;
+    await firstValueFrom(TestBed.inject(AuthService).checkUserSession());
+    expect(await go('/')).toBe('/tenants/a-id/dashboard');
+    expect(localStorage.getItem(rememberKey)).toBe('a-id');
+  });
+
+  it("lands where the person last worked once they have worked somewhere after the invitation's landing", async () => {
+    const server: SpecServer = { session: { ...gale, invitedTenant: 'a-id' } };
+    await signIn(holdsNothing, {}, server);
+    server.session = gale;
+    expect(await go('/')).toBe('/tenants/a-id/dashboard');
+    await go('/tenants/b-id/users');
+    expect(await go('/')).toBe('/tenants/b-id/dashboard');
+  });
+
+  it('reads the tenant list again for a signed-in person an invitation seats in a tenant the list did not hold, and lands them there', async () => {
+    const server: SpecServer = { domains: [domains[1]] };
+    await signIn(holdsNothing, {}, server);
+    expect(await go('/')).toBe('/tenants/b-id/dashboard');
+    await go('/login');
+    // The person accepts the invitation as they are, on the sign-in page: the seat is made,
+    // and the next session read names its tenant.
+    server.domains = domains;
+    server.session = { ...gale, invitedTenant: 'a-id' };
+    await firstValueFrom(TestBed.inject(AuthService).checkUserSession());
+    expect(await go('/')).toBe('/tenants/a-id/dashboard');
+  });
+
+  it('lands a person as ever when the tenant the invitation names is not a place of theirs', async () => {
+    localStorage.setItem(rememberKey, 'a-id');
+    const server: SpecServer = { session: { ...gale, invitedTenant: 'c-id' } };
+    await signIn(holdsNothing, {}, server);
     expect(await go('/')).toBe('/tenants/a-id/dashboard');
   });
 

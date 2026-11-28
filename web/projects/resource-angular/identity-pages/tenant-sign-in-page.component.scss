@@ -1,0 +1,53 @@
+.impulse-tenant-sign-in-content {
+  max-width: 640px;
+  padding: 24px 8px;
+}
+
+h1 {
+  margin: 0 0 16px;
+  font-size: 24px;
+  font-weight: 500;
+}
+
+h2 {
+  margin: 24px 0 8px;
+  font-size: 18px;
+  font-weight: 500;
+}
+
+p {
+  margin: 0 0 12px;
+}
+
+.impulse-tenant-sign-in-directory {
+  font-weight: 500;
+}
+
+.impulse-tenant-sign-in-share {
+  padding-left: 16px;
+}
+
+.impulse-tenant-sign-in-action {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 0 0 12px;
+}
+
+.impulse-tenant-sign-in-action .impulse-tenant-sign-in-note {
+  flex: 1 1 240px;
+  margin: 0;
+}
+
+.impulse-tenant-sign-in-note {
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.impulse-tenant-sign-in-condition strong {
+  font-weight: 500;
+}
+
+.impulse-tenant-sign-in-refusal {
+  color: var(--mat-sys-error);
+}

@@ -181,7 +181,9 @@ func TestMissionCreateDefaultsAndValidator(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := newTestApp(db, grants{accesstypes.Create: withFields(missionsResource, "clientId", "kindId", "title", "hazard", "fee", "deadline")})
+	// A mission names its client, picked from the sector's roster, so its writer lists the
+	// roster.
+	h := newTestApp(db, grants{accesstypes.Create: withFields(missionsResource, "clientId", "kindId", "title", "hazard", "fee", "deadline"), accesstypes.List: {"ClientRosters"}})
 
 	// The validator rejects a deadline that has passed — someone is waiting.
 	status, body := doRequest(t, h, http.MethodPatch, "/console/api/resources",
@@ -230,6 +232,48 @@ func TestRefitUpdateDefaultsAndValidator(t *testing.T) {
 		fmt.Sprintf(`[{"op":"patch","path":%q,"value":{"estimate":-5}}]`, opPath(anvil, "refits/"+refitMuleID)))
 	if status != http.StatusBadRequest {
 		t.Fatalf("negative estimate: status = %d, want 400: %s", status, body)
+	}
+}
+
+// TestRefitCreateValidator docks ships as the hangar deck does. A ship is in one bay at a
+// time: a ship with no refit, or whose refit was cleared or scrapped, is docked, and one
+// whose refit is still open is refused in a sentence that says so. The cases run in
+// order, since the last docks again the ship the second one docked.
+func TestRefitCreateValidator(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+
+	db, err := prepareDatabase(ctx, t, migrationsSource, demoSeedSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A refit names its ship, so its writer lists the ships (a write names only a row its
+	// writer can list).
+	h := newTestApp(db, grants{accesstypes.Create: withFields("Refits", "shipId"), accesstypes.List: {"Ships"}})
+
+	const inBay = "This ship is already in a bay: its refit is still open. Finish that refit before you dock the ship again."
+	tests := []struct {
+		name        string
+		ship        string
+		wantStatus  int
+		wantMessage string
+	}{
+		{name: "a ship whose refit is open is refused", ship: shipStubbornMuleID, wantStatus: http.StatusConflict, wantMessage: inBay},
+		{name: "a ship with no refit is docked", ship: shipKingfisherID, wantStatus: http.StatusOK},
+		{name: "a ship whose refit was cleared is docked again", ship: shipBrassCompassID, wantStatus: http.StatusOK},
+		{name: "a ship whose refit was scrapped is docked again", ship: shipRustyAnchorID, wantStatus: http.StatusOK},
+		{name: "a ship docked a moment ago is refused", ship: shipKingfisherID, wantStatus: http.StatusConflict, wantMessage: inBay},
+	}
+	for _, tt := range tests {
+		status, body := doRequest(t, h, http.MethodPatch, "/console/api/resources",
+			fmt.Sprintf(`[{"op":"add","path":%q,"value":{"shipId":%q}}]`, opPath(anvil, "refits"), tt.ship))
+		if status != tt.wantStatus {
+			t.Fatalf("%s: status = %d, want %d: %s", tt.name, status, tt.wantStatus, body)
+		}
+		if tt.wantMessage != "" && !strings.Contains(string(body), tt.wantMessage) {
+			t.Errorf("%s: body = %s, want it to contain %q", tt.name, body, tt.wantMessage)
+		}
 	}
 }
 

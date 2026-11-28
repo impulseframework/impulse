@@ -2,11 +2,11 @@ name: CI
 # A tree is tested once.
 #
 #  * A draft pull request runs the static checks on every push: the title, the release
-#    ledger, the generated-code check, govulncheck, Semgrep, golangci-lint, and the browser
-#    packages and applications. The jobs that run tests against the Spanner emulator (the
-#    module's race tests, Lodestar's Go jobs, the skeleton legs) wait until the pull request
-#    is ready for review; marking it ready starts them on its commit. A draft push takes no
-#    minute of the larger runner.
+#    ledger, the generated-code check, govulncheck, Semgrep, golangci-lint (the module's and
+#    Lodestar's), and the browser packages and applications. The jobs that run tests against
+#    the Spanner emulator (the module's race tests, Lodestar's test jobs, the skeleton legs,
+#    the author's path) wait until the pull request is ready for review; marking it ready
+#    starts them on its commit. A draft push takes no minute of the larger runner.
 #  * The push a merge makes is a tree its pull request tested, since the branch rule requires
 #    an up-to-date pull request. The run stays for the caches: a pull request can read
 #    entries saved on its own branch and on its base, nothing else. So the Go jobs compile
@@ -42,7 +42,8 @@ jobs:
   golang-ci:
     # The framework is one Go module at the root, the one package of release-please-config.json,
     # which is the module the reusable workflow discovers. Lodestar (lodestar/) is a nested
-    # module the workflow does not see; the lodestar-go job below covers it.
+    # module the workflow does not see; the lodestar-go jobs below cover it, its lint among
+    # them (lodestar-go-lint, which installs the golangci-lint named here).
     # A called workflow gets no more than its caller grants: the scans upload their findings
     # to code scanning (security-events) and read the run they belong to (actions).
     # Not in a run for a release, which does the released skeleton legs alone.
@@ -112,7 +113,8 @@ jobs:
       lodestar-web: ${{ steps.paths.outputs.lodestar-web }}
       # 'true' when a Go file, the module's go.mod or go.sum, the command line (cmd/, the
       # skeleton candidates among it), the browser packages the skeletons' web roots pin, or
-      # this workflow changed. The skeleton legs against this commit read it with draft below.
+      # this workflow changed. The skeleton legs against this commit and the author's path
+      # read it with draft below.
       impulse: ${{ steps.paths.outputs.impulse }}
       # 'true' when the skeleton legs against the released framework have something to say:
       # on a pull request that changes this workflow or the Go version in go.mod, the two
@@ -123,6 +125,10 @@ jobs:
       # one (a push to master, for the caches), or 'skip' (nothing of theirs changed, or the
       # pull request is a draft).
       lodestar-go: ${{ steps.paths.outputs.lodestar-go }}
+      # 'true' where Lodestar's Go is linted: a Go file, a go.mod or go.sum, Lodestar or this
+      # workflow changed, on a draft as on a ready pull request, since the lint is a static
+      # check; and on a push to master, for the caches.
+      lodestar-lint: ${{ steps.paths.outputs.lodestar-lint }}
       # 'true' on a draft pull request: the jobs that run tests against the emulator wait.
       draft: ${{ steps.paths.outputs.draft }}
     steps:
@@ -143,7 +149,7 @@ jobs:
             # result, so every job runs; Lodestar's Go jobs compile for the caches and run
             # no test, since the pull request that merged tested this tree. The legs against
             # the released framework wait for a release.
-            printf 'web=true\nlodestar-web=true\nimpulse=true\npins=false\nlodestar-go=compile\ndraft=false\n' >> "$GITHUB_OUTPUT"; cat "$GITHUB_OUTPUT"; exit 0
+            printf 'web=true\nlodestar-web=true\nimpulse=true\npins=false\nlodestar-go=compile\nlodestar-lint=true\ndraft=false\n' >> "$GITHUB_OUTPUT"; cat "$GITHUB_OUTPUT"; exit 0
           fi
           if [ "$EVENT" != pull_request ]; then
             # A run for a release, started by the end of the npm publish workflow or by hand:
@@ -151,7 +157,7 @@ jobs:
             # not succeed left nothing new to render against.
             pins=true
             if [ "$EVENT" = workflow_run ] && [ "$PUBLISHED" != success ]; then pins=false; fi
-            printf 'web=false\nlodestar-web=false\nimpulse=false\npins=%s\nlodestar-go=skip\ndraft=false\n' "$pins" >> "$GITHUB_OUTPUT"; cat "$GITHUB_OUTPUT"; exit 0
+            printf 'web=false\nlodestar-web=false\nimpulse=false\npins=%s\nlodestar-go=skip\nlodestar-lint=false\ndraft=false\n' "$pins" >> "$GITHUB_OUTPUT"; cat "$GITHUB_OUTPUT"; exit 0
           fi
           draft=false
           if [ "$DRAFT" = true ]; then draft=true; fi
@@ -171,6 +177,7 @@ jobs:
             else
               echo "lodestar-go=skip"
             fi
+            echo "lodestar-lint=$(touches '(\.go$|(^|/)go\.(mod|sum)$|^lodestar/|^\.github/workflows/ci\.yml$)')"
             echo "draft=$draft"
           } >> "$GITHUB_OUTPUT"
           echo "changed files: $(wc -l < "$RUNNER_TEMP/changed-files")"; cat "$GITHUB_OUTPUT"
@@ -441,13 +448,97 @@ jobs:
             ~/go/pkg/mod
             ~/.cache/go-build
           key: ${{ steps.go-cache.outputs.cache-primary-key }}
+  lodestar-go-lint:
+    # Lodestar's Go is linted as the framework's is: the golangci-lint golang-ci installs,
+    # over the whole of Lodestar's module, once under each of three tag sets. Two are the
+    # tag sets golang-ci's lint uses, none and dev. The third is skipAuth, the tag
+    # lodestar-go-integration builds the suite with: the files that build only with it, the
+    # served suites, are read under neither of the other two, and code CI builds and tests
+    # is code CI lints. It runs from lodestar/, where the configuration it reads is
+    # Lodestar's own (lodestar/.golangci.yml). golang-ci's lint does not reach Lodestar, for
+    # the reason its tests do not (see lodestar-go-integration).
+    #
+    # The lint is a static check: it runs on a draft as on a ready pull request, on the
+    # standard runner, and on master's push, which saves the caches a pull request reads.
+    # Its three jobs start on every pull request and push, since a matrix job skipped whole
+    # reports one check under its unexpanded name, and skip every step on a pull request
+    # that touches neither Lodestar, Go nor this workflow. The lodestar-go job below reports
+    # what they came to under the required check's name.
+    name: lodestar go (golangci-lint${{ matrix.build-tag != '' && format(', {0}', matrix.build-tag) || '' }})
+    needs: changes
+    strategy:
+      fail-fast: false
+      matrix:
+        # The tag sets of golang-ci's build-tags above, and the tag the integration suite
+        # is built with.
+        build-tag: ['', dev, skipAuth]
+    if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'push') }}
+    runs-on: ubuntu-latest
+    env:
+      # 'true' where the job does its work, and when the changes job could not say.
+      RUN: ${{ needs.changes.result != 'success' || needs.changes.outputs.lodestar-lint == 'true' }}
+      # The leg's name in its cache keys.
+      LEG: ${{ matrix.build-tag || 'untagged' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ env.RUN == 'true' }}
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        if: ${{ env.RUN == 'true' }}
+        with:
+          go-version-file: lodestar/go.mod
+          cache: false
+      - name: Install golangci-lint
+        if: ${{ env.RUN == 'true' }}
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          # golang-ci's golangci-lint-version above: one linter for the whole repository.
+          version: 'v2.14.0'
+          install-only: true
+          skip-cache: true
+      - name: Restore the Go and golangci-lint caches
+        # As golang-ci's lint does: the linter's analysis cache rides with the module cache
+        # and the build cache it depends on, in a lineage of the leg's own.
+        if: ${{ env.RUN == 'true' }}
+        id: go-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+            ~/.cache/golangci-lint
+          key: lodestar-go-lint-${{ env.LEG }}-${{ runner.os }}-${{ hashFiles('lodestar/go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            lodestar-go-lint-${{ env.LEG }}-${{ runner.os }}-${{ hashFiles('lodestar/go.sum') }}-
+            lodestar-go-lint-${{ env.LEG }}-${{ runner.os }}-
+      - name: golangci-lint over Lodestar's module
+        if: ${{ env.RUN == 'true' }}
+        working-directory: lodestar
+        env:
+          GOTOOLCHAIN: auto
+          BUILD_TAGS: ${{ matrix.build-tag != '' && format('--build-tags {0}', matrix.build-tag) || '' }}
+        run: |
+          # BUILD_TAGS is a flag or empty, split on purpose. The timeout is golang-ci's: a
+          # run that finds no cache takes longer on the standard runner than the default.
+          # shellcheck disable=SC2086
+          golangci-lint run --timeout 15m --verbose $BUILD_TAGS
+      - name: Save the Go and golangci-lint caches
+        # Always on master; on a pull request only when no entry for this go.sum was found.
+        # A lint that found something still saves what it analyzed; a canceled run saves nothing.
+        if: ${{ env.RUN == 'true' && !cancelled() && (github.event_name != 'pull_request' || !startsWith(steps.go-cache.outputs.cache-matched-key, format('lodestar-go-lint-{0}-{1}-{2}-', env.LEG, runner.os, hashFiles('lodestar/go.sum')))) }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+            ~/.cache/golangci-lint
+          key: ${{ steps.go-cache.outputs.cache-primary-key }}
   lodestar-go:
     # The required check of Lodestar's Go jobs: it passes when each of them passed, skipped
     # its steps or was skipped (a pull request that touches nothing of theirs, or a
     # draft), and fails when any failed or was canceled. It runs whatever became of them, so a run
     # canceled by hand never reads as a pass.
     name: lodestar go
-    needs: [lodestar-go-integration, lodestar-go-rest]
+    needs: [lodestar-go-integration, lodestar-go-rest, lodestar-go-lint]
     if: ${{ always() && (github.event_name == 'pull_request' || github.event_name == 'push') }}
     runs-on: ubuntu-latest
     steps:
@@ -455,10 +546,12 @@ jobs:
         env:
           INTEGRATION: ${{ needs.lodestar-go-integration.result }}
           REST: ${{ needs.lodestar-go-rest.result }}
+          LINT: ${{ needs.lodestar-go-lint.result }}
         run: |
           echo "the integration suite, every part: $INTEGRATION"
           echo "build, vet, the other suites, impulse check: $REST"
-          for result in "$INTEGRATION" "$REST"; do
+          echo "golangci-lint, all three tag sets: $LINT"
+          for result in "$INTEGRATION" "$REST" "$LINT"; do
             case "$result" in
               success | skipped) ;;
               *) exit 1 ;;
@@ -673,8 +766,12 @@ jobs:
           golangci-lint run --timeout 10m $aside --build-tags skipAuth ./...
       - name: impulse check
         # The same binary that rendered: the check reads the application against the
-        # framework it was rendered from.
-        if: ${{ env.RUN == 'true' && steps.release.outputs.released != 'false' && env.GO_PART == 'true' }}
+        # framework it was rendered from. The head leg's application builds against this
+        # checkout (--dev-root), so the check runs here, with the Go work and before any
+        # install: package-manager skips an application whose go.mod replaces the framework
+        # module with a directory. The pins leg's check runs after its browser apps are
+        # installed (below).
+        if: ${{ env.RUN == 'true' && steps.release.outputs.released != 'false' && env.GO_PART == 'true' && matrix.framework == 'head' }}
         working-directory: app
         run: |
           "$RUNNER_TEMP/impulse" check
@@ -770,6 +867,17 @@ jobs:
               grep -q '^PASS  prettier' "$RUNNER_TEMP/prettier-report" || { echo "::error::$dir: the prettier check did not run over an installed web root"; exit 1; }
             fi
           done
+      - name: impulse check (the pins leg, once the install has written each web root's lockfile)
+        # The release's own check over the application as its author has it after the one
+        # install the next steps name. No rendering carries a lockfile, since the versions
+        # one would lock are the release's own, and package-manager fails an application
+        # whose web roots have none: its workflows install from the lockfile exactly. The
+        # step above installed every web root, so each holds the bun.lock the author
+        # commits, and the check reads the application whole.
+        if: ${{ env.RUN == 'true' && steps.release.outputs.released != 'false' && matrix.framework == 'pins' }}
+        working-directory: app
+        run: |
+          "$RUNNER_TEMP/impulse" check
       - name: impulse brand over the rendered application
         # impulse brand over the declarations the skeleton carries, where the browser
         # packages are installed: Angular Material's theme-color schematic generates the
@@ -816,13 +924,326 @@ jobs:
         env:
           NAME: ${{ matrix.candidate }}-${{ matrix.part }}
         run: echo "$NAME=ok" >> "$GITHUB_OUTPUT"
+  impulse-authored:
+    # The author's path leaves nothing the brief does not name. Ten applications are made
+    # the way their author makes one, by the commands at this commit and nothing else. Two
+    # are impulse new with a sign-in shape that composes tenancy, then sign-in methods
+    # added: one has tenants that can have directories, the other tenants with no
+    # directories, which must still read as its invite-only shape once a Google method is
+    # on it. With the method on it that one is also regenerated, which changes nothing,
+    # passes impulse check and its own tests, seats a person who was invited to a tenant
+    # and accepts through the simulated Google directory, refuses another person of the
+    # same Workspace who has no invitation, and serves no route of a tenant's directory.
+    # Two start with no password sign-in: one whose tenants are their directories, one
+    # whose single directory, a Google Workspace, gives every role; nothing in either
+    # serves a password. The fourth has a twin whose directory is a Microsoft Entra tenant.
+    # The fifth is made with a second browser application and a machine outlet (--outlet,
+    # --api-outlet), which the command wires itself, so it leaves no brief. The sixth is
+    # made with a second browser application alone, which is then given an auth of its own
+    # (impulse add auth), and passes go vet and its tests again as that command left it.
+    # The seventh is the fourth's start from a directory that is neither Google's nor
+    # Microsoft's (--method oidc:okta, the provider named by its issuer), held to what the
+    # fourth is. The eighth is the second with a person in several tenants (Global users,
+    # invite only), held to what the second is. The ninth is impulse new with no shape and
+    # a Google method added, which passes its own tests with the method on it; it is then
+    # given tenants with no directories by impulse add tenancy with an invite-only shape,
+    # which the command takes, and is held to what the second is. Each of the ten passes go
+    # vet with and without the skipAuth tag as impulse new made it, its tests then being
+    # the start's own, and passes those tests under the tag (the served suites, on the
+    # emulator); the fifth, the sixth and the four with no password sign-in are also
+    # regenerated, which changes nothing, checked again by impulse check, and tested under
+    # no tag; each of those four is then started in development, from its Procfile, and
+    # signed in to. What the commands wrote is held to each application's own formatters
+    # and lint (in every package that compiles), and the tests that do not compile once a
+    # method is added to the brief, which must name each. A rendered skeleton
+    # (impulse-skeletons) proves a candidate; this proves what the transitions write over
+    # one, which nothing else lints.
+    #
+    # The ten are the subtests of one test, TestAuthoredApplication, which makes them one
+    # after the other: in one job the first five alone were twenty minutes of a run whose
+    # every other job ends within eight. No application reads what another left (each is
+    # made in a directory of its own, by commands that start an emulator of their own), so
+    # each is made in a job of its own, side by side: the job asks the test for the one
+    # subtest its line of the matrix names. The last job asks for every subtest but those
+    # the others name, so an application added to the test later is made there, with
+    # nothing changed here, until it is given a job of its own: a line of the matrix, and
+    # the same line in the last job's list.
+    #
+    # A job has what the test reads and nothing more: the checkout, under the path the
+    # skeleton legs have it at, since Go caches a compiled package by its directory; Go;
+    # the Go caches of the head legs' lineage, which the skeleton legs save and these jobs
+    # only read; golangci-lint, which the test finds on the PATH; the runner's Docker, for
+    # the emulator the commands start; and the runner's podman, which the Procfile of an
+    # application with no password sign-in runs its emulator under when the test starts it
+    # in development. The test runs the commands in its own process, so no impulse is built
+    # first. It is asked for (IMPULSE_AUTHORED), since it needs the emulator and the lint,
+    # which these jobs have.
+    #
+    # None of the jobs is a required check: `impulse solo (head)` below reports what they
+    # came to, with the solo leg's own two. They start on every pull request and push, as
+    # the other jobs in parts do, and where the solo head leg has nothing to do (a pull
+    # request that touches nothing of the framework or the command line, or a draft) every
+    # step is skipped.
+    name: "impulse solo (head): the author's path (${{ matrix.application }})"
+    needs: changes
+    if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'push') }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Each application by the name its subtest has in TestAuthoredApplication.
+          - application: tenants that can have directories
+          - application: tenants with no directories
+          - application: tenants with no directories, a person in several
+          - application: tenants laid in over a Google method, with no directories
+          - application: tenants by their directories, with no password sign-in
+          - application: roles from one directory, with no password sign-in
+          - application: roles from a Microsoft Entra tenant, with no password sign-in
+          - application: a second browser application and a machine outlet
+          - application: an auth added to a second browser application
+          - application: roles from another identity provider, with no password sign-in
+          # The last job: every application of the test but the ten above. Today that is
+          # none, and the job passes having made nothing.
+          - application: every other application
+            but:
+              - tenants that can have directories
+              - tenants with no directories
+              - tenants with no directories, a person in several
+              - tenants laid in over a Google method, with no directories
+              - tenants by their directories, with no password sign-in
+              - roles from one directory, with no password sign-in
+              - roles from a Microsoft Entra tenant, with no password sign-in
+              - a second browser application and a machine outlet
+              - an auth added to a second browser application
+              - roles from another identity provider, with no password sign-in
+    env:
+      # testcontainers' reaper (Ryuk) is not needed on a runner discarded after the job, and its start has timed out here.
+      TESTCONTAINERS_RYUK_DISABLED: "true"
+      # 'true' where the solo head leg does its work, and when the changes job could not say.
+      RUN: ${{ needs.changes.result != 'success' || (needs.changes.outputs.draft != 'true' && needs.changes.outputs.impulse == 'true') }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ env.RUN == 'true' }}
+        with:
+          path: impulse
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        if: ${{ env.RUN == 'true' }}
+        with:
+          go-version-file: impulse/go.mod
+          cache: false
+      - name: Restore the Go caches
+        # The entry a skeleton's head leg saves, by the same keys: those jobs compile the
+        # framework and a rendered application's dependencies, which is most of what an
+        # application made here compiles, so these jobs restore and never save.
+        if: ${{ env.RUN == 'true' }}
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: impulse-head-${{ runner.os }}-${{ hashFiles('impulse/go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            impulse-head-${{ runner.os }}-${{ hashFiles('impulse/go.sum') }}-
+            impulse-head-${{ runner.os }}-
+      - name: Install golangci-lint
+        if: ${{ env.RUN == 'true' }}
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          # golang-ci's golangci-lint-version above: one linter for the whole repository.
+          version: 'v2.14.0'
+          install-only: true
+          skip-cache: true
+      - name: Make the application as its author does, and hold what the commands left to the brief
+        # The twenty minutes. The application that took longest to make, tenants that can
+        # have directories, took eight minutes on this runner as a job of its own (487
+        # seconds for the whole job, the steps before the test among them), and an
+        # application has taken a quarter longer from one run to the next (an auth added to
+        # a second browser application: 365 seconds of test, then 452); three made together
+        # in the last job took thirteen minutes. The timeout was fifteen on those numbers.
+        # It is twenty since each application with no password sign-in is also regenerated,
+        # checked, tested under no tag and started in development, and the last job has the
+        # same twenty for an application added to the test later.
+        if: ${{ env.RUN == 'true' }}
+        working-directory: impulse
+        env:
+          IMPULSE_AUTHORED: "1"
+          APPLICATION: ${{ matrix.application }}
+          # The last job's list as one alternation; empty in a job that names its application.
+          BUT: ${{ join(matrix.but, '|') }}
+        run: |
+          # The shell of a step fails a pipeline for its last command alone unless asked.
+          set -o pipefail
+          # go test writes a subtest's name with each space an underscore, and reads the
+          # pattern as one expression for the test's name and one for the subtest's. Each
+          # is held to the whole name.
+          if [ -n "$BUT" ]; then
+            pick=(-run '^TestAuthoredApplication$' -skip "^TestAuthoredApplication\$/^(${BUT// /_})\$")
+          else
+            pick=(-run "^TestAuthoredApplication\$/^${APPLICATION// /_}\$")
+          fi
+          go test ./cmd/impulse/internal/cli "${pick[@]}" -count=1 -v -timeout 20m | tee "$RUNNER_TEMP/authored"
+          # What the test made, from its own lines. A pattern that matches no subtest
+          # passes having made nothing, so a job that names its application is held to
+          # having made that one and no other.
+          sed -n 's|^=== RUN   TestAuthoredApplication/\([^/]*\)$|\1|p' "$RUNNER_TEMP/authored" > "$RUNNER_TEMP/made"
+          made=$(paste -sd' ' "$RUNNER_TEMP/made")
+          echo "made in this job: ${made:-nothing}"
+          if [ -z "$BUT" ] && [ "$made" != "${APPLICATION// /_}" ]; then
+            echo "::error::this job makes the application TestAuthoredApplication names \"$APPLICATION\", and the test made ${made:-nothing}. If the test gives the application another name now, the last job made it: write the new name on this job's line of the matrix and on the same line of the last job's list. If the test no longer makes it, take both lines out"
+            exit 1
+          fi
+  impulse-made:
+    # The browser specs of an application as impulse new makes it, for the starts no
+    # other job runs them for: one with a second browser application (--outlet), the four
+    # with no password sign-in (one whose tenants are their directories and three whose one
+    # directory gives every role: a Google Workspace, a Microsoft Entra tenant, another
+    # identity provider), and the two whose tenants have no directories, whose browser
+    # files the tenancy step writes without the tenant's Sign-in settings page and the
+    # directory-only column. The head legs run the specs of the four rendered skeletons and
+    # of the composed tenancy; the author's path holds a made application to its Go tests,
+    # its lint and its check. Neither runs a made application's browser specs, so a change
+    # to the skeleton's specs that broke one of these starts was found only by a builder's
+    # own proof. Each application is made in a job of its own, side by side, against the
+    # browser packages built from this commit. None of the jobs is a required check:
+    # `impulse solo (head)` below reports what they came to. A start added to impulse new
+    # is a line of the matrix.
+    name: "impulse solo (head): the browser specs of a made application (${{ matrix.application }})"
+    needs: changes
+    if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'push') }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The directory each is made in, and the flags of its start beside the auth.
+          - application: a second browser application
+            dir: outlet
+            start: --outlet partners=partners/api
+          - application: roles from one directory, with no password sign-in
+            dir: directory
+            start: --shape directory-roles --method google --organization fleet.example
+          - application: roles from a Microsoft Entra tenant, with no password sign-in
+            dir: entra
+            start: --shape directory-roles --method azure --organization 3f2504e0-4f89-11d3-9a0c-0305e82c3301
+          - application: roles from another identity provider, with no password sign-in
+            dir: provider
+            start: --shape directory-roles --method oidc:okta --organization https://id.fleet.example
+          - application: tenants by their directories, with no password sign-in
+            dir: tenants
+            start: --shape tenant-owned-users-by-directory
+          - application: tenants with no directories
+            dir: invited
+            start: --shape tenant-owned-users-invite-only
+          - application: tenants with no directories, a person in several
+            dir: several
+            start: --shape global-users-invite-only
+    env:
+      # testcontainers' reaper (Ryuk) is not needed on a runner discarded after the job, and its start has timed out here.
+      TESTCONTAINERS_RYUK_DISABLED: "true"
+      # The bun that wrote web/bun.lock, which builds the browser packages and installs the
+      # made application's browser apps.
+      BUN_VERSION: 1.4.4
+      # 'true' where the solo head leg does its work, and when the changes job could not say.
+      RUN: ${{ needs.changes.result != 'success' || (needs.changes.outputs.draft != 'true' && needs.changes.outputs.impulse == 'true') }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ env.RUN == 'true' }}
+        with:
+          path: impulse
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        if: ${{ env.RUN == 'true' }}
+        with:
+          go-version-file: impulse/go.mod
+          cache: false
+      - name: Restore the Go caches
+        # The entry a skeleton's head leg saves, by the same keys, as the author's path
+        # restores it: these jobs restore and never save.
+        if: ${{ env.RUN == 'true' }}
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: impulse-head-${{ runner.os }}-${{ hashFiles('impulse/go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            impulse-head-${{ runner.os }}-${{ hashFiles('impulse/go.sum') }}-
+            impulse-head-${{ runner.os }}-
+      - name: Build impulse from this commit
+        if: ${{ env.RUN == 'true' }}
+        working-directory: impulse
+        run: go build -o "$RUNNER_TEMP/impulse" ./cmd/impulse
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        if: ${{ env.RUN == 'true' }}
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - name: Build the browser packages at this commit
+        # The made application's browser apps install the three packages built from this
+        # commit, packed, in place of the published versions their package.json pins, as
+        # the skeletons' head legs install them.
+        if: ${{ env.RUN == 'true' }}
+        working-directory: impulse/web
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+          mkdir -p "$RUNNER_TEMP/packs"
+          for p in resource resource-angular resource-firestore; do
+            (cd "dist/$p" && npm pack --silent --pack-destination "$RUNNER_TEMP/packs")
+          done
+          ls "$RUNNER_TEMP/packs"
+      - name: Make the application, then build, lint and test its browser apps
+        # Every web root of the made application, as the skeletons' head legs run theirs:
+        # its production build, its lint and its specs.
+        if: ${{ env.RUN == 'true' }}
+        env:
+          DIR: ${{ matrix.dir }}
+          START: ${{ matrix.start }}
+          # impulse new makes the application's first commit.
+          GIT_AUTHOR_NAME: ci
+          GIT_AUTHOR_EMAIL: ci@example.com
+          GIT_COMMITTER_NAME: ci
+          GIT_COMMITTER_EMAIL: ci@example.com
+        run: |
+          # START is the start's flags, split on purpose.
+          # shellcheck disable=SC2086
+          "$RUNNER_TEMP/impulse" new "$DIR" --module "example.com/ci/$DIR" --auth staff $START --dev-root "$GITHUB_WORKSPACE/impulse"
+          roots=$(find "$DIR" -path '*/node_modules' -prune -o -path '*web/package.json' -printf '%h\n' | sort)
+          if [ -z "$roots" ]; then
+            echo "::error::$DIR has no browser app"
+            exit 1
+          fi
+          for root in $roots; do
+            echo "::group::$root"
+            (
+              cd "$root"
+              # The pins become the packs; a lockfile would hold the published versions.
+              for p in resource resource-angular resource-firestore; do
+                tgz=$(ls "$RUNNER_TEMP"/packs/impulseframework-"$p"-[0-9]*.tgz)
+                jq --arg n "@impulseframework/$p" --arg v "file:$tgz" \
+                  '(if .dependencies[$n] then .dependencies[$n] = $v else . end) | (if (.overrides // {})[$n] then .overrides[$n] = $v else . end)' \
+                  package.json > package.json.next
+                mv package.json.next package.json
+              done
+              rm -f bun.lock
+              bun install
+              bun run build
+              bun run lint
+              bun run test
+            ) || { echo "::error::$root: the browser app failed to install, build, lint or test"; exit 1; }
+            echo "::endgroup::"
+          done
   impulse-skeletons-head:
     # The required check of a skeleton's head leg: it passes when the leg's two jobs each
     # passed or had nothing to do (a pull request that touches nothing of theirs, or a
     # draft), and fails when either failed or was canceled. It runs whatever became of
-    # them, so a run canceled by hand never reads as a pass.
+    # them, so a run canceled by hand never reads as a pass. The solo leg's check also
+    # holds the author's path (impulse-authored) and the browser specs of the made
+    # applications (impulse-made): its jobs belong to this one check, so the job's one
+    # result says what they came to, success when every one of them passed or skipped its
+    # steps, and anything else fails the check. The other three legs' checks wait for those
+    # jobs and do not read them.
     name: impulse ${{ matrix.candidate }} (head)
-    needs: impulse-skeletons
+    needs: [impulse-skeletons, impulse-authored, impulse-made]
     if: ${{ always() && (github.event_name == 'pull_request' || github.event_name == 'push') }}
     runs-on: ubuntu-latest
     strategy:
@@ -830,11 +1251,20 @@ jobs:
       matrix:
         candidate: [solo, tenanted, outlets, sites]
     steps:
-      - name: Both jobs passed, or had nothing to do
+      - name: Every job passed, or had nothing to do
         env:
+          CANDIDATE: ${{ matrix.candidate }}
           GO: ${{ needs.impulse-skeletons.outputs[format('{0}-go', matrix.candidate)] }}
           BROWSER: ${{ needs.impulse-skeletons.outputs[format('{0}-browser', matrix.candidate)] }}
+          AUTHORED: ${{ needs.impulse-authored.result }}
+          MADE: ${{ needs.impulse-made.result }}
         run: |
           echo "go: ${GO:-failed or canceled}"
           echo "browser: ${BROWSER:-failed or canceled}"
+          if [ "$CANDIDATE" = solo ]; then
+            echo "the author's path, every application: $AUTHORED"
+            if [ "$AUTHORED" != success ]; then exit 1; fi
+            echo "the browser specs of made applications, every one: $MADE"
+            if [ "$MADE" != success ]; then exit 1; fi
+          fi
           [ "$GO" = ok ] && [ "$BROWSER" = ok ]

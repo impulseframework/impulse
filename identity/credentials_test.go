@@ -9,6 +9,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session/sessioninfo"
@@ -77,6 +78,7 @@ func TestManager_RequirePasswordChange(t *testing.T) {
 			if diff := cmp.Diff(tt.wantWrites, store.writes); diff != "" {
 				t.Errorf("buffered writes (-want +got):\n%s", diff)
 			}
+			wantAccountRow(t, store, err, auditlog.ActPasswordChangeRequired, userID)
 		})
 	}
 }
@@ -96,9 +98,9 @@ func TestManager_UnlinkIdentity(t *testing.T) {
 			return httpio.HasConflict(err) && errors.Is(err, sessionstorage.ErrLastSignInMethod) && httpio.Message(err) == message
 		}
 	}
-	noOther := lastMeans("the user has no other means of sign-in: link another directory sign-in first, or give the user a password")
+	noOther := lastMeans("This is the account's only way to sign in. Link another directory sign-in first, or give the account a password.")
 	noOtherCounts := lastMeans(
-		"none of the other identities linked to the user can sign them in any more, so this one is their only means of sign-in: link a directory sign-in the login page offers first, or give the user a password")
+		"None of the other sign-in identities linked to the account can sign in any more, so this one is its only way to sign in. Link a directory sign-in the login page offers first, or give the account a password.")
 	tests := []struct {
 		name       string
 		identities map[impulse.UUID]impulse.UUID
@@ -192,6 +194,7 @@ func TestManager_UnlinkIdentity(t *testing.T) {
 			if diff := cmp.Diff(tt.wantWrites, store.writes); diff != "" {
 				t.Errorf("buffered writes (-want +got):\n%s", diff)
 			}
+			wantAccountRow(t, store, err, auditlog.ActIdentityUnlinked, tt.identities[identityA])
 		})
 	}
 }
@@ -206,7 +209,7 @@ func TestManager_RemovePassword(t *testing.T) {
 	entra := sessioninfo.AuthMethod("azure")
 	noLinkCounts := func(err error) bool {
 		return httpio.HasConflict(err) && errors.Is(err, sessionstorage.ErrLastSignInMethod) &&
-			httpio.Message(err) == "none of the identities linked to the user can sign them in any more, so the password is their only means of sign-in: link a directory sign-in the login page offers first"
+			httpio.Message(err) == "None of the sign-in identities linked to the account can sign in any more, so the password is its only way to sign in. Link a directory sign-in the login page offers first."
 	}
 	tests := []struct {
 		name       string
@@ -262,7 +265,7 @@ func TestManager_RemovePassword(t *testing.T) {
 			passwords: map[impulse.UUID]bool{userID: true},
 			wantErr: func(err error) bool {
 				return httpio.HasConflict(err) && errors.Is(err, sessionstorage.ErrLastSignInMethod) &&
-					httpio.Message(err) == "the user has no other means of sign-in: link a directory sign-in first"
+					httpio.Message(err) == "The password is the account's only way to sign in. Link a directory sign-in first."
 			},
 		},
 		{
@@ -279,7 +282,7 @@ func TestManager_RemovePassword(t *testing.T) {
 			usernames:  map[impulse.UUID]string{userID: "dana"},
 			passwords:  map[impulse.UUID]bool{userID: false},
 			identities: map[impulse.UUID]impulse.UUID{identityA: userID},
-			wantErr:    httpio.HasBadRequest,
+			wantErr:    refusedInWords("This account has no password to remove."),
 		},
 		{
 			name:    "a user that does not exist is not found",
@@ -319,6 +322,7 @@ func TestManager_RemovePassword(t *testing.T) {
 			if diff := cmp.Diff(tt.wantWrites, store.writes); diff != "" {
 				t.Errorf("buffered writes (-want +got):\n%s", diff)
 			}
+			wantAccountRow(t, store, err, auditlog.ActPasswordRemoved, userID)
 		})
 	}
 }
@@ -530,12 +534,12 @@ func TestManager_RevokeToken(t *testing.T) {
 	}{
 		{
 			name:       "a token that stands alone",
-			tokens:     map[impulse.UUID]*Token{tokenA: {ExpiresAt: ahead}},
+			tokens:     map[impulse.UUID]*Token{tokenA: {UserID: userID, ExpiresAt: ahead}},
 			wantWrites: []string{"revoke token " + tokenA.String() + " revoked"},
 		},
 		{
 			name:     "a token of a device authorization takes its family with it",
-			tokens:   map[impulse.UUID]*Token{tokenA: {FamilyID: &familyID, ExpiresAt: ahead}},
+			tokens:   map[impulse.UUID]*Token{tokenA: {UserID: userID, FamilyID: &familyID, ExpiresAt: ahead}},
 			families: map[impulse.UUID][]impulse.UUID{familyID: {tokenA, tokenB}},
 			wantWrites: []string{
 				"revoke token " + tokenA.String() + " revoked",
@@ -544,17 +548,17 @@ func TestManager_RevokeToken(t *testing.T) {
 		},
 		{
 			name:    "a token that was revoked is no live token",
-			tokens:  map[impulse.UUID]*Token{tokenA: {ExpiresAt: ahead, Revoked: true}},
+			tokens:  map[impulse.UUID]*Token{tokenA: {UserID: userID, ExpiresAt: ahead, Revoked: true}},
 			wantErr: httpio.HasNotFound,
 		},
 		{
 			name:    "a token that has expired is no live token",
-			tokens:  map[impulse.UUID]*Token{tokenA: {ExpiresAt: past}},
+			tokens:  map[impulse.UUID]*Token{tokenA: {UserID: userID, ExpiresAt: past}},
 			wantErr: httpio.HasNotFound,
 		},
 		{
 			name:    "a token that expires this instant is no live token",
-			tokens:  map[impulse.UUID]*Token{tokenA: {ExpiresAt: now}},
+			tokens:  map[impulse.UUID]*Token{tokenA: {UserID: userID, ExpiresAt: now}},
 			wantErr: httpio.HasNotFound,
 		},
 		{
@@ -563,7 +567,7 @@ func TestManager_RevokeToken(t *testing.T) {
 		},
 		{
 			name:     "a failed read of the family buffers nothing",
-			tokens:   map[impulse.UUID]*Token{tokenA: {FamilyID: &familyID, ExpiresAt: ahead}},
+			tokens:   map[impulse.UUID]*Token{tokenA: {UserID: userID, FamilyID: &familyID, ExpiresAt: ahead}},
 			families: map[impulse.UUID][]impulse.UUID{familyID: {tokenA, tokenB}},
 			failOn:   "FamilyTokens",
 			wantErr:  func(err error) bool { return errors.Is(err, errStore) },
@@ -589,6 +593,7 @@ func TestManager_RevokeToken(t *testing.T) {
 			if diff := cmp.Diff(tt.wantWrites, store.writes); diff != "" {
 				t.Errorf("buffered writes (-want +got):\n%s", diff)
 			}
+			wantAccountRow(t, store, err, auditlog.ActTokenRevoked, userID)
 		})
 	}
 }

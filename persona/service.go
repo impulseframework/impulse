@@ -40,10 +40,10 @@ type Service struct {
 	provider *op.Provider
 	callback func(ctx context.Context, requestID string) string
 
-	keysMu      sync.Mutex
-	keys        []*SigningKey
-	keysReadAt  time.Time
-	cryptoKeyID string
+	keysMu     sync.Mutex
+	keys       []*SigningKey
+	keysReadAt time.Time
+	keysHeldAt map[string]time.Time
 }
 
 // New builds the service. It refuses a configuration without an issuer, an actor reader or
@@ -77,27 +77,28 @@ func New(ctx context.Context, host Host, store Store, config *Config) (*Service,
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
-	s := &Service{host: host, store: store, cfg: cfg, issuer: issuer}
+	s := &Service{host: host, store: store, cfg: cfg, issuer: issuer, keysHeldAt: map[string]time.Time{}}
 
 	keys, err := s.signingKeys(ctx)
 	if err != nil {
 		return nil, err
 	}
-	// The access token is the token's ID encrypted under a key every instance shares:
-	// one derived from the signing key, which the store holds for all of them.
-	der, err := x509.MarshalPKCS8PrivateKey(keys[0].Key)
+	// The access token is the token's ID encrypted under a key every instance shares: one
+	// derived from the first signing key, which the store holds for all of them and a
+	// rotation does not replace.
+	first := keys[len(keys)-1]
+	der, err := x509.MarshalPKCS8PrivateKey(first.Key)
 	if err != nil {
 		return nil, errors.Wrap(err, "x509.MarshalPKCS8PrivateKey()")
 	}
 	opConfig := &op.Config{
 		CryptoKey:          sha256.Sum256(der),
-		CryptoKeyId:        keys[0].ID,
+		CryptoKeyId:        first.ID,
 		CodeMethodS256:     true,
 		SupportedScopes:    []string{oidc.ScopeOpenID, oidc.ScopeProfile, oidc.ScopeEmail},
 		SupportedClaims:    []string{"sub", "aud", "exp", "iat", "iss", "auth_time", "nonce", "name", "preferred_username", "email", "email_verified"},
 		SupportedUILocales: []language.Tag{language.English},
 	}
-	s.cryptoKeyID = keys[0].ID
 	opts := []op.Option{}
 	if cfg.AllowInsecureIssuer {
 		opts = append(opts, op.WithAllowInsecure())
@@ -194,13 +195,16 @@ func (s *Service) expired(req *Request) bool {
 }
 
 // signingKeys returns the signing keys, newest first, from memory when read within the
-// cache's lifetime, making the first one when the store holds none.
+// cache's lifetime, making the first one when the store holds none. The time of a read is
+// taken before the store is asked and the time a key was first held after it answered, so a
+// list is never taken for newer, nor a key for longer held, than it is.
 func (s *Service) signingKeys(ctx context.Context) ([]*SigningKey, error) {
 	s.keysMu.Lock()
 	defer s.keysMu.Unlock()
 	if len(s.keys) > 0 && s.now().Before(s.keysReadAt.Add(keyCacheTTL)) {
 		return s.keys, nil
 	}
+	asked := s.now()
 	keys, err := s.store.SigningKeys(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "persona.Store.SigningKeys()")
@@ -210,18 +214,43 @@ func (s *Service) signingKeys(ctx context.Context) ([]*SigningKey, error) {
 		if err != nil {
 			return nil, err
 		}
-		if err := s.store.AddSigningKey(ctx, key); err != nil {
-			return nil, errors.Wrap(err, "persona.Store.AddSigningKey()")
+		if err := s.store.AddFirstSigningKey(ctx, key); err != nil {
+			return nil, errors.Wrap(err, "persona.Store.AddFirstSigningKey()")
 		}
-		// Another instance may have added one in the same moment; the store's order
-		// decides which signs, so read back rather than trust ours.
+		// Another instance may have made the first key in the same moment; the store kept
+		// one of the two, so read back rather than trust ours.
 		if keys, err = s.store.SigningKeys(ctx); err != nil {
 			return nil, errors.Wrap(err, "persona.Store.SigningKeys()")
 		}
+		if len(keys) == 0 {
+			return nil, errors.New("persona.Store.SigningKeys() returned no key after AddFirstSigningKey() added or found one")
+		}
 	}
-	s.keys, s.keysReadAt = keys, s.now()
+	answered := s.now()
+	for _, k := range keys {
+		if _, held := s.keysHeldAt[k.ID]; !held {
+			s.keysHeldAt[k.ID] = answered
+		}
+	}
+	s.keys, s.keysReadAt = keys, asked
 
 	return keys, nil
+}
+
+// keyThatSigns is the key of the list, newest first, that this instance signs with: the
+// newest it has held for longer than the key cache's lifetime, and the first key, the last of
+// the list, while it has held none that long.
+func (s *Service) keyThatSigns(list []*SigningKey) *SigningKey {
+	s.keysMu.Lock()
+	defer s.keysMu.Unlock()
+	now := s.now()
+	for _, k := range list {
+		if heldAt, held := s.keysHeldAt[k.ID]; held && now.Sub(heldAt) > keyCacheTTL {
+			return k
+		}
+	}
+
+	return list[len(list)-1]
 }
 
 // generateKey makes a signing key.
@@ -238,8 +267,10 @@ func (s *Service) generateKey() (*SigningKey, error) {
 	return &SigningKey{ID: id.String(), Key: key, CreatedAt: s.now()}, nil
 }
 
-// RotateSigningKey adds a new signing key, which signs from the next cache refresh on;
-// the key set keeps publishing the older ones.
+// RotateSigningKey adds a new signing key. Every instance publishes it within the key
+// cache's lifetime, and each signs with it once it has itself held it for longer than that,
+// so no token is signed with a key an instance does not publish yet; the key set keeps
+// publishing the older ones.
 func (s *Service) RotateSigningKey(ctx context.Context) error {
 	key, err := s.generateKey()
 	if err != nil {

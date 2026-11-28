@@ -1,0 +1,70 @@
+import { ResourceMeta, RowWords } from '@impulseframework/resource-angular/types';
+
+/** What was done to a row, as the message after it says. */
+export type RowChange = 'added' | 'saved' | 'deleted';
+
+/** The opening letters of a word that is written with a vowel and said with a consonant ("a user", "a one-time code"). */
+const saidWithConsonant = /^(uni([^nm]|$)|us[aeu]|uti|ute|eu|one|once)/;
+/** The opening letters of a word that is written with an h nobody says ("an hour"). */
+const saidWithVowel = /^(hour|honest|honor|heir)/;
+/** The letters whose names open with a vowel sound, for a word said letter by letter ("an HQ unit", "a URL"). */
+const lettersSaidWithVowel = 'AEFHILMNORSX';
+
+/**
+ * The words a resource's rows go by, read off its generated metadata; nothing for a
+ * resource the application's metadata does not hold, or one that carries no word.
+ */
+export function rowWordsOf(meta: ResourceMeta | undefined): RowWords | undefined {
+  return meta?.rowWords;
+}
+
+/**
+ * "a" or "an" for the word that follows, by how the word is said aloud: "a hangar pass",
+ * "an assignment", "a user", "an hour", and a first word in capitals letter by letter
+ * ("an HQ unit", "a URL").
+ */
+export function articleFor(word: string): 'a' | 'an' {
+  const first = word.trim().split(/\s+/)[0] ?? '';
+  if (/^[A-Z]{2,}$/.test(first)) {
+    return lettersSaidWithVowel.includes(first[0]) ? 'an' : 'a';
+  }
+  const lower = first.toLowerCase();
+  if (saidWithVowel.test(lower)) {
+    return 'an';
+  }
+  if (saidWithConsonant.test(lower)) {
+    return 'a';
+  }
+
+  return /^[aeiou]/.test(lower) ? 'an' : 'a';
+}
+
+/**
+ * The label of the button that adds a row to a list, and the heading of the dialog it
+ * opens: the label the list's config sets where it sets one, else "Add a hangar pass"
+ * from the word the resource's rows go by, else "Create" for a resource whose metadata
+ * carries no word.
+ */
+export function addRowLabel(configured: string | undefined, words: RowWords | undefined): string {
+  if (configured) {
+    return configured;
+  }
+  const word = words?.one.trim() ?? '';
+
+  return word !== '' ? `Add ${articleFor(word)} ${word}` : 'Create';
+}
+
+/**
+ * The message after a row is added, saved or deleted: "Hangar pass deleted." from the
+ * word the resource's rows go by, the word capitalized since it opens the sentence. A
+ * resource whose metadata carries no word gets the message without one ("Added.",
+ * "Saved.", "Deleted."), never its code name.
+ */
+export function rowMessage(words: RowWords | undefined, change: RowChange): string {
+  const word = words?.one.trim() ?? '';
+  if (word === '') {
+    return `${change.charAt(0).toUpperCase()}${change.slice(1)}.`;
+  }
+
+  return `${word.charAt(0).toUpperCase()}${word.slice(1)} ${change}.`;
+}

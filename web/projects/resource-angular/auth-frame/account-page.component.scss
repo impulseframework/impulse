@@ -1,0 +1,252 @@
+.impulse-account-page-content {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  max-width: 640px;
+  padding: 24px 8px;
+}
+
+h1 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 500;
+}
+
+p {
+  margin: 0;
+}
+
+.impulse-account-page-acting {
+  color: var(--mat-sys-on-surface-variant);
+}
+
+h2 {
+  margin: 0 0 8px;
+  font-size: 16px;
+  font-weight: 500;
+}
+
+// The lines are one group with a rule between them.
+.impulse-account-page-lines {
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: 12px;
+}
+
+// A line is its key, then its value with the hint and what a change said under it, and
+// the icon at its right edge. The icon spans the rows of the value, so the line is as
+// high as the taller of the two.
+.impulse-account-page-line {
+  display: grid;
+  grid-template-columns: 8.5rem minmax(0, 1fr) auto;
+  column-gap: 16px;
+  align-items: start;
+  padding: 12px 8px 12px 16px;
+}
+
+.impulse-account-page-line + .impulse-account-page-line {
+  border-top: 1px solid var(--mat-sys-outline-variant);
+}
+
+.impulse-account-page-key {
+  grid-column: 1;
+  grid-row: 1;
+  padding-top: 8px;
+  font-size: 14px;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.impulse-account-page-value,
+.impulse-account-page-line > .impulse-account-page-hint,
+.impulse-account-page-said {
+  grid-column: 2;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.impulse-account-page-value {
+  padding-top: 8px;
+}
+
+.impulse-account-page-unset {
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.impulse-account-page-password .impulse-account-page-value:not(.impulse-account-page-unset) {
+  letter-spacing: 0.18em;
+}
+
+.impulse-account-page-chip {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: normal;
+  vertical-align: 1px;
+  background: var(--mat-sys-secondary-container);
+  color: var(--mat-sys-on-secondary-container);
+}
+
+.impulse-account-page-hint,
+.impulse-account-page-say {
+  font-size: 13px;
+  color: var(--mat-sys-on-surface-variant);
+  overflow-wrap: anywhere;
+}
+
+.impulse-account-page-said {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.impulse-account-page-edit {
+  grid-column: 3;
+  grid-row: 1 / span 3;
+  align-self: center;
+}
+
+// An open line's form takes the value's place and the icon's; its boxes are at most 360px
+// wide and never wider than the line.
+.impulse-account-page-form {
+  grid-column: 2 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 4px 8px 4px 0;
+}
+
+.impulse-account-page-form mat-form-field,
+.impulse-account-page-form impulse-new-password,
+.impulse-account-page-form .impulse-account-page-say,
+.impulse-account-page-form .impulse-account-page-hint,
+.impulse-account-page-refusal,
+.impulse-account-page-remove-ask {
+  width: 100%;
+  max-width: 360px;
+}
+
+.impulse-account-page-say {
+  min-height: 1.45em;
+}
+
+.impulse-account-page-refusal {
+  font-size: 13px;
+  color: var(--mat-sys-error);
+  overflow-wrap: anywhere;
+}
+
+.impulse-account-page-remove-ask {
+  overflow-wrap: anywhere;
+}
+
+.impulse-account-page-acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+// The person's tenants, and where they are signed in: each list is one group, as the lines
+// are, with its buttons and what the last act said under it.
+.impulse-account-page-tenants,
+.impulse-account-page-signed-in {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.impulse-account-page-tenants h2,
+.impulse-account-page-signed-in h2 {
+  margin: 0;
+}
+
+.impulse-account-page-tenant-list,
+.impulse-account-page-sessions {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: 12px;
+}
+
+// A line of a list wraps: the name and what is under it take the width, and the button
+// sits at the right, dropping under them, still at the right, when it does not fit beside
+// them.
+.impulse-account-page-tenant,
+.impulse-account-page-session {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  padding: 12px 8px 12px 16px;
+}
+
+.impulse-account-page-tenant + .impulse-account-page-tenant,
+.impulse-account-page-session + .impulse-account-page-session {
+  border-top: 1px solid var(--mat-sys-outline-variant);
+}
+
+.impulse-account-page-session mat-icon {
+  flex: none;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.impulse-account-page-tenant-what,
+.impulse-account-page-session-what {
+  flex: 1 1 14rem;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-wrap: anywhere;
+}
+
+.impulse-account-page-tenant-roles,
+.impulse-account-page-tenant-refusal,
+.impulse-account-page-tenants-said,
+.impulse-account-page-tenants-failed,
+.impulse-account-page-session-when,
+.impulse-account-page-sessions-said,
+.impulse-account-page-sessions-failed {
+  font-size: 13px;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.impulse-account-page-tenant button,
+.impulse-account-page-session button {
+  flex: none;
+  margin-left: auto;
+}
+
+// Under 600px the key sits above the value, and the icon beside the value.
+@media (max-width: 599.98px) {
+  .impulse-account-page-line {
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding-left: 14px;
+  }
+
+  .impulse-account-page-key {
+    grid-column: 1 / -1;
+    padding-top: 0;
+  }
+
+  .impulse-account-page-value,
+  .impulse-account-page-line > .impulse-account-page-hint,
+  .impulse-account-page-said {
+    grid-column: 1;
+  }
+
+  .impulse-account-page-value {
+    padding-top: 4px;
+  }
+
+  .impulse-account-page-edit {
+    grid-column: 2;
+    grid-row: 2 / span 3;
+  }
+
+  .impulse-account-page-form {
+    grid-column: 1 / -1;
+  }
+}

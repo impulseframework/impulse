@@ -46,8 +46,9 @@ func (h *Handlers) CrewSessionUsers() http.HandlerFunc {
 		}
 
 		// A live list registers before the query runs, so a commit that lands during
-		// the query is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, h.LiveService(), querySet, live.ListSubscription(querySet.Resource(), ""))
+		// the query is not missed; a refused request registers nothing. With it the
+		// request registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, h.LiveService(), querySet, live.ListSubscription(querySet.Resource(), ""))
 
 		res := crewresources.NewCrewSessionUserQueryFromQuerySet(querySet)
 
@@ -154,8 +155,9 @@ func (h *Handlers) CrewSessionUser() http.HandlerFunc {
 		}
 
 		// A live row registers before the read runs, so a commit that lands during the
-		// read is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, h.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(id)))
+		// read is not missed; a refused request registers nothing. With it the request
+		// registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, h.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(id)))
 
 		res := crewresources.NewCrewSessionUserQueryFromQuerySet(querySet).SetID(id)
 
@@ -211,5 +213,43 @@ func (h *Handlers) CrewSessionUser() http.HandlerFunc {
 		live.SetCacheControl(w, r)
 
 		return httpio.NewEncoder(w).Ok(rmap)
+	})
+}
+
+// CrewSessionUserChangeHistory answers a page of one crew session user's change records, newest first, to whoever may read the record, with the fields they may see on it. It answers 404 while the resource does not track its changes.
+func (h *Handlers) CrewSessionUserChangeHistory() http.HandlerFunc {
+	type response struct {
+		ID                     impulse.UUID `json:"id"                     index:"true" perm:"-"`
+		Username               string       `json:"username"               index:"true"`
+		Name                   *string      `json:"name"`
+		Email                  *string      `json:"email"`
+		EmailVerifiedAt        *time.Time   `json:"emailVerifiedAt"`
+		Disabled               bool         `json:"disabled"`
+		PasswordChangeRequired bool         `json:"passwordChangeRequired"`
+		CreatedAt              time.Time    `json:"createdAt"`
+		LastSignInAt           *time.Time   `json:"lastSignInAt"`
+	}
+
+	decoder := NewQueryDecoder[crewresources.CrewSessionUser, response](h, accesstypes.Read)
+
+	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := tracer.Start(r.Context())
+		defer span.End()
+
+		id := httpio.Param[impulse.UUID](r, router.CrewSessionUserID)
+
+		history, err := decoder.DecodeChangeHistory(r, h.UserPermissions(r), accesstypes.GlobalScope())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		crewresources.NewCrewSessionUserQueryFromQuerySet(history.QuerySet()).SetID(id)
+
+		page, err := history.Read(ctx, h.ResourceClient())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok(page)
 	})
 }

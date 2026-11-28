@@ -29,6 +29,7 @@ import (
 // @outlet(default)
 // @answers(204)
 // @warning(typed: open)
+// @class(access)
 type OpenStaffSignUp struct {
 	// Name is the name the sign-in method is registered under.
 	Name string `validate:"required"`

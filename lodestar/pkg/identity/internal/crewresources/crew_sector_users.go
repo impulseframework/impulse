@@ -9,11 +9,13 @@ import (
 
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/resource"
 )
 
 type (
 	// CrewSectorUser is one person of the Crew auth as one Sector sees
-	// them: a row for each person who holds a role in the tenant or in every tenant, with
+	// them: a row for each person who holds a role in the tenant or in every tenant,
+	// and for each person who signs in through the tenant's directory, with
 	// the columns of CrewSessionUser. A person is one account for the whole application, so
 	// the same person is a row in each tenant they hold a role in: the account's id is the
 	// key of a row within its tenant, and DomainId, the tenant, holds the row to it.
@@ -22,14 +24,52 @@ type (
 	// ended, or has not begun, is not one of its people, whether or not the role's row
 	// still stands. CrewSectorUserRole lists a role that has not begun, with its period.
 	//
-	// Two columns are facts about the person that no table holds, each under the name a
+	// Six columns are facts about the person that no table holds, each under the name a
 	// grant's condition reads. HeldElsewhere (heldElsewhere) says the person also holds a
-	// role outside this tenant's own: in another tenant, or in every tenant. HeldGlobally
-	// (heldGlobally) says the person holds a role for the whole application. A role file
-	// uses them to say what a tenant may see and do of a person who is not the tenant's
-	// alone. The list filters and sorts by the username and by the two facts; the
-	// account's other columns are no filter keys, so a role file may grant any of them
-	// under a condition at no cost to a page.
+	// role outside this tenant's own: in another tenant, on a record of another tenant, or in every tenant.
+	// HeldGlobally (heldGlobally) says the person holds a role for the whole application.
+	// HeldHere (heldHere) says the person holds something in this tenant itself, a role of
+	// their own, a place in one of its groups or a role on one of its records: a person listed only through a role held in every
+	// tenant, or through a group kept for the whole application, holds nothing here, and
+	// the removal from the tenant has nothing of theirs to take. HeldInEveryTenant
+	// (heldInEveryTenant) says the person holds a role in every tenant at once, which is
+	// how the application's own staff come to be among each tenant's people.
+	// ManagedHere (managedHere) says this tenant manages the person's account: the
+	// person signs in through the tenant's directory, or signs in through no tenant's
+	// directory and holds something in this tenant and nothing anywhere else.
+	// ManagedByAnotherDirectory (managedByAnotherDirectory) says the person signs in
+	// through another tenant's directory, and that tenant manages the account. An account
+	// no tenant manages is the application's own administrators' to manage. A role file
+	// uses the facts to say what a tenant may see and do of a person whose account it
+	// does not manage. The list filters and sorts by the username and by the six facts;
+	// the account's other columns are no filter keys, so a role file may grant any of
+	// them under a condition at no cost to a page. DisplayName is what a list that points
+	// to a person shows them by: their name, or their username when they have none. It is
+	// the view's name (@name), so a field of another resource that holds a person's id
+	// gets a name field read from it.
+	//
+	// Roles (roles) is what the person holds in this tenant itself: the name of each role
+	// once, in alphabetical order, of the roles CrewSectorHeldRole lists for the person
+	// here, their own and the ones that come through a group. A role held in every tenant at
+	// once is not among them: HeldInEveryTenant says it, and a role file grants or keeps back
+	// each by itself. It is no filter key.
+	//
+	// A person who holds a role on one of the tenant's records is one of its people, whether
+	// or not they hold anything else there. RecordsHeld (recordsHeld) is how many of the
+	// tenant's records the person holds a role on that has not ended, their own or through a
+	// group; RecordsHeldKind (recordsHeldKind) is the records' resource where they are all of
+	// one kind, and empty otherwise; RecordHeldName (recordHeldName) is the record's name
+	// where the person holds a role on one record and its kind declares a name (@name), and
+	// empty otherwise. None of the three is a filter key. A role on one of the tenant's
+	// records is something held in the tenant: HeldHere says it, the removal from the tenant
+	// takes it, and the tenant manages the account of a person who holds nothing anywhere
+	// else (ManagedHere). A role on a record of another tenant is held elsewhere
+	// (HeldElsewhere).
+	//
+	// LockedUntil (lockedUntil) is until when the person's sign-in is locked by failed
+	// tries, and nothing for a person who is not locked: the latest lock still ahead among
+	// the counts the session library keeps for the account under its username and under its
+	// id (session.AccountAttemptKeys with no address). It is no filter key either.
 	//
 	// Two more columns say what the tenant's directory-only switch does to the person.
 	// OutsideDirectory says the person has no sign-in through the tenant's directory, so
@@ -38,84 +78,227 @@ type (
 	// the tenant is directory only, on the row of a person it keeps out ("Has not signed
 	// in through this sector's directory, so cannot enter while this sector is
 	// directory only"), and nothing on every other row: the sentence never says the
-	// directory's connection, which is a key and no name. The list is made from who holds a role in the tenant,
-	// not from who can sign in, so a person the switch keeps out stays in it with their
-	// roles. A super administrator is outside no tenant's directory. Neither is the
+	// directory's connection, which is a key and no name. A person the switch keeps out
+	// stays in the list with their roles, and a person who signs in through the tenant's
+	// directory is a row whether or not they hold anything in the tenant (HeldHere says
+	// which), so the tenant that manages the account finds it. A super administrator is
+	// outside no tenant's directory. Neither is the
 	// sector's own administrator who has a password: a person who holds one of the roles
 	// the application names as a sector's administrator's in the sector itself enters it
 	// with the password and a code mailed to them, so the switch keeps them out of nothing
 	// (SetCrewSectorUserAdministratorRoles names the roles).
+	//
+	// AdministratorWithPassword says the person is one of the sector's own administrators
+	// and has a password, so they enter the sector with it and a code mailed to them while
+	// the sector is directory only: the warning of the method that turns the switch on
+	// counts and names them.
 	//
 	// @virtual
 	// @permissionScope(domain)
 	// @outlet(default)
 	// @order(Username asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(person, plural: people)
 	CrewSectorUser struct {
 		// @primarykey
 		ID impulse.UUID `spanner:"Id" index:"true"`
 		// @domain
-		DomainID               string     `spanner:"DomainId"               index:"true"`
-		Username               string     `spanner:"Username"               index:"true"`
-		Name                   *string    `spanner:"Name"`
+		DomainID string  `spanner:"DomainId" index:"true"`
+		Username string  `spanner:"Username" index:"true"`
+		Name     *string `spanner:"Name"`
+		// @name
+		DisplayName            string     `spanner:"DisplayName"            allow_filter:"true"`
 		Email                  *string    `spanner:"Email"`
 		EmailVerifiedAt        *time.Time `spanner:"EmailVerifiedAt"`
 		Disabled               bool       `spanner:"Disabled"`
 		PasswordChangeRequired bool       `spanner:"PasswordChangeRequired"`
 		CreatedAt              time.Time  `spanner:"CreatedAt"`
 		LastSignInAt           *time.Time `spanner:"LastSignInAt"`
+		// @roleOf(Crew)
+		Roles           []string   `spanner:"Roles"`
+		RecordsHeld     int64      `spanner:"RecordsHeld"`
+		RecordsHeldKind string     `spanner:"RecordsHeldKind"`
+		RecordHeldName  string     `spanner:"RecordHeldName"`
+		LockedUntil     *time.Time `spanner:"LockedUntil"`
 		// @attribute(heldElsewhere)
 		HeldElsewhere bool `spanner:"HeldElsewhere" index:"true"`
 		// @attribute(heldGlobally)
-		HeldGlobally     bool    `spanner:"HeldGlobally"     index:"true"`
-		OutsideDirectory bool    `spanner:"OutsideDirectory" index:"true"`
-		CannotEnter      *string `spanner:"CannotEnter"`
+		HeldGlobally bool `spanner:"HeldGlobally" index:"true"`
+		// @attribute(heldHere)
+		HeldHere bool `spanner:"HeldHere" index:"true"`
+		// @attribute(heldInEveryTenant)
+		HeldInEveryTenant bool `spanner:"HeldInEveryTenant" index:"true"`
+		// @attribute(managedHere)
+		ManagedHere bool `spanner:"ManagedHere" index:"true"`
+		// @attribute(managedByAnotherDirectory)
+		ManagedByAnotherDirectory bool    `spanner:"ManagedByAnotherDirectory" index:"true"`
+		OutsideDirectory          bool    `spanner:"OutsideDirectory"          index:"true"`
+		CannotEnter               *string `spanner:"CannotEnter"`
+		AdministratorWithPassword bool    `spanner:"AdministratorWithPassword" index:"true"`
 	}
 )
 
 // crewSectorUserQuery selects the people of every tenant: who holds a role in a
 // tenant (CrewUserRoles, one tenant's memberships, and the memberships held in
-// every tenant once per row of Sectors), joined to the account by the id a
-// membership names its person by.
+// every tenant once per row of Sectors), who holds a role on one of its records
+// (CrewRecordUserRoles), and who signs in through a tenant's
+// directory (SectorDirectories and CrewSessionIdentities), joined to the account by the id a
+// membership names its person by. Who manages each account is read over the columns of
+// that select, so where the person holds roles is read once for a row.
 const crewSectorUserQuery = `
+SELECT
+  * EXCEPT (ThroughHere, ThroughAnother, RecordsHeldOn),
+  (ThroughHere OR (NOT ThroughAnother AND HeldHere AND NOT HeldElsewhere AND NOT HeldGlobally)) AS ManagedHere,
+  (ThroughAnother AND NOT ThroughHere) AS ManagedByAnotherDirectory,
+  ARRAY_LENGTH(RecordsHeldOn) AS RecordsHeld,
+  IF((SELECT COUNT(DISTINCT h.Resource) FROM UNNEST(RecordsHeldOn) h) = 1, RecordsHeldOn[SAFE_OFFSET(0)].Resource, '') AS RecordsHeldKind,
+  IF(ARRAY_LENGTH(RecordsHeldOn) = 1, CASE RecordsHeldOn[SAFE_OFFSET(0)].Resource
+    WHEN 'Missions' THEN COALESCE((SELECT n.Title FROM Missions n WHERE n.Id = RecordsHeldOn[SAFE_OFFSET(0)].RecordId), '')
+    ELSE '' END, '') AS RecordHeldName
+FROM (
 SELECT
   u.Id AS Id,
   t.DomainId AS DomainId,
   u.Username AS Username,
   u.Name AS Name,
+  COALESCE(NULLIF(u.Name, ''), u.Username) AS DisplayName,
   u.Email AS Email,
   u.EmailVerifiedAt AS EmailVerifiedAt,
   u.Disabled AS Disabled,
   u.PasswordChangeRequired AS PasswordChangeRequired,
   u.CreatedAt AS CreatedAt,
   u.LastSignInAt AS LastSignInAt,
+  ARRAY(
+    SELECT DISTINCT hr.Role
+    FROM (
+      SELECT o.Role AS Role
+      FROM CrewUserRoles@{FORCE_INDEX=CrewUserRolesByUserId} o
+      WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId = t.DomainId
+        AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
+      UNION ALL
+      SELECT gr AS Role
+      FROM CrewGroupMembers@{FORCE_INDEX=CrewGroupMembersByUserId} gm, UNNEST(ARRAY(
+        SELECT r.Role FROM CrewGroupRoles r
+        WHERE r.GroupId = gm.GroupId AND r.Kind = 'domain' AND r.Axis = '' AND r.DomainId = t.DomainId
+          AND (r.EndsAt IS NULL OR r.EndsAt > CURRENT_TIMESTAMP())
+          AND (((r.StartsAt IS NULL OR r.StartsAt <= CURRENT_TIMESTAMP()) AND (r.EndsAt IS NULL OR r.EndsAt > CURRENT_TIMESTAMP())) OR NOT EXISTS (
+            SELECT 1 FROM CrewGroupRoles e
+            WHERE e.GroupId = r.GroupId AND e.Kind = 'every' AND e.Axis = r.Axis AND e.Role = r.Role
+              AND (e.StartsAt IS NULL OR e.StartsAt <= CURRENT_TIMESTAMP()) AND (e.EndsAt IS NULL OR e.EndsAt > CURRENT_TIMESTAMP())
+          ))
+          AND EXISTS (
+            SELECT 1 FROM CrewGroups hg
+            WHERE hg.Id = gm.GroupId AND r.Role != 'SuperAdministrator' AND (hg.Kind = 'global' OR (r.Kind = hg.Kind AND r.Axis = hg.Axis AND r.DomainId = hg.DomainId))
+          )
+  AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
+  AND (r.EndsAt IS NULL OR gm.StartsAt IS NULL OR gm.StartsAt < r.EndsAt)
+  AND (gm.EndsAt IS NULL OR r.StartsAt IS NULL OR r.StartsAt < gm.EndsAt)
+      )) AS gr
+      WHERE gm.UserId = u.Id
+    ) hr
+    ORDER BY hr.Role
+  ) AS Roles,
+  ARRAY(
+    SELECT AS STRUCT hr.Resource AS Resource, hr.RecordId AS RecordId
+    FROM (
+      SELECT o.Resource AS Resource, o.RecordId AS RecordId
+      FROM CrewRecordUserRoles@{FORCE_INDEX=CrewRecordUserRolesByUserId} o
+      WHERE o.UserId = u.Id AND o.Axis = '' AND o.DomainId = t.DomainId
+        AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
+      UNION ALL
+      SELECT gr.Resource AS Resource, gr.RecordId AS RecordId
+      FROM CrewGroupMembers@{FORCE_INDEX=CrewGroupMembersByUserId} gm, UNNEST(ARRAY(
+        SELECT AS STRUCT r.Resource AS Resource, r.RecordId AS RecordId
+        FROM CrewRecordGroupRoles r
+        WHERE r.GroupId = gm.GroupId AND r.Axis = '' AND r.DomainId = t.DomainId
+          AND (r.EndsAt IS NULL OR r.EndsAt > CURRENT_TIMESTAMP())
+      )) AS gr
+      WHERE gm.UserId = u.Id AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
+    ) hr
+    GROUP BY hr.Resource, hr.RecordId
+    ORDER BY hr.Resource, hr.RecordId
+  ) AS RecordsHeldOn,
+  (SELECT MAX(la.LockedUntil) FROM CrewSessionSignInAttempts la
+   WHERE la.Name IN (u.NormalizedUsername, CONCAT('FIRST-PASSWORD:', u.Id), CONCAT('CODE-GUESS:', u.Id))
+     AND la.LockedUntil > CURRENT_TIMESTAMP()) AS LockedUntil,
   (EXISTS (
-    SELECT 1 FROM CrewUserRoles o
+    SELECT 1 FROM CrewUserRoles@{FORCE_INDEX=CrewUserRolesByUserId} o
     WHERE o.UserId = u.Id AND o.Kind = 'every' AND o.Axis = ''
       AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
   ) OR EXISTS (
-    SELECT 1 FROM CrewUserRoles o
+    SELECT 1 FROM CrewUserRoles@{FORCE_INDEX=CrewUserRolesByUserId} o
     WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId != t.DomainId
       AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
   ) OR EXISTS (
-    SELECT 1 FROM CrewGroupMembers gm JOIN CrewGroups og ON og.Id = gm.GroupId
+    SELECT 1 FROM CrewRecordUserRoles@{FORCE_INDEX=CrewRecordUserRolesByUserId} o
+    WHERE o.UserId = u.Id AND o.Axis = '' AND o.DomainId != t.DomainId
+      AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
+  ) OR EXISTS (
+    SELECT 1 FROM CrewGroupMembers@{FORCE_INDEX=CrewGroupMembersByUserId} gm JOIN CrewGroups og ON og.Id = gm.GroupId
     WHERE gm.UserId = u.Id AND og.Kind = 'domain' AND og.Axis = '' AND og.DomainId != t.DomainId
       AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
   )) AS HeldElsewhere,
   (EXISTS (
-    SELECT 1 FROM CrewUserRoles g
+    SELECT 1 FROM CrewUserRoles@{FORCE_INDEX=CrewUserRolesByUserId} g
     WHERE g.UserId = u.Id AND g.Kind = 'global'
       AND (g.EndsAt IS NULL OR g.EndsAt > CURRENT_TIMESTAMP())
   ) OR EXISTS (
-    SELECT 1 FROM CrewGroupMembers gm JOIN CrewGroups gg ON gg.Id = gm.GroupId
+    SELECT 1 FROM CrewGroupMembers@{FORCE_INDEX=CrewGroupMembersByUserId} gm JOIN CrewGroups gg ON gg.Id = gm.GroupId
     WHERE gm.UserId = u.Id AND gg.Kind = 'global'
       AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
   )) AS HeldGlobally,
+  (EXISTS (
+    SELECT 1 FROM CrewUserRoles@{FORCE_INDEX=CrewUserRolesByUserId} o
+    WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId = t.DomainId
+      AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
+  ) OR EXISTS (
+    SELECT 1 FROM CrewRecordUserRoles@{FORCE_INDEX=CrewRecordUserRolesByUserId} o
+    WHERE o.UserId = u.Id AND o.Axis = '' AND o.DomainId = t.DomainId
+      AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
+  ) OR EXISTS (
+    SELECT 1 FROM CrewGroupMembers@{FORCE_INDEX=CrewGroupMembersByUserId} gm
+    WHERE gm.UserId = u.Id AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
+      AND EXISTS (
+        SELECT 1 FROM CrewGroups hg
+        WHERE hg.Id = gm.GroupId AND hg.Kind = 'domain' AND hg.Axis = '' AND hg.DomainId = t.DomainId
+      )
+  )) AS HeldHere,
+  (EXISTS (
+    SELECT 1 FROM CrewUserRoles@{FORCE_INDEX=CrewUserRolesByUserId} o
+    WHERE o.UserId = u.Id AND o.Kind = 'every' AND o.Axis = ''
+      AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
+  ) OR EXISTS (
+    SELECT 1 FROM CrewGroupMembers@{FORCE_INDEX=CrewGroupMembersByUserId} gm
+    WHERE gm.UserId = u.Id AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
+      AND EXISTS (
+        SELECT 1 FROM CrewGroups eg
+        WHERE eg.Id = gm.GroupId AND eg.Kind = 'global'
+      )
+      AND EXISTS (
+        SELECT 1 FROM CrewGroupRoles er
+        WHERE er.GroupId = gm.GroupId AND er.Kind = 'every' AND er.Axis = ''
+          AND (er.EndsAt IS NULL OR er.EndsAt > CURRENT_TIMESTAMP())
+      )
+  )) AS HeldInEveryTenant,
+  EXISTS (
+    SELECT 1 FROM CrewSessionIdentities li
+    WHERE li.UserId = u.Id AND EXISTS (
+      SELECT 1 FROM SectorDirectories ld
+      WHERE ld.Method = li.Method AND ld.Connection = li.Connection AND ld.SectorId = t.DomainId
+    )
+  ) AS ThroughHere,
+  EXISTS (
+    SELECT 1 FROM CrewSessionIdentities li
+    WHERE li.UserId = u.Id AND EXISTS (
+      SELECT 1 FROM SectorDirectories ld
+      WHERE ld.Method = li.Method AND ld.Connection = li.Connection AND ld.SectorId != t.DomainId
+    )
+  ) AS ThroughAnother,
   (td.SectorId IS NOT NULL AND NOT EXISTS (
     SELECT 1 FROM CrewSessionIdentities di
     WHERE di.UserId = u.Id AND di.Method = td.Method AND di.Connection = td.Connection
   ) AND NOT EXISTS (
-    SELECT 1 FROM CrewUserRoles sa
+    SELECT 1 FROM CrewUserRoles@{FORCE_INDEX=CrewUserRolesByUserId} sa
     WHERE sa.UserId = u.Id AND sa.Kind = 'global' AND sa.Role = 'SuperAdministrator'
       AND (sa.StartsAt IS NULL OR sa.StartsAt <= CURRENT_TIMESTAMP()) AND (sa.EndsAt IS NULL OR sa.EndsAt > CURRENT_TIMESTAMP())
   ) AND NOT (u.PasswordHash IS NOT NULL AND (EXISTS (
@@ -138,7 +321,7 @@ SELECT
     SELECT 1 FROM CrewSessionIdentities di
     WHERE di.UserId = u.Id AND di.Method = td.Method AND di.Connection = td.Connection
   ) AND NOT EXISTS (
-    SELECT 1 FROM CrewUserRoles sa
+    SELECT 1 FROM CrewUserRoles@{FORCE_INDEX=CrewUserRolesByUserId} sa
     WHERE sa.UserId = u.Id AND sa.Kind = 'global' AND sa.Role = 'SuperAdministrator'
       AND (sa.StartsAt IS NULL OR sa.StartsAt <= CURRENT_TIMESTAMP()) AND (sa.EndsAt IS NULL OR sa.EndsAt > CURRENT_TIMESTAMP())
   ) AND NOT (u.PasswordHash IS NOT NULL AND (EXISTS (
@@ -158,7 +341,23 @@ SELECT
       AND (tm.StartsAt IS NULL OR tm.StartsAt <= CURRENT_TIMESTAMP()) AND (tm.EndsAt IS NULL OR tm.EndsAt > CURRENT_TIMESTAMP())
   ))),
     'Has not signed in through this sector\'s directory, so cannot enter while this sector is directory only',
-    NULL) AS CannotEnter
+    NULL) AS CannotEnter,
+  (u.PasswordHash IS NOT NULL AND (EXISTS (
+    SELECT 1 FROM CrewUserRoles ta
+    WHERE ta.UserId = u.Id AND ta.Kind = 'domain' AND ta.Axis = '' AND ta.DomainId = t.DomainId
+      AND ta.Role IN UNNEST(@tenantAdministratorRoles)
+      AND (ta.StartsAt IS NULL OR ta.StartsAt <= CURRENT_TIMESTAMP()) AND (ta.EndsAt IS NULL OR ta.EndsAt > CURRENT_TIMESTAMP())
+  ) OR EXISTS (
+    SELECT 1 FROM CrewGroupRoles tr
+    JOIN CrewGroups tg ON tg.Id = tr.GroupId
+    JOIN CrewGroupMembers tm ON tm.GroupId = tr.GroupId
+    WHERE tm.UserId = u.Id
+      AND tg.Kind = 'domain' AND tg.Axis = '' AND tg.DomainId = t.DomainId
+      AND tr.Kind = 'domain' AND tr.Axis = '' AND tr.DomainId = t.DomainId
+      AND tr.Role IN UNNEST(@tenantAdministratorRoles)
+      AND (tr.StartsAt IS NULL OR tr.StartsAt <= CURRENT_TIMESTAMP()) AND (tr.EndsAt IS NULL OR tr.EndsAt > CURRENT_TIMESTAMP())
+      AND (tm.StartsAt IS NULL OR tm.StartsAt <= CURRENT_TIMESTAMP()) AND (tm.EndsAt IS NULL OR tm.EndsAt > CURRENT_TIMESTAMP())
+  ))) AS AdministratorWithPassword
 FROM (
   SELECT m.DomainId AS DomainId, m.UserId AS UserId
   FROM CrewUserRoles m
@@ -193,10 +392,82 @@ FROM (
   WHERE r.Kind = 'every' AND r.Axis = '' AND g.Kind = 'global'
     AND (r.StartsAt IS NULL OR r.StartsAt <= CURRENT_TIMESTAMP()) AND (r.EndsAt IS NULL OR r.EndsAt > CURRENT_TIMESTAMP())
     AND (gm.StartsAt IS NULL OR gm.StartsAt <= CURRENT_TIMESTAMP()) AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
+  UNION DISTINCT
+  SELECT rr.DomainId AS DomainId, rr.UserId AS UserId
+  FROM CrewRecordUserRoles rr
+  WHERE rr.Axis = ''
+    AND (rr.StartsAt IS NULL OR rr.StartsAt <= CURRENT_TIMESTAMP()) AND (rr.EndsAt IS NULL OR rr.EndsAt > CURRENT_TIMESTAMP())
+  UNION DISTINCT
+  SELECT dr.SectorId AS DomainId, du AS UserId
+  FROM SectorDirectories dr, UNNEST(ARRAY(
+    SELECT dl.UserId FROM CrewSessionIdentities dl
+    WHERE dl.Method = dr.Method AND dl.Connection = dr.Connection
+  )) AS du
 ) t
 JOIN CrewSessionUsers u ON u.Id = t.UserId
 LEFT JOIN Sectors ts ON ts.Id = t.DomainId
 LEFT JOIN SectorDirectories td ON td.SectorId = ts.Id
+) p
+`
+
+// crewSectorUserNameQuery selects, for every sector, its people's ids and the name each is
+// shown by: the rows of crewSectorUserQuery, one for one, from the same people and their
+// accounts, without the facts of where a person holds roles and who manages the account. A list
+// that shows a person by name reads the name from it (NameSubquery): a name's query is written
+// into the statement of the list that shows it, the facts' joins are the larger part of the
+// list's own query, and Spanner refuses a statement of more than twenty joins.
+const crewSectorUserNameQuery = `
+SELECT
+  u.Id AS Id,
+  t.DomainId AS DomainId,
+  COALESCE(NULLIF(u.Name, ''), u.Username) AS DisplayName
+FROM (
+  SELECT m.DomainId AS DomainId, m.UserId AS UserId
+  FROM CrewUserRoles m
+  WHERE m.Kind = 'domain' AND m.Axis = ''
+    AND (m.StartsAt IS NULL OR m.StartsAt <= CURRENT_TIMESTAMP()) AND (m.EndsAt IS NULL OR m.EndsAt > CURRENT_TIMESTAMP())
+  UNION DISTINCT
+  SELECT s.Id AS DomainId, m.UserId AS UserId
+  FROM CrewUserRoles@{FORCE_INDEX=_BASE_TABLE} m
+  CROSS JOIN Sectors s
+  WHERE m.Kind = 'every' AND m.Axis = ''
+    AND (m.StartsAt IS NULL OR m.StartsAt <= CURRENT_TIMESTAMP()) AND (m.EndsAt IS NULL OR m.EndsAt > CURRENT_TIMESTAMP())
+  UNION DISTINCT
+  SELECT g.DomainId AS DomainId, gm.UserId AS UserId
+  FROM CrewGroups g
+  JOIN CrewGroupMembers gm ON gm.GroupId = g.Id
+  WHERE g.Kind = 'domain' AND g.Axis = ''
+    AND (gm.StartsAt IS NULL OR gm.StartsAt <= CURRENT_TIMESTAMP()) AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
+  UNION DISTINCT
+  SELECT r.DomainId AS DomainId, gm.UserId AS UserId
+  FROM CrewGroupRoles r
+  JOIN CrewGroups g ON g.Id = r.GroupId
+  JOIN CrewGroupMembers gm ON gm.GroupId = r.GroupId
+  WHERE r.Kind = 'domain' AND r.Axis = '' AND g.Kind = 'global' AND r.Role != 'SuperAdministrator'
+    AND (r.StartsAt IS NULL OR r.StartsAt <= CURRENT_TIMESTAMP()) AND (r.EndsAt IS NULL OR r.EndsAt > CURRENT_TIMESTAMP())
+    AND (gm.StartsAt IS NULL OR gm.StartsAt <= CURRENT_TIMESTAMP()) AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
+  UNION DISTINCT
+  SELECT s.Id AS DomainId, gm.UserId AS UserId
+  FROM CrewGroupRoles r
+  JOIN CrewGroups g ON g.Id = r.GroupId
+  JOIN CrewGroupMembers gm ON gm.GroupId = r.GroupId
+  CROSS JOIN Sectors s
+  WHERE r.Kind = 'every' AND r.Axis = '' AND g.Kind = 'global'
+    AND (r.StartsAt IS NULL OR r.StartsAt <= CURRENT_TIMESTAMP()) AND (r.EndsAt IS NULL OR r.EndsAt > CURRENT_TIMESTAMP())
+    AND (gm.StartsAt IS NULL OR gm.StartsAt <= CURRENT_TIMESTAMP()) AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
+  UNION DISTINCT
+  SELECT rr.DomainId AS DomainId, rr.UserId AS UserId
+  FROM CrewRecordUserRoles rr
+  WHERE rr.Axis = ''
+    AND (rr.StartsAt IS NULL OR rr.StartsAt <= CURRENT_TIMESTAMP()) AND (rr.EndsAt IS NULL OR rr.EndsAt > CURRENT_TIMESTAMP())
+  UNION DISTINCT
+  SELECT dr.SectorId AS DomainId, du AS UserId
+  FROM SectorDirectories dr, UNNEST(ARRAY(
+    SELECT dl.UserId FROM CrewSessionIdentities dl
+    WHERE dl.Method = dr.Method AND dl.Connection = dr.Connection
+  )) AS du
+) t
+JOIN CrewSessionUsers u ON u.Id = t.UserId
 `
 
 // crewSectorUserAdministrators are the roles whose holders administer a sector, as the
@@ -227,4 +498,19 @@ func (CrewSectorUser) Subquery() (query string, params map[string]any) {
 	}
 
 	return crewSectorUserQuery, map[string]any{"tenantAdministratorRoles": administrators}
+}
+
+// NameSubquery is the query a list that points to a person reads the person's name from
+// (resource.NameSubqueryer): the person's id, the sector and DisplayName.
+func (CrewSectorUser) NameSubquery() (query string, params map[string]any) {
+	return crewSectorUserNameQuery, nil
+}
+
+var _ resource.NameSubqueryer = CrewSectorUser{}
+
+// TenantsToEnter names the sectors the person administers: a caller whose session
+// does not enter one of them is not offered the methods that change how the person signs
+// in or whether their account stands.
+func (CrewSectorUser) TenantsToEnter() resource.TenantsToEnter {
+	return crewSessionUserTenantsToEnter("Id")
 }

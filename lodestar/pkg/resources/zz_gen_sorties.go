@@ -12,6 +12,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -21,6 +22,93 @@ func (Sortie) Resource() accesstypes.Resource {
 
 func (Sortie) DefaultConfig() resource.Config {
 	return defaultConfig()
+}
+
+// NamedRows names the columns that name a row of another resource the application lists
+// (MissionID, ShipID): a create or an update sets one only to a row its caller can list, so the
+// library answers any other as a row that is not there.
+func (Sortie) NamedRows() []resource.NamedRow {
+	return []resource.NamedRow{
+		{Field: "MissionID", Resource: "Missions", Table: "Missions", KeyColumn: "Id", TenantColumn: "SectorId"},
+		{Field: "ShipID", Resource: "Ships", Table: "Ships", KeyColumn: "Id", TenantColumn: "HangarId", TenantPath: []resource.BindingHop{{Table: "Hangars", JoinColumn: "Id", Column: "SectorId"}}},
+	}
+}
+
+// TenantBinding is the row's way to its tenant: the library writes the tenant on every
+// change record of the row, whoever writes the row.
+func (Sortie) TenantBinding() resource.TenantBinding {
+	return resource.TenantBinding{Field: "MissionID", Path: []resource.BindingHop{{Table: "Missions", JoinColumn: "Id", Column: "SectorId"}}}
+}
+
+// DeleteTree describes what a delete of a Sortie takes with it and what refuses
+// it (@deleteCascade). The kinds taken are in the order their rows are deleted, deepest
+// first, each with its ways up to the Sortie and what the delete of one of its
+// rows costs. The kinds under Under are the ones with a row directly under a Sortie
+// that the database does not remove with it.
+func (Sortie) DeleteTree() *resource.DeleteTree {
+	return &resource.DeleteTree{
+		Record: "Sorties",
+		Words:  resource.DeleteWords{One: "sortie", Many: "sorties"},
+		Key:    []string{"Id"},
+		Cost:   resource.DeleteCost{IndexEntries: 2, Files: 0},
+		Tenant: &resource.DomainBindingData{Column: "MissionId", Path: []resource.BindingHop{{Table: "Missions", JoinColumn: "Id", Column: "SectorId"}}},
+		Taken: []resource.DeleteKind{
+			{
+				Resource: "SortieExpenses",
+				Words:    resource.DeleteWords{One: "sortie expense", Many: "sortie expenses"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 1, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SortieId", Path: []resource.BindingHop{{Table: "Sorties", JoinColumn: "Id", Column: "MissionId"}, {Table: "Missions", JoinColumn: "Id", Column: "SectorId"}}},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"SortieId"}, Table: "Sorties", References: []string{"Id"}},
+					},
+				},
+				Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[SortieExpense], caller *resource.Caller) {
+					patch := &SortieExpenseDeletePatch{patchSet: patchSet}
+					patch.registerValidateFunc()
+					if !caller.IsZero() {
+						patch.Enforce(caller)
+					}
+				}),
+			},
+		},
+		Under: []resource.DeleteKind{
+			{
+				Resource: "SortieExpenses",
+				Words:    resource.DeleteWords{One: "sortie expense", Many: "sortie expenses"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 1, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SortieId", Path: []resource.BindingHop{{Table: "Sorties", JoinColumn: "Id", Column: "MissionId"}, {Table: "Missions", JoinColumn: "Id", Column: "SectorId"}}},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"SortieId"}, Table: "Sorties", References: []string{"Id"}},
+					},
+				},
+			},
+		},
+	}
+}
+
+// NameFields names the resource's name fields: beside each id that points to a row with
+// a name, the name of that row, which a list shows, sorts by and filters by. A name is
+// looked up in the pointed-to table by the id; it is no column of this resource.
+func (Sortie) NameFields() []resource.NameField {
+	return []resource.NameField{
+		{Field: "MissionName", Key: "MissionID", Resource: "Missions", Tag: "title", Table: "Missions", KeyColumn: "Id", NameColumn: "Title", TenantColumn: "SectorId"},
+		{Field: "ShipName", Key: "ShipID", Resource: "Ships", Tag: "name", Table: "Ships", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "HangarId", TenantPath: []resource.BindingHop{{Table: "Hangars", JoinColumn: "Id", Column: "SectorId"}}},
+	}
+}
+
+// RecordedNames names the rows a change record of the resource keeps the name of:
+// for each field that points at a row with a name, where the name is read. A
+// tracked write that changes such a field reads the name in its own transaction,
+// and the change record keeps it beside the id.
+func (Sortie) RecordedNames() []resource.NameField {
+	return []resource.NameField{
+		{Field: "", Key: "MissionID", Resource: "Missions", Tag: "title", Table: "Missions", KeyColumn: "Id", NameColumn: "Title", TenantColumn: "SectorId"},
+		{Field: "", Key: "ShipID", Resource: "Ships", Tag: "name", Table: "Ships", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "HangarId", TenantPath: []resource.BindingHop{{Table: "Hangars", JoinColumn: "Id", Column: "SectorId"}}},
+	}
 }
 
 // sortieRead mirrors the wire shape the resource routes list
@@ -387,11 +475,11 @@ func (p *SortieCreatePatch) ToStruct() *Sortie {
 	return p.patchSet.ToStruct()
 }
 
-func (p *SortieCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *SortieCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *SortieCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *SortieCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -559,11 +647,11 @@ func (p *SortieUpdatePatch) ToStruct() *Sortie {
 	return p.patchSet.ToStruct()
 }
 
-func (p *SortieUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *SortieUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *SortieUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *SortieUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -741,11 +829,54 @@ func NewSortieDeletePatch(id impulse.UUID) *SortieDeletePatch {
 	return &SortieDeletePatch{patchSet: patchSet}
 }
 
-func (p *SortieDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+// WithEverythingUnder says the delete takes the rows under the Sortie with it:
+// every row of the kinds its @deleteCascade lists as taken, each deleted as its own
+// delete would delete it. It takes the kinds handed to the delete as well (DeleteAlso).
+// Without it, a delete of a Sortie that has such rows
+// deletes nothing and is answered with the question a person is asked first
+// (httpio.HasPreconditionRequired). Where the rows cost more than one save takes, the
+// delete takes what fits, deepest first, and Left answers the rows that save deleted:
+// buffer the delete again, in a transaction of its own, until Left answers nil.
+// It is for code that deletes outside a request, and every save of such a delete asks
+// everything again before it takes a row: a request's delete goes on the token its
+// question gave (WithDeleteToken).
+func (p *SortieDeletePatch) WithEverythingUnder() *SortieDeletePatch {
+	p.patchSet.DeleteEverythingUnder()
+
+	return p
+}
+
+// WithDeleteToken says the delete takes the rows under the Sortie on the token
+// its question gave (resource.PatchSet.DeleteWithToken): it takes them only where the
+// token holds, and is answered with the question again where it does not.
+func (p *SortieDeletePatch) WithDeleteToken(token string) *SortieDeletePatch {
+	p.patchSet.DeleteWithToken(token)
+
+	return p
+}
+
+// Left is what the delete says once it is buffered (resource.DeleteLeft): the rows the
+// save deleted where rows are left under the Sortie, which stands until a save
+// takes the last of them; nil where the delete finished, the Sortie with it.
+func (p *SortieDeletePatch) Left() *resource.DeleteLeft {
+	return p.patchSet.DeleteLeft()
+}
+
+// DeleteAlso hands the delete kinds of row it takes with the Sortie that its
+// description does not list (resource.TakenKind): the question counts them, the check
+// before the delete asks them, and each round takes what fits of them after the kinds
+// the description lists and before the Sortie.
+func (p *SortieDeletePatch) DeleteAlso(kinds ...resource.TakenKind) *SortieDeletePatch {
+	p.patchSet.DeleteAlso(kinds...)
+
+	return p
+}
+
+func (p *SortieDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *SortieDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *SortieDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

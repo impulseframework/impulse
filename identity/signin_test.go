@@ -13,16 +13,23 @@ import (
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
-	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/signin"
 )
 
-// TestManager_giveInvitedRoles pins what an accepted invitation gives: its roles in its
-// tenant, or, for an invitation into the application, each role where it is held, every
-// one under the id of the person's account; a role that can no longer be given fails
-// the transaction, in an error that names the person by username, and a failed write is
-// not taken for a role that does not exist.
+// roleKeyIn is the key of the roles table's row for role in scope: a custom role.
+func roleKeyIn(scope accesstypes.PolicyScope, role accesstypes.Role) access.RoleKey {
+	key := access.NewMembershipKey(scope, "", role)
+
+	return access.RoleKey{Kind: key.Kind, Axis: key.Axis, Domain: key.Domain, Role: role}
+}
+
+// TestManager_giveInvitedRoles pins what an accepted invitation gives: its roles in the
+// place it stores, which is its tenant, every tenant, or the application's global scope,
+// and nowhere else, whatever roles exist by then, every one under the id of the
+// person's account; a role that can no longer be given there fails the transaction, in
+// an error that names the person by username, and a failed write is not taken for a
+// role that does not exist.
 func TestManager_giveInvitedRoles(t *testing.T) {
 	t.Parallel()
 
@@ -32,6 +39,9 @@ func TestManager_giveInvitedRoles(t *testing.T) {
 		name string
 		inv  *sessioninfo.Invitation
 		held []access.MembershipKey
+		// roles are the rows of the roles table: the custom roles that exist when the
+		// invitation is accepted.
+		roles map[access.RoleKey]bool
 		// periods are the periods of the memberships the person holds.
 		periods     map[access.MembershipKey]accesstypes.Period
 		failOn      string
@@ -47,20 +57,57 @@ func TestManager_giveInvitedRoles(t *testing.T) {
 			wantChanged: 1,
 		},
 		{
-			name: "an invitation into the application gives a global role globally and a tenant's role in every tenant, and the engine is told once",
-			inv:  &sessioninfo.Invitation{Email: "dana@example.com", RoleNames: []string{"Steward", "Reader"}},
-			// Reader is asked for globally first, where the role file does not hold it, so the
-			// roles table is read there before every tenant is tried.
-			wantReads:   []string{"role global/ Reader"},
-			wantWrites:  []string{"insert membership global/ " + id + " Steward", "insert membership every/ " + id + " Reader"},
+			name:        "an invitation into the application gives its roles in the global scope, and the engine is told once",
+			inv:         &sessioninfo.Invitation{Email: "dana@example.com", RoleNames: []string{"Steward", "Auditor"}},
+			roles:       map[access.RoleKey]bool{roleKeyIn(globalScope, "Auditor"): true},
+			wantReads:   []string{"role global/ Auditor"},
+			wantWrites:  []string{"insert membership global/ " + id + " Steward", "insert membership global/ " + id + " Auditor"},
 			wantChanged: 1,
 		},
 		{
+			name:        "an invitation for every tenant gives its roles in every tenant",
+			inv:         &sessioninfo.Invitation{Email: "dana@example.com", EveryTenant: true, RoleNames: []string{"Reader"}},
+			wantWrites:  []string{"insert membership every/ " + id + " Reader"},
+			wantChanged: 1,
+		},
+		{
+			// An invitation stored with a tenant's role and no place: the acceptance does
+			// not go looking for the role in every tenant.
+			name:      "an invitation that names no place gives nothing in every tenant: a role held only in the tenants is refused",
+			inv:       &sessioninfo.Invitation{Email: "dana@example.com", RoleNames: []string{"Reader"}},
+			wantErr:   httpio.HasNotFound,
+			wantReads: []string{"role global/ Reader"},
+		},
+		{
+			// The global scope gained a role named Reader after the invitation was sent.
+			name:        "an invitation for every tenant gives the tenants' role where the global scope has since gained a role of its name",
+			inv:         &sessioninfo.Invitation{Email: "dana@example.com", EveryTenant: true, RoleNames: []string{"Reader"}},
+			roles:       map[access.RoleKey]bool{roleKeyIn(globalScope, "Reader"): true},
+			wantWrites:  []string{"insert membership every/ " + id + " Reader"},
+			wantChanged: 1,
+		},
+		{
+			// The global custom role Auditor was deleted after the invitation was sent, and
+			// every tenant holds a custom role of its name.
+			name:      "an invitation into the application whose global role was deleted since is refused, though every tenant holds a role of its name",
+			inv:       &sessioninfo.Invitation{Email: "dana@example.com", RoleNames: []string{"Auditor"}},
+			roles:     map[access.RoleKey]bool{roleKeyIn(everyScope, "Auditor"): true},
+			wantErr:   httpio.HasNotFound,
+			wantReads: []string{"role global/ Auditor"},
+		},
+		{
+			name:      "a role of an invitation for every tenant that is not held there is refused, though the global scope holds it",
+			inv:       &sessioninfo.Invitation{Email: "dana@example.com", EveryTenant: true, RoleNames: []string{"Steward"}},
+			wantErr:   httpio.HasNotFound,
+			wantReads: []string{"role every/ Steward"},
+		},
+		{
 			name:       "a role the person holds already is left as it is, and the others are given",
-			inv:        &sessioninfo.Invitation{Email: "dana@example.com", RoleNames: []string{"Steward", "Reader"}},
+			inv:        &sessioninfo.Invitation{Email: "dana@example.com", RoleNames: []string{"Steward", "Auditor"}},
 			held:       []access.MembershipKey{access.NewMembershipKey(globalScope, dana, "Steward")},
-			wantReads:  []string{"role global/ Reader"},
-			wantWrites: []string{"insert membership every/ " + id + " Reader"},
+			roles:      map[access.RoleKey]bool{roleKeyIn(globalScope, "Auditor"): true},
+			wantReads:  []string{"role global/ Auditor"},
+			wantWrites: []string{"insert membership global/ " + id + " Auditor"},
 			// One membership was written, so the engine is told.
 			wantChanged: 1,
 		},
@@ -95,8 +142,8 @@ func TestManager_giveInvitedRoles(t *testing.T) {
 			name:    "a role that exists nowhere any more fails the transaction, so the role given before it is not committed",
 			inv:     &sessioninfo.Invitation{Email: "dana@example.com", RoleNames: []string{"Steward", "Retired"}},
 			wantErr: httpio.HasNotFound,
-			// Retired is read from the roles table in both places it could be held.
-			wantReads:  []string{"role global/ Retired", "role every/ Retired"},
+			// Retired is read from the roles table in the invitation's place alone.
+			wantReads:  []string{"role global/ Retired"},
 			wantWrites: []string{"insert membership global/ " + id + " Steward"},
 		},
 		{
@@ -120,6 +167,9 @@ func TestManager_giveInvitedRoles(t *testing.T) {
 			store := &fakeStore{memberships: map[access.MembershipKey]bool{}, roles: map[access.RoleKey]bool{}, failOn: tt.failOn}
 			for _, key := range tt.held {
 				store.memberships[key] = true
+			}
+			for key := range tt.roles {
+				store.roles[key] = true
 			}
 			store.membershipPeriods = tt.periods
 			m, engine := newManager(t, store, engineRoles)
@@ -150,6 +200,143 @@ func TestManager_giveInvitedRoles(t *testing.T) {
 	}
 }
 
+// TestManager_giveInvitedRoles_firstAdministrator pins where the first administrator's
+// invitation gives its roles. The deployment sends it for the whole application, and it
+// is the one invitation whose roles are held in two places: each role is given where the
+// application's first-administrator setup declares it (WithFirstAdministratorRoles), the
+// first list in the whole application and the second in every tenant. No other
+// invitation reads the lists: one a user sent, and one that does not give the Super
+// Administrator role, give a tenants' role with no tenant named nowhere, and the
+// acceptance fails, as it does for the first administrator's where the application
+// declared nothing.
+func TestManager_giveInvitedRoles_firstAdministrator(t *testing.T) {
+	t.Parallel()
+
+	const super = string(accesstypes.SuperAdministrator)
+	id := userID.String()
+	// The role file: Keeper is a role of the whole application and of every tenant, by
+	// the same name.
+	roles := map[accesstypes.PolicyScope][]accesstypes.Role{
+		globalScope: {accesstypes.SuperAdministrator, "Steward", "Keeper"},
+		everyScope:  {"Reader", "Keeper"},
+	}
+	declared := WithFirstAdministratorRoles([]accesstypes.Role{"Steward"}, []accesstypes.Role{"Reader"})
+	sender := impulse.NullUUIDFromUUID(otherUser)
+
+	tests := []struct {
+		name       string
+		opts       []Option
+		inv        *sessioninfo.Invitation
+		wantErr    func(error) bool
+		wantWhere  string
+		wantWrites []string
+		wantReads  []string
+	}{
+		{
+			name: "the first administrator's invitation gives the first list in the whole application and the second in every tenant",
+			opts: []Option{declared},
+			inv:  &sessioninfo.Invitation{Email: "dana@example.com", RoleNames: []string{super, "Steward", "Reader"}},
+			wantWrites: []string{
+				"insert membership global/ " + id + " " + super,
+				"insert membership global/ " + id + " Steward",
+				"insert membership every/ " + id + " Reader",
+			},
+		},
+		{
+			name: "a role both lists name is given in both places",
+			opts: []Option{WithFirstAdministratorRoles([]accesstypes.Role{"Keeper"}, []accesstypes.Role{"Keeper"})},
+			inv:  &sessioninfo.Invitation{Email: "dana@example.com", RoleNames: []string{super, "Keeper"}},
+			wantWrites: []string{
+				"insert membership global/ " + id + " " + super,
+				"insert membership global/ " + id + " Keeper",
+				"insert membership every/ " + id + " Keeper",
+			},
+		},
+		{
+			// Keeper exists in every tenant too, and nothing is looked up by a role's kind.
+			name: "a role neither list names is given in the whole application, where the invitation stores it",
+			opts: []Option{declared},
+			inv:  &sessioninfo.Invitation{Email: "dana@example.com", RoleNames: []string{super, "Keeper"}},
+			wantWrites: []string{
+				"insert membership global/ " + id + " " + super,
+				"insert membership global/ " + id + " Keeper",
+			},
+		},
+		{
+			name:       "a role declared for every tenant that no tenant holds any more fails the acceptance, in words that say where",
+			opts:       []Option{WithFirstAdministratorRoles(nil, []accesstypes.Role{"Steward"})},
+			inv:        &sessioninfo.Invitation{Email: "dana@example.com", RoleNames: []string{super, "Steward"}},
+			wantErr:    httpio.HasNotFound,
+			wantWhere:  "the role Steward in every tenant",
+			wantReads:  []string{"role every/ Steward"},
+			wantWrites: []string{"insert membership global/ " + id + " " + super},
+		},
+		{
+			name:       "where the application declared nothing, the first administrator's invitation gives every role in the whole application: a tenants' role is refused",
+			inv:        &sessioninfo.Invitation{Email: "dana@example.com", RoleNames: []string{super, "Reader"}},
+			wantErr:    httpio.HasNotFound,
+			wantWhere:  "the role Reader in the whole application",
+			wantReads:  []string{"role global/ Reader"},
+			wantWrites: []string{"insert membership global/ " + id + " " + super},
+		},
+		{
+			name:       "an invitation a user sent is not the first administrator's: a tenants' role with no tenant named is still refused",
+			opts:       []Option{declared},
+			inv:        &sessioninfo.Invitation{Email: "dana@example.com", InvitedByUserID: sender, RoleNames: []string{super, "Reader"}},
+			wantErr:    httpio.HasNotFound,
+			wantWhere:  "the role Reader in the whole application",
+			wantReads:  []string{"role global/ Reader"},
+			wantWrites: []string{"insert membership global/ " + id + " " + super},
+		},
+		{
+			name:       "an invitation that does not give the Super Administrator role is not the first administrator's: a tenants' role with no tenant named is still refused",
+			opts:       []Option{declared},
+			inv:        &sessioninfo.Invitation{Email: "dana@example.com", RoleNames: []string{"Steward", "Reader"}},
+			wantErr:    httpio.HasNotFound,
+			wantWhere:  "the role Reader in the whole application",
+			wantReads:  []string{"role global/ Reader"},
+			wantWrites: []string{"insert membership global/ " + id + " Steward"},
+		},
+		{
+			name:       "an invitation into a tenant gives its roles in the tenant alone, whatever the lists name",
+			opts:       []Option{WithFirstAdministratorRoles(nil, []accesstypes.Role{"Keeper"})},
+			inv:        &sessioninfo.Invitation{Email: "dana@example.com", TenantID: "alpha", RoleNames: []string{"Keeper"}},
+			wantErr:    httpio.HasNotFound,
+			wantWhere:  "the role Keeper in alpha",
+			wantReads:  []string{"role domain/alpha Keeper"},
+			wantWrites: nil,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := &fakeStore{memberships: map[access.MembershipKey]bool{}, roles: map[access.RoleKey]bool{}}
+			m, _ := newManager(t, store, roles, tt.opts...)
+
+			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+				return m.giveInvitedRoles(ctx, txn, userID, "dana", tt.inv)
+			})
+			if tt.wantErr != nil {
+				if err == nil || !tt.wantErr(err) {
+					t.Fatalf("giveInvitedRoles() error = %v, want the refusal", err)
+				}
+				if !strings.Contains(err.Error(), tt.wantWhere) {
+					t.Errorf("giveInvitedRoles() error = %v, want one that says %q", err, tt.wantWhere)
+				}
+			} else if err != nil {
+				t.Fatalf("giveInvitedRoles() error = %v", err)
+			}
+			if diff := cmp.Diff(tt.wantWrites, store.writes); diff != "" {
+				t.Errorf("buffered writes (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tt.wantReads, store.reads); diff != "" {
+				t.Errorf("reads of the roles table (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 // TestManager_giveDirectoryRoles pins what a directory's default role gives a person at
 // their first sign-in: each role in its tenant, under the id of the person's account,
 // and a role that cannot be given fails the transaction that creates the person, in an
@@ -158,63 +345,85 @@ func TestManager_giveDirectoryRoles(t *testing.T) {
 	t.Parallel()
 
 	id := userID.String()
+	ended := accesstypes.Period{End: time.Now().Add(-time.Hour)}
+	notBegun := accesstypes.Period{Start: time.Now().Add(time.Hour)}
+	inBeta := access.NewMembershipKey(betaScope, dana, "Reader")
+	endedInBeta := access.NewMembershipKey(betaScope, dana, "Writer")
+	// onAxis is a role in beta's domain on another axis than the tenants': it is no
+	// tenant's, and the move leaves it.
+	onAxis := access.NewMembershipKey(betaScope, dana, "Surveyor")
+	onAxis.Axis = "region"
+	global := access.NewMembershipKey(globalScope, dana, "Operator")
+	every := access.NewMembershipKey(everyScope, dana, "Reader")
+	nightPlace := access.GroupMemberKey{Group: GroupID(nightID), User: dana}
+	dayPlace := access.GroupMemberKey{Group: GroupID(dayID), User: dana}
+	alphaGiven := []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader", Directory: acmeDirectory}}
+	insertAlpha := "insert membership domain/alpha " + id + " Reader"
+	oneTenant := []Option{WithOneTenantPerPerson()}
 
 	tests := []struct {
 		name  string
 		seats []signin.DirectorySeat
-		// held are the memberships the person holds before the sign-in, as committed, and
-		// periods the periods of the ones that carry one.
-		held        []access.MembershipKey
-		periods     map[access.MembershipKey]accesstypes.Period
-		custom      []access.RoleKey
-		wantErr     func(error) bool
-		wantWrites  []string
-		wantGiven   []signin.DirectorySeat
-		wantChanged int
+		// opts are the manager's options. held are the memberships the person holds
+		// before the sign-in, as committed, and periods the periods of the ones that
+		// carry one; places are the groups they are in (nightID kept in alpha, staffID
+		// for the whole application, dayID in beta), and placePeriods the periods of
+		// those places.
+		opts         []Option
+		held         []access.MembershipKey
+		periods      map[access.MembershipKey]accesstypes.Period
+		places       []impulse.UUID
+		placePeriods map[access.GroupMemberKey]accesstypes.Period
+		custom       []access.RoleKey
+		wantErr      func(error) bool
+		wantWrites   []string
+		wantGiven    []signin.DirectorySeat
+		wantTaken    []accesstypes.Domain
+		wantChanged  int
 	}{
 		{
 			name:        "a person who holds a role in another tenant is given the default role in the directory's tenant",
-			seats:       []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader"}},
+			seats:       []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader", Directory: acmeDirectory}},
 			held:        []access.MembershipKey{access.NewMembershipKey(accesstypes.DomainPolicyScope("beta"), User(userID), "Reader")},
 			wantWrites:  []string{"insert membership domain/alpha " + id + " Reader"},
-			wantGiven:   []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader"}},
+			wantGiven:   []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader", Directory: acmeDirectory}},
 			wantChanged: 1,
 		},
 		{
 			name:  "a person who holds a role in the tenant keeps what they hold and is given nothing",
-			seats: []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader"}},
+			seats: []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader", Directory: acmeDirectory}},
 			held:  []access.MembershipKey{access.NewMembershipKey(accesstypes.DomainPolicyScope("alpha"), User(userID), "Editor")},
 		},
 		{
 			name:  "a person who holds the default role itself in the tenant is given nothing",
-			seats: []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader"}},
+			seats: []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader", Directory: acmeDirectory}},
 			held:  []access.MembershipKey{access.NewMembershipKey(accesstypes.DomainPolicyScope("alpha"), User(userID), "Reader")},
 		},
 		{
 			name:  "a person whose only role in the tenant has ended holds none there: the default role is given, though the ended row still stands",
-			seats: []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader"}},
+			seats: []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader", Directory: acmeDirectory}},
 			held:  []access.MembershipKey{access.NewMembershipKey(alphaScope, User(userID), "Editor")},
 			periods: map[access.MembershipKey]accesstypes.Period{
 				access.NewMembershipKey(alphaScope, User(userID), "Editor"): {End: time.Now().Add(-time.Hour)},
 			},
 			wantWrites:  []string{"insert membership domain/alpha " + id + " Reader"},
-			wantGiven:   []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader"}},
+			wantGiven:   []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader", Directory: acmeDirectory}},
 			wantChanged: 1,
 		},
 		{
 			name:  "a person whose default role itself has ended is given it again, with no period",
-			seats: []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader"}},
+			seats: []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader", Directory: acmeDirectory}},
 			held:  []access.MembershipKey{access.NewMembershipKey(alphaScope, User(userID), "Reader")},
 			periods: map[access.MembershipKey]accesstypes.Period{
 				access.NewMembershipKey(alphaScope, User(userID), "Reader"): {End: time.Now().Add(-time.Hour)},
 			},
 			wantWrites:  []string{"period of membership domain/alpha " + id + " Reader: none"},
-			wantGiven:   []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader"}},
+			wantGiven:   []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader", Directory: acmeDirectory}},
 			wantChanged: 1,
 		},
 		{
 			name:  "a person whose role in the tenant has not begun will hold it, and is given nothing beside it",
-			seats: []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader"}},
+			seats: []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader", Directory: acmeDirectory}},
 			held:  []access.MembershipKey{access.NewMembershipKey(alphaScope, User(userID), "Editor")},
 			periods: map[access.MembershipKey]accesstypes.Period{
 				access.NewMembershipKey(alphaScope, User(userID), "Editor"): {Start: time.Now().Add(time.Hour)},
@@ -222,36 +431,160 @@ func TestManager_giveDirectoryRoles(t *testing.T) {
 		},
 		{
 			name:        "a role held for the whole application is no role in the tenant: the default role is given",
-			seats:       []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader"}},
+			seats:       []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader", Directory: acmeDirectory}},
 			held:        []access.MembershipKey{access.NewMembershipKey(accesstypes.GlobalPolicyScope(), User(userID), "Operator")},
 			wantWrites:  []string{"insert membership domain/alpha " + id + " Reader"},
-			wantGiven:   []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader"}},
+			wantGiven:   []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader", Directory: acmeDirectory}},
 			wantChanged: 1,
 		},
 		{
 			name:  "each default role is given in its tenant, and the engine is told once",
-			seats: []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader"}, {Tenant: "beta", Role: "Auditor"}},
+			seats: []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader", Directory: acmeDirectory}, {Tenant: "beta", Role: "Auditor", Directory: acmeDirectory}},
 			// beta's role is a custom one, read from the roles table.
 			custom:      []access.RoleKey{{Kind: "domain", Domain: "beta", Role: "Auditor"}},
 			wantWrites:  []string{"insert membership domain/alpha " + id + " Reader", "insert membership domain/beta " + id + " Auditor"},
-			wantGiven:   []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader"}, {Tenant: "beta", Role: "Auditor"}},
+			wantGiven:   []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader", Directory: acmeDirectory}, {Tenant: "beta", Role: "Auditor", Directory: acmeDirectory}},
 			wantChanged: 1,
 		},
 		{
 			name:       "a default role that does not exist in its tenant fails the transaction",
-			seats:      []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader"}, {Tenant: "beta", Role: "Auditor"}},
+			seats:      []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader", Directory: acmeDirectory}, {Tenant: "beta", Role: "Auditor", Directory: acmeDirectory}},
 			wantErr:    httpio.HasNotFound,
 			wantWrites: []string{"insert membership domain/alpha " + id + " Reader"},
 		},
 		{
 			name: "no default role gives nothing and tells the engine nothing",
 		},
+		{
+			name:   "a place in a group kept in the tenant is something the person holds there: nothing is given",
+			seats:  alphaGiven,
+			places: []impulse.UUID{nightID},
+		},
+		{
+			name:         "a place in the tenant's group whose period has not begun is one the person will hold: nothing is given",
+			seats:        alphaGiven,
+			places:       []impulse.UUID{nightID},
+			placePeriods: map[access.GroupMemberKey]accesstypes.Period{nightPlace: notBegun},
+		},
+		{
+			name:         "a person whose only place in the tenant's group has ended holds nothing there: the default role is given",
+			seats:        alphaGiven,
+			places:       []impulse.UUID{nightID},
+			placePeriods: map[access.GroupMemberKey]accesstypes.Period{nightPlace: ended},
+			wantWrites:   []string{insertAlpha},
+			wantGiven:    alphaGiven,
+			wantChanged:  1,
+		},
+		{
+			name:        "without one tenant per person nothing is ever taken: a person who holds roles and a place in another tenant is given the default role beside them",
+			seats:       alphaGiven,
+			held:        []access.MembershipKey{inBeta, endedInBeta},
+			periods:     map[access.MembershipKey]accesstypes.Period{endedInBeta: ended},
+			places:      []impulse.UUID{dayID},
+			wantWrites:  []string{insertAlpha},
+			wantGiven:   alphaGiven,
+			wantChanged: 1,
+		},
+		{
+			name:  "where a person belongs to one tenant, one who holds a role in the tenant is given nothing and nothing is taken",
+			seats: alphaGiven,
+			opts:  oneTenant,
+			held:  []access.MembershipKey{access.NewMembershipKey(alphaScope, dana, "Editor"), inBeta},
+		},
+		{
+			name:        "where a person belongs to one tenant, one whose only role in the tenant has ended is given the default role",
+			seats:       alphaGiven,
+			opts:        oneTenant,
+			held:        []access.MembershipKey{access.NewMembershipKey(alphaScope, dana, "Editor")},
+			periods:     map[access.MembershipKey]accesstypes.Period{access.NewMembershipKey(alphaScope, dana, "Editor"): ended},
+			wantWrites:  []string{insertAlpha},
+			wantGiven:   alphaGiven,
+			wantChanged: 1,
+		},
+		{
+			name:        "where a person belongs to one tenant, one who holds nothing anywhere is given the default role",
+			seats:       alphaGiven,
+			opts:        oneTenant,
+			wantWrites:  []string{insertAlpha},
+			wantGiven:   alphaGiven,
+			wantChanged: 1,
+		},
+		{
+			name:    "where a person belongs to one tenant, one who belongs to another is moved: every role and place held in the other tenant is taken, ended ones too, each once, and a role on another axis and an ended role for the whole application stay",
+			seats:   alphaGiven,
+			opts:    oneTenant,
+			held:    []access.MembershipKey{inBeta, endedInBeta, onAxis, global},
+			periods: map[access.MembershipKey]accesstypes.Period{endedInBeta: ended, global: ended},
+			places:  []impulse.UUID{dayID},
+			wantWrites: []string{
+				"delete membership domain/beta " + id + " Reader",
+				"delete membership domain/beta " + id + " Writer",
+				"delete group member " + string(GroupID(dayID)) + " " + id,
+				insertAlpha,
+			},
+			wantGiven:   alphaGiven,
+			wantTaken:   []accesstypes.Domain{"beta"},
+			wantChanged: 1,
+		},
+		{
+			name:  "where a person belongs to one tenant, the other tenant's only administrator is moved too: no rule is asked",
+			seats: alphaGiven,
+			opts:  oneTenant,
+			held:  []access.MembershipKey{access.NewMembershipKey(betaScope, dana, accesstypes.Role("Administrator"))},
+			wantWrites: []string{
+				"delete membership domain/beta " + id + " Administrator",
+				insertAlpha,
+			},
+			wantGiven:   alphaGiven,
+			wantTaken:   []accesstypes.Domain{"beta"},
+			wantChanged: 1,
+		},
+		{
+			name:        "where a person belongs to one tenant, one who holds a role for the whole application is the application's own: the default role is given and nothing is taken",
+			seats:       alphaGiven,
+			opts:        oneTenant,
+			held:        []access.MembershipKey{global, inBeta},
+			wantWrites:  []string{insertAlpha},
+			wantGiven:   alphaGiven,
+			wantChanged: 1,
+		},
+		{
+			name:        "where a person belongs to one tenant, one who holds a role in every tenant is the application's own: the default role is given and nothing is taken",
+			seats:       alphaGiven,
+			opts:        oneTenant,
+			held:        []access.MembershipKey{every, inBeta},
+			wantWrites:  []string{insertAlpha},
+			wantGiven:   alphaGiven,
+			wantChanged: 1,
+		},
+		{
+			name:        "where a person belongs to one tenant, one in a group kept for the whole application is the application's own: the default role is given and nothing is taken",
+			seats:       alphaGiven,
+			opts:        oneTenant,
+			held:        []access.MembershipKey{inBeta},
+			places:      []impulse.UUID{staffID},
+			wantWrites:  []string{insertAlpha},
+			wantGiven:   alphaGiven,
+			wantChanged: 1,
+		},
+		{
+			name:         "where a person belongs to one tenant, one whose rows in another tenant have all ended is given the default role, and the ended rows stay",
+			seats:        alphaGiven,
+			opts:         oneTenant,
+			held:         []access.MembershipKey{inBeta},
+			periods:      map[access.MembershipKey]accesstypes.Period{inBeta: ended},
+			places:       []impulse.UUID{dayID},
+			placePeriods: map[access.GroupMemberKey]accesstypes.Period{dayPlace: ended},
+			wantWrites:   []string{insertAlpha},
+			wantGiven:    alphaGiven,
+			wantChanged:  1,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			store := &fakeStore{memberships: map[access.MembershipKey]bool{}, roles: map[access.RoleKey]bool{}}
+			store := groupStore()
 			for _, key := range tt.custom {
 				store.roles[key] = true
 			}
@@ -259,12 +592,19 @@ func TestManager_giveDirectoryRoles(t *testing.T) {
 				store.memberships[key] = true
 			}
 			store.membershipPeriods = tt.periods
-			m, engine := newManager(t, store, engineRoles)
+			for _, group := range tt.places {
+				store.groupMembers[access.GroupMemberKey{Group: GroupID(group), User: dana}] = true
+			}
+			store.placePeriods = tt.placePeriods
+			m, engine := newManager(t, store, engineRoles, tt.opts...)
 
-			var given []signin.DirectorySeat
+			var (
+				given []signin.DirectorySeat
+				taken []accesstypes.Domain
+			)
 			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 				var err error
-				given, err = m.giveDirectoryRoles(ctx, txn, userID, "dana", tt.seats)
+				given, taken, err = m.giveDirectoryRoles(ctx, txn, userID, "dana", tt.seats)
 
 				return err
 			})
@@ -285,55 +625,12 @@ func TestManager_giveDirectoryRoles(t *testing.T) {
 				if diff := cmp.Diff(tt.wantGiven, given); diff != "" {
 					t.Errorf("seats given (-want +got):\n%s", diff)
 				}
+				if diff := cmp.Diff(tt.wantTaken, taken); diff != "" {
+					t.Errorf("tenants taken from (-want +got):\n%s", diff)
+				}
 			}
 			if engine.changed != tt.wantChanged {
 				t.Errorf("the engine was told the policy changed %d time(s), want %d", engine.changed, tt.wantChanged)
-			}
-		})
-	}
-}
-
-// TestManager_DirectorySeated_seeded pins the manager's word on the deployment's own
-// seed: the account whose id is the one a seed derives for the auth's name, the
-// registration the person comes through and the username it carries
-// (session.SeedUserIDThrough) is recognized for that registration, and for no other.
-// The session library links such an account on its name at its person's first sign-in
-// through a registration of one organization: the first administrator of an auth whose
-// people sign in through a directory, whom no tenant's directory vouches for. An
-// account under any other id is nobody's seed here: one an administrator created, one
-// seeded for no registration (session.SeedUserID), one seeded in another auth, and one
-// renamed since, whose id is the old name's.
-func TestManager_DirectorySeated_seeded(t *testing.T) {
-	t.Parallel()
-
-	const name = "first.admin@operator.example"
-	m, _ := newManager(t, &fakeStore{}, engineRoles)
-	seeded := m.DirectorySeated("Staff").Seeded
-	if seeded == nil {
-		t.Fatal("DirectorySeated() answers no Seeded: the first administrator of an auth whose people sign in through a directory could never sign in")
-	}
-
-	tests := []struct {
-		name         string
-		id           impulse.UUID
-		username     string
-		registration string
-		want         bool
-	}{
-		{name: "the account the seed made for the registration", id: session.SeedUserIDThrough(managedAuth, "directory", name), username: name, registration: "directory", want: true},
-		{name: "its username in another case is the same name", id: session.SeedUserIDThrough(managedAuth, "directory", name), username: "First.Admin@Operator.example", registration: "directory", want: true},
-		{name: "a sign-in through another registration of the auth", id: session.SeedUserIDThrough(managedAuth, "directory", name), username: name, registration: "okta"},
-		{name: "an account seeded for no registration", id: session.SeedUserID(managedAuth, name), username: name, registration: "directory"},
-		{name: "an account seeded in another auth", id: session.SeedUserIDThrough("another", "directory", name), username: name, registration: "directory"},
-		{name: "an account an administrator created, under a generated id", id: impulse.Must(impulse.NewUUID()), username: name, registration: "directory"},
-		{name: "the seed's account renamed since: its id is the old name's", id: session.SeedUserIDThrough(managedAuth, "directory", name), username: "someone.else@operator.example", registration: "directory"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			if got := seeded(tt.id, tt.username, tt.registration); got != tt.want {
-				t.Errorf("Seeded(%s, %q, %q) = %v, want %v", tt.id, tt.username, tt.registration, got, tt.want)
 			}
 		})
 	}
@@ -435,7 +732,7 @@ func TestManager_signInHooks(t *testing.T) {
 	t.Parallel()
 
 	inv := &sessioninfo.Invitation{Email: "dana@example.com", TenantID: "alpha", RoleNames: []string{"Reader"}}
-	seats := []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader"}}
+	seats := []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader", Directory: acmeDirectory}}
 
 	hooks := map[string]func(m *Manager) func(ctx context.Context) (func(ctx context.Context), error){
 		"an accepted invitation": func(m *Manager) func(ctx context.Context) (func(ctx context.Context), error) {

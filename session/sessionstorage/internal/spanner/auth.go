@@ -8,6 +8,7 @@ import (
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/internal/spannertxn"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/tracer"
@@ -63,8 +64,8 @@ func commitTime(t time.Time) time.Time {
 
 // sessionInsertMutation renders the insert of a session row, created and
 // updated at the commit time. With the user columns enabled it also writes UserId,
-// AuthenticatedAt (the commit time, or null for a preauth session) and
-// ProviderSessionId.
+// AuthenticatedAt (the commit time, or null for a preauth session), ProviderSessionId
+// and Browser.
 func (s *SessionStorageDriver) sessionInsertMutation(id impulse.UUID, insertSession *dbtype.InsertSession, req *sessioninfo.NewSessionRequest) (*spanner.Mutation, error) {
 	if !s.users {
 		mutation, err := spanner.InsertStruct(s.sessionTableName, &struct {
@@ -86,12 +87,15 @@ func (s *SessionStorageDriver) sessionInsertMutation(id impulse.UUID, insertSess
 		authenticatedAt = spanner.NullTime{Time: spanner.CommitTimestamp, Valid: true}
 	}
 
-	var providerSessionID, providerSessionIssuer spanner.NullString
+	var providerSessionID, providerSessionIssuer, browser spanner.NullString
 	if user.ProviderSessionID != nil {
 		providerSessionID = spanner.NullString{StringVal: *user.ProviderSessionID, Valid: true}
 	}
 	if user.ProviderSessionIssuer != nil {
 		providerSessionIssuer = spanner.NullString{StringVal: *user.ProviderSessionIssuer, Valid: true}
+	}
+	if user.Browser != nil {
+		browser = spanner.NullString{StringVal: *user.Browser, Valid: true}
 	}
 
 	mutation, err := spanner.InsertStruct(s.sessionTableName, &struct {
@@ -103,10 +107,11 @@ func (s *SessionStorageDriver) sessionInsertMutation(id impulse.UUID, insertSess
 		AuthenticatedAt       spanner.NullTime   `spanner:"AuthenticatedAt"`
 		ProviderSessionID     spanner.NullString `spanner:"ProviderSessionId"`
 		ProviderSessionIssuer spanner.NullString `spanner:"ProviderSessionIssuer"`
+		Browser               spanner.NullString `spanner:"Browser"`
 	}{
 		ID: id, InsertSession: insertSession, CreatedAt: spanner.CommitTimestamp, UpdatedAt: spanner.CommitTimestamp,
 		UserID: user.UserID, AuthenticatedAt: authenticatedAt,
-		ProviderSessionID: providerSessionID, ProviderSessionIssuer: providerSessionIssuer,
+		ProviderSessionID: providerSessionID, ProviderSessionIssuer: providerSessionIssuer, Browser: browser,
 	})
 	if err != nil {
 		return nil, errors.Wrap(err, "spanner.InsertStruct()")
@@ -212,7 +217,7 @@ func (s *SessionStorageDriver) DestroySessionsByProviderSessionID(ctx context.Co
 		return errors.New("DestroySessionsByProviderSessionID needs the auth schema: use Auth storage")
 	}
 
-	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		// The records end first: their statement reads the session table, which the
 		// expiry then writes with the commit timestamp.
 		if s.impersonation != nil {
@@ -239,7 +244,7 @@ func (s *SessionStorageDriver) DestroySessionsByProviderSessionID(ctx context.Co
 		return nil
 	})
 	if err != nil {
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return nil

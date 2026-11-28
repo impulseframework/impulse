@@ -20,6 +20,7 @@ func (h *Handlers) CrewSectorRoles() http.HandlerFunc {
 	type crewSectorRole struct {
 		Name        string `json:"name"        perm:"-"`
 		Description string `json:"description"`
+		Method      string `json:"method"      allow_filter:"true" search:"memory"`
 	}
 
 	type response []map[string]any
@@ -43,8 +44,9 @@ func (h *Handlers) CrewSectorRoles() http.HandlerFunc {
 		ctx = resource.WithCaller(ctx, querySet.Caller())
 
 		// A live list registers before the query runs, so a commit that lands during
-		// the query is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, h.LiveService(), querySet, live.ListSubscription(querySet.Resource(), domain))
+		// the query is not missed; a refused request registers nothing. With it the
+		// request registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, h.LiveService(), querySet, live.ListSubscription(querySet.Resource(), domain))
 
 		// The handler judges the rows the List function yields by the caller's
 		// grants, where one carries a condition that reads the row, and applies
@@ -67,6 +69,8 @@ func (h *Handlers) CrewSectorRoles() http.HandlerFunc {
 					rmap["name"] = rec.Name
 				case "Description":
 					rmap["description"] = rec.Description
+				case "Method":
+					rmap["method"] = rec.Method
 				}
 			}
 			resp = append(resp, rmap)

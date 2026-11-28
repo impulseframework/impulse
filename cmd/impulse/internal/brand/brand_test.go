@@ -823,6 +823,70 @@ func TestApplyNoDeclaration(t *testing.T) {
 	}
 }
 
+// scratchNames are the names a scratch file is kept under beside a package's real files:
+// the Go tool passes over both, so no build compiles either, and both sort before a name
+// that opens with a letter.
+var scratchNames = []string{".draft.go", "_scratch.go"}
+
+// TestApplyWritesTheMailNameToAFileTheGoToolReads holds the command to the auth package's
+// real file. A scratch copy of the auth kept beside it declares the same Application
+// constant and comes first in the directory, and it is no build's: the brand's name is
+// written into the file the application is built from, and the copy is left as it was.
+func TestApplyWritesTheMailNameToAFileTheGoToolReads(t *testing.T) {
+	t.Parallel()
+
+	const staffFile = "pkg/auth/staff/staff.go"
+	a := rendered(t, skeleton.Base)
+	put(t, a, "web/console/brand.json", []byte(harbor))
+	put(t, a, "web/console/mark.png", disc(t, 640, 640, color.NRGBA{R: 0xb3, G: 0x26, B: 0x1e, A: 0xff}))
+	put(t, a, "web/console/mark.svg", []byte(harborSVG))
+	workspace := &installedWorkspace{t: t, a: a}
+	workspace.install("web")
+	asRendered := read(t, a, staffFile)
+	for _, name := range scratchNames {
+		put(t, a, "pkg/auth/staff/"+name, []byte(asRendered))
+	}
+
+	result, err := Apply(context.Background(), a, workspace)
+	if err != nil {
+		t.Fatalf("Apply() error = %v", err)
+	}
+	wantServer := []string{"written pkg/brand/console.png", "written pkg/brand/brand.go", "written " + staffFile}
+	if diff := cmp.Diff(wantServer, states(result.Server)); diff != "" {
+		t.Errorf("the server's writes mismatch (-want +got):\n%s", diff)
+	}
+	if got := read(t, a, staffFile); !strings.Contains(got, "\tApplication = \"Harbor Works\"\n") {
+		t.Errorf("%s does not carry the brand's name:\n%s", staffFile, got)
+	}
+	for _, name := range scratchNames {
+		if got := read(t, a, "pkg/auth/staff/"+name); got != asRendered {
+			t.Errorf("the scratch file %s was written to; it is no file of the application", name)
+		}
+	}
+}
+
+// TestApplyUnservedReadsNoScratchFile holds the search for a main that hands the
+// maintenance page a brand to the Go files the Go tool reads: a scratch copy of the main
+// that still names the brand hands the page nothing, so the brand is reported as before.
+func TestApplyUnservedReadsNoScratchFile(t *testing.T) {
+	t.Parallel()
+
+	a := rendered(t, "outlets")
+	main := read(t, a, "main.go")
+	put(t, a, "main.go", []byte(strings.Replace(main, `, "/portal": brand.Portal()`, "", 1)))
+	for _, name := range scratchNames {
+		put(t, a, name, []byte(main))
+	}
+	result, err := Apply(context.Background(), a, &installedWorkspace{t: t, a: a})
+	if err != nil {
+		t.Fatalf("Apply() error = %v", err)
+	}
+	want := []string{`no main hands the maintenance page the brand of web/portal: add it to the brands the main serving it gives maintenance.Serve, under its mount path (maintenance.Brands{"/portal": brand.Portal()}, or "/" for an application at the root)`}
+	if diff := cmp.Diff(want, result.Unserved); diff != "" {
+		t.Errorf("Unserved mismatch (-want +got):\n%s", diff)
+	}
+}
+
 // TestApplyUnserved holds the command to saying which brand no main hands to the
 // maintenance page: the brand of a browser application an option added, until the main
 // that serves it names it.

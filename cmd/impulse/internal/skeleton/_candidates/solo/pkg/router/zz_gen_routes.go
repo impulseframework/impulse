@@ -27,6 +27,10 @@ const (
 	StaffGroupID                httpio.ParamType = "staffGroupID"
 	StaffGroupUserGroupID       httpio.ParamType = "staffGroupUserGroupID"
 	StaffGroupUserUserID        httpio.ParamType = "staffGroupUserUserID"
+	StaffListedGroupID          httpio.ParamType = "staffListedGroupID"
+	StaffListedMailLinkID       httpio.ParamType = "staffListedMailLinkID"
+	StaffListedSessionID        httpio.ParamType = "staffListedSessionID"
+	StaffListedUserID           httpio.ParamType = "staffListedUserID"
 	StaffSessionID              httpio.ParamType = "staffSessionID"
 	StaffSessionIdentityID      httpio.ParamType = "staffSessionIdentityID"
 	StaffSessionMailLinkID      httpio.ParamType = "staffSessionMailLinkID"
@@ -49,9 +53,9 @@ type GeneratedHandlers interface {
 	LiveUnsubscribe() http.HandlerFunc
 	LiveToken() http.HandlerFunc
 	// PermissionDigest serves the session user's per-scope permission digest:
-	// advisory grant structure for the UI (resource → permission → granted or
-	// conditional, denied targets absent), with the scope taken from the request
-	// (?domain= names a tenant partition, absent means global).
+	// advisory grant structure for the UI (resource → permission → granted,
+	// conditional on time or conditional, denied targets absent), with the scope
+	// taken from the request (?domain= names a tenant partition, absent means global).
 	PermissionDigest() http.HandlerFunc
 	// UserDomains serves the session user's domain membership: the sorted domains
 	// where they hold at least one grant — the tenant picker's source, on the same
@@ -63,8 +67,6 @@ type GeneratedHandlers interface {
 	AssignStaffRole() http.HandlerFunc
 
 	CreateStaffGroup() http.HandlerFunc
-
-	CreateStaffUser() http.HandlerFunc
 
 	DeleteStaffGroup() http.HandlerFunc
 
@@ -82,6 +84,7 @@ type GeneratedHandlers interface {
 
 	FeatureFlags() http.HandlerFunc
 	FeatureFlag() http.HandlerFunc
+	FeatureFlagChanges() http.HandlerFunc
 
 	Features() http.HandlerFunc
 
@@ -103,20 +106,31 @@ type GeneratedHandlers interface {
 
 	RequireStaffPasswordChange() http.HandlerFunc
 
+	RequireStaffSecondFactor() http.HandlerFunc
+
+	ResendStaffInvitation() http.HandlerFunc
+
 	RevokeStaffSessionToken() http.HandlerFunc
 
 	RevokeStaffUserTrustedDevices() http.HandlerFunc
 
+	SendStaffUserPasswordResetLink() http.HandlerFunc
+
 	SetFeature() http.HandlerFunc
 
-	SetStaffTemporaryPassword() http.HandlerFunc
+	SetStaffRememberedBrowsers() http.HandlerFunc
+
+	SetStaffSelfServiceReset() http.HandlerFunc
 
 	SetStaffUserEmail() http.HandlerFunc
 
 	SetStaffUserName() http.HandlerFunc
 
+	StaffGivableRoles() http.HandlerFunc
+
 	StaffGroups() http.HandlerFunc
 	StaffGroup() http.HandlerFunc
+	StaffGroupChangeHistory() http.HandlerFunc
 
 	StaffGroupMembers() http.HandlerFunc
 
@@ -125,44 +139,84 @@ type GeneratedHandlers interface {
 	StaffGroupUsers() http.HandlerFunc
 	StaffGroupUser() http.HandlerFunc
 
-	StaffRoles() http.HandlerFunc
+	StaffHeldRoles() http.HandlerFunc
 
-	StaffRoleGrants() http.HandlerFunc
+	StaffListedAuditRecords() http.HandlerFunc
+
+	StaffListedGroups() http.HandlerFunc
+	StaffListedGroup() http.HandlerFunc
+
+	StaffListedGroupRoles() http.HandlerFunc
+
+	StaffListedMailLinks() http.HandlerFunc
+	StaffListedMailLink() http.HandlerFunc
+
+	StaffListedRoleGrants() http.HandlerFunc
+
+	StaffListedSessions() http.HandlerFunc
+	StaffListedSession() http.HandlerFunc
+
+	StaffListedSignInAttempts() http.HandlerFunc
+
+	StaffListedUsers() http.HandlerFunc
+	StaffListedUser() http.HandlerFunc
+
+	StaffRememberLengths() http.HandlerFunc
+
+	StaffRoles() http.HandlerFunc
 
 	StaffSessions() http.HandlerFunc
 	StaffSession() http.HandlerFunc
+	StaffSessionChangeHistory() http.HandlerFunc
 
 	StaffSessionAuthEvents() http.HandlerFunc
 
 	StaffSessionIdentities() http.HandlerFunc
 	StaffSessionIdentity() http.HandlerFunc
+	StaffSessionIdentityChangeHistory() http.HandlerFunc
 
 	StaffSessionMailLinks() http.HandlerFunc
 	StaffSessionMailLink() http.HandlerFunc
+	StaffSessionMailLinkChangeHistory() http.HandlerFunc
 
 	StaffSessionSignInAttempts() http.HandlerFunc
 
 	StaffSessionTokens() http.HandlerFunc
 	StaffSessionToken() http.HandlerFunc
+	StaffSessionTokenChangeHistory() http.HandlerFunc
 
 	StaffSessionTrustedDevices() http.HandlerFunc
 	StaffSessionTrustedDevice() http.HandlerFunc
+	StaffSessionTrustedDeviceChangeHistory() http.HandlerFunc
 
 	StaffSessionUsers() http.HandlerFunc
 	StaffSessionUser() http.HandlerFunc
+	StaffSessionUserChangeHistory() http.HandlerFunc
 
 	StaffSignInMethods() http.HandlerFunc
+
+	StaffSignInSettings() http.HandlerFunc
 
 	StaffSignInWays() http.HandlerFunc
 
 	StaffSignUpRoles() http.HandlerFunc
+
+	StaffTakeLengths() http.HandlerFunc
+
+	StaffTakeableRoles() http.HandlerFunc
+
+	StaffTakenRoles() http.HandlerFunc
 
 	StaffUserGroupRoles() http.HandlerFunc
 	StaffUserGroupRole() http.HandlerFunc
 
 	StaffUserRoles() http.HandlerFunc
 
+	StopRequiringStaffSecondFactor() http.HandlerFunc
+
 	TakeStaffGroupRole() http.HandlerFunc
+
+	TakeStaffRole() http.HandlerFunc
 
 	UnlinkStaffSessionIdentity() http.HandlerFunc
 
@@ -202,8 +256,6 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 
 	asked.Post("/api/create-staff-group", h.CreateStaffGroup())
 
-	asked.Post("/api/create-staff-user", h.CreateStaffUser())
-
 	asked.Post("/api/delete-staff-group", h.DeleteStaffGroup())
 
 	asked.Post("/api/delete-staff-user", h.DeleteStaffUser())
@@ -226,6 +278,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/api/feature-flags/{featureFlagName}", featureFlagHandler)
 	bounded.Post("/api/feature-flags/{featureFlagName}", featureFlagHandler)
 
+	bounded.Get("/api/feature-flags/{featureFlagName}/changes", h.FeatureFlagChanges())
+
 	bounded.Get("/api/features", h.Features())
 
 	asked.Post("/api/give-staff-group-role", h.GiveStaffGroupRole())
@@ -246,17 +300,29 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 
 	asked.Post("/api/require-staff-password-change", h.RequireStaffPasswordChange())
 
+	asked.Post("/api/require-staff-second-factor", h.RequireStaffSecondFactor())
+
+	asked.Post("/api/resend-staff-invitation", h.ResendStaffInvitation())
+
 	asked.Post("/api/revoke-staff-session-token", h.RevokeStaffSessionToken())
 
 	asked.Post("/api/revoke-staff-user-trusted-devices", h.RevokeStaffUserTrustedDevices())
 
+	asked.Post("/api/send-staff-user-password-reset-link", h.SendStaffUserPasswordResetLink())
+
 	asked.With(resource.BodyLimit(BodyLimit)).Post("/api/set-feature", h.SetFeature())
 
-	asked.Post("/api/set-staff-temporary-password", h.SetStaffTemporaryPassword())
+	asked.Post("/api/set-staff-remembered-browsers", h.SetStaffRememberedBrowsers())
+
+	asked.Post("/api/set-staff-self-service-reset", h.SetStaffSelfServiceReset())
 
 	asked.Post("/api/set-staff-user-email", h.SetStaffUserEmail())
 
 	asked.Post("/api/set-staff-user-name", h.SetStaffUserName())
+
+	staffGivableRolesHandler := h.StaffGivableRoles()
+	bounded.Get("/api/staff-givable-roles", staffGivableRolesHandler)
+	bounded.Post("/api/staff-givable-roles", staffGivableRolesHandler)
 
 	staffGroupsHandler := h.StaffGroups()
 	bounded.Get("/api/staff-groups", staffGroupsHandler)
@@ -265,6 +331,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	staffGroupHandler := h.StaffGroup()
 	bounded.Get("/api/staff-groups/{staffGroupID}", staffGroupHandler)
 	bounded.Post("/api/staff-groups/{staffGroupID}", staffGroupHandler)
+
+	bounded.Get("/api/staff-groups/{staffGroupID}/changes", h.StaffGroupChangeHistory())
 
 	staffGroupMembersHandler := h.StaffGroupMembers()
 	bounded.Get("/api/staff-group-members", staffGroupMembersHandler)
@@ -282,13 +350,65 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/api/staff-group-users/{staffGroupUserGroupID}/{staffGroupUserUserID}", staffGroupUserHandler)
 	bounded.Post("/api/staff-group-users/{staffGroupUserGroupID}/{staffGroupUserUserID}", staffGroupUserHandler)
 
+	staffHeldRolesHandler := h.StaffHeldRoles()
+	bounded.Get("/api/staff-held-roles", staffHeldRolesHandler)
+	bounded.Post("/api/staff-held-roles", staffHeldRolesHandler)
+
+	staffListedAuditRecordsHandler := h.StaffListedAuditRecords()
+	bounded.Get("/api/staff-listed-audit-records", staffListedAuditRecordsHandler)
+	bounded.Post("/api/staff-listed-audit-records", staffListedAuditRecordsHandler)
+
+	staffListedGroupsHandler := h.StaffListedGroups()
+	bounded.Get("/api/staff-listed-groups", staffListedGroupsHandler)
+	bounded.Post("/api/staff-listed-groups", staffListedGroupsHandler)
+
+	staffListedGroupHandler := h.StaffListedGroup()
+	bounded.Get("/api/staff-listed-groups/{staffListedGroupID}", staffListedGroupHandler)
+	bounded.Post("/api/staff-listed-groups/{staffListedGroupID}", staffListedGroupHandler)
+
+	staffListedGroupRolesHandler := h.StaffListedGroupRoles()
+	bounded.Get("/api/staff-listed-group-roles", staffListedGroupRolesHandler)
+	bounded.Post("/api/staff-listed-group-roles", staffListedGroupRolesHandler)
+
+	staffListedMailLinksHandler := h.StaffListedMailLinks()
+	bounded.Get("/api/staff-listed-mail-links", staffListedMailLinksHandler)
+	bounded.Post("/api/staff-listed-mail-links", staffListedMailLinksHandler)
+
+	staffListedMailLinkHandler := h.StaffListedMailLink()
+	bounded.Get("/api/staff-listed-mail-links/{staffListedMailLinkID}", staffListedMailLinkHandler)
+	bounded.Post("/api/staff-listed-mail-links/{staffListedMailLinkID}", staffListedMailLinkHandler)
+
+	staffListedRoleGrantsHandler := h.StaffListedRoleGrants()
+	bounded.Get("/api/staff-listed-role-grants", staffListedRoleGrantsHandler)
+	bounded.Post("/api/staff-listed-role-grants", staffListedRoleGrantsHandler)
+
+	staffListedSessionsHandler := h.StaffListedSessions()
+	bounded.Get("/api/staff-listed-sessions", staffListedSessionsHandler)
+	bounded.Post("/api/staff-listed-sessions", staffListedSessionsHandler)
+
+	staffListedSessionHandler := h.StaffListedSession()
+	bounded.Get("/api/staff-listed-sessions/{staffListedSessionID}", staffListedSessionHandler)
+	bounded.Post("/api/staff-listed-sessions/{staffListedSessionID}", staffListedSessionHandler)
+
+	staffListedSignInAttemptsHandler := h.StaffListedSignInAttempts()
+	bounded.Get("/api/staff-listed-sign-in-attempts", staffListedSignInAttemptsHandler)
+	bounded.Post("/api/staff-listed-sign-in-attempts", staffListedSignInAttemptsHandler)
+
+	staffListedUsersHandler := h.StaffListedUsers()
+	bounded.Get("/api/staff-listed-users", staffListedUsersHandler)
+	bounded.Post("/api/staff-listed-users", staffListedUsersHandler)
+
+	staffListedUserHandler := h.StaffListedUser()
+	bounded.Get("/api/staff-listed-users/{staffListedUserID}", staffListedUserHandler)
+	bounded.Post("/api/staff-listed-users/{staffListedUserID}", staffListedUserHandler)
+
+	staffRememberLengthsHandler := h.StaffRememberLengths()
+	bounded.Get("/api/staff-remember-lengths", staffRememberLengthsHandler)
+	bounded.Post("/api/staff-remember-lengths", staffRememberLengthsHandler)
+
 	staffRolesHandler := h.StaffRoles()
 	bounded.Get("/api/staff-roles", staffRolesHandler)
 	bounded.Post("/api/staff-roles", staffRolesHandler)
-
-	staffRoleGrantsHandler := h.StaffRoleGrants()
-	bounded.Get("/api/staff-role-grants", staffRoleGrantsHandler)
-	bounded.Post("/api/staff-role-grants", staffRoleGrantsHandler)
 
 	staffSessionsHandler := h.StaffSessions()
 	bounded.Get("/api/staff-sessions", staffSessionsHandler)
@@ -297,6 +417,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	staffSessionHandler := h.StaffSession()
 	bounded.Get("/api/staff-sessions/{staffSessionID}", staffSessionHandler)
 	bounded.Post("/api/staff-sessions/{staffSessionID}", staffSessionHandler)
+
+	bounded.Get("/api/staff-sessions/{staffSessionID}/changes", h.StaffSessionChangeHistory())
 
 	staffSessionAuthEventsHandler := h.StaffSessionAuthEvents()
 	bounded.Get("/api/staff-session-auth-events", staffSessionAuthEventsHandler)
@@ -310,6 +432,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/api/staff-session-identities/{staffSessionIdentityID}", staffSessionIdentityHandler)
 	bounded.Post("/api/staff-session-identities/{staffSessionIdentityID}", staffSessionIdentityHandler)
 
+	bounded.Get("/api/staff-session-identities/{staffSessionIdentityID}/changes", h.StaffSessionIdentityChangeHistory())
+
 	staffSessionMailLinksHandler := h.StaffSessionMailLinks()
 	bounded.Get("/api/staff-session-mail-links", staffSessionMailLinksHandler)
 	bounded.Post("/api/staff-session-mail-links", staffSessionMailLinksHandler)
@@ -317,6 +441,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	staffSessionMailLinkHandler := h.StaffSessionMailLink()
 	bounded.Get("/api/staff-session-mail-links/{staffSessionMailLinkID}", staffSessionMailLinkHandler)
 	bounded.Post("/api/staff-session-mail-links/{staffSessionMailLinkID}", staffSessionMailLinkHandler)
+
+	bounded.Get("/api/staff-session-mail-links/{staffSessionMailLinkID}/changes", h.StaffSessionMailLinkChangeHistory())
 
 	staffSessionSignInAttemptsHandler := h.StaffSessionSignInAttempts()
 	bounded.Get("/api/staff-session-sign-in-attempts", staffSessionSignInAttemptsHandler)
@@ -330,6 +456,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/api/staff-session-tokens/{staffSessionTokenID}", staffSessionTokenHandler)
 	bounded.Post("/api/staff-session-tokens/{staffSessionTokenID}", staffSessionTokenHandler)
 
+	bounded.Get("/api/staff-session-tokens/{staffSessionTokenID}/changes", h.StaffSessionTokenChangeHistory())
+
 	staffSessionTrustedDevicesHandler := h.StaffSessionTrustedDevices()
 	bounded.Get("/api/staff-session-trusted-devices", staffSessionTrustedDevicesHandler)
 	bounded.Post("/api/staff-session-trusted-devices", staffSessionTrustedDevicesHandler)
@@ -337,6 +465,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	staffSessionTrustedDeviceHandler := h.StaffSessionTrustedDevice()
 	bounded.Get("/api/staff-session-trusted-devices/{staffSessionTrustedDeviceID}", staffSessionTrustedDeviceHandler)
 	bounded.Post("/api/staff-session-trusted-devices/{staffSessionTrustedDeviceID}", staffSessionTrustedDeviceHandler)
+
+	bounded.Get("/api/staff-session-trusted-devices/{staffSessionTrustedDeviceID}/changes", h.StaffSessionTrustedDeviceChangeHistory())
 
 	staffSessionUsersHandler := h.StaffSessionUsers()
 	bounded.Get("/api/staff-session-users", staffSessionUsersHandler)
@@ -346,9 +476,15 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/api/staff-session-users/{staffSessionUserID}", staffSessionUserHandler)
 	bounded.Post("/api/staff-session-users/{staffSessionUserID}", staffSessionUserHandler)
 
+	bounded.Get("/api/staff-session-users/{staffSessionUserID}/changes", h.StaffSessionUserChangeHistory())
+
 	staffSignInMethodsHandler := h.StaffSignInMethods()
 	bounded.Get("/api/staff-sign-in-methods", staffSignInMethodsHandler)
 	bounded.Post("/api/staff-sign-in-methods", staffSignInMethodsHandler)
+
+	staffSignInSettingsHandler := h.StaffSignInSettings()
+	bounded.Get("/api/staff-sign-in-settings", staffSignInSettingsHandler)
+	bounded.Post("/api/staff-sign-in-settings", staffSignInSettingsHandler)
 
 	staffSignInWaysHandler := h.StaffSignInWays()
 	bounded.Get("/api/staff-sign-in-ways", staffSignInWaysHandler)
@@ -357,6 +493,18 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	staffSignUpRolesHandler := h.StaffSignUpRoles()
 	bounded.Get("/api/staff-sign-up-roles", staffSignUpRolesHandler)
 	bounded.Post("/api/staff-sign-up-roles", staffSignUpRolesHandler)
+
+	staffTakeLengthsHandler := h.StaffTakeLengths()
+	bounded.Get("/api/staff-take-lengths", staffTakeLengthsHandler)
+	bounded.Post("/api/staff-take-lengths", staffTakeLengthsHandler)
+
+	staffTakeableRolesHandler := h.StaffTakeableRoles()
+	bounded.Get("/api/staff-takeable-roles", staffTakeableRolesHandler)
+	bounded.Post("/api/staff-takeable-roles", staffTakeableRolesHandler)
+
+	staffTakenRolesHandler := h.StaffTakenRoles()
+	bounded.Get("/api/staff-taken-roles", staffTakenRolesHandler)
+	bounded.Post("/api/staff-taken-roles", staffTakenRolesHandler)
 
 	staffUserGroupRolesHandler := h.StaffUserGroupRoles()
 	bounded.Get("/api/staff-user-group-roles", staffUserGroupRolesHandler)
@@ -370,7 +518,11 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/api/staff-user-roles", staffUserRolesHandler)
 	bounded.Post("/api/staff-user-roles", staffUserRolesHandler)
 
+	asked.Post("/api/stop-requiring-staff-second-factor", h.StopRequiringStaffSecondFactor())
+
 	asked.Post("/api/take-staff-group-role", h.TakeStaffGroupRole())
+
+	asked.Post("/api/take-staff-role", h.TakeStaffRole())
 
 	asked.Post("/api/unlink-staff-session-identity", h.UnlinkStaffSessionIdentity())
 

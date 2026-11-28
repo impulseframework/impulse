@@ -32,9 +32,12 @@ type crewSectorInvitationRead struct {
 	Name            *string       `json:"name"`
 	RoleNames       []string      `json:"roleNames"`
 	InvitedByUserID *impulse.UUID `json:"invitedByUserId"`
+	SentBy          *string       `json:"sentBy"`
 	CreatedAt       time.Time     `json:"createdAt"`
 	ExpiresAt       time.Time     `json:"expiresAt"`
 	ConsumedAt      *time.Time    `json:"consumedAt"`
+	WithdrawnAt     *time.Time    `json:"withdrawnAt"`
+	State           string        `json:"state"`
 	Pending         bool          `json:"pending"`
 }
 
@@ -150,9 +153,12 @@ func (c *CrewSectorInvitationColumns) All() *CrewSectorInvitationColumns {
 		"Name",
 		"RoleNames",
 		"InvitedByUserID",
+		"SentBy",
 		"CreatedAt",
 		"ExpiresAt",
 		"ConsumedAt",
+		"WithdrawnAt",
+		"State",
 		"Pending",
 	}
 
@@ -195,6 +201,12 @@ func (c *CrewSectorInvitationColumns) InvitedByUserID() *CrewSectorInvitationCol
 	return c
 }
 
+func (c *CrewSectorInvitationColumns) SentBy() *CrewSectorInvitationColumns {
+	c.fields = append(c.fields, "SentBy")
+
+	return c
+}
+
 func (c *CrewSectorInvitationColumns) CreatedAt() *CrewSectorInvitationColumns {
 	c.fields = append(c.fields, "CreatedAt")
 
@@ -209,6 +221,18 @@ func (c *CrewSectorInvitationColumns) ExpiresAt() *CrewSectorInvitationColumns {
 
 func (c *CrewSectorInvitationColumns) ConsumedAt() *CrewSectorInvitationColumns {
 	c.fields = append(c.fields, "ConsumedAt")
+
+	return c
+}
+
+func (c *CrewSectorInvitationColumns) WithdrawnAt() *CrewSectorInvitationColumns {
+	c.fields = append(c.fields, "WithdrawnAt")
+
+	return c
+}
+
+func (c *CrewSectorInvitationColumns) State() *CrewSectorInvitationColumns {
+	c.fields = append(c.fields, "State")
 
 	return c
 }
@@ -245,6 +269,10 @@ func (p CrewSectorInvitationQueryPartialClause) Email() CrewSectorInvitationQuer
 
 func (p CrewSectorInvitationQueryPartialClause) CreatedAt() CrewSectorInvitationQueryIdent[time.Time] {
 	return CrewSectorInvitationQueryIdent[time.Time]{Ident: resource.NewIdent[time.Time]("CreatedAt", p.partialClause, true)}
+}
+
+func (p CrewSectorInvitationQueryPartialClause) State() CrewSectorInvitationQueryIdent[string] {
+	return CrewSectorInvitationQueryIdent[string]{Ident: resource.NewIdent[string]("State", p.partialClause, true)}
 }
 
 func (p CrewSectorInvitationQueryPartialClause) Pending() CrewSectorInvitationQueryIdent[bool] {
@@ -341,6 +369,10 @@ func (c *crewSectorInvitationSort) InvitedByUserID() *CrewSectorInvitationSort {
 	return c.addField("InvitedByUserID")
 }
 
+func (c *crewSectorInvitationSort) SentBy() *CrewSectorInvitationSort {
+	return c.addField("SentBy")
+}
+
 func (c *crewSectorInvitationSort) CreatedAt() *CrewSectorInvitationSort {
 	return c.addField("CreatedAt")
 }
@@ -351,6 +383,14 @@ func (c *crewSectorInvitationSort) ExpiresAt() *CrewSectorInvitationSort {
 
 func (c *crewSectorInvitationSort) ConsumedAt() *CrewSectorInvitationSort {
 	return c.addField("ConsumedAt")
+}
+
+func (c *crewSectorInvitationSort) WithdrawnAt() *CrewSectorInvitationSort {
+	return c.addField("WithdrawnAt")
+}
+
+func (c *crewSectorInvitationSort) State() *CrewSectorInvitationSort {
+	return c.addField("State")
 }
 
 func (c *crewSectorInvitationSort) Pending() *CrewSectorInvitationSort {

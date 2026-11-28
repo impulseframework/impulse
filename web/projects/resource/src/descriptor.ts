@@ -12,8 +12,8 @@ export type ResourceOperation = 'list' | 'read' | 'create' | 'patch' | 'remove' 
  * largest page it may ask for. A resource with no `max` also permits `limit: 'all'`.
  * The maximum is also the switch every reader of a whole set reads (`readMode`): a
  * resource with none is small enough to load and is read whole in one request; one
- * with a maximum is read one server page at a time and never whole, its chosen row
- * read by key. Declaring the maximum is the author's deliberate choice; nothing
+ * with a maximum is read one server page at a time, never in one request, its chosen
+ * row read by key. Declaring the maximum is the author's deliberate choice; nothing
  * decides at runtime from an observed size.
  */
 export interface PageDescriptor {
@@ -128,7 +128,34 @@ export interface DomainRouteDescriptor {
 }
 
 /**
- * Everything the client needs to know about one generated API. The ccc TypeScript
+ * The create-your-tenant route, where the outlet serves it: a signed-in person who holds no
+ * tenant creates one and becomes its administrator. `route` is the route under the API
+ * prefix (POST creates; GET answers `{ offered: boolean }`, whether the person may create
+ * one now, with the statement of `warning` where the creation would take a directory),
+ * `resource` the tenant record's resource, whose metadata says how each field is drawn,
+ * `key` the name the answer carries the new tenant's id under, `fields` the body's fields
+ * in order, each with whether the route requires it, and `warning` the phrase a person
+ * types under the statement in front of a creation that takes their organization's
+ * directory. Absent where the application's tenants are not made this way, and on a
+ * description from a generator that predates it.
+ */
+export interface TenantCreationDescriptor {
+  readonly route: string;
+  readonly resource: string;
+  readonly key: string;
+  readonly fields: readonly { readonly name: string; readonly required: boolean }[];
+  /**
+   * Where the application's tenants have directories: the phrase a person types under the
+   * statement the GET answers when the creation would take the organization's directory
+   * they signed in through, which happens only in an application that holds a person to
+   * one tenant. The dialog asks the GET before it lets the person create, and asks
+   * nothing where this is absent.
+   */
+  readonly warning?: { readonly typed: string };
+}
+
+/**
+ * Everything the client needs to know about one generated API. The impulse TypeScript
  * generator emits it; the runtime interprets it. Routes carry no API prefix — the
  * client's `baseUrl` supplies it.
  *
@@ -144,6 +171,7 @@ export interface ApiDescriptor {
   resources: Record<string, ResourceDescriptor>;
   methods: Record<string, MethodDescriptor>;
   domainRoute?: DomainRouteDescriptor;
+  tenantCreation?: TenantCreationDescriptor;
   /** The consolidated mutation route (`resources`), when consolidation is enabled. */
   consolidatedRoute?: string;
   permissionDigestRoute: string;
@@ -199,11 +227,39 @@ export interface IdentityDescriptor {
   /**
    * The tenant record's resource, where the outlet serves it. A list of the whole
    * application's side carries the key of the tenant a role or an invitation is in, an
-   * id nobody reads: the pages read the tenant's name from this resource (its metadata's
-   * `nameField`). Absent where the outlet does not serve the record, or on a description
-   * from a generator that predates it, and the pages show the key.
+   * id nobody reads, and the tenant's name beside it where every outlet that serves the
+   * Auth's management serves the record. The pages read from this resource's metadata the
+   * field the record's rows are known by (`nameField`): where the record marks none, the
+   * key is all a cell can show. Absent where the outlet does not serve the record, or on
+   * a description from a generator that predates it: the pages then name a tenant from
+   * the reader's own list of tenants, or in words.
    */
   readonly tenantResource?: string;
+  /**
+   * The tenant record's directory-only field, as the wire names it, where the outlet serves
+   * the record and the record declares the switch. A tenant's Sign-in settings page reads it
+   * from the tenant's own row for a reader who holds none of the tenant's sign-in methods,
+   * so the page holds no field name. Absent where there is no such field, and on a
+   * description from a generator that predates it.
+   */
+  readonly tenantDirectoryOnlyField?: string;
+  /**
+   * The tenant record's field that says when a tenant was made, as the wire names it, where
+   * the outlet serves the record and the record marks one (`@tenantSince`). The list of
+   * tenants carries the same moment as `since`. The tenants page leaves this field out of a
+   * tenant's form where its summary says Since, and shows it as the Since column where it
+   * lists the record itself. Absent where the record marks none, and on a description from a
+   * generator that predates it.
+   */
+  readonly tenantSinceField?: string;
+  /**
+   * The directories that decide the Auth's roles, in the words of its login page's
+   * buttons ("Google", "Google or Microsoft"), where a directory writes them at every
+   * sign-in. Such an Auth keeps no groups of its own, and its Groups page says whose
+   * groups do that job. Absent where the application gives the roles by hand, and on a
+   * description from a generator that predates it.
+   */
+  readonly rolesFrom?: string;
   readonly sides: readonly IdentitySideDescriptor[];
 }
 
@@ -217,6 +273,34 @@ export interface IdentitySideDescriptor {
   readonly scope: ScopeKind;
   readonly lists: IdentityLists;
   readonly methods: IdentityMethods;
+  /**
+   * The tenant's records a role can be held on, on a tenant's side, each with the lists
+   * and the methods its sharing is drawn from (sharingConfig). Absent where the Auth's role
+   * file holds a role on no record the application marks, and on a description from a
+   * generator that predates it.
+   */
+  readonly sharing?: readonly IdentityRecordSharing[];
+}
+
+/**
+ * One kind of record of the tenant a role can be held on, as a tenant's side shares it:
+ * the record's resource; its words, one and many ("voyage", "voyages"); the list of who
+ * holds what on one record (`holders`: a row for each role a person or a group holds on
+ * it, `memberKind` saying which, `memberId` naming the holder, with the holder's name and
+ * the role's period); the list a role to give on it is picked from (`roles`); and the
+ * methods that give a person a role on one record and take it away, with a group's pair
+ * where the Auth keeps groups. Each method sends the record as `recordId`.
+ */
+export interface IdentityRecordSharing {
+  readonly record: string;
+  readonly one: string;
+  readonly many: string;
+  readonly holders: string;
+  readonly roles: string;
+  readonly give: string;
+  readonly take: string;
+  readonly giveGroup?: string;
+  readonly takeGroup?: string;
 }
 
 /**
@@ -230,11 +314,29 @@ export interface IdentitySideDescriptor {
  * the roles a person who signs up may be given, and, for the Auth whose people make the
  * application's tenants, the invitations that make a tenant and still stand. Where the Auth keeps groups of people,
  * the side also names the groups, the people in them, the roles they hold and the roles
- * each person holds through one.
+ * each person holds through one. Where the application gives the Auth's roles by hand,
+ * the whole application's side names the roles held for a set time with a reason.
  */
 export interface IdentityLists {
   readonly users: string;
+  /**
+   * The roles people hold, one row for each: a role of the person's own and, where the
+   * Auth keeps groups, a role that comes through a group, which the row names
+   * (`groupId`, `groupName`, both empty for a role of the person's own). A row carries
+   * the role's period and, for a role of the person's own, the reason it was given for
+   * (`reason`). A description from a generator that predates the one list names the
+   * roles each person holds directly here, and the ones held through a group under
+   * `rolesThroughGroups`.
+   */
   readonly roles?: string;
+  /**
+   * The list a role is picked from by the side's methods that give one (`assignRole`,
+   * `invite`, `giveGroupRole`): the roles the caller could give. Where the
+   * list carries a `method` field it answers for one method at a time, the one the
+   * request's filter names (`method:eq:AssignCrewRole`), and a request that names none
+   * is listed no role.
+   */
+  readonly rolesToGive?: string;
   readonly identities?: string;
   /**
    * The ways a person signs in, for an Auth with a password method: the password, where
@@ -246,13 +348,34 @@ export interface IdentityLists {
   readonly invitations?: string;
   readonly sessions?: string;
   readonly signInAttempts?: string;
+  /**
+   * The audit log: what was done to the Auth's accounts, roles, groups and sign-in
+   * settings, a row for each act, newest first, with the words the server writes of it:
+   * who acted (`who`), what was done (`what`) and to whom or to what (`doneTo`). On a
+   * tenant's side, the rows done in that tenant.
+   */
+  readonly auditLog?: string;
   readonly signInMethods?: string;
+  /**
+   * What every sign-in asks for, as two lines above the methods: whether everyone is
+   * asked for a second factor, then for how long a remembered browser skips it.
+   */
+  readonly signInSettings?: string;
+  /** The lengths of time a browser can be remembered for, which the second line's action picks from. */
+  readonly rememberLengths?: string;
   readonly signUpRoles?: string;
-  /** The groups of people, where the Auth keeps them: a tenant's own on its side. */
+  /**
+   * The groups of people, where the Auth keeps them: a tenant's own on its side. A row
+   * says what the group holds: how many people (`people`) and which roles, a line each
+   * (`roles`), over what has not ended.
+   */
   readonly groups?: string;
   /** The people of the groups: one row for each person in each group, with their name. */
   readonly groupUsers?: string;
-  /** The roles the groups hold: one row for each role of each group. */
+  /**
+   * The roles the groups hold: one row for each role of each group, with how many people
+   * lose the role when the group stops holding it (`losing`).
+   */
   readonly groupRoles?: string;
   /** The roles people hold through a group, beside `roles`, the ones each holds directly. */
   readonly rolesThroughGroups?: string;
@@ -265,38 +388,64 @@ export interface IdentityLists {
    * may read that field on the record itself.
    */
   readonly invitedTenants?: string;
+  /**
+   * The tenants, on the whole application's side of the Auth whose people make them: a row
+   * for each tenant with the tenant record's own fields, when the tenant was made where the
+   * record marks that column (`since`), and what no table holds of it: how many people it
+   * has (`people`), the kind of directory its people sign in through (`directory`) and who
+   * administers it (`administrators`). The list is a view over the tenant record, so a row
+   * opens the record. Absent where the Auth makes no tenants, where the outlet does not serve
+   * the record, and on a description from a generator that predates it; a page then lists the
+   * record itself.
+   */
+  readonly tenants?: string;
+  /**
+   * The roles held for a set time and for a reason, on the whole application's side: what
+   * the Break glass page lists, each with whether its time is over (`ended`).
+   */
+  readonly takenRoles?: string;
+  /**
+   * The tenant's directory, on a tenant's side: the record a tenant's one directory is a
+   * row of. The Sign-in settings page sets and removes it.
+   */
+  readonly directories?: string;
 }
 
 /**
- * The methods of a side, each a method in `methods`, by what it does. `create` and
- * `invite` name no row. On a tenant's side `assignRole` runs against a person and
+ * The methods of a side, each a method in `methods`, by what it does. `invite` names
+ * no row. On a tenant's side `assignRole` runs against a person and
  * `removeRole` against a role held; on the whole application's side both take the
  * person's name, since a role may be held by a name that has no account.
- * `withdrawInvitation` runs against an invitation, `unlinkIdentity` against an identity,
+ * `withdrawInvitation` and `resendInvitation` run against an invitation,
+ * `unlinkIdentity` against an identity,
  * `endSession` against a session, `unlockSignIn` against a counted name, `openSignUp`
  * and `makeInviteOnly` name a sign-in method, which the page fills from its row, and the
  * rest run against a person. The methods over groups: `createGroup` names no row;
  * `describeGroup`, `deleteGroup`, `addGroupMember` and `giveGroupRole` run against a
  * group; `removeGroupMember` against a person's place in one; and `takeGroupRole`
  * against a role a group holds on a tenant's side, while the whole application's takes
- * the group's id and where the role is held. `inviteTenant` names no row: it takes the
+ * the group's id and where the role is held. `removeFromTenant`, a tenant's side alone,
+ * runs against a person: it takes away everything the person holds in the tenant itself,
+ * and warns first, in the server's words, which roles go. `inviteTenant` names no row: it takes the
  * invited address and the tenant record's fields, and sends the invitation whose first
  * sign-in makes the tenant; `withdrawInvitedTenant` takes such an invitation's id
- * (`invitationId`), which the page fills from its row.
+ * (`invitationId`), which the page fills from its row. `takeRole` names no row and no
+ * person: the caller takes a role themselves for a set time, with a reason.
  */
 export interface IdentityMethods {
-  readonly create?: string;
   readonly invite?: string;
   readonly withdrawInvitation?: string;
+  readonly resendInvitation?: string;
   readonly assignRole?: string;
   readonly removeRole?: string;
   readonly disable?: string;
   readonly enable?: string;
   readonly delete?: string;
+  readonly removeFromTenant?: string;
   readonly rename?: string;
   readonly setName?: string;
   readonly setEmail?: string;
-  readonly setTemporaryPassword?: string;
+  readonly sendPasswordResetLink?: string;
   readonly requirePasswordChange?: string;
   readonly endUserSessions?: string;
   readonly revokeTrustedDevices?: string;
@@ -306,6 +455,10 @@ export interface IdentityMethods {
   readonly unlockSignIn?: string;
   readonly openSignUp?: string;
   readonly makeInviteOnly?: string;
+  readonly setSelfServiceReset?: string;
+  readonly requireSecondFactor?: string;
+  readonly stopRequiringSecondFactor?: string;
+  readonly setRememberedBrowsers?: string;
   readonly createGroup?: string;
   readonly describeGroup?: string;
   readonly deleteGroup?: string;
@@ -315,6 +468,24 @@ export interface IdentityMethods {
   readonly takeGroupRole?: string;
   readonly inviteTenant?: string;
   readonly withdrawInvitedTenant?: string;
+  readonly takeRole?: string;
+  /**
+   * On a tenant's side, how the tenant's people enter: `takeDirectory` makes the
+   * directory the caller is signed in through the tenant's own, behind the statement that
+   * they are authorized to act for the organization, `openToDirectory` names the role a
+   * person gets when they sign in through the tenant's directory and hold nothing in the
+   * tenant, `makeDirectoryInviteOnly` clears it, and `makeDirectoryOnly` and
+   * `endDirectoryOnly` turn the directory-only switch, and `vouchForDirectorySecondFactor` and
+   * `stopVouchingForDirectorySecondFactor` say, and take back, that the tenant's
+   * directory asks its people for a second factor of its own. None names a row.
+   */
+  readonly takeDirectory?: string;
+  readonly openToDirectory?: string;
+  readonly makeDirectoryInviteOnly?: string;
+  readonly makeDirectoryOnly?: string;
+  readonly endDirectoryOnly?: string;
+  readonly vouchForDirectorySecondFactor?: string;
+  readonly stopVouchingForDirectorySecondFactor?: string;
 }
 
 /** The route the enabled set of feature flags is read from, under the API prefix like every other route. */

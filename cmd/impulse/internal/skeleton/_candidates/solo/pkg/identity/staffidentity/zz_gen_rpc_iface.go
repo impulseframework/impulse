@@ -7,12 +7,14 @@ import "github.com/impulseframework/impulse/accesstypes"
 
 type Method interface {
 	Method() accesstypes.Resource
-	AddStaffGroupMember | AssignStaffRole | CreateStaffGroup | CreateStaffUser |
-		DeleteStaffGroup | DeleteStaffUser | DescribeStaffGroup | DisableStaffUser | EnableStaffUser |
-		EndStaffSession | EndStaffUserSessions | GiveStaffGroupRole | InviteStaffUser |
-		MakeStaffInviteOnly | OpenStaffSignUp | RemoveStaffGroupMember | RemoveStaffPassword |
-		RemoveStaffRole | RenameStaffUser | RequireStaffPasswordChange | RevokeStaffSessionToken |
-		RevokeStaffUserTrustedDevices | SetStaffTemporaryPassword | SetStaffUserEmail |
-		SetStaffUserName | TakeStaffGroupRole | UnlinkStaffSessionIdentity | UnlockStaffSignIn |
+	AddStaffGroupMember | AssignStaffRole | CreateStaffGroup | DeleteStaffGroup |
+		DeleteStaffUser | DescribeStaffGroup | DisableStaffUser | EnableStaffUser | EndStaffSession |
+		EndStaffUserSessions | GiveStaffGroupRole | InviteStaffUser | MakeStaffInviteOnly |
+		OpenStaffSignUp | RemoveStaffGroupMember | RemoveStaffPassword | RemoveStaffRole |
+		RenameStaffUser | RequireStaffPasswordChange | RequireStaffSecondFactor |
+		ResendStaffInvitation | RevokeStaffSessionToken | RevokeStaffUserTrustedDevices |
+		SendStaffUserPasswordResetLink | SetStaffRememberedBrowsers | SetStaffSelfServiceReset |
+		SetStaffUserEmail | SetStaffUserName | StopRequiringStaffSecondFactor |
+		TakeStaffGroupRole | TakeStaffRole | UnlinkStaffSessionIdentity | UnlockStaffSignIn |
 		WithdrawStaffInvitation
 }

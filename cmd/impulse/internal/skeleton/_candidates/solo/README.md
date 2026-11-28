@@ -33,35 +33,51 @@ what they hold.
   generator (`GenerateIdentity`) as code of this application; the generator owns the
   tree whole. It carries the lists (`StaffSessionUsers`, `StaffUserRoles`,
   `StaffSessionMailLinks`, `StaffSessions` and the rest) and the methods
-  (`CreateStaffUser`, `InviteStaffUser`, `AssignStaffRole`, `SetStaffTemporaryPassword`
-  and the rest), served like every other resource and method and granted in the role
+  (`InviteStaffUser`, `AssignStaffRole`, `SendStaffUserPasswordResetLink` and the
+  rest), served like every other resource and method and granted in the role
   file. The auth builds the client the handlers act through when it opens (`staff.New`,
   answered by `staff.Auth.Identity`) with the roles that count as an administrator's
   (`staff.AdministratorRoles`), so an administrator cannot give the role up while nobody
   else holds it, and sets the client's hook on its session manager, through which a
   person who accepts an invitation is given its roles in the transaction that spends it:
   no auth is open without it. The console writes no page for any of it: the library builds
-  the accounts, groups, mailed links, sessions and failed sign-ins pages from the API
-  description (`identityRoutes` in `web/console/src/app/app.routes.ts`). A group of people
+  the accounts, groups, mailed links, sessions, failed sign-ins and audit log pages from
+  the API description (`identityRoutes` in `web/console/src/app/app.routes.ts`). A group of people
   holds roles the way a person does, and a person in it holds the group's roles; the role
   file gives the groups, their members and their roles to the `Administrator`, who manages
   the people. A group gives nobody a power that giving the role directly would not: who is
   in a group, and what it holds, is changed by someone who may give or take those roles
-  directly.
+  directly. The list of groups says how many people each group has and the roles it
+  holds, and offers Delete on every group, asking first with a count of its people and roles; a person's page lists
+  their roles in one list that says "Their own" or names the group each comes through.
+  On the Break glass page (`/staff-break-glass`) a person takes a role for a set time and
+  says why, when they hold the page's grant and could give themselves that role: the role
+  ends by itself, and whoever may take it away ends it early. The role file gives the
+  page's lists and its method, and the giving of roles, to the `Administrator` alone.
 - `pkg/deploy` holds the database steps a deployment runs: the schema migrations, then
   the role policy check (`CheckRoles`), which prints what the store holds that this
   release cannot use as written. Then `MigrateFeatures` brings the `FeatureFlags` table to the
-  flags the release declares (section Feature flags). Between the two, `SeedAdministrators` gives each auth its first
-  administrator while its users table holds no rows, the foothold a deployed environment
-  starts from: the staff auth's `administrator`, with the password the stack generates
-  (`APP_STAFF_ADMINISTRATOR_PASSWORD`, a generated secret), holding the development
-  administrator's roles. The generated password is for the first sign-in alone: sign in
-  as `administrator` with it, give an email address and confirm it with the sign-in code
-  mailed there (the account starts with no address), then choose a new password, which
-  the login page asks for before it opens anything else; the generated password signs
-  nobody in after that. A user that exists stops the seed; the auth's management
-  creates every user after the first, and the bootstrap creates the development logins
-  instead. `cmd/deployment/migrate` is the deploy step;
+  flags the release declares (section Feature flags). Between the two, `InviteAdministrators` invites each
+  auth's first administrator while nobody of the auth holds the Super Administrator
+  role, the foothold a deployed environment starts from: an invitation mailed to the address the placement names for
+  the environment (`APP_STAFF_ADMINISTRATOR`), which gives the Super Administrator role
+  and the development administrator's roles. The person opens the link and chooses a
+  password there, and enters the code mailed to the address. No account is made ahead of them and
+  no password is generated. A release leaves an invitation that stands as it is, mails a new one once
+  it has run out (seven days), and withdraws one for an address the placement no longer
+  names; the migrate command's `-reinvite-administrator staff` withdraws the
+  standing one and mails a fresh one on demand, for mail that was lost, while nobody
+  holds the role. Both refuse while nobody holds it and the environment has no mailbox
+  (`APP_MAIL_MAILBOX` with `APP_MAIL_APP_PASSWORD`): an invitation's link is never
+  written to a log, so the mailbox comes before the first release. Once somebody holds
+  the Super Administrator role nobody is invited, and neither an address nor a mailbox
+  is asked for; an account that holds no such role (a person who signed up, a persona)
+  stops no invitation, and a holder whose account is disabled is a holder still. The
+  auth's management invites every person after the first. The bootstrap creates the
+  development logins instead, and its `admin` login holds the role, so a migrate run
+  against a bootstrapped database invites nobody. An application that adds a cast of
+  personas seeds it before `InviteAdministrators`, so an environment whose cast holds
+  the role invites nobody. `cmd/deployment/migrate` is the deploy step;
   `cmd/bootstrap` reuses it to stand up an emulator database and adds the development
   logins from `cmd/bootstrap/users.json`, each with its memberships by where they are
   held (`global`, `everyDomain`, `domains`). Its test runs each auth's role file through
@@ -76,6 +92,10 @@ what they hold.
   and `-force <n>` and `-force-data <n>` set a table to a version (-1 for no version), for
   the states the migration runner refuses to guess at; the pipeline passes them from the
   operations workflow (`bedrock migration`), and none of them applies a migration.
+  Every run but those opens the application's data and gives the database one minute to
+  answer: a database that has not answered by then, as one that does not exist never does,
+  stops the run with one sentence that names the database and its instance, and a non-zero
+  exit.
   `-retire-secret APP_SECRET_KEY_1` retires a version of the application secret: it writes
   every stored secret field that names the version again under the current one, confirms
   none is left and exits 0 only then, so the deployment disables the version only when no
@@ -115,7 +135,7 @@ flip is recorded in `FeatureFlagChanges`. The App reads the table when it is bui
 digest and features route answer from one copy. `GET /api/features` lists what is on to anyone signed in. Flipping is the generated
 `SetFeature` method, held by the `FeatureAdministrator` role in the staff role file
 (Execute on `SetFeature`, List and Read on `FeatureFlags`), which the development `admin`
-login holds; the library's `FeatureFlagsDialog` calls it, opened from Feature flags… in
+login holds; the library's Feature flags page runs it: the list of the flags, each in words with who last turned it on or off, a row's menu that turns the flag on or off after asking, and a History button that opens the flag's flips in a pop-up. The menu file places the page (`featureFlagsPage`) in
 the System menu, shown to anyone holding List on `FeatureFlags`. A flag's
 development state is its row in `schema/devseed/<n>_dev_feature_flags.up.sql`, which
 `impulse add feature` writes off (set it to TRUE to start development and the test
@@ -175,7 +195,7 @@ under the current version. It reads the resources packages `pkg/deploy` hands it
     cp .envrc.template .envrc && direnv allow
     overmind start -l spanner,firestore,server
 
-That starts fresh Spanner and Firestore emulators, bootstraps the database (schema, roles, the `admin` / `password`
+That starts fresh Spanner and Firestore emulators, bootstraps the database (schema, roles, the `admin` / `open-the-console-first`
 login), and serves the API on `$PORT` (:8090). The first run compiles and bootstraps
 before it listens; wait for "Starting Server" in the server pane.
 
@@ -192,7 +212,10 @@ link opens the login page under `APP_PUBLIC_URL`.
 ### Browser apps
 
 The console is an Angular workspace under `web/` that installs the published
-`@impulseframework/resource` and `@impulseframework/resource-angular` (pinned in `package.json`). To develop
+`@impulseframework/resource` and `@impulseframework/resource-angular` (pinned in `package.json`). Install them
+once with `bun install` in `web/`: it writes `bun.lock`, which the workflows install
+from (`bun ci`) and the repository keeps, and `impulse check` fails while the web root
+has none (`package-manager`). To develop
 against a local checkout of the framework, attach its web packages through yalc, a local
 state that is never committed (the script builds the three packages, publishes them to the
 local yalc store, links them, and runs `bun install`; `weblib.sh restore` puts the pins back):
@@ -259,8 +282,8 @@ permission digest over a scripted client from `@impulseframework/resource-angula
 request and answers from the test), and the menu file's spec holds every page the routes
 carry to a place in the menus (`unplacedPages`). The console sits in the library's frame
 (`provideFrame` in `app.config.ts`): the bar with the application's name and the menus of
-`app.menus.ts` (System: the staff's accounts and Feature flags…), Help ending with About,
-which carries the release, and the person's own menu (Your account, with the email address
+`app.menus.ts` (System: the staff's accounts and Feature flags), Help ending with About,
+a pop-up that carries the release and, outside production, the environment's name (the server's `APP_ENVIRONMENT`, which a deployment sets everywhere but production), and the person's own menu (Your account, with the email address
 and Change your password; Appearance; Sign out); the frame is the library's, tested there.
 
 ## Live pages

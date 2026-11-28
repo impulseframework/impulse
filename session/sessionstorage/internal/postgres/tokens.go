@@ -8,6 +8,7 @@ import (
 	"github.com/georgysavva/scany/v2/pgxscan"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/tracer"
@@ -83,7 +84,7 @@ func (s *SessionStorageDriver) SetDeviceCodesTableName(name string) error {
 	return nil
 }
 
-// insertToken inserts each token through q: created at the database's time, unused and
+// insertTokens inserts each token through q: created at the database's time, unused and
 // not revoked, whatever it carries.
 func (s *SessionStorageDriver) insertTokens(ctx context.Context, q execer, tokens ...*dbtype.Token) error {
 	query := fmt.Sprintf(`INSERT INTO %s (%s) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), $9, NULL, NULL, NULL)`, s.tokensTable(), tokenColumns)
@@ -103,12 +104,27 @@ func (s *SessionStorageDriver) insertTokens(ctx context.Context, q execer, token
 	return nil
 }
 
-// InsertToken inserts t.
-func (s *SessionStorageDriver) InsertToken(ctx context.Context, t *dbtype.Token) error {
+// InsertToken inserts t, then removes the tokens that expired more than 30 days ago.
+func (s *SessionStorageDriver) InsertToken(ctx context.Context, t *dbtype.Token, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	return s.insertTokens(ctx, s.conn, t)
+	if err := s.recordedWrite(ctx, record, func(ctx context.Context, db statementRunner) error {
+		return s.insertTokens(ctx, db, t)
+	}); err != nil {
+		return err
+	}
+	s.removeExpiredTokens(ctx)
+
+	return nil
+}
+
+// removeExpiredTokens removes the tokens that expired more than 30 days ago, in a
+// statement of its own once a write that inserted tokens is in: a token's insert, a
+// refresh that rotated, the redeeming of an approved device code. A removal that fails
+// is logged and the write stands (removal.remove).
+func (s *SessionStorageDriver) removeExpiredTokens(ctx context.Context) {
+	tokensRemoval.remove(ctx, s.conn, s.tokensTable())
 }
 
 // queryTokens runs query on q and renders its rows.
@@ -137,7 +153,7 @@ func (s *SessionStorageDriver) TokenByHash(ctx context.Context, tokenHash []byte
 		return nil, err
 	}
 	if len(tokens) == 0 {
-		return nil, httpio.NewNotFoundMessage("no live token")
+		return nil, dbtype.TokenNotFound()
 	}
 
 	return tokens[0], nil
@@ -168,24 +184,25 @@ func (s *SessionStorageDriver) TouchToken(ctx context.Context, id impulse.UUID, 
 }
 
 // revokeIn revokes, through q at the database's time, the live tokens whose column
-// holds value.
-func (s *SessionStorageDriver) revokeIn(ctx context.Context, q execer, column string, value any, reason dbtype.TokenRevocation) error {
+// holds value, and reports how many it revoked.
+func (s *SessionStorageDriver) revokeIn(ctx context.Context, q execer, column string, value any, reason dbtype.TokenRevocation) (int64, error) {
 	if err := reason.Validate(); err != nil {
-		return errors.Wrap(err, "dbtype.TokenRevocation.Validate()")
+		return 0, errors.Wrap(err, "dbtype.TokenRevocation.Validate()")
 	}
 	query := fmt.Sprintf(`UPDATE %s SET "RevokedAt" = now(), "RevokedReason" = $2 WHERE %s = $1 AND "RevokedAt" IS NULL`, s.tokensTable(), column)
-	if _, err := q.Exec(ctx, query, value, string(reason)); err != nil {
-		return errors.Wrap(err, "Exec()")
+	tag, err := q.Exec(ctx, query, value, string(reason))
+	if err != nil {
+		return 0, errors.Wrap(err, "Exec()")
 	}
 
-	return nil
+	return tag.RowsAffected(), nil
 }
 
 // RevokeUserToken revokes the live token id of userID, at the database's time, with
 // reason: the token alone, or its whole family when it has one, so revoking a device
 // grant's refresh token revokes its access token with it. A token that is not live,
 // or is not the user's, is NotFound.
-func (s *SessionStorageDriver) RevokeUserToken(ctx context.Context, userID, id impulse.UUID, now time.Time, reason dbtype.TokenRevocation) error {
+func (s *SessionStorageDriver) RevokeUserToken(ctx context.Context, userID, id impulse.UUID, now time.Time, reason dbtype.TokenRevocation, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -196,31 +213,48 @@ func (s *SessionStorageDriver) RevokeUserToken(ctx context.Context, userID, id i
 			return err
 		}
 		if len(tokens) == 0 {
-			return httpio.NewNotFoundMessage("no live token")
+			return dbtype.TokenNotFound()
 		}
 		column, value := `"Id"`, any(id)
 		if t := tokens[0]; t.FamilyID.Valid {
 			column, value = `"FamilyId"`, any(t.FamilyID.UUID)
 		}
-		if err := s.revokeIn(ctx, tx, column, value, reason); err != nil {
+		if _, err := s.revokeIn(ctx, tx, column, value, reason); err != nil {
 			return err
 		}
 
-		return nil
+		return s.InsertAuditRecordIn(ctx, tx, record)
 	})
 }
 
 // RevokeUserTokens revokes every live token of userID, at the database's time, with
-// reason.
-func (s *SessionStorageDriver) RevokeUserTokens(ctx context.Context, userID impulse.UUID, reason dbtype.TokenRevocation) error {
+// reason. Handed nil it is one statement on the connection; handed a record it runs in
+// a transaction that writes the record where one token or more was revoked, so the
+// revocation and its row commit together or neither does.
+func (s *SessionStorageDriver) RevokeUserTokens(ctx context.Context, userID impulse.UUID, reason dbtype.TokenRevocation, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := s.revokeIn(ctx, s.conn, `"UserId"`, userID, reason); err != nil {
-		return err
+	if record == nil {
+		if _, err := s.revokeIn(ctx, s.conn, `"UserId"`, userID, reason); err != nil {
+			return err
+		}
+
+		return nil
 	}
 
-	return nil
+	return s.Transact(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		revoked, err := s.revokeIn(ctx, tx, `"UserId"`, userID, reason)
+		if err != nil {
+			return err
+		}
+		// A revocation that found no live token is no act, and is not recorded.
+		if revoked == 0 {
+			return nil
+		}
+
+		return s.InsertAuditRecordIn(ctx, tx, record)
+	})
 }
 
 // ExchangeRefreshToken rotates the refresh token holding tokenHash, in one
@@ -228,7 +262,8 @@ func (s *SessionStorageDriver) RevokeUserTokens(ctx context.Context, userID impu
 // its family, as its user, for its outlet and client (the driver fills those fields
 // of the two from the token). A token that is not a live refresh token is NotFound.
 // A refresh token already rotated is a reuse: the whole family is revoked, that is
-// committed, and the exchange returns dbtype.ErrTokenReuse.
+// committed, and the exchange returns dbtype.ErrTokenReuse. An exchange that rotated then
+// removes the tokens that expired more than 30 days ago, in a statement of its own.
 func (s *SessionStorageDriver) ExchangeRefreshToken(ctx context.Context, tokenHash []byte, now time.Time, access, refresh *dbtype.Token) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -242,14 +277,14 @@ func (s *SessionStorageDriver) ExchangeRefreshToken(ctx context.Context, tokenHa
 			return err
 		}
 		if len(tokens) == 0 || tokens[0].Kind != dbtype.TokenRefresh || !tokens[0].ExpiresAt.After(now) {
-			return httpio.NewNotFoundMessage("no live refresh token")
+			return dbtype.RefreshTokenNotFound()
 		}
 		old := tokens[0]
 		if old.RevokedAt != nil {
 			if old.RevokedReason != dbtype.TokenRevokedRotated || !old.FamilyID.Valid {
-				return httpio.NewNotFoundMessage("no live refresh token")
+				return dbtype.RefreshTokenNotFound()
 			}
-			if err := s.revokeIn(ctx, tx, `"FamilyId"`, old.FamilyID.UUID, dbtype.TokenRevokedReuse); err != nil {
+			if _, err := s.revokeIn(ctx, tx, `"FamilyId"`, old.FamilyID.UUID, dbtype.TokenRevokedReuse); err != nil {
 				return err
 			}
 			reused = true
@@ -262,7 +297,7 @@ func (s *SessionStorageDriver) ExchangeRefreshToken(ctx context.Context, tokenHa
 		if old.FamilyID.Valid {
 			column, key = `"FamilyId"`, old.FamilyID.UUID
 		}
-		if err := s.revokeIn(ctx, tx, column, key, dbtype.TokenRevokedRotated); err != nil {
+		if _, err := s.revokeIn(ctx, tx, column, key, dbtype.TokenRevokedRotated); err != nil {
 			return err
 		}
 		for _, t := range []*dbtype.Token{access, refresh} {
@@ -277,6 +312,7 @@ func (s *SessionStorageDriver) ExchangeRefreshToken(ctx context.Context, tokenHa
 	if reused {
 		return dbtype.ErrTokenReuse
 	}
+	s.removeExpiredTokens(ctx)
 
 	return nil
 }
@@ -313,7 +349,7 @@ func (r *deviceCodeRow) deviceCode() *dbtype.DeviceCode {
 }
 
 // InsertDeviceCode inserts d: created at the database's time and pending, whatever d
-// carries.
+// carries. It then removes the device codes that expired more than a day ago.
 func (s *SessionStorageDriver) InsertDeviceCode(ctx context.Context, d *dbtype.DeviceCode) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -322,6 +358,7 @@ func (s *SessionStorageDriver) InsertDeviceCode(ctx context.Context, d *dbtype.D
 	if _, err := s.conn.Exec(ctx, query, d.ID, d.DeviceCodeHash, d.UserCode, d.ClientID, d.Outlet, d.ExpiresAt); err != nil {
 		return errors.Wrap(err, "Queryer.Exec()")
 	}
+	deviceCodesRemoval.remove(ctx, s.conn, s.deviceCodesTable())
 
 	return nil
 }
@@ -358,7 +395,7 @@ func (s *SessionStorageDriver) DeviceCodeByUserCode(ctx context.Context, userCod
 		return nil, err
 	}
 	if len(codes) == 0 {
-		return nil, httpio.NewNotFoundMessage("no pending device code")
+		return nil, dbtype.DeviceCodeNotPending()
 	}
 
 	return codes[0], nil
@@ -376,7 +413,7 @@ func (s *SessionStorageDriver) ApproveDeviceCode(ctx context.Context, id, userID
 		return errors.Wrap(err, "Queryer.Exec()")
 	}
 	if tag.RowsAffected() == 0 {
-		return httpio.NewNotFoundMessage("no pending device code")
+		return dbtype.DeviceCodeNotPending()
 	}
 
 	return nil
@@ -394,7 +431,7 @@ func (s *SessionStorageDriver) DenyDeviceCode(ctx context.Context, id impulse.UU
 		return errors.Wrap(err, "Queryer.Exec()")
 	}
 	if tag.RowsAffected() == 0 {
-		return httpio.NewNotFoundMessage("no pending device code")
+		return dbtype.DeviceCodeNotPending()
 	}
 
 	return nil
@@ -407,9 +444,10 @@ func (s *SessionStorageDriver) DenyDeviceCode(ctx context.Context, id impulse.UU
 // code polled before interval passed since the last poll is slow_down and nothing is
 // written, otherwise the poll is recorded and the status is pending; a denied or
 // expired code is denied or expired. A code that is not there or was consumed is
-// NotFound.
+// NotFound. A poll that issued the tokens then removes the tokens that expired more than
+// 30 days ago, in a statement of its own.
 func (s *SessionStorageDriver) RedeemDeviceCode(
-	ctx context.Context, deviceCodeHash []byte, now time.Time, interval time.Duration, access, refresh *dbtype.Token,
+	ctx context.Context, deviceCodeHash []byte, now time.Time, interval time.Duration, access, refresh *dbtype.Token, record *auditlog.Record,
 ) (*dbtype.DeviceCode, dbtype.DeviceCodeStatus, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -423,18 +461,48 @@ func (s *SessionStorageDriver) RedeemDeviceCode(
 			return err
 		}
 		if len(codes) == 0 || codes[0].ConsumedAt != nil {
-			return httpio.NewNotFoundMessage("no device code to redeem")
+			return dbtype.DeviceCodeNotRedeemable()
 		}
 		code = codes[0]
 		status, err = s.redeemIn(ctx, tx, code, now, interval, access, refresh)
+		if err != nil || status != dbtype.DeviceApproved {
+			return err
+		}
 
-		return err
+		// Only the poll that issues the tokens is recorded, done to the account that
+		// approved the code.
+		approved, err := s.approverRecord(ctx, tx, code, record)
+		if err != nil {
+			return err
+		}
+
+		return s.InsertAuditRecordIn(ctx, tx, approved)
 	})
 	if err != nil {
 		return nil, "", err
 	}
+	if status == dbtype.DeviceApproved {
+		s.removeExpiredTokens(ctx)
+	}
 
 	return code, status, nil
+}
+
+// approverRecord answers a copy of record, the record of the redemption of code, done to
+// the account that approved the code: its id and its username, read inside tx, the id
+// where no account holds it. A nil record answers nil.
+func (s *SessionStorageDriver) approverRecord(ctx context.Context, tx pgx.Tx, code *dbtype.DeviceCode, record *auditlog.Record) (*auditlog.Record, error) {
+	if record == nil {
+		return nil, nil
+	}
+	approved := *record
+	approved.SubjectID, approved.SubjectName = code.UserID.String(), code.UserID.String()
+	err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT "Username" FROM %s WHERE "Id" = $1`, s.userTable()), code.UserID.UUID).Scan(&approved.SubjectName)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return nil, errors.Wrap(err, "pgx.Tx.QueryRow().Scan()")
+	}
+
+	return &approved, nil
 }
 
 // redeemIn decides the poll of code inside tx and writes what it decides.
@@ -462,7 +530,7 @@ func (s *SessionStorageDriver) redeemIn(
 		return "", errors.Wrap(err, "pgx.Tx.Exec()")
 	}
 	if tag.RowsAffected() == 0 {
-		return "", httpio.NewNotFoundMessage("no device code to redeem")
+		return "", dbtype.DeviceCodeNotRedeemable()
 	}
 	for _, t := range []*dbtype.Token{access, refresh} {
 		t.UserID, t.Outlet, t.ClientID = code.UserID.UUID, code.Outlet, code.ClientID

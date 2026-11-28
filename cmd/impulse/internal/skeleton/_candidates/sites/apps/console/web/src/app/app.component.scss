@@ -6,6 +6,12 @@
   z-index: 2000;
 }
 
+// The notices stack centered at the top of the screen on a page with no bar: the sign-in and
+// sign-out pages, which are routed outside the frame. On a page in the frame (the root
+// component marks the container framed while the frame is shown) they stack under its bar
+// (44px tall), never over it: the bar's menus and its place picker stay in reach while a
+// notice shows. On a phone, where a page's own buttons start right under the bar, they stack
+// at the foot of the screen on every page; the frame keeps room for them at the end of a page.
 .alert-container {
   position: fixed;
   top: 12px;
@@ -13,6 +19,18 @@
   transform: translateX(-50%);
   z-index: 1500;
   max-width: min(640px, calc(100vw - 24px));
+
+  &.framed {
+    top: 56px;
+  }
+
+  @media (max-width: 599.98px) {
+    &,
+    &.framed {
+      top: auto;
+      bottom: 16px;
+    }
+  }
 
   .alerts {
     display: flex;

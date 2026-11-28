@@ -19,7 +19,7 @@ type (
 	// and updated under unconditional grants, so an update reads nothing before the
 	// commit: renaming one client to another's name is refused there as a duplicate
 	// unique value (409), and an update under an id that does not exist is refused there
-	// as a missing row (404), both in the resource's name.
+	// as a missing row (404), each in a sentence that says the client in words.
 	//
 	// Insured records whether the outfit carries salvage cover: unknown until the booking
 	// desk hears from the underwriter, then yes or no, recorded by headquarters from the
@@ -38,23 +38,34 @@ type (
 	// tokens are anchored, so Name answers startswith and endswith beside contains, and
 	// the other two answer contains alone. @searchAlso adds
 	// the client contact's display name to the box through the contact table's own index,
-	// joined on ClientId. ContactEmail is PII, so a filter carrying the box posts. The
+	// joined on ClientId. The box so spans two search indexes, the clients' and the
+	// contacts': each term's keys are gathered from each index and joined back on the
+	// client's key, so the box joins the rest of a filter with AND alone, and a box inside
+	// an OR is refused with the way out. ContactEmail is PII, so a filter carrying the box
+	// posts. The
 	// ClientBrowser role reads name alone under `trusted = true`: its box drops the
 	// contact fields and the branch without a word and so travels in the URL, matches a
 	// name only on a trusted row, and an explicit `contactEmail:contains:` from that role
 	// is a 403. A quoted value carries the grammar's separators (`name:eq:"Halvard Freight"`).
 	//
-	// Demonstrates: pii, pii.filter-placement, allow_filter, @attribute.bool, @attribute.nullable-bool, consolidation.exclusion, commit.constraint-refusal, nullboolean, search.box, search.match, @searchAlso, search.pii-posts, search.denied-field, search.conditional-field, search.quoted-value, metadata.search.
+	// A client's delete is declared (@deleteCascade): its contacts go with it, and a
+	// mission or a consignment for the client refuses it. A mission's sorties and
+	// documents are under a client only through the mission, so they need no place in
+	// the list.
+	//
+	// Demonstrates: pii, pii.filter-placement, allow_filter, @attribute.bool, @attribute.nullable-bool, consolidation.exclusion, commit.constraint-refusal, nullboolean, search.box, search.match, @searchAlso, search.key-set, search.pii-posts, search.denied-field, search.conditional-field, search.quoted-value, metadata.search, @deleteCascade, delete.rows-under-refusal.
 	//
 	// @resource
+	// @deleteCascade(ClientContact, refusedBy: Mission, Consignment)
 	// @searchAlso(ClientContact.DisplayName)
 	// @order(Name asc)
 	// @page(default: 25, max: 200)
 	Client struct {
-		ID           impulse.UUID `spanner:"Id"`
-		Name         string       `spanner:"Name"`
-		ContactName  string       `spanner:"ContactName"  conditions:"pii"`
-		ContactEmail string       `spanner:"ContactEmail" allow_filter:"true" conditions:"pii"`
+		ID impulse.UUID `spanner:"Id"`
+		// @name
+		Name         string `spanner:"Name"`
+		ContactName  string `spanner:"ContactName"  conditions:"pii"`
+		ContactEmail string `spanner:"ContactEmail" allow_filter:"true" conditions:"pii"`
 		// @attribute(trusted)
 		Trusted bool `spanner:"Trusted"`
 		// @attribute(insured)

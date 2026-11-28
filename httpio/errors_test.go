@@ -2,6 +2,7 @@ package httpio
 
 import (
 	stderr "errors"
+	"net/http"
 	"testing"
 
 	"github.com/go-playground/errors/v5"
@@ -763,6 +764,42 @@ func TestHasUnprocessableEntity(t *testing.T) {
 				t.Errorf("HasUnprocessableEntity() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+// TestHasPreconditionRequired pins the one status that asks a question: 428 carries the
+// sentence the client is asked, and no other status is mistaken for it.
+func TestHasPreconditionRequired(t *testing.T) {
+	t.Parallel()
+
+	type args struct {
+		err error
+	}
+	tests := []struct {
+		name string
+		args args
+		want bool
+	}{
+		{name: "PreconditionRequired (with message)", args: args{err: NewPreconditionRequiredMessage("msg")}, want: true},
+		{name: "Conflict (with message)", args: args{err: NewConflictMessage("msg")}, want: false},
+		{name: "Other error", args: args{err: stderr.New("err")}, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := HasPreconditionRequired(tt.args.err); got != tt.want {
+				t.Errorf("HasPreconditionRequired() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+
+	err := NewPreconditionRequiredMessage("Delete this client and everything under it?")
+	if got := Message(err); got != "Delete this client and everything under it?" {
+		t.Errorf("Message() = %q, want the question", got)
+	}
+	cerr := &ClientMessage{}
+	if !errors.As(err, &cerr) || int(cerr.msgType) != http.StatusPreconditionRequired {
+		t.Errorf("status = %d, want %d", cerr.msgType, http.StatusPreconditionRequired)
 	}
 }
 

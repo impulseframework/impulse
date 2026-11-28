@@ -1,11 +1,15 @@
 -- The staff auth's session tables: the session library's Auth sessions (session.Auth), one
--- set of tables for every sign-in method registered on the auth. A session belongs to a
--- user, and deleting the user deletes its sessions; UserId is null only for a
+-- set of tables for every sign-in method registered on the auth. A session names its user
+-- and is not held to it by a foreign key: a deleted user's sessions are ended in code, and
+-- their rows stay until the timed removal takes them. UserId is null only for a
 -- role-principal impersonation. ProviderSessionId is the identity provider's session id
 -- when the method reports one, for front-channel logout, and ProviderSessionIssuer the
--- issuer it belongs to. Every column that records when something happened is written
--- with the database's commit time, never the application's clock, which
--- allow_commit_timestamp permits.
+-- issuer it belongs to. Browser is the name of the browser a session was signed in from
+-- ("Chrome on Android"), worked out from the request's User-Agent header when the
+-- session is made, null where it was not recognized. It tells a person's sessions apart
+-- on their account page and decides nothing. Every column that records when something
+-- happened is written with the database's commit time, never the application's clock,
+-- which allow_commit_timestamp permits.
 CREATE TABLE StaffSessions (
     Id                    STRING(36) NOT NULL,
     Username              STRING(MAX) NOT NULL,
@@ -14,10 +18,10 @@ CREATE TABLE StaffSessions (
     AuthenticatedAt       TIMESTAMP OPTIONS (allow_commit_timestamp = true),
     ProviderSessionId     STRING(MAX),
     ProviderSessionIssuer STRING(MAX),
+    Browser               STRING(MAX),
     CreatedAt             TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     UpdatedAt             TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     CONSTRAINT CK_StaffSessionsId CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-    CONSTRAINT FK_StaffSessions_StaffSessionUsers FOREIGN KEY (UserId) REFERENCES StaffSessionUsers (Id) ON DELETE CASCADE,
 ) PRIMARY KEY (Id);
 
 CREATE INDEX StaffSessions_Expired_idx ON StaffSessions (Expired DESC);
@@ -25,6 +29,10 @@ CREATE INDEX StaffSessions_Expired_idx ON StaffSessions (Expired DESC);
 CREATE INDEX StaffSessionsByUserId ON StaffSessions(UserId);
 
 CREATE INDEX StaffSessionsByProviderSessionId ON StaffSessions(ProviderSessionId);
+
+-- A session's row is removed 30 days after its last activity (UpdatedAt): Spanner deletes
+-- it in the background, with its auth events. A session in use is never removed.
+ALTER TABLE StaffSessions ADD ROW DELETION POLICY (OLDER_THAN(UpdatedAt, INTERVAL 30 DAY));
 
 -- The identity links: which provider subject is which person. A user holds one row per
 -- registration they have signed in through, keyed uniquely so a subject links to one
@@ -108,18 +116,29 @@ CREATE UNIQUE INDEX StaffSessionPendingSignInsByTokenHash ON StaffSessionPending
 
 CREATE INDEX StaffSessionPendingSignInsByExpiresAt ON StaffSessionPendingSignIns(ExpiresAt);
 
+-- A pending sign-in's row is removed one day after it expired (ExpiresAt), consumed or
+-- not: Spanner deletes it in the background, with its sign-in codes.
+ALTER TABLE StaffSessionPendingSignIns ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 1 DAY));
+
 -- The sign-in attempts: the attempt limiter's count of failed password attempts per
 -- sign-in name, known or not, within a window, and the lock those failures earned. The
 -- row is keyed by the submitted name, never by the user row, so an unknown name is
 -- counted exactly as a known one; a success, an MFA completion or a password change
--- deletes it. WindowEndsAt and LockedUntil are deadlines, written as given.
+-- deletes it. WindowEndsAt and LockedUntil are deadlines, written as given. EndsAt is the
+-- moment the row stops counting: the end of its window or of its lock, whichever is
+-- later, worked out by the database.
 CREATE TABLE StaffSessionSignInAttempts (
     Name         STRING(MAX) NOT NULL,
     Failures     INT64 NOT NULL,
     WindowEndsAt TIMESTAMP NOT NULL,
     LockedUntil  TIMESTAMP,
     UpdatedAt    TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+    EndsAt       TIMESTAMP AS (GREATEST(WindowEndsAt, IFNULL(LockedUntil, WindowEndsAt))) STORED,
 ) PRIMARY KEY (Name);
+
+-- A sign-in attempts row is removed one day after it stopped counting (EndsAt). A lock that
+-- still holds is never removed, however long it lasts.
+ALTER TABLE StaffSessionSignInAttempts ADD ROW DELETION POLICY (OLDER_THAN(EndsAt, INTERVAL 1 DAY));
 
 -- The sign-in methods: what an administrator chose, in the running application, for one
 -- sign-in method of the auth, keyed by the name the method is registered under. OpenSignUp
@@ -129,17 +148,89 @@ CREATE TABLE StaffSessionSignInAttempts (
 -- since is invite only until it is opened again. DefaultRole names the role such a
 -- person is given with their account, and holds nothing in an application whose people
 -- get their roles in a tenant. A method with no row is invite
--- only, so the table starts empty and every method starts invite only.
+-- only, so the table starts empty and every method starts invite only. SelfServiceReset,
+-- read on the password method's row alone, says a person may ask at the sign-in page for
+-- a link that resets their own password; it starts false, and with no row nobody may.
 CREATE TABLE StaffSessionSignInMethods (
-    Name        STRING(MAX) NOT NULL,
-    OpenSignUp  BOOL NOT NULL,
-    OpenedFor   STRING(MAX),
-    DefaultRole STRING(MAX),
-    UpdatedAt   TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+    Name             STRING(MAX) NOT NULL,
+    OpenSignUp       BOOL NOT NULL,
+    OpenedFor        STRING(MAX),
+    DefaultRole      STRING(MAX),
+    SelfServiceReset BOOL NOT NULL DEFAULT (false),
+    UpdatedAt        TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
 ) PRIMARY KEY (Name);
 
+-- The sign-in settings: what an administrator chose, in the running application, for the
+-- whole auth. The table holds at most one row, the Auth's, under the one name it takes
+-- ('auth'). RequireSecondFactor says everyone is asked for a second factor when they sign
+-- in, and RememberBrowserDays for how many days a browser a person asked to be remembered
+-- skips the code, 0 for browsers that are not remembered. An Auth with no row requires
+-- the second factor and remembers a browser for 30 days, so the table starts empty.
+-- UpdatedAt takes the commit time.
+CREATE TABLE StaffSessionSignInSettings (
+    Name                STRING(MAX) NOT NULL,
+    RequireSecondFactor BOOL NOT NULL,
+    RememberBrowserDays INT64 NOT NULL,
+    UpdatedAt           TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+    CONSTRAINT CK_StaffSessionSignInSettingsName CHECK (Name = 'auth'),
+) PRIMARY KEY (Name);
+
+-- The staff auth's audit log: one row for each act that changes an account, who holds
+-- what, or how people sign in. A row holds parts and no sentence: when, the act by its
+-- fixed name, who acted, whom or what it was done to, the tenant it was done in, the role,
+-- the group, the old and new value and the period where the act has them, and the reason
+-- where there was one. Each name is kept as it was when the act happened, beside its id.
+-- No row holds a password, a token, a code or a link. Rows are written by the library
+-- alone and never changed. An application that keeps them for a period adds the row
+-- deletion policy the auditlog package gives (Spanner); on PostgreSQL the store removes
+-- them as it writes.
+CREATE TABLE StaffSessionAuditRecords (
+  Id STRING(36) NOT NULL,
+  CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+  Act STRING(MAX) NOT NULL,
+  Form STRING(MAX),
+  Auth STRING(MAX),
+  ActorUserId STRING(MAX),
+  ActorUsername STRING(MAX),
+  PrincipalUserId STRING(MAX),
+  PrincipalUsername STRING(MAX),
+  PrincipalRole STRING(MAX),
+  SessionId STRING(MAX),
+  Process STRING(MAX),
+  Rpc STRING(MAX),
+  Directory STRING(MAX),
+  SubjectKind STRING(MAX) NOT NULL,
+  SubjectId STRING(MAX) NOT NULL,
+  SubjectName STRING(MAX),
+  TenantId STRING(MAX),
+  TenantName STRING(MAX),
+  RoleName STRING(MAX),
+  OtherRoleNames ARRAY<STRING(MAX)>,
+  RoleScope STRING(MAX),
+  RecordKind STRING(MAX),
+  RecordId STRING(MAX),
+  RecordWord STRING(MAX),
+  RecordName STRING(MAX),
+  GroupId STRING(MAX),
+  GroupName STRING(MAX),
+  OldValue STRING(MAX),
+  NewValue STRING(MAX),
+  PeriodStart TIMESTAMP,
+  PeriodEnd TIMESTAMP,
+  SeatingTenantId STRING(MAX),
+  SeatingTenantName STRING(MAX),
+  Reason STRING(MAX),
+  CONSTRAINT CK_StaffSessionAuditRecordsId CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
+) PRIMARY KEY (Id);
+
+CREATE INDEX StaffSessionAuditRecordsByCreatedAt ON StaffSessionAuditRecords(CreatedAt DESC);
+
+CREATE NULL_FILTERED INDEX StaffSessionAuditRecordsByTenant ON StaffSessionAuditRecords(TenantId, CreatedAt DESC);
+
 -- The mail links: the single-use links the auth mails. A row is one link: an invitation
--- to an address, carrying the tenant and the roles its acceptance seats, the name its
+-- to an address, carrying the roles its acceptance gives and the place they are held in
+-- (TenantId for one tenant, EveryTenant for every tenant, neither for the whole
+-- application: the acceptance gives each role there and nowhere else), the name its
 -- sender gave the person (Name, null for none) and who sent it, or, for an invitation
 -- that brings an organization in, the tenant its first sign-in makes (NewTenant, a JSON
 -- document: the tenant's name, whether it is entered through its directory only, and
@@ -147,12 +238,20 @@ CREATE TABLE StaffSessionSignInMethods (
 -- the verification of an address a signed-in person adds (UserId names the account,
 -- Email the address); a sign-up a person starts by giving their address; or the code a
 -- signed-in person who has no password is mailed to choose their first one (UserId
--- names the account, and the row keeps the code's hash where a link keeps its token's).
+-- names the account, and the row keeps the code's hash where a link keeps its token's);
+-- the link that resets a password (UserId names the account, Email the confirmed
+-- address it was mailed to); or the confirmation of an address an administrator set
+-- for a person (UserId names the account, Email the new address).
 -- The mail carries an opaque token and the row keeps its hash; the row is accepted only
 -- while it is live, not expired and not consumed, and is consumed by a conditional
--- update so one link completes once. A revoked invitation is consumed by hand. A
--- verification link and a first-password code go with their user. CreatedAt and
--- ConsumedAt take the commit time; ExpiresAt is the library's deadline, written as given.
+-- update so one link completes once. A revoked invitation is consumed by hand, and a
+-- link whose message could not be mailed is consumed where the mail failed, with
+-- MailFailedAt set: it tells such a link from one that was followed or withdrawn. A
+-- link that was taken back is consumed too, with WithdrawnAt set: it tells a
+-- withdrawal from an acceptance. A verification link, a first-password code, a reset
+-- link and an address confirmation go with their user. CreatedAt, ConsumedAt,
+-- MailFailedAt and WithdrawnAt take the commit time; ExpiresAt is the library's
+-- deadline, written as given.
 CREATE TABLE StaffSessionMailLinks (
     Id         STRING(36) NOT NULL,
     TokenHash  BYTES(32) NOT NULL,
@@ -161,14 +260,17 @@ CREATE TABLE StaffSessionMailLinks (
     Name       STRING(MAX),
     UserId     STRING(36),
     TenantId   STRING(MAX),
+    EveryTenant BOOL NOT NULL DEFAULT (false),
     RoleNames  ARRAY<STRING(MAX)>,
     NewTenant  STRING(MAX),
     InvitedByUserId STRING(36),
     CreatedAt  TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     ExpiresAt  TIMESTAMP NOT NULL,
     ConsumedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
+    MailFailedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
+    WithdrawnAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
     CONSTRAINT CK_StaffSessionMailLinksId CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-    CONSTRAINT CK_StaffSessionMailLinksKind CHECK (Kind IN ('invitation', 'verification', 'sign-up', 'first-password')),
+    CONSTRAINT CK_StaffSessionMailLinksKind CHECK (Kind IN ('invitation', 'verification', 'sign-up', 'first-password', 'password-reset', 'address-change')),
     CONSTRAINT FK_StaffSessionMailLinks_StaffSessionUsers FOREIGN KEY (UserId) REFERENCES StaffSessionUsers (Id) ON DELETE CASCADE,
 ) PRIMARY KEY (Id);
 
@@ -176,10 +278,14 @@ CREATE UNIQUE INDEX StaffSessionMailLinksByTokenHash ON StaffSessionMailLinks(To
 
 CREATE INDEX StaffSessionMailLinksByKind ON StaffSessionMailLinks(Kind, ConsumedAt, ExpiresAt);
 
--- A tenant's links, newest first, with the columns a tenant's list of its invitations
--- shows: a page of that list reads its own rows from the index and nothing else. A link
--- that names no tenant is not in it.
-CREATE NULL_FILTERED INDEX StaffSessionMailLinksByTenantId ON StaffSessionMailLinks(TenantId, Kind, CreatedAt DESC) STORING (Email, Name, RoleNames, InvitedByUserId, ExpiresAt, ConsumedAt);
+-- A tenant's links, newest first, with every column of the table a tenant's list of its
+-- invitations reads: a page of that list reads its own rows from the index and no row of
+-- the table. The name of an invitation's sender comes from the users table, by the
+-- sender's id. A link that names no tenant is not in it.
+CREATE NULL_FILTERED INDEX StaffSessionMailLinksByTenantId ON StaffSessionMailLinks(TenantId, Kind, CreatedAt DESC) STORING (Email, Name, RoleNames, InvitedByUserId, ExpiresAt, ConsumedAt, MailFailedAt, WithdrawnAt);
+
+-- A mail link's row is removed 30 days after the link expired (ExpiresAt), used or not.
+ALTER TABLE StaffSessionMailLinks ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY));
 
 -- The tokens: the bearer credentials of the machine outlets whose tokens the staff auth
 -- issues. A row is one credential: an application token a person issued to a program of
@@ -217,6 +323,11 @@ CREATE INDEX StaffSessionTokensByUser ON StaffSessionTokens(UserId, RevokedAt, E
 
 CREATE INDEX StaffSessionTokensByFamilyId ON StaffSessionTokens(FamilyId, RevokedAt);
 
+-- A token's row is removed 30 days after the token expired (ExpiresAt), revoked or not. A
+-- refresh token that was rotated stays until then, so one presented again before it
+-- expires is still caught as a reuse.
+ALTER TABLE StaffSessionTokens ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY));
+
 -- The device codes: the device authorizations command-line clients start for a machine
 -- outlet whose tokens the staff auth issues (RFC 8628). The client holds the opaque
 -- device code and the row keeps its hash; the person is shown the user code, normalized
@@ -246,11 +357,17 @@ CREATE UNIQUE INDEX StaffSessionDeviceCodesByHash ON StaffSessionDeviceCodes(Dev
 
 CREATE INDEX StaffSessionDeviceCodesByUserCode ON StaffSessionDeviceCodes(UserCode, ExpiresAt);
 
+-- A device code's row is removed one day after the code expired (ExpiresAt), whether it
+-- was approved, denied or never decided.
+ALTER TABLE StaffSessionDeviceCodes ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 1 DAY));
+
 -- The second factor of the staff auth's sessions: the sign-in codes and the trusted
 -- devices. A sign-in code is one code mailed for a pending sign-in (PendingId): the mail
 -- carries the code and the row keeps its hash; the row is live while it is not consumed
 -- and not expired, Attempts counts the wrong codes entered against it, and a new code for
--- the same pending sign-in consumes the earlier one. A trusted device is a browser a
+-- the same pending sign-in consumes the earlier one. A code mailed for an invitation
+-- names it (InvitationId) and accepts that one alone; every other code names none. A
+-- trusted device is a browser a
 -- person asked to be remembered after a code (UserId): the browser holds an opaque token
 -- in the auth's trusted-device cookie and the row keeps its hash; it stands in for the
 -- factor while it is not revoked and not expired, and an administrator revokes every
@@ -266,6 +383,7 @@ CREATE TABLE StaffSessionFactorCodes (
     CreatedAt  TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     ExpiresAt  TIMESTAMP NOT NULL,
     ConsumedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
+    InvitationId STRING(36),
     CONSTRAINT CK_StaffSessionFactorCodesId CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
     CONSTRAINT FK_StaffSessionFactorCodes_StaffSessionPendingSignIns FOREIGN KEY (PendingId) REFERENCES StaffSessionPendingSignIns (Id) ON DELETE CASCADE,
 ) PRIMARY KEY (Id);
@@ -287,3 +405,6 @@ CREATE TABLE StaffSessionTrustedDevices (
 CREATE UNIQUE INDEX StaffSessionTrustedDevicesByTokenHash ON StaffSessionTrustedDevices(TokenHash);
 
 CREATE INDEX StaffSessionTrustedDevicesByUser ON StaffSessionTrustedDevices(UserId, RevokedAt);
+
+-- A trusted device's row is removed 30 days after it expired (ExpiresAt), revoked or not.
+ALTER TABLE StaffSessionTrustedDevices ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY));

@@ -38,19 +38,21 @@ export type AddMembersTenantGroupMemberStatus = 204;
 
 export interface AssignMembersRoleConfig {
   userId: string | FieldPointer;
-  role: string | FieldPointer;
   domain?: string | FieldPointer;
   everyDomain: boolean | FieldPointer;
+  role: string | FieldPointer;
   startsAt?: Date | FieldPointer;
   endsAt?: Date | FieldPointer;
+  reason?: string | FieldPointer;
 }
 export interface AssignMembersRole {
   userId: string;
-  role: string;
   domain?: string;
   everyDomain: boolean;
+  role: string;
   startsAt?: Date;
   endsAt?: Date;
+  reason?: string;
 }
 /** The statuses AssignMembersRole declares; the method chooses one per response. */
 export type AssignMembersRoleStatus = 204;
@@ -60,12 +62,14 @@ export interface AssignMembersTenantRoleConfig {
   role: string | FieldPointer;
   startsAt?: Date | FieldPointer;
   endsAt?: Date | FieldPointer;
+  reason?: string | FieldPointer;
 }
 export interface AssignMembersTenantRole {
   userId: string;
   role: string;
   startsAt?: Date;
   endsAt?: Date;
+  reason?: string;
 }
 /** The statuses AssignMembersTenantRole declares; the method chooses one per response. */
 export type AssignMembersTenantRoleStatus = 204;
@@ -98,79 +102,93 @@ export interface CreateMembersTenantGroupResult {
   id: string;
 }
 
-export interface CreateMembersTenantUserConfig {
-  username: string | FieldPointer;
-  name?: string | FieldPointer;
-  email?: string | FieldPointer;
-  roles: string[] | FieldPointer;
-}
-export interface CreateMembersTenantUser {
-  username: string;
-  name?: string;
-  email?: string;
-  roles: string[];
-}
-/** The result CreateMembersTenantUser answers with. */
-export interface CreateMembersTenantUserResult {
-  id: string;
-}
-
-export interface CreateMembersUserConfig {
-  username: string | FieldPointer;
-  name?: string | FieldPointer;
-  email?: string | FieldPointer;
-  roles: string[] | FieldPointer;
-  domain?: string | FieldPointer;
-  everyDomain: boolean | FieldPointer;
-}
-export interface CreateMembersUser {
-  username: string;
-  name?: string;
-  email?: string;
-  roles: string[];
-  domain?: string;
-  everyDomain: boolean;
-}
-/** The result CreateMembersUser answers with. */
-export interface CreateMembersUserResult {
-  id: string;
-}
-
 export interface DeleteMembersGroupConfig {
   groupId: string | FieldPointer;
+  everythingUnder: boolean | FieldPointer;
+  token: string | FieldPointer;
 }
 export interface DeleteMembersGroup {
   groupId: string;
+  everythingUnder: boolean;
+  token: string;
+}
+/** The result DeleteMembersGroup answers with. */
+export interface DeleteMembersGroupResult {
+  deleted: number;
 }
 /** The statuses DeleteMembersGroup declares; the method chooses one per response. */
-export type DeleteMembersGroupStatus = 204;
+export type DeleteMembersGroupStatus = 202 | 204;
+/** The answer DeleteMembersGroup resolves with: the status the method chose and its typed result. */
+export interface DeleteMembersGroupAnswer {
+  status: DeleteMembersGroupStatus;
+  result: DeleteMembersGroupResult;
+}
 
 export interface DeleteMembersTenantGroupConfig {
   groupId: string | FieldPointer;
+  everythingUnder: boolean | FieldPointer;
+  token: string | FieldPointer;
 }
 export interface DeleteMembersTenantGroup {
   groupId: string;
+  everythingUnder: boolean;
+  token: string;
+}
+/** The result DeleteMembersTenantGroup answers with. */
+export interface DeleteMembersTenantGroupResult {
+  deleted: number;
 }
 /** The statuses DeleteMembersTenantGroup declares; the method chooses one per response. */
-export type DeleteMembersTenantGroupStatus = 204;
+export type DeleteMembersTenantGroupStatus = 202 | 204;
+/** The answer DeleteMembersTenantGroup resolves with: the status the method chose and its typed result. */
+export interface DeleteMembersTenantGroupAnswer {
+  status: DeleteMembersTenantGroupStatus;
+  result: DeleteMembersTenantGroupResult;
+}
 
 export interface DeleteMembersTenantUserConfig {
   userId: string | FieldPointer;
+  everythingUnder: boolean | FieldPointer;
+  token: string | FieldPointer;
 }
 export interface DeleteMembersTenantUser {
   userId: string;
+  everythingUnder: boolean;
+  token: string;
+}
+/** The result DeleteMembersTenantUser answers with. */
+export interface DeleteMembersTenantUserResult {
+  deleted: number;
 }
 /** The statuses DeleteMembersTenantUser declares; the method chooses one per response. */
-export type DeleteMembersTenantUserStatus = 204;
+export type DeleteMembersTenantUserStatus = 202 | 204;
+/** The answer DeleteMembersTenantUser resolves with: the status the method chose and its typed result. */
+export interface DeleteMembersTenantUserAnswer {
+  status: DeleteMembersTenantUserStatus;
+  result: DeleteMembersTenantUserResult;
+}
 
 export interface DeleteMembersUserConfig {
   userId: string | FieldPointer;
+  everythingUnder: boolean | FieldPointer;
+  token: string | FieldPointer;
 }
 export interface DeleteMembersUser {
   userId: string;
+  everythingUnder: boolean;
+  token: string;
+}
+/** The result DeleteMembersUser answers with. */
+export interface DeleteMembersUserResult {
+  deleted: number;
 }
 /** The statuses DeleteMembersUser declares; the method chooses one per response. */
-export type DeleteMembersUserStatus = 204;
+export type DeleteMembersUserStatus = 202 | 204;
+/** The answer DeleteMembersUser resolves with: the status the method chose and its typed result. */
+export interface DeleteMembersUserAnswer {
+  status: DeleteMembersUserStatus;
+  result: DeleteMembersUserResult;
+}
 
 export interface DescribeMembersGroupConfig {
   groupId: string | FieldPointer;
@@ -259,17 +277,17 @@ export type EndMembersUserSessionsStatus = 204;
 
 export interface GiveMembersGroupRoleConfig {
   groupId: string | FieldPointer;
-  role: string | FieldPointer;
   domain?: string | FieldPointer;
   everyDomain: boolean | FieldPointer;
+  role: string | FieldPointer;
   startsAt?: Date | FieldPointer;
   endsAt?: Date | FieldPointer;
 }
 export interface GiveMembersGroupRole {
   groupId: string;
-  role: string;
   domain?: string;
   everyDomain: boolean;
+  role: string;
   startsAt?: Date;
   endsAt?: Date;
 }
@@ -310,14 +328,16 @@ export interface InviteMembersTenantUserResult {
 export interface InviteMembersUserConfig {
   email: string | FieldPointer;
   name?: string | FieldPointer;
-  roles: string[] | FieldPointer;
   domain?: string | FieldPointer;
+  everyDomain: boolean | FieldPointer;
+  roles: string[] | FieldPointer;
 }
 export interface InviteMembersUser {
   email: string;
   name?: string;
-  roles: string[];
   domain?: string;
+  everyDomain: boolean;
+  roles: string[];
 }
 /** The result InviteMembersUser answers with. */
 export interface InviteMembersUserResult {
@@ -365,13 +385,24 @@ export type RemoveMembersTenantGroupMemberStatus = 204;
 export interface RemoveMembersTenantRoleConfig {
   userId: string | FieldPointer;
   role: string | FieldPointer;
+  groupId: string | FieldPointer;
 }
 export interface RemoveMembersTenantRole {
   userId: string;
   role: string;
+  groupId: string;
 }
 /** The statuses RemoveMembersTenantRole declares; the method chooses one per response. */
 export type RemoveMembersTenantRoleStatus = 204;
+
+export interface RemoveMembersTenantUserConfig {
+  userId: string | FieldPointer;
+}
+export interface RemoveMembersTenantUser {
+  userId: string;
+}
+/** The statuses RemoveMembersTenantUser declares; the method chooses one per response. */
+export type RemoveMembersTenantUserStatus = 204;
 
 export interface RenameMembersTenantUserConfig {
   userId: string | FieldPointer;
@@ -394,6 +425,35 @@ export interface RenameMembersUser {
 }
 /** The statuses RenameMembersUser declares; the method chooses one per response. */
 export type RenameMembersUserStatus = 204;
+
+export interface RequireMembersSecondFactorConfig {}
+export interface RequireMembersSecondFactor {}
+/** The statuses RequireMembersSecondFactor declares; the method chooses one per response. */
+export type RequireMembersSecondFactorStatus = 204;
+
+export interface ResendMembersInvitationConfig {
+  invitationId: string | FieldPointer;
+}
+export interface ResendMembersInvitation {
+  invitationId: string;
+}
+/** The result ResendMembersInvitation answers with. */
+export interface ResendMembersInvitationResult {
+  id: string;
+  sent: boolean;
+}
+
+export interface ResendMembersTenantInvitationConfig {
+  invitationId: string | FieldPointer;
+}
+export interface ResendMembersTenantInvitation {
+  invitationId: string;
+}
+/** The result ResendMembersTenantInvitation answers with. */
+export interface ResendMembersTenantInvitationResult {
+  id: string;
+  sent: boolean;
+}
 
 export interface RevokeMembersSessionTokenConfig {
   tokenId: string | FieldPointer;
@@ -422,16 +482,28 @@ export interface RevokeMembersUserTrustedDevices {
 /** The statuses RevokeMembersUserTrustedDevices declares; the method chooses one per response. */
 export type RevokeMembersUserTrustedDevicesStatus = 204;
 
+export interface SetMembersRememberedBrowsersConfig {
+  length: string | FieldPointer;
+}
+export interface SetMembersRememberedBrowsers {
+  length: string;
+}
+/** The statuses SetMembersRememberedBrowsers declares; the method chooses one per response. */
+export type SetMembersRememberedBrowsersStatus = 204;
+
 export interface SetMembersTenantUserEmailConfig {
   userId: string | FieldPointer;
-  email?: string | FieldPointer;
+  email: string | FieldPointer;
 }
 export interface SetMembersTenantUserEmail {
   userId: string;
-  email?: string;
+  email: string;
 }
-/** The statuses SetMembersTenantUserEmail declares; the method chooses one per response. */
-export type SetMembersTenantUserEmailStatus = 204;
+/** The result SetMembersTenantUserEmail answers with. */
+export interface SetMembersTenantUserEmailResult {
+  sent: boolean;
+  reason: string;
+}
 
 export interface SetMembersTenantUserNameConfig {
   userId: string | FieldPointer;
@@ -446,14 +518,17 @@ export type SetMembersTenantUserNameStatus = 204;
 
 export interface SetMembersUserEmailConfig {
   userId: string | FieldPointer;
-  email?: string | FieldPointer;
+  email: string | FieldPointer;
 }
 export interface SetMembersUserEmail {
   userId: string;
-  email?: string;
+  email: string;
 }
-/** The statuses SetMembersUserEmail declares; the method chooses one per response. */
-export type SetMembersUserEmailStatus = 204;
+/** The result SetMembersUserEmail answers with. */
+export interface SetMembersUserEmailResult {
+  sent: boolean;
+  reason: string;
+}
 
 export interface SetMembersUserNameConfig {
   userId: string | FieldPointer;
@@ -465,6 +540,11 @@ export interface SetMembersUserName {
 }
 /** The statuses SetMembersUserName declares; the method chooses one per response. */
 export type SetMembersUserNameStatus = 204;
+
+export interface StopRequiringMembersSecondFactorConfig {}
+export interface StopRequiringMembersSecondFactor {}
+/** The statuses StopRequiringMembersSecondFactor declares; the method chooses one per response. */
+export type StopRequiringMembersSecondFactorStatus = 204;
 
 export interface TakeMembersGroupRoleConfig {
   groupId: string | FieldPointer;
@@ -480,6 +560,21 @@ export interface TakeMembersGroupRole {
 }
 /** The statuses TakeMembersGroupRole declares; the method chooses one per response. */
 export type TakeMembersGroupRoleStatus = 204;
+
+export interface TakeMembersRoleConfig {
+  domain: string | FieldPointer;
+  role: string | FieldPointer;
+  length: string | FieldPointer;
+  reason: string | FieldPointer;
+}
+export interface TakeMembersRole {
+  domain: string;
+  role: string;
+  length: string;
+  reason: string;
+}
+/** The statuses TakeMembersRole declares; the method chooses one per response. */
+export type TakeMembersRoleStatus = 204;
 
 export interface TakeMembersTenantGroupRoleConfig {
   groupId: string | FieldPointer;
@@ -557,6 +652,12 @@ export interface SetFeatureResult {
 export interface RPCFieldMeta {
   fieldName: string;
   displayType: ValidRPCTypes;
+  /**
+   * Set on a decimal field, and on a list of decimals: its display type is number, which
+   * chooses the number control, and its value is text in JSON, so a form sends what the
+   * person typed as a string and no digit is lost.
+   */
+  decimal?: true;
   /** The resource whose rows a picker for this field lists; absent when the values are fixed (see enumeration). */
   enumeratedResource?: Resource;
   /** The fixed values of an enumeration table the field names; the picker renders them without a request. */
@@ -596,6 +697,14 @@ export interface MethodTransition {
 export interface MethodTarget {
   resource: Resource;
   key: Record<string, string>;
+  /**
+   * The request fields of the key whose empty text is a value of the key, such as the
+   * group of a role a person holds directly: a text field the method does not declare
+   * required. A row that holds the empty text there is named by it, and it is sent as it
+   * is. Every other part of the key holds a value on every row, and a row that holds
+   * none there is refused. Absent where no part of the key may be empty.
+   */
+  mayBeEmpty?: string[];
 }
 
 export interface MethodMeta {
@@ -605,6 +714,15 @@ export interface MethodMeta {
   transition?: MethodTransition;
   /** The row the method runs against; absent on a method with no target row. */
   target?: MethodTarget;
+  /**
+   * The resources whose rows offer a method that names no target row (@callerEnters naming
+   * them): a page fills the method's request from such a row, and the row's Execute answer lists
+   * the method only for a caller who holds its grant and whose session enters every tenant the
+   * row names. The answer is not the whole of the method's judgment: the call may still be
+   * refused for a reason of the method's own. Absent on a method no row answers for, which is
+   * offered wherever its grant is held.
+   */
+  offeredOn?: Resource[];
   /** Set when the method answers with a result body; absent methods resolve with nothing. */
   answers?: true;
   /** The statuses the method declares with @answers; a listed 4xx is the method's own answer, not a refusal by the frame. */
@@ -619,10 +737,13 @@ export interface MethodMeta {
   dryRun?: true;
   /**
    * Set on a method that warns before it runs (@warning): the server writes what the
-   * call will do (asked with X-Warning, nothing saved), and a dialog shows it in the
-   * warning style and holds its confirm button until the person has typed the word.
+   * call will do (asked with X-Warning, nothing saved), and a dialog shows it and holds
+   * its confirm button until the server has answered. `typed` is the word the method has
+   * a person type first, where it declares one (@warning(typed: word)): the dialog then
+   * shows the server's words in the warning style and holds the button until the word
+   * is typed too.
    */
-  warning?: { typed: string };
+  warning?: { typed?: string };
   fields: RPCFieldMeta[];
 }
 
@@ -631,7 +752,7 @@ export type MethodMap = Record<Method, MethodMeta>;
 const methodMap: MethodMap = {
   [Methods.AddMembersGroupMember]: {
     route: 'add-members-group-member',
-    target: { resource: Resources.MembersGroups, key: { groupId: 'id' } },
+    target: { resource: Resources.MembersListedGroups, key: { groupId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -659,11 +780,12 @@ const methodMap: MethodMap = {
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
-      { fieldName: 'role', displayType: 'string', required: true, attribute: 'role' },
       { fieldName: 'domain', displayType: 'string', optional: true },
       { fieldName: 'everyDomain', displayType: 'boolean' },
+      { fieldName: 'role', displayType: 'enumerated', enumeratedResource: Resources.MembersGivableRoles, required: true, attribute: 'role' },
       { fieldName: 'startsAt', displayType: 'date', optional: true },
       { fieldName: 'endsAt', displayType: 'date', optional: true },
+      { fieldName: 'reason', displayType: 'string', optional: true },
     ],
   },
   [Methods.AssignMembersTenantRole]: {
@@ -676,6 +798,7 @@ const methodMap: MethodMap = {
       { fieldName: 'role', displayType: 'enumerated', enumeratedResource: Resources.MembersTenantRoles, required: true, attribute: 'role' },
       { fieldName: 'startsAt', displayType: 'date', optional: true },
       { fieldName: 'endsAt', displayType: 'date', optional: true },
+      { fieldName: 'reason', displayType: 'string', optional: true },
     ],
   },
   [Methods.CreateMembersGroup]: {
@@ -697,69 +820,58 @@ const methodMap: MethodMap = {
       { fieldName: 'description', displayType: 'string', required: true },
     ],
   },
-  [Methods.CreateMembersTenantUser]: {
-    route: 'create-members-tenant-user',
-    answers: true,
-    dryRun: true,
-    fields: [
-      { fieldName: 'username', displayType: 'string', required: true },
-      { fieldName: 'name', displayType: 'string', optional: true },
-      { fieldName: 'email', displayType: 'string', optional: true },
-      { fieldName: 'roles', displayType: 'enumerated[]', enumeratedResource: Resources.MembersTenantRoles, attribute: 'role' },
-    ],
-  },
-  [Methods.CreateMembersUser]: {
-    route: 'create-members-user',
-    answers: true,
-    dryRun: true,
-    fields: [
-      { fieldName: 'username', displayType: 'string', required: true },
-      { fieldName: 'name', displayType: 'string', optional: true },
-      { fieldName: 'email', displayType: 'string', optional: true },
-      { fieldName: 'roles', displayType: 'string[]', attribute: 'role' },
-      { fieldName: 'domain', displayType: 'string', optional: true },
-      { fieldName: 'everyDomain', displayType: 'boolean' },
-    ],
-  },
   [Methods.DeleteMembersGroup]: {
     route: 'delete-members-group',
-    target: { resource: Resources.MembersGroups, key: { groupId: 'id' } },
-    statuses: [204],
+    target: { resource: Resources.MembersListedGroups, key: { groupId: 'id' } },
+    answers: true,
+    statuses: [202, 204],
     dryRun: true,
     fields: [
       { fieldName: 'groupId', displayType: 'uuid' },
+      { fieldName: 'everythingUnder', displayType: 'boolean' },
+      { fieldName: 'token', displayType: 'string' },
     ],
   },
   [Methods.DeleteMembersTenantGroup]: {
     route: 'delete-members-tenant-group',
     target: { resource: Resources.MembersTenantGroups, key: { groupId: 'id' } },
-    statuses: [204],
+    answers: true,
+    statuses: [202, 204],
     dryRun: true,
     fields: [
       { fieldName: 'groupId', displayType: 'uuid' },
+      { fieldName: 'everythingUnder', displayType: 'boolean' },
+      { fieldName: 'token', displayType: 'string' },
     ],
   },
   [Methods.DeleteMembersTenantUser]: {
     route: 'delete-members-tenant-user',
     target: { resource: Resources.MembersTenantUsers, key: { userId: 'id' } },
-    statuses: [204],
+    answers: true,
+    statuses: [202, 204],
     dryRun: true,
+    warning: {},
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
+      { fieldName: 'everythingUnder', displayType: 'boolean' },
+      { fieldName: 'token', displayType: 'string' },
     ],
   },
   [Methods.DeleteMembersUser]: {
     route: 'delete-members-user',
-    target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
-    statuses: [204],
+    target: { resource: Resources.MembersListedUsers, key: { userId: 'id' } },
+    answers: true,
+    statuses: [202, 204],
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
+      { fieldName: 'everythingUnder', displayType: 'boolean' },
+      { fieldName: 'token', displayType: 'string' },
     ],
   },
   [Methods.DescribeMembersGroup]: {
     route: 'describe-members-group',
-    target: { resource: Resources.MembersGroups, key: { groupId: 'id' } },
+    target: { resource: Resources.MembersListedGroups, key: { groupId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -788,7 +900,7 @@ const methodMap: MethodMap = {
   },
   [Methods.DisableMembersUser]: {
     route: 'disable-members-user',
-    target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.MembersListedUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -806,7 +918,7 @@ const methodMap: MethodMap = {
   },
   [Methods.EnableMembersUser]: {
     route: 'enable-members-user',
-    target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.MembersListedUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -815,9 +927,10 @@ const methodMap: MethodMap = {
   },
   [Methods.EndMembersSession]: {
     route: 'end-members-session',
-    target: { resource: Resources.MembersSessions, key: { sessionId: 'id' } },
+    target: { resource: Resources.MembersListedSessions, key: { sessionId: 'id' } },
     statuses: [204],
     dryRun: true,
+    warning: {},
     fields: [
       { fieldName: 'sessionId', displayType: 'uuid' },
     ],
@@ -833,7 +946,7 @@ const methodMap: MethodMap = {
   },
   [Methods.EndMembersUserSessions]: {
     route: 'end-members-user-sessions',
-    target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.MembersListedUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -842,14 +955,14 @@ const methodMap: MethodMap = {
   },
   [Methods.GiveMembersGroupRole]: {
     route: 'give-members-group-role',
-    target: { resource: Resources.MembersGroups, key: { groupId: 'id' } },
+    target: { resource: Resources.MembersListedGroups, key: { groupId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
       { fieldName: 'groupId', displayType: 'uuid' },
-      { fieldName: 'role', displayType: 'string', required: true, attribute: 'role' },
       { fieldName: 'domain', displayType: 'string', optional: true },
       { fieldName: 'everyDomain', displayType: 'boolean' },
+      { fieldName: 'role', displayType: 'enumerated', enumeratedResource: Resources.MembersGivableRoles, required: true, attribute: 'role' },
       { fieldName: 'startsAt', displayType: 'date', optional: true },
       { fieldName: 'endsAt', displayType: 'date', optional: true },
     ],
@@ -883,8 +996,9 @@ const methodMap: MethodMap = {
     fields: [
       { fieldName: 'email', displayType: 'string', required: true },
       { fieldName: 'name', displayType: 'string', optional: true },
-      { fieldName: 'roles', displayType: 'string[]', attribute: 'role' },
       { fieldName: 'domain', displayType: 'string', optional: true },
+      { fieldName: 'everyDomain', displayType: 'boolean' },
+      { fieldName: 'roles', displayType: 'enumerated[]', enumeratedResource: Resources.MembersGivableRoles, attribute: 'role' },
     ],
   },
   [Methods.RemoveMembersGroupMember]: {
@@ -892,6 +1006,7 @@ const methodMap: MethodMap = {
     target: { resource: Resources.MembersGroupUsers, key: { groupId: 'groupId', userId: 'userId' } },
     statuses: [204],
     dryRun: true,
+    warning: {},
     fields: [
       { fieldName: 'groupId', displayType: 'uuid' },
       { fieldName: 'userId', displayType: 'uuid' },
@@ -899,8 +1014,10 @@ const methodMap: MethodMap = {
   },
   [Methods.RemoveMembersRole]: {
     route: 'remove-members-role',
+    offeredOn: [Resources.MembersHeldRoles, Resources.MembersTakenRoles],
     statuses: [204],
     dryRun: true,
+    warning: {},
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
       { fieldName: 'role', displayType: 'string', required: true },
@@ -913,6 +1030,7 @@ const methodMap: MethodMap = {
     target: { resource: Resources.MembersTenantGroupUsers, key: { groupId: 'groupId', userId: 'userId' } },
     statuses: [204],
     dryRun: true,
+    warning: {},
     fields: [
       { fieldName: 'groupId', displayType: 'uuid' },
       { fieldName: 'userId', displayType: 'uuid' },
@@ -920,12 +1038,24 @@ const methodMap: MethodMap = {
   },
   [Methods.RemoveMembersTenantRole]: {
     route: 'remove-members-tenant-role',
-    target: { resource: Resources.MembersTenantUserRoles, key: { userId: 'userId', role: 'role' } },
+    target: { resource: Resources.MembersTenantHeldRoles, key: { userId: 'userId', role: 'role', groupId: 'groupId' }, mayBeEmpty: ['groupId'] },
     statuses: [204],
     dryRun: true,
+    warning: {},
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
       { fieldName: 'role', displayType: 'string', required: true },
+      { fieldName: 'groupId', displayType: 'string' },
+    ],
+  },
+  [Methods.RemoveMembersTenantUser]: {
+    route: 'remove-members-tenant-user',
+    target: { resource: Resources.MembersTenantUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    warning: { typed: 'remove' },
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
     ],
   },
   [Methods.RenameMembersTenantUser]: {
@@ -940,12 +1070,36 @@ const methodMap: MethodMap = {
   },
   [Methods.RenameMembersUser]: {
     route: 'rename-members-user',
-    target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.MembersListedUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
       { fieldName: 'username', displayType: 'string', required: true },
+    ],
+  },
+  [Methods.RequireMembersSecondFactor]: {
+    route: 'require-members-second-factor',
+    statuses: [204],
+    dryRun: true,
+    fields: [],
+  },
+  [Methods.ResendMembersInvitation]: {
+    route: 'resend-members-invitation',
+    target: { resource: Resources.MembersListedMailLinks, key: { invitationId: 'id' } },
+    answers: true,
+    dryRun: true,
+    fields: [
+      { fieldName: 'invitationId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.ResendMembersTenantInvitation]: {
+    route: 'resend-members-tenant-invitation',
+    target: { resource: Resources.MembersTenantInvitations, key: { invitationId: 'id' } },
+    answers: true,
+    dryRun: true,
+    fields: [
+      { fieldName: 'invitationId', displayType: 'uuid' },
     ],
   },
   [Methods.RevokeMembersSessionToken]: {
@@ -968,21 +1122,29 @@ const methodMap: MethodMap = {
   },
   [Methods.RevokeMembersUserTrustedDevices]: {
     route: 'revoke-members-user-trusted-devices',
-    target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.MembersListedUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
     ],
   },
-  [Methods.SetMembersTenantUserEmail]: {
-    route: 'set-members-tenant-user-email',
-    target: { resource: Resources.MembersTenantUsers, key: { userId: 'id' } },
+  [Methods.SetMembersRememberedBrowsers]: {
+    route: 'set-members-remembered-browsers',
     statuses: [204],
     dryRun: true,
     fields: [
+      { fieldName: 'length', displayType: 'enumerated', enumeratedResource: Resources.MembersRememberLengths, required: true },
+    ],
+  },
+  [Methods.SetMembersTenantUserEmail]: {
+    route: 'set-members-tenant-user-email',
+    target: { resource: Resources.MembersTenantUsers, key: { userId: 'id' } },
+    answers: true,
+    dryRun: true,
+    fields: [
       { fieldName: 'userId', displayType: 'uuid' },
-      { fieldName: 'email', displayType: 'string', optional: true },
+      { fieldName: 'email', displayType: 'string', required: true },
     ],
   },
   [Methods.SetMembersTenantUserName]: {
@@ -997,17 +1159,17 @@ const methodMap: MethodMap = {
   },
   [Methods.SetMembersUserEmail]: {
     route: 'set-members-user-email',
-    target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
-    statuses: [204],
+    target: { resource: Resources.MembersListedUsers, key: { userId: 'id' } },
+    answers: true,
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
-      { fieldName: 'email', displayType: 'string', optional: true },
+      { fieldName: 'email', displayType: 'string', required: true },
     ],
   },
   [Methods.SetMembersUserName]: {
     route: 'set-members-user-name',
-    target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.MembersListedUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -1015,8 +1177,16 @@ const methodMap: MethodMap = {
       { fieldName: 'name', displayType: 'string', optional: true },
     ],
   },
+  [Methods.StopRequiringMembersSecondFactor]: {
+    route: 'stop-requiring-members-second-factor',
+    statuses: [204],
+    dryRun: true,
+    warning: { typed: 'stop' },
+    fields: [],
+  },
   [Methods.TakeMembersGroupRole]: {
     route: 'take-members-group-role',
+    offeredOn: [Resources.MembersListedGroupRoles],
     statuses: [204],
     dryRun: true,
     fields: [
@@ -1024,6 +1194,17 @@ const methodMap: MethodMap = {
       { fieldName: 'role', displayType: 'string', required: true },
       { fieldName: 'domain', displayType: 'string', optional: true },
       { fieldName: 'everyDomain', displayType: 'boolean' },
+    ],
+  },
+  [Methods.TakeMembersRole]: {
+    route: 'take-members-role',
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'domain', displayType: 'string', required: true },
+      { fieldName: 'role', displayType: 'enumerated', enumeratedResource: Resources.MembersTakeableRoles, required: true, attribute: 'role' },
+      { fieldName: 'length', displayType: 'enumerated', enumeratedResource: Resources.MembersTakeLengths, required: true },
+      { fieldName: 'reason', displayType: 'string', required: true },
     ],
   },
   [Methods.TakeMembersTenantGroupRole]: {
@@ -1038,7 +1219,7 @@ const methodMap: MethodMap = {
   },
   [Methods.UnlinkMembersSessionIdentity]: {
     route: 'unlink-members-session-identity',
-    target: { resource: Resources.MembersSessionIdentities, key: { identityId: 'id' } },
+    target: { resource: Resources.MembersListedIdentities, key: { identityId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -1056,7 +1237,7 @@ const methodMap: MethodMap = {
   },
   [Methods.UnlockMembersSignIn]: {
     route: 'unlock-members-sign-in',
-    target: { resource: Resources.MembersSessionSignInAttempts, key: { name: 'name' } },
+    target: { resource: Resources.MembersListedSignInAttempts, key: { name: 'name' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -1065,7 +1246,7 @@ const methodMap: MethodMap = {
   },
   [Methods.WithdrawMembersInvitation]: {
     route: 'withdraw-members-invitation',
-    target: { resource: Resources.MembersSessionMailLinks, key: { invitationId: 'id' } },
+    target: { resource: Resources.MembersListedMailLinks, key: { invitationId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [

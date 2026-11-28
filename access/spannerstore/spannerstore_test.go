@@ -6,8 +6,11 @@ import (
 	"testing"
 
 	"cloud.google.com/go/spanner"
+	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/access/internal/storetest"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
+	"google.golang.org/api/iterator"
 	"google.golang.org/grpc/codes"
 )
 
@@ -41,6 +44,13 @@ func TestNew_naming(t *testing.T) {
 			if !strings.Contains(ddl, "CREATE TABLE "+tt.wantTable+" (") {
 				t.Errorf("DDL() does not create table %s:\n%s", tt.wantTable, ddl)
 			}
+			// The roles held on a record are named by the same rule.
+			base := strings.TrimSuffix(tt.wantTable, "Roles")
+			for _, table := range []string{base + "RecordUserRoles", base + "RecordGroupRoles"} {
+				if !strings.Contains(ddl, "CREATE TABLE "+table+" (") {
+					t.Errorf("DDL() does not create table %s:\n%s", table, ddl)
+				}
+			}
 		})
 	}
 }
@@ -49,16 +59,68 @@ func TestStore_conformance(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	store, _ := prepareStore(ctx, t)
-	storetest.Run(t, store)
+	store, database := prepareStore(ctx, t)
+	storetest.Run(t, store, roleWriter(database, store))
 }
 
 func TestStore_conformance_namedStore(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	store, _ := prepareStore(ctx, t, WithStore("AdminPortal"))
-	storetest.Run(t, store)
+	store, database := prepareStore(ctx, t, WithStore("AdminPortal"))
+	storetest.Run(t, store, roleWriter(database, store))
+}
+
+// TestStore_auditRecords runs the shared audit phase on Spanner: the store named the
+// audit records table, made by auditlog.SpannerDDL in the store's own migration, and a
+// store of the same tables that names none.
+func TestStore_auditRecords(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	const table = "SessionAuditRecords"
+	database, err := container.CreateDatabase(ctx, strings.ToLower(t.Name()))
+	if err != nil {
+		t.Fatalf("db.SpannerContainer.CreateDatabase(): %v", err)
+	}
+	t.Cleanup(func() {
+		if err := database.Close(); err != nil {
+			t.Logf("db.SpannerDB.Close(): %v", err)
+		}
+	})
+	recording, err := New(database.Client, WithAuditRecords(table))
+	if err != nil {
+		t.Fatalf("spannerstore.New(): %v", err)
+	}
+	if err := applyDDL(t, database, recording, auditlog.SpannerDDL(table, auditlog.KeepForever())...); err != nil {
+		t.Fatalf("applying DDL: %v", err)
+	}
+	plain, err := New(database.Client)
+	if err != nil {
+		t.Fatalf("spannerstore.New(): %v", err)
+	}
+
+	storetest.RunAuditRecords(t, recording, plain, func(t *testing.T) []storetest.AuditRow {
+		t.Helper()
+		iter := database.Single().Query(t.Context(), spanner.Statement{SQL: `SELECT Act, IFNULL(Process, ''), IFNULL(Directory, ''), SubjectId,
+			IFNULL(RoleName, '') FROM ` + table + ` ORDER BY CreatedAt`})
+		defer iter.Stop()
+		var rows []storetest.AuditRow
+		for {
+			row, err := iter.Next()
+			if errors.Is(err, iterator.Done) {
+				return rows
+			}
+			if err != nil {
+				t.Fatalf("read the audit records: %v", err)
+			}
+			var r storetest.AuditRow
+			if err := row.Columns(&r.Act, &r.Process, &r.Directory, &r.SubjectID, &r.RoleName); err != nil {
+				t.Fatalf("read the audit records: %v", err)
+			}
+			rows = append(rows, r)
+		}
+	})
 }
 
 // TestStore_isolation proves separate stores in one database cannot see each
@@ -79,7 +141,7 @@ func TestStore_isolation(t *testing.T) {
 	if err := adminStore.InsertRole(ctx, accesstypes.DomainPolicyScope("tenant1"), "Editor", "Edits the records of the tenant."); err != nil {
 		t.Fatalf("InsertRole() error = %v", err)
 	}
-	if err := adminStore.InsertUserRole(ctx, accesstypes.DomainPolicyScope("tenant1"), "alice", "Editor", accesstypes.Period{}); err != nil {
+	if err := adminStore.InsertUserRole(ctx, accesstypes.DomainPolicyScope("tenant1"), "alice", "Editor", accesstypes.Period{}, "", nil); err != nil {
 		t.Fatalf("InsertUserRole() error = %v", err)
 	}
 
@@ -100,10 +162,10 @@ func TestStore_isolation(t *testing.T) {
 // them (FailedPrecondition, "Cloud Spanner does not support nested transactions"),
 // whichever client the transaction is on, since it marks the context it hands the
 // transaction's function. The store reads on a client of its own, outside any
-// transaction, so a caller reads the policy and lists roles before it opens one. The
-// permission engine reloads on the check path with the caller's context, so a check
-// made inside a transaction right after a local policy write cannot reload here, and
-// is answered from the snapshot before the write (the engine's own test shows it).
+// transaction, so a caller reads the policy and lists roles before it opens one. It is
+// why the permission engine never reads the store under a caller's context: a check
+// made inside a transaction is answered from a reload on the engine's own
+// (TestEngine_checksInsideAnOpenTransaction).
 func TestStore_readsUnderATransactionsContext(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -131,6 +193,19 @@ func TestStore_readsUnderATransactionsContext(t *testing.T) {
 			t.Errorf("%s under a transaction's context error = %v, want the client's refusal of a nested transaction (FailedPrecondition)", name, err)
 		}
 	}
+}
+
+// TestEngine_checksInsideAnOpenTransaction runs the engine's suite on Spanner: a role
+// is taken away, and the first check after the engine learns of it is made inside an
+// open read-write transaction of another request, under the context the Spanner client
+// refuses a read of the store's under. The check sees the role gone, since the engine
+// reloads on its own context, beside the transaction and not under it.
+func TestEngine_checksInsideAnOpenTransaction(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	store, database := prepareStore(ctx, t)
+	storetest.RunEngine(t, store, openTransaction(database))
 }
 
 // TestDDL_keys pins the shape of the tables: Kind leads every key and is
@@ -189,6 +264,19 @@ func TestDDL_keys(t *testing.T) {
 			"PRIMARY KEY (GroupId, Kind, Axis, DomainId, Role)",
 		}},
 		{name: "group roles by where they are held", stmt: 9, want: []string{"CREATE INDEX AccessGroupRolesByScope ON AccessGroupRoles (Kind, Axis, DomainId, Role)"}},
+		{name: "a person's roles on a record lead with the record", stmt: 10, want: []string{
+			"CREATE TABLE AccessRecordUserRoles (",
+			"Resource STRING(128) NOT NULL", "RecordId STRING(MAX) NOT NULL", "UserId STRING(320) NOT NULL",
+			"PRIMARY KEY (Axis, DomainId, Resource, RecordId, Role, UserId)",
+		}},
+		{name: "a person's roles on records by user", stmt: 11, want: []string{"CREATE INDEX AccessRecordUserRolesByUserId ON AccessRecordUserRoles (UserId, Axis, DomainId)"}},
+		{name: "a group's role on a record needs the group", stmt: 12, want: []string{
+			"CREATE TABLE AccessRecordGroupRoles (",
+			"GroupId STRING(36) NOT NULL",
+			"CONSTRAINT AccessRecordGroupRolesGroup FOREIGN KEY (GroupId) REFERENCES AccessGroups (Id)",
+			"PRIMARY KEY (Axis, DomainId, Resource, RecordId, Role, GroupId)",
+		}},
+		{name: "a group's roles on records by group", stmt: 13, want: []string{"CREATE INDEX AccessRecordGroupRolesByGroupId ON AccessRecordGroupRoles (GroupId)"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

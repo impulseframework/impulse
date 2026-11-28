@@ -164,12 +164,12 @@ func TestTenant_RemoveRole(t *testing.T) {
 			wantWrites:  []string{"delete membership domain/alpha " + userID.String() + " Reader"},
 		},
 		{
-			name:        "a role held in every tenant alone is not the tenant's to take, in a sentence that names the person by username",
+			name:        "a role held in every tenant alone is not the tenant's to take",
 			caller:      erin,
-			role:        "Reader",
-			memberships: []access.MembershipKey{membership(everyScope, dana, "Reader")},
+			role:        "NightShiftLead",
+			memberships: []access.MembershipKey{membership(everyScope, dana, "NightShiftLead")},
 			wantErr:     httpio.HasConflict,
-			wantMessage: "dana holds the role Reader in every tenant, which is not one tenant's to take away",
+			wantMessage: "This person holds the role Night shift lead in every tenant, which is not one tenant's to take away.",
 		},
 		{
 			name:        "a role held in another tenant is not this tenant's: nothing is written",
@@ -178,11 +178,11 @@ func TestTenant_RemoveRole(t *testing.T) {
 			memberships: []access.MembershipKey{membership(betaScope, dana, "Reader")},
 		},
 		{
-			name:        "the last role anywhere takes the account with it",
+			name:        "the last role anywhere: the account stays",
 			caller:      erin,
 			role:        "Reader",
 			memberships: []access.MembershipKey{membership(alphaScope, dana, "Reader")},
-			wantWrites:  []string{"delete user " + userID.String(), "delete membership domain/alpha " + userID.String() + " Reader"},
+			wantWrites:  []string{"delete membership domain/alpha " + userID.String() + " Reader"},
 		},
 		{
 			name:        "the tenant's last administrator keeps their own role",
@@ -228,73 +228,6 @@ func TestTenant_RemoveRole(t *testing.T) {
 				}
 			} else if err != nil {
 				t.Fatalf("RemoveRole() error = %v", err)
-			}
-			if diff := cmp.Diff(tt.wantWrites, store.writes); diff != "" {
-				t.Errorf("buffered writes (-want +got):\n%s", diff)
-			}
-		})
-	}
-}
-
-// TestTenant_CreateUser pins a person created by a tenant: the roles are held in the
-// request's tenant, under the new user's id, whatever scope the account names.
-func TestTenant_CreateUser(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		account    NewAccount
-		wantErr    func(error) bool
-		wantWrites []string
-	}{
-		{
-			name:       "the roles are held in the request's tenant",
-			account:    NewAccount{Username: "pat", Roles: []accesstypes.Role{"Reader"}},
-			wantWrites: []string{"insert user pat <none>", "insert membership domain/alpha " + createdID.String() + " Reader"},
-		},
-		{
-			name:       "a scope the account names is not read",
-			account:    NewAccount{Username: "pat", Scope: everyScope, Roles: []accesstypes.Role{"Reader"}},
-			wantWrites: []string{"insert user pat <none>", "insert membership domain/alpha " + createdID.String() + " Reader"},
-		},
-		{
-			name:       "a role of the whole application is no role of a tenant",
-			account:    NewAccount{Username: "pat", Scope: globalScope, Roles: []accesstypes.Role{"Steward"}},
-			wantErr:    httpio.HasNotFound,
-			wantWrites: []string{"insert user pat <none>"},
-		},
-		{name: "no role is refused", account: NewAccount{Username: "pat"}, wantErr: httpio.HasBadRequest},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			store := &fakeStore{memberships: map[access.MembershipKey]bool{}, nextID: createdID}
-			m, _ := newManager(t, store, engineRoles)
-
-			var got impulse.UUID
-			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-				ctx = inAlpha(ctx, erin)
-				tenant, err := m.Tenant(ctx)
-				if err != nil {
-					return err
-				}
-				account := tt.account
-				got, err = tenant.CreateUser(ctx, txn, &account)
-
-				return err
-			})
-			if tt.wantErr != nil {
-				if err == nil || !tt.wantErr(err) {
-					t.Fatalf("CreateUser() error = %v, want the refusal", err)
-				}
-			} else {
-				if err != nil {
-					t.Fatalf("CreateUser() error = %v", err)
-				}
-				if got != createdID {
-					t.Errorf("CreateUser() = %s, want the new user's id %s", got, createdID)
-				}
 			}
 			if diff := cmp.Diff(tt.wantWrites, store.writes); diff != "" {
 				t.Errorf("buffered writes (-want +got):\n%s", diff)

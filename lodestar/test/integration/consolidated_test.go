@@ -49,7 +49,9 @@ func TestConsolidatedBatchSemantics(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	createGrants := grants{accesstypes.Create: withFields(missionsResource, "clientId", "kindId", "title", "hazard", "fee", "deadline")}
+	// A mission names its client, picked from the sector's roster, so its writer lists the
+	// roster.
+	createGrants := grants{accesstypes.Create: withFields(missionsResource, "clientId", "kindId", "title", "hazard", "fee", "deadline"), accesstypes.List: {"ClientRosters"}}
 	value := func(title string) string {
 		return fmt.Sprintf(`{"clientId":%q,"kindId":"courier","title":%q,"hazard":1,"fee":100,"deadline":%q}`, clientHalvardID, title, deadline(365))
 	}

@@ -44,8 +44,9 @@ func (h *Handlers) CrewSessions() http.HandlerFunc {
 		}
 
 		// A live list registers before the query runs, so a commit that lands during
-		// the query is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, h.LiveService(), querySet, live.ListSubscription(querySet.Resource(), ""))
+		// the query is not missed; a refused request registers nothing. With it the
+		// request registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, h.LiveService(), querySet, live.ListSubscription(querySet.Resource(), ""))
 
 		res := crewresources.NewCrewSessionQueryFromQuerySet(querySet)
 
@@ -142,8 +143,9 @@ func (h *Handlers) CrewSession() http.HandlerFunc {
 		}
 
 		// A live row registers before the read runs, so a commit that lands during the
-		// read is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, h.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(id)))
+		// read is not missed; a refused request registers nothing. With it the request
+		// registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, h.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(id)))
 
 		res := crewresources.NewCrewSessionQueryFromQuerySet(querySet).SetID(id)
 
@@ -191,5 +193,41 @@ func (h *Handlers) CrewSession() http.HandlerFunc {
 		live.SetCacheControl(w, r)
 
 		return httpio.NewEncoder(w).Ok(rmap)
+	})
+}
+
+// CrewSessionChangeHistory answers a page of one crew session's change records, newest first, to whoever may read the record, with the fields they may see on it. It answers 404 while the resource does not track its changes.
+func (h *Handlers) CrewSessionChangeHistory() http.HandlerFunc {
+	type response struct {
+		ID              impulse.UUID  `json:"id"              index:"true" perm:"-"`
+		UserID          *impulse.UUID `json:"userId"`
+		Username        string        `json:"username"`
+		Expired         bool          `json:"expired"`
+		AuthenticatedAt *time.Time    `json:"authenticatedAt"`
+		CreatedAt       time.Time     `json:"createdAt"`
+		UpdatedAt       time.Time     `json:"updatedAt"`
+	}
+
+	decoder := NewQueryDecoder[crewresources.CrewSession, response](h, accesstypes.Read)
+
+	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := tracer.Start(r.Context())
+		defer span.End()
+
+		id := httpio.Param[impulse.UUID](r, router.CrewSessionID)
+
+		history, err := decoder.DecodeChangeHistory(r, h.UserPermissions(r), accesstypes.GlobalScope())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		crewresources.NewCrewSessionQueryFromQuerySet(history.QuerySet()).SetID(id)
+
+		page, err := history.Read(ctx, h.ResourceClient())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok(page)
 	})
 }

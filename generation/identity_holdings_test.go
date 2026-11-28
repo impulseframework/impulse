@@ -1,0 +1,745 @@
+package generation
+
+import (
+	"slices"
+	"strings"
+	"testing"
+
+	"github.com/google/go-cmp/cmp"
+	"github.com/impulseframework/impulse/accesstypes"
+)
+
+// losingSQL is the count of the people who lose a group's role, as a list of the roles
+// groups hold selects it for the row read under r of the group read under g, over the
+// fixture's Crew tables.
+func losingSQL() string {
+	gives := func(group, role string) string {
+		return role + ".Role != 'SuperAdministrator' AND (" + group + ".Kind = 'global' OR (" + role + ".Kind = " + group + ".Kind AND " + role + ".Axis = " + group + ".Axis AND " + role + ".DomainId = " + group + ".DomainId))"
+	}
+	where := func(held string) string {
+		return held + ".Axis = r.Axis AND ((" + held + ".Kind = r.Kind AND " + held + ".DomainId = r.DomainId) OR (r.Kind = 'domain' AND " + held + ".Kind = 'every'))"
+	}
+
+	return strings.Join([]string{
+		"  (SELECT COUNT(*) FROM CrewGroupMembers lm",
+		"   WHERE lm.GroupId = r.GroupId",
+		"     AND " + countingSQL("lm"),
+		"     AND " + countingSQL("r"),
+		"     AND " + gives("g", "r"),
+		"     AND NOT EXISTS (",
+		"       SELECT 1 FROM CrewUserRoles@{FORCE_INDEX=CrewUserRolesByUserId} lo",
+		"       WHERE lo.UserId = lm.UserId AND lo.Role = r.Role",
+		"         AND " + countingSQL("lo"),
+		"         AND " + where("lo"),
+		"     )",
+		"     AND NOT EXISTS (",
+		"       SELECT 1 FROM CrewGroupMembers@{FORCE_INDEX=CrewGroupMembersByUserId} lp",
+		"       JOIN CrewGroupRoles lr ON lr.GroupId = lp.GroupId",
+		"       JOIN CrewGroups lg ON lg.Id = lp.GroupId",
+		"       WHERE lp.UserId = lm.UserId AND lr.Role = r.Role",
+		"         AND " + countingSQL("lp"),
+		"         AND " + countingSQL("lr"),
+		"         AND " + where("lr"),
+		"         AND " + gives("lg", "lr"),
+		"         AND NOT (lr.GroupId = r.GroupId AND lr.Kind = r.Kind AND lr.Axis = r.Axis AND lr.DomainId = r.DomainId)",
+		"     )",
+		"  ) AS Losing",
+	}, "\n")
+}
+
+// Test_prepareIdentity_holdings pins what an auth is written of what is held and why,
+// for the whole application: the reason on the declaration over the memberships and on
+// the method that gives a role, with the store's write of it; a person's roles as one
+// list, a role of their own beside one that comes through a group, the group part of
+// what names a row; the groups listed with how many people each has and the roles each holds,
+// over what has not ended, which the whole application's methods name a group by; a
+// group's roles with how many people lose each, counted among what counts now; the roles
+// held for a set time with a reason; and the taking of a role with the two lists its
+// form picks from. An auth whose directory writes its roles takes none and keeps no
+// groups: its people's roles are one list all the same.
+func Test_prepareIdentity_holdings(t *testing.T) {
+	// As Test_prepareIdentity: the working directory is the process's, no t.Parallel.
+	t.Chdir(t.TempDir())
+
+	r := identityFixtureGenerator(t, slices.Concat(crewEveryTable, crewGroupTables, membersIdentityTables, membersGroupTables)...)
+	r.extraOutlets[1].auth = &outletAuth{importPath: membersAuthPath, methods: []AuthMethod{AzureMethod("directory").SyncsRoles()}}
+	if err := r.prepareIdentity(); err != nil {
+		t.Fatalf("prepareIdentity() error = %v", err)
+	}
+
+	requireLines(t, map[string][]string{
+		"internal/crewresources/crew_user_roles.go": {"Reason    *string    `spanner:\"Reason\"`", "Reason is why the role was given"},
+		"crewidentity/assign_crew_role.go": {
+			"\t// Reason says why the role is given: one line of plain text, kept with the role and\n\t// shown wherever the person's roles are listed. Left out, the role carries none.\n\tReason *string\n}",
+			"identity.RequestReason(m.Reason)",
+		},
+		"crewidentity/store.go": {
+			"func (store) SetMembershipPeriod(ctx context.Context, txn resource.ReadWriteTransaction, key *access.MembershipKey, period accesstypes.Period, reason string) error {\n\tvar why *string\n\tif reason != \"\" {\n\t\twhy = &reason\n\t}",
+			"SetStartsAt(period.StartPtr()).\n\t\tSetEndsAt(period.EndPtr()).\n\t\tSetReason(why)",
+			"if row.Data.Reason != nil && *row.Data.Reason != \"\" {\n\t\t\tperiods.Reasons[key] = *row.Data.Reason\n\t\t}",
+		},
+		"internal/crewresources/crew_held_roles.go": {
+			"// @virtual\n\t// @suppress(readHandler)\n\t// @outlet(default)\n\t// @order(Username asc, Role asc, GroupName asc)",
+			"// @primarykey\n\t\t// @roleOf(Crew)\n\t\tRole string `spanner:\"Role\" index:\"true\"`",
+			"// @enumerate(CrewListedGroups)\n\t\t// @primarykey\n\t\tGroupID   string     `spanner:\"GroupId\"   index:\"true\"`",
+			"Reason    *string    `spanner:\"Reason\"`",
+			"  m.Role AS Role,\n  '' AS GroupId,\n  '' AS GroupName,",
+			"  m.Reason AS Reason\nFROM CrewUserRoles m\nJOIN CrewSessionUsers u ON u.Id = m.UserId\nWHERE " + standingSQL("m") + "\nUNION ALL\nSELECT",
+			"  h.Role AS Role,\n  h.GroupId AS GroupId,\n  h.GroupName AS GroupName,",
+			"  CAST(NULL AS STRING) AS Reason\nFROM (` + crewUserGroupRoleQuery + `) h\n`",
+		},
+		"internal/crewresources/crew_user_group_roles.go": {
+			"CreatedAt time.Time  `spanner:\"CreatedAt\"`",
+			"  GREATEST(r.CreatedAt, m.CreatedAt) AS CreatedAt,\n",
+		},
+		"internal/crewresources/crew_listed_groups.go": {
+			"// @virtual\n\t// @outlet(default)\n\t// @order(Name asc)",
+			"// @primarykey\n\t\t// @attribute(group)\n\t\tID          impulse.UUID `spanner:\"Id\"          index:\"true\"`",
+			"People      int64        `spanner:\"People\"`\n\t\t// @roleOf(Crew)\n\t\tRoles []string `spanner:\"Roles\"`",
+			"  (SELECT COUNT(*) FROM CrewGroupMembers cm WHERE cm.GroupId = g.Id AND " + standingSQL("cm") + ") AS People,\n",
+			// An application with no tenant record holds every role where its groups are kept.
+			"  ARRAY(SELECT cr.Role FROM CrewGroupRoles cr WHERE cr.GroupId = g.Id AND " + standingSQL("cr") + " ORDER BY cr.Role) AS Roles\nFROM CrewGroups g\n`",
+		},
+		// The accounts with what each holds: the account's columns, the four a list filters
+		// by, a line for each role the person holds as the one list of their roles has it,
+		// and the lock of an auth whose schema counts failed sign-ins. An application with
+		// no tenant record holds every role in the whole application: a line is the role's
+		// name, and the query joins no tenant. The count of the browsers remembered for
+		// each account follows the lock (Test_prepareIdentity_trustedDevices).
+		"internal/crewresources/crew_listed_users.go": {
+			"// @virtual\n\t// @outlet(default)\n\t// @order(Username asc)\n\t// @page(default: 25, max: 200)\n\t// @rowWord(account)\n\tCrewListedUser struct {",
+			"// @primarykey\n\t\tID                     impulse.UUID `spanner:\"Id\"                     index:\"true\"`\n\t\tUsername               string       `spanner:\"Username\"               index:\"true\"`\n\t\tName                   *string      `spanner:\"Name\"                   index:\"true\"`\n\t\tEmail                  *string      `spanner:\"Email\"                  index:\"true\"`\n\t\tEmailVerifiedAt        *time.Time   `spanner:\"EmailVerifiedAt\"`",
+			"// @roleOf(Crew)\n\t\tRoles          []string   `spanner:\"Roles\"`\n\t\tLockedUntil    *time.Time `spanner:\"LockedUntil\"`\n\t\tTrustedDevices int64      `spanner:\"TrustedDevices\"`\n\t}",
+			"  u.LastSignInAt AS LastSignInAt,\n  ARRAY(\n    SELECT DISTINCT hr.Role AS Line\n    FROM (` + crewHeldRoleQuery + `) hr\n    WHERE hr.UserId = u.Id\n    ORDER BY Line\n  ) AS Roles,\n" +
+				"  (SELECT MAX(la.LockedUntil) FROM CrewSessionSignInAttempts la\n   WHERE la.Name IN (u.NormalizedUsername, CONCAT('FIRST-PASSWORD:', u.Id), CONCAT('CODE-GUESS:', u.Id))\n     AND la.LockedUntil > CURRENT_TIMESTAMP()) AS LockedUntil,\n  (SELECT COUNT(*) FROM CrewSessionTrustedDevices td\n",
+			"func (CrewListedUser) Subquery() (query string, params map[string]any) {\n\treturn crewListedUserQuery, nil\n}",
+		},
+		"internal/crewresources/crew_listed_group_roles.go": {
+			"// @virtual\n\t// @suppress(readHandler)",
+			"Losing    int64      `spanner:\"Losing\"`",
+			"  r.EndsAt AS EndsAt,\n" + losingSQL() + "\nFROM CrewGroupRoles r\nJOIN CrewGroups g ON g.Id = r.GroupId\nWHERE " + standingSQL("r") + "\n`",
+		},
+		"internal/crewresources/crew_taken_roles.go": {
+			"// @virtual\n\t// @suppress(readHandler)\n\t// @outlet(default)\n\t// @order(EndsAt desc, Username asc)",
+			"Reason   string     `spanner:\"Reason\"`",
+			"Ended    bool       `spanner:\"Ended\"    index:\"true\"`",
+			"  (m.EndsAt <= CURRENT_TIMESTAMP()) AS Ended\nFROM CrewUserRoles m\nJOIN CrewSessionUsers u ON u.Id = m.UserId\nWHERE m.EndsAt IS NOT NULL AND m.Reason IS NOT NULL AND m.Reason != ''\n`",
+		},
+		// With no tenant record the taking names no tenant: the role is the whole
+		// application's.
+		"crewidentity/take_crew_role.go": {
+			"// @rpc\n// @outlet(default)\n// @answers(204)\n// @class(access)\ntype TakeCrewRole struct {\n\t// Role is the role taken",
+			"// @attribute(role)\n\t// @enumerate(CrewTakeableRoles)\n\tRole string `validate:\"required\"`",
+			"// @enumerate(CrewTakeLengths)\n\tLength string `validate:\"required\"`",
+			"Reason string `validate:\"required\"`\n}",
+			"scope := accesstypes.GlobalPolicyScope()\n\tif err := client.manager.TakeRole(ctx, txn, scope, accesstypes.Role(m.Role), identity.TakeLength(m.Length), m.Reason); err != nil {",
+		},
+		"crewidentity/crew_takeable_roles.go": {
+			"// @computed\n// @suppress(readHandler)\n// @outlet(default)\n// @order(Name asc)\n// @rowWord(role)\ntype CrewTakeableRole struct {",
+			"roles, err := client.manager.RolesToTake(ctx, AssignCrewRole{}.Method(), false)",
+		},
+		"crewidentity/crew_take_lengths.go": {
+			"// @order(Minutes asc)\n// @rowWord(length of time, plural: lengths of time)\ntype CrewTakeLength struct {\n\t// @primarykey\n\tName    string `spanner:\"Name\"`\n\tMinutes int64  `spanner:\"Minutes\"`",
+			"for _, length := range identity.TakeLengths() {",
+		},
+		// The taking is judged as the role given directly, so the client is handed the role
+		// file's answers.
+		"crewidentity/client.go": {"identity.WithRoleGrants(grants{})"},
+		// A directory writes the Members auth's roles: a person's roles are one list, with
+		// no group to come through and nothing taken by hand.
+		"internal/membersresources/members_held_roles.go": {
+			"  m.Reason AS Reason\nFROM MembersUserRoles m\nJOIN MembersSessionUsers u ON u.Id = m.UserId\nWHERE " + standingSQL("m") + "\n`",
+		},
+	})
+	// The Members auth's schema holds no sign-in attempts table: its accounts carry no lock.
+	if listed := readTreeFile(t, "internal/membersresources/members_listed_users.go"); !strings.Contains(listed, "  ) AS Roles\nFROM MembersSessionUsers u\n`") || strings.Contains(listed, "LockedUntil") {
+		t.Errorf("the Members auth's accounts are not listed with their roles alone, and its schema counts no failed sign-in:\n%s", listed)
+	}
+	// With no tenant record no tenant manages an account: the accounts say nothing of who
+	// does, and the whole application has no list of the sign-in identities beside the
+	// table's own.
+	if listed := readTreeFile(t, "internal/crewresources/crew_listed_users.go"); strings.Contains(listed, "ManagedByTenant") || strings.Contains(listed, "ManagingTenant") {
+		t.Errorf("the accounts of an application with no tenant record say who manages each:\n%s", listed)
+	}
+	if got := identitySource(t, "internal/crewresources/crew_listed_identities.go"); got != "" {
+		t.Errorf("crew_listed_identities.go is written, and the application has no tenant record:\n%s", got)
+	}
+	if held := readTreeFile(t, "internal/membersresources/members_held_roles.go"); strings.Contains(held, "UNION ALL") || strings.Contains(held, "@enumerate") {
+		t.Errorf("the Members auth's one list of roles reads roles through a group or links to one, and the auth keeps none:\n%s", held)
+	}
+	for _, file := range identityTreeFiles(t, "pkg/identity") {
+		for _, taken := range []string{"members_taken_roles", "take_members_role", "members_takeable_roles", "members_take_lengths", "members_listed_group"} {
+			if strings.Contains(file, taken) {
+				t.Errorf("%s is written, and a directory writes the Members auth's roles: nobody takes one by hand and it keeps no groups", file)
+			}
+		}
+	}
+	// The whole application's methods name a group by the list a page shows.
+	for _, file := range []string{"add_crew_group_member.go", "give_crew_group_role.go", "describe_crew_group.go", "delete_crew_group.go"} {
+		if content := readTreeFile(t, "crewidentity/"+file); !strings.Contains(content, "// @target(CrewListedGroup)\n\tGroupID") {
+			t.Errorf("crewidentity/%s does not name its group by a row of CrewListedGroup:\n%s", file, content)
+		}
+	}
+}
+
+// Test_prepareIdentity_listedRoleGrants pins the list of the custom roles' grants a page
+// reads: a computed list in the methods package, keyed by the whole grant as the role
+// grants table is, each row with the permission engine's word on it, the engine asked of
+// every row read in one call. The table's own declaration loses its list route, and says
+// which list is its rows'. An auth whose schema holds no grants table is written no such
+// list.
+func Test_prepareIdentity_listedRoleGrants(t *testing.T) {
+	// As Test_prepareIdentity: the working directory is the process's, no t.Parallel.
+	t.Chdir(t.TempDir())
+
+	r := identityFixtureGenerator(t, slices.Concat(crewEveryTable, membersIdentityTables)...)
+	if err := r.prepareIdentity(); err != nil {
+		t.Fatalf("prepareIdentity() error = %v", err)
+	}
+
+	listed := identitySource(t, "crewidentity/crew_listed_role_grants.go")
+	assertContains(t, "crewidentity/crew_listed_role_grants.go", listed, []string{
+		"// @computed\n// @suppress(readHandler)\n// @outlet(default)\n// @order(Role asc)\n// @page(default: 25, max: 200)\n// @rowWord(role grant)\ntype CrewListedRoleGrant struct {",
+		"// @primarykey\n Kind string `spanner:\"Kind\"`\n" +
+			" // @primarykey\n Axis string `spanner:\"Axis\"`\n" +
+			" // @primarykey\n DomainID string `spanner:\"DomainId\"`\n" +
+			" // @primarykey\n Role string `spanner:\"Role\"`\n" +
+			" // @primarykey\n Permission string `spanner:\"Permission\"`\n" +
+			" // @primarykey\n ResourceName string `spanner:\"Resource\"`\n" +
+			" // @primarykey\n Field string `spanner:\"Field\"`\n" +
+			" // @primarykey\n Condition string `spanner:\"Condition\"`\n" +
+			" UpdatedAt time.Time `spanner:\"UpdatedAt\"`\n" +
+			" Skipped string `spanner:\"Skipped\"`\n}",
+		"func (CrewListedRoleGrant) Resource() accesstypes.Resource {\n return \"CrewListedRoleGrants\"\n}",
+		"func ListCrewListedRoleGrant(ctx context.Context, _ *resource.QuerySet[CrewListedRoleGrant], reader resource.Client, client *Client) iter.Seq2[*CrewListedRoleGrant, error] {",
+		// Every row of the table, its nine columns, with no filter.
+		"crewresources.NewCrewRoleGrantQuery().\n AddColumns(crewresources.NewCrewRoleGrantColumns().Kind().Axis().DomainID().Role().Permission().ResourceName().Field().Condition().UpdatedAt())",
+		"for row, err := range query.List(ctx, reader) {",
+		"yield(nil, errors.Wrap(err, \"crewresources.CrewRoleGrantQuery.List()\"))",
+		// The engine is asked of all of them at once, and each row carries its answer.
+		"if len(grants) == 0 {\n return\n }\n skipped, err := client.manager.SkippedStoredGrants(grants)",
+		"yield(nil, errors.Wrap(err, \"identity.Manager.SkippedStoredGrants()\"))",
+		"row.Skipped = skipped[i]",
+	}, nil)
+	if keys := strings.Count(listed, "// @primarykey"); keys != 8 {
+		t.Errorf("crewidentity/crew_listed_role_grants.go declares %d keys, want the 8 of the whole grant:\n%s", keys, listed)
+	}
+
+	table := identitySource(t, "internal/crewresources/crew_role_grants.go")
+	assertContains(t, "internal/crewresources/crew_role_grants.go", table, []string{
+		"// @resource\n // @suppress(listHandler)\n // @suppress(readHandler)\n // @suppress(patchHandler)\n",
+		"// here changes one. No route lists the table: CrewListedRoleGrant is the list of\n // its rows, which says of each whether its role holds it.\n",
+	}, nil)
+
+	for _, file := range identityTreeFiles(t, "pkg/identity") {
+		if strings.Contains(file, "members_listed_role_grant") {
+			t.Errorf("%s is written, and the schema holds no grants table of the Members auth", file)
+		}
+	}
+}
+
+// Test_prepareIdentity_holdings_noGroups pins what an auth that keeps no groups is
+// written of what is held, where the application gives the roles by hand and its schema
+// holds no group tables: no list of the groups with what each holds and none of a
+// group's roles with who loses each, a person's roles as one list that names no group to
+// come through, and the taking of a role all the same.
+func Test_prepareIdentity_holdings_noGroups(t *testing.T) {
+	// As Test_prepareIdentity: the working directory is the process's, no t.Parallel.
+	t.Chdir(t.TempDir())
+
+	r := identityFixtureGenerator(t, slices.Concat(crewEveryTable, membersIdentityTables)...)
+	if err := r.prepareIdentity(); err != nil {
+		t.Fatalf("prepareIdentity() error = %v", err)
+	}
+
+	for _, file := range identityTreeFiles(t, "pkg/identity") {
+		if strings.Contains(file, "listed_group") {
+			t.Errorf("%s is written, and the schema holds no group tables: neither auth keeps groups", file)
+		}
+	}
+	if held := readTreeFile(t, "internal/crewresources/crew_held_roles.go"); strings.Contains(held, "UNION ALL") || strings.Contains(held, "@enumerate") {
+		t.Errorf("the Crew auth's one list of roles reads roles through a group or links to one, and the auth keeps none:\n%s", held)
+	}
+	requireLines(t, map[string][]string{
+		"internal/crewresources/crew_held_roles.go": {"  m.Reason AS Reason\nFROM CrewUserRoles m\nJOIN CrewSessionUsers u ON u.Id = m.UserId\nWHERE " + standingSQL("m") + "\n`"},
+		"crewidentity/take_crew_role.go":            {"Reason string `validate:\"required\"`\n}"},
+	})
+}
+
+// Test_prepareIdentity_holdings_tenant pins the same for an application with a tenant
+// record: a tenant has one list of the roles held there, a list of its own beside the
+// roles people hold themselves, a row named by its person, its role and the group it
+// comes through and never read by its key alone, which the tenant's removal names its
+// row by and refuses for a role that comes through a group; the tenant's roles carry the
+// reason each was given for; a tenant's groups carry what each holds, and its groups' roles how many people lose each; the
+// whole application's list of groups says where a role is held when that is not where
+// the group is kept, in the application's word for a tenant; and the taking names the
+// tenant and picks from the roles that exist in every one.
+func Test_prepareIdentity_holdings_tenant(t *testing.T) {
+	// As Test_prepareIdentity: the working directory is the process's, no t.Parallel.
+	t.Chdir(t.TempDir())
+
+	r := identityFixtureGenerator(t, slices.Concat(crewEveryTable, crewGroupTables, membersIdentityTables)...)
+	r.resource = "pkg/resources"
+	r.tableMap["Ships"] = shipsTable()
+	writeResourcesPackage(t, "pkg/resources", map[string]string{"ships.go": shipTenantSource})
+	if err := r.prepareIdentity(); err != nil {
+		t.Fatalf("prepareIdentity() error = %v", err)
+	}
+
+	requireLines(t, map[string][]string{
+		"internal/crewresources/crew_ship_held_roles.go": {
+			"// @virtual\n\t// @suppress(readHandler)\n\t// @permissionScope(domain)\n",
+			"// @primarykey\n\t\t// @attribute(role)\n\t\t// @roleOf(Crew)\n\t\tRole string `spanner:\"Role\" index:\"true\"`",
+			"// @primarykey\n\t\tGroupID     string `spanner:\"GroupId\"     index:\"true\"`\n\t\tGroupName   string `spanner:\"GroupName\"   index:\"true\"`\n\t\tGlobalGroup bool   `spanner:\"GlobalGroup\"`",
+			// A row opens the page of a group the tenant keeps, and no other.
+			"// @enumerate(CrewShipGroups)\n\t\tGroupPage string     `spanner:\"GroupPage\"`",
+			"  o.Role AS Role,\n  o.EveryDomain AS EveryDomain,\n  '' AS GroupId,\n  '' AS GroupName,\n  FALSE AS GlobalGroup,\n  '' AS GroupPage,",
+			"  o.Reason AS Reason\nFROM (` + crewShipUserRoleQuery + `) o\nUNION ALL\nSELECT",
+			"  IF(h.GlobalGroup, '', h.GroupId) AS GroupPage,",
+			"  h.Role AS Role,\n  h.EveryDomain AS EveryDomain,\n  h.GroupId AS GroupId,",
+			"  CAST(NULL AS STRING) AS Reason\nFROM (` + crewShipUserGroupRoleQuery + `) h\n`",
+		},
+		// The tenant's own list of the roles people hold themselves stays as it was, a row
+		// named by its person and its role, with the reason beside the period.
+		"internal/crewresources/crew_ship_user_roles.go": {
+			"// @primarykey\n\t\t// @attribute(role)\n\t\t// @roleOf(Crew)\n\t\tRole string `spanner:\"Role\" index:\"true\"`\n\t\t// @attribute(everyDomain)\n\t\tEveryDomain bool       `spanner:\"EveryDomain\" index:\"true\"`\n\t\tCreatedAt",
+			"EndsAt      *time.Time `spanner:\"EndsAt\"`\n\t\tReason      *string    `spanner:\"Reason\"`\n\t}",
+			"  t.EndsAt AS EndsAt,\n  t.Reason AS Reason\nFROM (",
+		},
+		"internal/crewresources/crew_ship_user_group_roles.go": {"  GREATEST(t.CreatedAt, m.CreatedAt) AS CreatedAt,\n"},
+		"crewidentity/remove_crew_ship_role.go": {
+			"// @target(CrewShipHeldRole, key: UserID)\n\tUserID impulse.UUID\n\t// @target(CrewShipHeldRole, key: Role)\n\tRole string `validate:\"required\"`",
+			"// @target(CrewShipHeldRole, key: GroupID)\n\tGroupID string\n}",
+			"const removeCrewShipRoleThroughGroup = \"That role comes to the person through a group, so it is not taken away from the person. Take the role away",
+			"if m.GroupID != \"\" {\n\t\treturn httpio.NewBadRequestMessage(removeCrewShipRoleThroughGroup)",
+		},
+		"crewidentity/assign_crew_ship_role.go": {"\tReason *string\n}", "identity.RequestReason(m.Reason)"},
+		"internal/crewresources/crew_ship_groups.go": {
+			"People      int64     `spanner:\"People\"`\n\t\t// @roleOf(Crew)\n\t\tRoles []string `spanner:\"Roles\"`",
+			"  (SELECT COUNT(*) FROM CrewGroupMembers cm WHERE cm.GroupId = g.Id AND " + standingSQL("cm") + ") AS People,\n",
+			"      WHEN cr.Kind = g.Kind AND cr.Axis = g.Axis AND cr.DomainId = g.DomainId THEN cr.Role\n",
+			"    WHERE cr.GroupId = g.Id AND " + standingSQL("cr") + "\n    ORDER BY cr.Role, cr.Kind, cr.DomainId\n  ) AS Roles\nFROM CrewGroups g\nWHERE g.Kind = 'domain' AND g.Axis = ''",
+		},
+		"internal/crewresources/crew_listed_groups.go": {
+			"// @enumerate(Ships)\n\t\tDomainID",
+			"      WHEN cr.Kind = 'every' THEN CONCAT(cr.Role, ' in every ship')\n      WHEN cr.Kind = 'domain' THEN CONCAT(cr.Role, ' in ship ', cr.DomainId)\n      ELSE CONCAT(cr.Role, ' for the whole application')\n    END\n    FROM CrewGroupRoles cr\n",
+		},
+		// A line of the whole application's accounts says where a role is held, in the words
+		// the groups list uses; the tenant record marks no name, so the line names the key and
+		// the query joins no tenant.
+		"internal/crewresources/crew_listed_users.go": {
+			"    SELECT DISTINCT CASE WHEN hr.Kind = 'every' THEN CONCAT(hr.Role, ' in every ship') WHEN hr.Kind = 'domain' THEN CONCAT(hr.Role, ' in ship ', hr.DomainId) ELSE hr.Role END AS Line\n    FROM (` + crewHeldRoleQuery + `) hr\n    WHERE hr.UserId = u.Id\n",
+		},
+		"internal/crewresources/crew_ship_group_roles.go": {
+			"Losing    int64      `spanner:\"Losing\"`",
+			"  r.EndsAt AS EndsAt,\n" + losingSQL() + "\nFROM CrewGroups g\nJOIN CrewGroupRoles r ON r.GroupId = g.Id\n",
+		},
+		"crewidentity/take_crew_role.go": {
+			"type TakeCrewRole struct {\n\t// Domain is the ship the role is taken in",
+			"Domain string `validate:\"required\"`\n\t// Role is the role taken",
+			"scope := accesstypes.DomainPolicyScope(accesstypes.Domain(m.Domain))\n\tif err := client.manager.TakeRole(ctx, txn, scope, accesstypes.Role(m.Role), identity.TakeLength(m.Length), m.Reason); err != nil {",
+		},
+		"crewidentity/crew_takeable_roles.go": {"a role that exists in every ship", "roles, err := client.manager.RolesToTake(ctx, AssignCrewRole{}.Method(), true)"},
+		// The whole application's lists that say which tenant a row is held in point that id
+		// to the tenant record, so a list shows the tenant by its name (as the list of groups
+		// does for the tenant a group is kept in, above).
+		"internal/crewresources/crew_held_roles.go":         {"// @primarykey\n\t\t// @enumerate(Ships)\n\t\tDomainID string"},
+		"internal/crewresources/crew_listed_group_roles.go": {"// @primarykey\n\t\t// @enumerate(Ships)\n\t\tDomainID string"},
+		"internal/crewresources/crew_taken_roles.go":        {"// @primarykey\n\t\t// @enumerate(Ships)\n\t\tDomainID string"},
+		"internal/crewresources/crew_user_group_roles.go":   {"// @primarykey\n\t\t// @enumerate(Ships)\n\t\tDomainID string"},
+		"internal/crewresources/crew_session_mail_links.go": {"// @enumerate(Ships)\n\t\tTenantID"},
+	})
+}
+
+// Test_prepareIdentity_whoManagesEachAccount pins what the whole application's lists say
+// of who manages each account, where the application has a tenant record: the accounts'
+// list carries the two facts after its own columns, each under its attribute and a
+// filter key, ManagedByTenant read off ManagingTenant, and ManagingTenant the lower key
+// of the tenants whose list says ManagedHere on the person's row, asked of the tenants
+// the person holds something in themselves now and, where the tenant record declares a
+// directory and the auth keeps identities, of the tenants whose directory the person
+// signs in through. The sign-in identities are a list of their own with the same two
+// facts, written only where the schema holds the identities, and answering
+// TenantsToEnter where the record declares the directory-only switch. The accounts'
+// ManagingTenant points to the tenant record where every outlet of the auth's management
+// serves it, so the list carries the tenant's name; the identities' points to nothing.
+func Test_prepareIdentity_whoManagesEachAccount(t *testing.T) {
+	facts := "LockedUntil *time.Time `spanner:\"LockedUntil\"`\n" +
+		" TrustedDevices int64 `spanner:\"TrustedDevices\"`\n" +
+		" // @attribute(managedByTenant)\n ManagedByTenant bool `spanner:\"ManagedByTenant\" index:\"true\"`\n" +
+		" // @attribute(managingTenant)\n // @enumerate(Ships)\n ManagingTenant *string `spanner:\"ManagingTenant\" index:\"true\"`\n }\n)"
+	wrapped := "const crewListedUserQuery = `\nSELECT\n  *,\n  ManagingTenant IS NOT NULL AS ManagedByTenant\nFROM (\nSELECT\n  u.Id AS Id,\n"
+	held := "      FROM (\n" +
+		"        SELECT mm.DomainId AS DomainId\n" +
+		"        FROM CrewUserRoles@{FORCE_INDEX=CrewUserRolesByUserId} mm\n" +
+		"        WHERE mm.UserId = u.Id AND mm.Kind = 'domain' AND mm.Axis = ''\n" +
+		"          AND " + countingSQL("mm") + "\n" +
+		"        UNION DISTINCT\n" +
+		"        SELECT mg AS DomainId\n" +
+		"        FROM CrewGroupMembers@{FORCE_INDEX=CrewGroupMembersByUserId} mp, UNNEST(ARRAY(\n" +
+		"          SELECT g.DomainId FROM CrewGroups g\n" +
+		"          WHERE g.Id = mp.GroupId AND g.Kind = 'domain' AND g.Axis = ''\n" +
+		"        )) AS mg\n" +
+		"        WHERE mp.UserId = u.Id AND " + countingSQL("mp") + "\n"
+	ending := "  WHERE mt.ManagedHere) AS ManagingTenant\nFROM CrewSessionUsers u\n) p\n`"
+	identities := []string{
+		"// @virtual\n // @outlet(default)\n // @order(CreatedAt desc)\n // @page(default: 25, max: 200)\n // @rowWord(sign-in identity)\n CrewListedIdentity struct {",
+		"// @primarykey\n ID impulse.UUID `spanner:\"Id\" index:\"true\"`\n UserID impulse.UUID `spanner:\"UserId\" index:\"true\"`\n Username string `spanner:\"Username\" index:\"true\"`\n Method string `spanner:\"Method\" index:\"true\"`\n",
+		"LastUsedAt time.Time `spanner:\"LastUsedAt\"`\n // @attribute(managedByTenant)\n ManagedByTenant bool `spanner:\"ManagedByTenant\" index:\"true\"`\n // @attribute(managingTenant)\n ManagingTenant *string `spanner:\"ManagingTenant\" index:\"true\"`\n }",
+		"func (CrewListedIdentity) Subquery() (query string, params map[string]any) {\n return crewListedIdentityQuery, nil\n}",
+	}
+	identitiesQuery := "const crewListedIdentityQuery = `\nSELECT\n  *,\n  ManagingTenant IS NOT NULL AS ManagedByTenant\nFROM (\nSELECT\n  i.Id AS Id,\n  u.Id AS UserId,\n  u.Username AS Username,\n"
+	identitiesEnding := "  WHERE mt.ManagedHere) AS ManagingTenant\nFROM CrewSessionIdentities i\nJOIN CrewSessionUsers u ON u.Id = i.UserId\n) p\n`"
+
+	t.Run("a tenant record with no directory", func(t *testing.T) {
+		// As Test_prepareIdentity: the working directory is the process's, no t.Parallel.
+		t.Chdir(t.TempDir())
+
+		r := identityFixtureGenerator(t, slices.Concat(crewEveryTable, crewGroupTables, membersIdentityTables)...)
+		r.resource = "pkg/resources"
+		r.tableMap["Ships"] = shipsTable()
+		writeResourcesPackage(t, "pkg/resources", map[string]string{"ships.go": shipTenantSource})
+		if err := r.prepareIdentity(); err != nil {
+			t.Fatalf("prepareIdentity() error = %v", err)
+		}
+
+		listed := identitySource(t, "internal/crewresources/crew_listed_users.go")
+		assertContains(t, "crew_listed_users.go", listed, []string{
+			facts,
+			"// ManagedByTenant (managedByTenant) says a ship manages the account, and\n // ManagingTenant (managingTenant) is that ship's key, empty where none does.",
+			"(CrewShipUser), so\n // the two always agree.",
+			"// The list filters by the username, the name and the email address, and by the two\n // facts of who manages the account.",
+			"// ManagingTenant points to the Ship record, so where the record marks its name a",
+		}, []string{"The list filters by the username, the name and the email address.\n"})
+		// Nobody signs in through a ship's directory: the ship manages the account of the
+		// person it holds alone.
+		query := readTreeFile(t, "internal/crewresources/crew_listed_users.go")
+		assertContains(t, "crew_listed_users.go", query, []string{
+			wrapped,
+			"  (SELECT MIN(mt.DomainId) FROM (\n    SELECT DomainId, (HeldHere AND NOT HeldElsewhere AND NOT HeldGlobally) AS ManagedHere,\n  FALSE AS ManagedByAnotherDirectory\n    FROM (\n      SELECT\n        t.DomainId AS DomainId,\n",
+			held + "      ) t\n    )\n  ) mt\n" + ending,
+		}, []string{"ThroughHere", "Directories"})
+
+		assertContains(t, "crew_listed_identities.go", identitySource(t, "internal/crewresources/crew_listed_identities.go"), identities, []string{"TenantsToEnter"})
+		assertContains(t, "crew_listed_identities.go", readTreeFile(t, "internal/crewresources/crew_listed_identities.go"), []string{identitiesQuery, held, identitiesEnding}, nil)
+		// The members' schema holds no identities: their accounts say who manages each,
+		// and they have no list of identities.
+		if got := identitySource(t, "internal/membersresources/members_listed_identities.go"); got != "" {
+			t.Errorf("members_listed_identities.go is written, and the members' schema holds no identities table:\n%s", got)
+		}
+		members := identitySource(t, "internal/membersresources/members_listed_users.go")
+		if !strings.Contains(members, "ManagingTenant *string `spanner:\"ManagingTenant\" index:\"true\"`") {
+			t.Errorf("the members' accounts do not say who manages each:\n%s", members)
+		}
+		// The members' management is served on the portal too, which does not serve the
+		// record: their accounts point to no ship.
+		assertContains(t, "members_listed_users.go", members, nil, []string{"@enumerate(Ships)", "points to the Ship record"})
+	})
+
+	t.Run("a tenant record with a directory", func(t *testing.T) {
+		t.Chdir(t.TempDir())
+
+		withGroups := func(r *resourceGenerator) {
+			for _, table := range crewGroupTables {
+				r.tableMap[table] = &tableMetadata{}
+			}
+		}
+		if err := citadelGenerator(t, citadelTenantSource, withGroups).prepareIdentity(); err != nil {
+			t.Fatalf("prepareIdentity() error = %v", err)
+		}
+
+		// A person of a citadel's directory is managed by that citadel, whatever they hold
+		// there: the citadels whose directory the person signs in through are asked too.
+		directory := "        UNION DISTINCT\n" +
+			"        SELECT md AS DomainId\n" +
+			"        FROM CrewSessionIdentities mi, UNNEST(ARRAY(\n" +
+			"          SELECT d.CitadelId FROM CitadelDirectories d\n" +
+			"          WHERE d.Method = mi.Method AND d.Connection = mi.Connection\n" +
+			"        )) AS md\n" +
+			"        WHERE mi.UserId = u.Id\n" +
+			"      ) t\n    )\n  ) mt\n"
+		managed := "    SELECT DomainId, (ThroughHere OR (NOT ThroughAnother AND HeldHere AND NOT HeldElsewhere AND NOT HeldGlobally)) AS ManagedHere,\n  (ThroughAnother AND NOT ThroughHere) AS ManagedByAnotherDirectory\n"
+		assertContains(t, "crew_listed_users.go", readTreeFile(t, "internal/crewresources/crew_listed_users.go"), []string{
+			wrapped, managed, ") AS ThroughHere,", ") AS ThroughAnother\n      FROM (\n", held + directory + ending,
+		}, nil)
+		assertContains(t, "crew_listed_identities.go", readTreeFile(t, "internal/crewresources/crew_listed_identities.go"), []string{
+			identitiesQuery, managed, held + directory + identitiesEnding,
+		}, nil)
+		assertContains(t, "crew_listed_identities.go", identitySource(t, "internal/crewresources/crew_listed_identities.go"), append(identities,
+			"func (CrewListedIdentity) TenantsToEnter() resource.TenantsToEnter {\n return crewSessionUserTenantsToEnter(\"UserId\")\n}",
+			"Tenant is the link's own column, the organization its directory\n // vouched for, and is not the citadel that manages the account.",
+		), nil)
+	})
+}
+
+// Test_prepareIdentity_personReadsNameTheIndexByUser pins how the four lists that say
+// what a person holds (a tenant's people and identities, the whole application's
+// accounts and identities) read one person's rows of the permission store: each read of
+// the person's memberships, places in groups and roles on records names the table's
+// index by user in the statement, so the database does not read a tenant's whole
+// membership by the table's key for every person. The reads the table's key finds, and
+// the ones a tenant's people are selected by, are left to the database.
+func Test_prepareIdentity_personReadsNameTheIndexByUser(t *testing.T) {
+	unhinted := []string{
+		"FROM CrewUserRoles o\n", "FROM CrewUserRoles g\n", "FROM CrewUserRoles mm\n", "FROM CrewUserRoles sa\n",
+		"FROM CrewRecordUserRoles o\n", "FROM CrewRecordUserRoles mr\n",
+		"FROM CrewGroupMembers gm\n", "FROM CrewGroupMembers gm JOIN", "FROM CrewGroupMembers gm,", "FROM CrewGroupMembers mp,",
+	}
+	// The reads a tenant's people are selected by: by the tenant, not by the person.
+	selected := []string{"FROM CrewUserRoles m\n", "FROM CrewUserRoles@{FORCE_INDEX=_BASE_TABLE} m\n"}
+	userRoles := "CrewUserRoles@{FORCE_INDEX=CrewUserRolesByUserId}"
+	groupMembers := "CrewGroupMembers@{FORCE_INDEX=CrewGroupMembersByUserId}"
+	recordUserRoles := "CrewRecordUserRoles@{FORCE_INDEX=CrewRecordUserRolesByUserId}"
+	withGroups := func(r *resourceGenerator) {
+		for _, table := range crewGroupTables {
+			r.tableMap[table] = &tableMetadata{}
+		}
+	}
+	tests := []struct {
+		name     string
+		generate func(t *testing.T) *resourceGenerator
+		// people is the tenant's list of its people, which reads every table the fixture
+		// keeps for one person.
+		people string
+		hinted []string
+		// alone are the reads each file of the four lists holds that stay unhinted.
+		alone map[string][]string
+	}{
+		{
+			name: "groups and roles on records",
+			generate: func(t *testing.T) *resourceGenerator {
+				t.Helper()
+
+				writeResourcesPackage(t, "pkg/resources", map[string]string{"ships.go": voyageRecordSource})
+				writeRoleFile(t, crewAuthPath, navigatorOnVoyages)
+				writeRoleFile(t, membersAuthPath, deckhandOnNothing)
+
+				return sharingGenerator(t)
+			},
+			people: "internal/crewresources/crew_ship_users.go",
+			hinted: []string{userRoles, groupMembers, recordUserRoles},
+			alone: map[string][]string{
+				"internal/crewresources/crew_ship_users.go":        append(slices.Clone(selected), "FROM CrewRecordUserRoles rr\n"),
+				"internal/crewresources/crew_ship_identities.go":   append(slices.Clone(selected), "FROM CrewRecordUserRoles rr\n"),
+				"internal/crewresources/crew_listed_users.go":      nil,
+				"internal/crewresources/crew_listed_identities.go": nil,
+			},
+		},
+		{
+			name: "a directory and groups",
+			generate: func(t *testing.T) *resourceGenerator {
+				t.Helper()
+
+				return citadelGenerator(t, citadelTenantSource, withGroups)
+			},
+			people: "internal/crewresources/crew_citadel_users.go",
+			hinted: []string{userRoles, groupMembers},
+			alone: map[string][]string{
+				// The tenant's own administrator's check fixes kind, axis, tenant and role,
+				// and reads the members by their group: the keys find the rows.
+				"internal/crewresources/crew_citadel_users.go":      append(slices.Clone(selected), "FROM CrewUserRoles ta\n", "JOIN CrewGroupMembers tm ON tm.GroupId = tr.GroupId"),
+				"internal/crewresources/crew_citadel_identities.go": selected,
+				"internal/crewresources/crew_listed_users.go":       nil,
+				"internal/crewresources/crew_listed_identities.go":  nil,
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// As Test_prepareIdentity: the working directory is the process's, no t.Parallel.
+			t.Chdir(t.TempDir())
+
+			if err := tt.generate(t).prepareIdentity(); err != nil {
+				t.Fatalf("prepareIdentity() error = %v", err)
+			}
+			for file, alone := range tt.alone {
+				assertContains(t, file, readTreeFile(t, file), alone, unhinted)
+			}
+			assertContains(t, tt.people, readTreeFile(t, tt.people), tt.hinted, nil)
+		})
+	}
+}
+
+// Test_prepareIdentity_unlinkNamesTheListedIdentity pins the row the whole application's
+// unlink of a sign-in identity names: the list of the identities that says who manages
+// each account where the application has a tenant record, so a grant's condition reads
+// the person's facts off the row, and the identities table's declaration where it has
+// none. A tenant's unlink names the tenant's list, as before.
+func Test_prepareIdentity_unlinkNamesTheListedIdentity(t *testing.T) {
+	t.Run("a tenant record", func(t *testing.T) {
+		// As Test_prepareIdentity: the working directory is the process's, no t.Parallel.
+		t.Chdir(t.TempDir())
+
+		r := identityFixtureGenerator(t, slices.Concat(crewEveryTable, membersIdentityTables)...)
+		r.resource = "pkg/resources"
+		r.tableMap["Ships"] = shipsTable()
+		writeResourcesPackage(t, "pkg/resources", map[string]string{"ships.go": shipTenantSource})
+		if err := r.prepareIdentity(); err != nil {
+			t.Fatalf("prepareIdentity() error = %v", err)
+		}
+
+		requireLines(t, map[string][]string{
+			"crewidentity/unlink_crew_session_identity.go":      {"// @target(CrewListedIdentity)\n"},
+			"crewidentity/unlink_crew_ship_session_identity.go": {"// @target(CrewShipIdentity)\n"},
+		})
+	})
+
+	t.Run("no tenant record", func(t *testing.T) {
+		t.Chdir(t.TempDir())
+
+		if err := identityFixtureGenerator(t, slices.Concat(crewEveryTable, membersIdentityTables)...).prepareIdentity(); err != nil {
+			t.Fatalf("prepareIdentity() error = %v", err)
+		}
+
+		requireLines(t, map[string][]string{"crewidentity/unlink_crew_session_identity.go": {"// @target(CrewSessionIdentity)\n"}})
+	})
+}
+
+// Test_identityOn_identities pins the whole application's identities in the generated API
+// description: the list that says who manages each account where the application has a
+// tenant record and the schema holds the accounts, the memberships and the identities,
+// the identities table's declaration where it has no tenant record, and a tenant's own
+// list on the tenant's side.
+func Test_identityOn_identities(t *testing.T) {
+	t.Parallel()
+
+	tables := map[identityTable]bool{identityUsers: true, identityMemberships: true, identityIdentities: true}
+	tenanted := &identityInstance{auth: "Crew", outlets: []string{"console"}, tables: tables, tenant: &identityTenant{name: "Sector", table: "Sectors", key: "Id"}}
+	solo := &identityInstance{auth: "Staff", outlets: []string{"console"}, tables: tables}
+	data := &tsAPIData{}
+	// A side is described where the outlet serves its list of people, so each list of
+	// people is served with the identities.
+	for _, name := range []string{
+		"CrewListedUsers", "CrewSectorUsers", "StaffListedUsers",
+		"CrewListedIdentities", "CrewSessionIdentities", "CrewSectorIdentities", "StaffSessionIdentities",
+	} {
+		data.Resources = append(data.Resources, &tsAPIResource{Name: name})
+	}
+	generator := &typescriptGenerator{client: &client{identity: []*identityInstance{tenanted, solo}}, outletName: "console"}
+
+	got := make(map[string]string)
+	for _, identity := range generator.identityOn(data) {
+		for _, side := range identity.Sides {
+			for _, list := range side.Lists {
+				if list.Key == identityListIdentities {
+					got[identity.Auth+" "+string(side.Scope)] = list.Name
+				}
+			}
+		}
+	}
+	want := map[string]string{
+		"Crew " + string(accesstypes.GlobalPermissionScope):  "CrewListedIdentities",
+		"Crew " + string(accesstypes.DomainPermissionScope):  "CrewSectorIdentities",
+		"Staff " + string(accesstypes.GlobalPermissionScope): "StaffSessionIdentities",
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("identityOn() names the identities (-want +got):\n%s", diff)
+	}
+}
+
+// Test_identityInstance_rolesFrom pins the words of the directories that decide an
+// auth's roles: the labels of the registrations that write the roles of the people they
+// sign in, each once and in declaration order, joined as a sentence says them, and
+// nothing for an auth whose roles the application gives by hand.
+func Test_identityInstance_rolesFrom(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		signIns []identitySignIn
+		want    string
+	}{
+		{name: "roles given by hand", signIns: []identitySignIn{{Name: "password", Label: "Password"}, {Name: "google", Label: "Google"}}},
+		{name: "one directory", signIns: []identitySignIn{{Name: "password", Label: "Password"}, {Name: "google", Label: "Google", syncsRoles: true}}, want: "Google"},
+		{
+			name:    "two directories",
+			signIns: []identitySignIn{{Name: "google", Label: "Google", syncsRoles: true}, {Name: "entra", Label: "Microsoft", syncsRoles: true}},
+			want:    "Google or Microsoft",
+		},
+		{
+			name: "three, one label twice",
+			signIns: []identitySignIn{
+				{Name: "google", Label: "Google", syncsRoles: true},
+				{Name: "lakeside", Label: "Google", syncsRoles: true},
+				{Name: "entra", Label: "Microsoft", syncsRoles: true},
+				{Name: "okta", Label: "Okta", syncsRoles: true},
+			},
+			want: "Google, Microsoft or Okta",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			inst := &identityInstance{signIns: tt.signIns}
+			if diff := cmp.Diff(tt.want, inst.rolesFrom()); diff != "" {
+				t.Errorf("rolesFrom() (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// Test_identityOn_holdings pins what the generated API description says of what is held
+// and why: the whole application's side names its accounts, the groups and their roles
+// by the lists that say what each holds, a person's roles by the one list, and the roles
+// held for a set time with the method that takes one, each only where the outlet serves
+// it; an auth whose directory writes its roles names the directory, in the words of its
+// login page, a quote in them written so the description still reads; and an auth whose
+// schema holds no memberships names its accounts by the users table's list.
+func Test_identityOn_holdings(t *testing.T) {
+	t.Parallel()
+
+	tables := map[identityTable]bool{identityUsers: true, identityMemberships: true, identityGroups: true, identityGroupMembers: true, identityGroupRoles: true}
+	crew := &identityInstance{auth: "Crew", outlets: []string{"console"}, tables: tables}
+	members := &identityInstance{
+		auth: "Members", outlets: []string{"console"}, rolesSynced: true,
+		tables:  map[identityTable]bool{identityUsers: true, identityMemberships: true},
+		signIns: []identitySignIn{{Name: "google", Label: "Lakeside's Google", syncsRoles: true}, {Name: "entra", Label: "Microsoft", syncsRoles: true}},
+	}
+	// With no memberships table nothing is held: the accounts are the users table's list.
+	guests := &identityInstance{auth: "Guests", outlets: []string{"console"}, tables: map[identityTable]bool{identityUsers: true}}
+	served := []string{
+		"CrewSessionUsers", "CrewListedUsers", "CrewUserRoles", "CrewHeldRoles", "CrewGroups", "CrewListedGroups", "CrewGroupRoles", "CrewListedGroupRoles", "CrewTakenRoles",
+		"MembersSessionUsers", "MembersListedUsers", "MembersUserRoles", "MembersHeldRoles",
+		"GuestsSessionUsers",
+	}
+	data := &tsAPIData{Methods: []*tsAPIMethod{{Name: "TakeCrewRole"}, {Name: "DeleteCrewGroup"}}}
+	for _, name := range served {
+		data.Resources = append(data.Resources, &tsAPIResource{Name: name})
+	}
+	part := func(key, name string) identityPart {
+		return identityPart{Key: key, Name: name}
+	}
+
+	generator := &typescriptGenerator{client: &client{identity: []*identityInstance{crew, members, guests}}, outletName: "console"}
+	want := []*tsAPIIdentity{
+		{
+			Auth: "Crew", Label: "Crew",
+			Sides: []*tsAPIIdentitySide{{
+				Scope: accesstypes.GlobalPermissionScope,
+				Lists: []identityPart{
+					part("users", "CrewListedUsers"), part("roles", "CrewHeldRoles"), part("groups", "CrewListedGroups"),
+					part("groupRoles", "CrewListedGroupRoles"), part("takenRoles", "CrewTakenRoles"),
+				},
+				Methods: []identityPart{part("deleteGroup", "DeleteCrewGroup"), part("takeRole", "TakeCrewRole")},
+			}},
+		},
+		{
+			Auth: "Members", Label: "Members", RolesFrom: `Lakeside\'s Google or Microsoft`,
+			Sides: []*tsAPIIdentitySide{{
+				Scope: accesstypes.GlobalPermissionScope,
+				Lists: []identityPart{part("users", "MembersListedUsers"), part("roles", "MembersHeldRoles")},
+			}},
+		},
+		{
+			Auth: "Guests", Label: "Guests",
+			Sides: []*tsAPIIdentitySide{{
+				Scope: accesstypes.GlobalPermissionScope,
+				Lists: []identityPart{part("users", "GuestsSessionUsers")},
+			}},
+		},
+	}
+	if diff := cmp.Diff(want, generator.identityOn(data), cmp.AllowUnexported(identityPart{})); diff != "" {
+		t.Errorf("identityOn() (-want +got):\n%s", diff)
+	}
+}

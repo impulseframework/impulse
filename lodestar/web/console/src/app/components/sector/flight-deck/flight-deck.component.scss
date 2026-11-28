@@ -61,9 +61,13 @@
     color: var(--lodestar-amber);
   }
 
+  // A fee is written with every digit it holds: one too long for its sheet breaks onto a
+  // second line, still set to the right, and never runs out of the sheet.
   .fee {
     font-size: 20px;
     font-weight: 500;
+    overflow-wrap: anywhere;
+    text-align: right;
   }
 
   .deadline {
@@ -72,22 +76,25 @@
   }
 }
 
+// The open mission's edges, one to a line: its button, and beside it what the server said
+// of it. The sentence wraps under the button where the line is too narrow for both.
 .edges {
   display: flex;
+  flex-direction: column;
   gap: 8px;
-  flex-wrap: wrap;
   margin: 8px 0;
 }
 
-.sortie {
+.sortie,
+.document {
   padding: 8px 0;
   border-top: 1px solid var(--mat-sys-outline-variant);
+}
 
-  .expenses {
-    margin: 4px 0;
-    padding-left: 20px;
-    font-size: 13px;
-  }
+.sortie .expenses {
+  margin: 4px 0;
+  padding-left: 20px;
+  font-size: 13px;
 }
 
 h3 {
@@ -97,26 +104,28 @@ h3 {
 
 .refusal {
   color: var(--mat-sys-error);
-  font-family: 'Roboto Mono', monospace;
-  font-size: 0.85rem;
-}
-
-.probe {
-  color: var(--lodestar-green);
   font-size: 0.85rem;
 }
 
 .edge {
-  display: inline-flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.15rem;
-  margin: 0 0.5rem 0.5rem 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
 }
+
+// The server's verdict on an edge: accepted, refused, or not checked ahead.
 .probe {
-  font-size: 0.78rem;
+  flex: 1 1 16rem;
+  min-width: 0;
+  font-size: 0.85rem;
   color: var(--lodestar-green);
-}
-.probe.refused {
-  color: var(--lodestar-amber);
+
+  &.refused {
+    color: var(--lodestar-amber);
+  }
+
+  &.untried {
+    color: var(--mat-sys-on-surface-variant);
+  }
 }

@@ -7,6 +7,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
@@ -46,7 +47,10 @@ func (m *Manager) UnlinkIdentity(ctx context.Context, txn resource.ReadWriteTran
 		return errors.Wrap(err, "identity.Store.IdentityUser()")
 	}
 	if !found {
-		return httpio.NewNotFoundMessagef("identity %q does not exist", identityID)
+		return signInIdentityNotFound(identityID)
+	}
+	if err := m.refuseImpersonatorAsSubject(ctx, userID, "unlink a sign-in identity of your own"); err != nil {
+		return err
 	}
 	if err := m.requireSuperAdministratorFor(ctx, txn, userID, "unlinks a super administrator's sign-in identity"); err != nil {
 		return err
@@ -59,30 +63,39 @@ func (m *Manager) UnlinkIdentity(ctx context.Context, txn resource.ReadWriteTran
 		return errors.Wrap(err, "identity.Store.UserHasPassword()")
 	}
 	if !found {
-		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+		return accountNotFound(userID)
+	}
+	// The links are read for the row's directory, and for the rule where the user holds
+	// no password.
+	links, err := m.store.Identities(ctx, txn, userID)
+	if err != nil {
+		return errors.Wrap(err, "identity.Store.Identities()")
 	}
 	if !hasPassword {
-		links, err := m.store.Identities(ctx, txn, userID)
-		if err != nil {
-			return errors.Wrap(err, "identity.Store.Identities()")
-		}
 		others := slices.DeleteFunc(slices.Clone(links), func(link Link) bool {
 			return link.ID == identityID
 		})
 		switch {
 		case len(others) == 0:
-			return httpio.NewConflictMessageWithError(sessionstorage.ErrLastSignInMethod, "the user has no other means of sign-in: link another directory sign-in first, or give the user a password")
+			return httpio.NewConflictMessageWithError(sessionstorage.ErrLastSignInMethod, "This is the account's only way to sign in. Link another directory sign-in first, or give the account a password.")
 		case !m.linksSignIn(others):
 			return httpio.NewConflictMessageWithError(sessionstorage.ErrLastSignInMethod,
-				"none of the other identities linked to the user can sign them in any more, so this one is their only means of sign-in: "+
-					"link a directory sign-in the login page offers first, or give the user a password")
+				"None of the other sign-in identities linked to the account can sign in any more, so this one is its only way to sign in. "+
+					"Link a directory sign-in the login page offers first, or give the account a password.")
 		}
+	}
+	unlinked, err := m.accountSubject(ctx, txn, userID)
+	if err != nil {
+		return err
+	}
+	if i := slices.IndexFunc(links, func(link Link) bool { return link.ID == identityID }); i >= 0 {
+		unlinked.OldValue = m.directoryCalled(&links[i])
 	}
 	if err := m.store.DeleteIdentity(ctx, txn, identityID); err != nil {
 		return errors.Wrap(err, "identity.Store.DeleteIdentity()")
 	}
 
-	return nil
+	return m.recordAct(ctx, txn, auditlog.ActIdentityUnlinked, unlinked)
 }
 
 // RemovePassword buffers the removal of a user's password, in the caller's transaction:
@@ -112,12 +125,15 @@ func (m *Manager) RemovePassword(ctx context.Context, txn resource.ReadWriteTran
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	if err := m.refuseImpersonatorAsSubject(ctx, userID, "remove your own password"); err != nil {
+		return err
+	}
 	username, found, err := m.store.Username(ctx, txn, userID)
 	if err != nil {
 		return errors.Wrap(err, "identity.Store.Username()")
 	}
 	if !found {
-		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+		return accountNotFound(userID)
 	}
 	if err := m.requireSuperAdministratorFor(ctx, txn, userID, "removes a super administrator's password"); err != nil {
 		return err
@@ -130,10 +146,10 @@ func (m *Manager) RemovePassword(ctx context.Context, txn resource.ReadWriteTran
 		return errors.Wrap(err, "identity.Store.UserHasPassword()")
 	}
 	if !found {
-		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+		return accountNotFound(userID)
 	}
 	if !hasPassword {
-		return httpio.NewBadRequestMessage("the user has no password to remove")
+		return httpio.NewBadRequestMessage("This account has no password to remove.")
 	}
 	links, err := m.store.Identities(ctx, txn, userID)
 	if err != nil {
@@ -141,10 +157,10 @@ func (m *Manager) RemovePassword(ctx context.Context, txn resource.ReadWriteTran
 	}
 	switch {
 	case len(links) == 0:
-		return httpio.NewConflictMessageWithError(sessionstorage.ErrLastSignInMethod, "the user has no other means of sign-in: link a directory sign-in first")
+		return httpio.NewConflictMessageWithError(sessionstorage.ErrLastSignInMethod, "The password is the account's only way to sign in. Link a directory sign-in first.")
 	case !m.linksSignIn(links):
 		return httpio.NewConflictMessageWithError(sessionstorage.ErrLastSignInMethod,
-			"none of the identities linked to the user can sign them in any more, so the password is their only means of sign-in: link a directory sign-in the login page offers first")
+			"None of the sign-in identities linked to the account can sign in any more, so the password is its only way to sign in. Link a directory sign-in the login page offers first.")
 	}
 	if err := m.store.RemovePassword(ctx, txn, userID); err != nil {
 		return errors.Wrap(err, "identity.Store.RemovePassword()")
@@ -152,8 +168,11 @@ func (m *Manager) RemovePassword(ctx context.Context, txn resource.ReadWriteTran
 	if err := m.store.ClearAttempts(ctx, txn, session.SignInAttemptName(username)); err != nil {
 		return errors.Wrap(err, "identity.Store.ClearAttempts()")
 	}
+	if err := m.record(ctx, txn, accountRecord(auditlog.ActPasswordRemoved, userID, username)); err != nil {
+		return err
+	}
 
-	return nil
+	return m.resetLinksEndAtCommit(txn, userID)
 }
 
 // linksSignIn reports whether one of the links can sign its person in: the session
@@ -253,11 +272,11 @@ func PersonNamed(list accesstypes.Resource, named []resource.Condition) (userID 
 		return impulse.NilUUID, false, nil
 	}
 	if len(named) != 1 || named[0].Operator != filterEquals {
-		return impulse.NilUUID, false, httpio.NewBadRequestMessagef("%s is listed for one person at a time: filter it by the person's id alone (userId:eq:<id>)", list)
+		return impulse.NilUUID, false, httpio.NewBadRequestMessagef("%s is listed for one person at a time. Filter it by the person's id alone (userId:eq:<id>).", list)
 	}
 	userID, isID := named[0].Value.(impulse.UUID)
 	if !isID {
-		return impulse.NilUUID, false, httpio.NewBadRequestMessagef("%s is listed for one person at a time: the filter on userId carries no id", list)
+		return impulse.NilUUID, false, httpio.NewBadRequestMessagef("%s is listed for one person at a time, and the filter on userId carries no id. Filter it by the person's id (userId:eq:<id>).", list)
 	}
 
 	return userID, true, nil

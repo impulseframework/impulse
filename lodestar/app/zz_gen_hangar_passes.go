@@ -20,13 +20,20 @@ import (
 
 func (a *App) HangarPasses() http.HandlerFunc {
 	type hangarPass struct {
-		ID         impulse.UUID     `json:"id"         index:"true" perm:"-"`
-		SectorID   impulse.UUID     `json:"sectorId"   index:"true"`
-		HangarID   impulse.UUID     `json:"hangarId"   index:"true"`
-		UserID     *string          `json:"userId"     index:"true"`
-		SquadronID impulse.NullUUID `json:"squadronId" index:"true"`
-		LevelID    string           `json:"levelId"    index:"true"`
-		ExpiresAt  *time.Time       `json:"expiresAt"`
+		ID           impulse.UUID     `json:"id"           index:"true"        perm:"-"`
+		SectorID     impulse.UUID     `json:"sectorId"     index:"true"`
+		HangarID     impulse.UUID     `json:"hangarId"     index:"true"`
+		UserID       *string          `json:"userId"       index:"true"`
+		SquadronID   impulse.NullUUID `json:"squadronId"   index:"true"`
+		GroupID      impulse.NullUUID `json:"groupId"      index:"true"`
+		LevelID      string           `json:"levelId"      index:"true"`
+		ExpiresAt    *time.Time       `json:"expiresAt"`
+		SectorName   *string          `json:"sectorName"   nameof:"SectorID"   index:"true"`
+		HangarName   *string          `json:"hangarName"   nameof:"HangarID"   index:"true"        search:"lower=Name_Lower"`
+		UserName     *string          `json:"userName"     nameof:"UserID"     allow_filter:"true"`
+		SquadronName *string          `json:"squadronName" nameof:"SquadronID" index:"true"        search:"token=Name_Search;index=SquadronsSearch;role=text;anchors=prefix,suffix;contains"`
+		GroupName    *string          `json:"groupName"    nameof:"GroupID"    index:"true"`
+		LevelName    *string          `json:"levelName"    nameof:"LevelID"    index:"true"`
 	}
 
 	type response []map[string]any
@@ -45,8 +52,9 @@ func (a *App) HangarPasses() http.HandlerFunc {
 		}
 
 		// A live list registers before the query runs, so a commit that lands during
-		// the query is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, a.LiveService(), querySet, live.ListSubscription(querySet.Resource(), domain))
+		// the query is not missed; a refused request registers nothing. With it the
+		// request registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, a.LiveService(), querySet, live.ListSubscription(querySet.Resource(), domain))
 
 		res := resources.NewHangarPassQueryFromQuerySet(querySet)
 
@@ -65,7 +73,7 @@ func (a *App) HangarPasses() http.HandlerFunc {
 			if !page.Add(row) {
 				break
 			}
-			rec := (*hangarPass)(&row.Data)
+			rec := &row.Data
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
@@ -89,6 +97,10 @@ func (a *App) HangarPasses() http.HandlerFunc {
 					if !row.Masked("squadronId") {
 						rmap["squadronId"] = rec.SquadronID
 					}
+				case "GroupID":
+					if !row.Masked("groupId") {
+						rmap["groupId"] = rec.GroupID
+					}
 				case "LevelID":
 					if !row.Masked("levelId") {
 						rmap["levelId"] = rec.LevelID
@@ -97,6 +109,11 @@ func (a *App) HangarPasses() http.HandlerFunc {
 					if !row.Masked("expiresAt") {
 						rmap["expiresAt"] = rec.ExpiresAt
 					}
+				}
+			}
+			for _, name := range querySet.Names() {
+				if looked := row.Name(name.Field); looked != nil {
+					rmap[name.JSONName] = *looked
 				}
 			}
 			if capabilities := row.Capabilities(); capabilities != nil {
@@ -120,13 +137,20 @@ func (a *App) HangarPasses() http.HandlerFunc {
 
 func (a *App) HangarPass() http.HandlerFunc {
 	type response struct {
-		ID         impulse.UUID     `json:"id"         index:"true" perm:"-"`
-		SectorID   impulse.UUID     `json:"sectorId"`
-		HangarID   impulse.UUID     `json:"hangarId"`
-		UserID     *string          `json:"userId"`
-		SquadronID impulse.NullUUID `json:"squadronId"`
-		LevelID    string           `json:"levelId"`
-		ExpiresAt  *time.Time       `json:"expiresAt"`
+		ID           impulse.UUID     `json:"id"           index:"true"        perm:"-"`
+		SectorID     impulse.UUID     `json:"sectorId"`
+		HangarID     impulse.UUID     `json:"hangarId"`
+		UserID       *string          `json:"userId"`
+		SquadronID   impulse.NullUUID `json:"squadronId"`
+		GroupID      impulse.NullUUID `json:"groupId"`
+		LevelID      string           `json:"levelId"`
+		ExpiresAt    *time.Time       `json:"expiresAt"`
+		SectorName   *string          `json:"sectorName"   nameof:"SectorID"`
+		HangarName   *string          `json:"hangarName"   nameof:"HangarID"`
+		UserName     *string          `json:"userName"     nameof:"UserID"`
+		SquadronName *string          `json:"squadronName" nameof:"SquadronID"`
+		GroupName    *string          `json:"groupName"    nameof:"GroupID"`
+		LevelName    *string          `json:"levelName"    nameof:"LevelID"`
 	}
 
 	decoder := NewQueryDecoder[resources.HangarPass, response](a, accesstypes.Read)
@@ -144,8 +168,9 @@ func (a *App) HangarPass() http.HandlerFunc {
 		}
 
 		// A live row registers before the read runs, so a commit that lands during the
-		// read is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, a.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(id)))
+		// read is not missed; a refused request registers nothing. With it the request
+		// registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, a.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(id)))
 
 		res := resources.NewHangarPassQueryFromQuerySet(querySet).SetID(id)
 
@@ -153,7 +178,7 @@ func (a *App) HangarPass() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		rec := (*response)(&row.Data)
+		rec := &row.Data
 		rmap := make(map[string]any)
 		for _, field := range querySet.Fields() {
 			switch string(field) {
@@ -177,6 +202,10 @@ func (a *App) HangarPass() http.HandlerFunc {
 				if !row.Masked("squadronId") {
 					rmap["squadronId"] = rec.SquadronID
 				}
+			case "GroupID":
+				if !row.Masked("groupId") {
+					rmap["groupId"] = rec.GroupID
+				}
 			case "LevelID":
 				if !row.Masked("levelId") {
 					rmap["levelId"] = rec.LevelID
@@ -187,11 +216,60 @@ func (a *App) HangarPass() http.HandlerFunc {
 				}
 			}
 		}
+		for _, name := range querySet.Names() {
+			if looked := row.Name(name.Field); looked != nil {
+				rmap[name.JSONName] = *looked
+			}
+		}
 		if capabilities := row.Capabilities(); capabilities != nil {
 			rmap[resource.CapabilitiesProperty] = capabilities
 		}
 		live.SetCacheControl(w, r)
 
 		return httpio.NewEncoder(w).Ok(rmap)
+	})
+}
+
+// HangarPassChangeHistory answers a page of one hangar pass's change records, newest first, to whoever may read the record, with the fields they may see on it. It answers 404 while the resource does not track its changes.
+func (a *App) HangarPassChangeHistory() http.HandlerFunc {
+	type response struct {
+		ID           impulse.UUID     `json:"id"           index:"true"        perm:"-"`
+		SectorID     impulse.UUID     `json:"sectorId"`
+		HangarID     impulse.UUID     `json:"hangarId"`
+		UserID       *string          `json:"userId"`
+		SquadronID   impulse.NullUUID `json:"squadronId"`
+		GroupID      impulse.NullUUID `json:"groupId"`
+		LevelID      string           `json:"levelId"`
+		ExpiresAt    *time.Time       `json:"expiresAt"`
+		SectorName   *string          `json:"sectorName"   nameof:"SectorID"`
+		HangarName   *string          `json:"hangarName"   nameof:"HangarID"`
+		UserName     *string          `json:"userName"     nameof:"UserID"`
+		SquadronName *string          `json:"squadronName" nameof:"SquadronID"`
+		GroupName    *string          `json:"groupName"    nameof:"GroupID"`
+		LevelName    *string          `json:"levelName"    nameof:"LevelID"`
+	}
+
+	decoder := NewQueryDecoder[resources.HangarPass, response](a, accesstypes.Read)
+
+	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := tracer.Start(r.Context())
+		defer span.End()
+
+		id := httpio.Param[impulse.UUID](r, router.HangarPassID)
+
+		domain := httpio.Param[accesstypes.Domain](r, router.Domain)
+		history, err := decoder.DecodeChangeHistory(r, a.UserPermissions(r), accesstypes.DomainScope(domain))
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		resources.NewHangarPassQueryFromQuerySet(history.QuerySet()).SetID(id)
+
+		page, err := history.Read(ctx, a.ResourceClient())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok(page)
 	})
 }

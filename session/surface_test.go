@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/impulseframework/impulse/session/internal/basesession"
 	internalcookie "github.com/impulseframework/impulse/session/internal/cookie"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
+	"github.com/impulseframework/impulse/session/internal/sessioncore"
 	"github.com/impulseframework/impulse/session/internal/workos"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	gomock "go.uber.org/mock/gomock"
@@ -99,7 +101,7 @@ func surfaceBuilders() []struct {
 			name: "Auth",
 			build: func(t *testing.T, ctrl *gomock.Controller, hook ImpersonationAuditHook) *surface {
 				storage := newAuthStoreMock(ctrl)
-				a, err := NewAuth[NoCustomData, NoCustomData](storage, cookieKey, NoSuperAdministrators(), WithImpersonationAudit(hook))
+				a, err := NewAuth[NoCustomData, NoCustomData](storage, cookieKey, NoSuperAdministrators(), quietMail(), WithImpersonationAudit(hook))
 				if err != nil {
 					t.Fatalf("NewAuth() error = %v", err)
 				}
@@ -381,11 +383,29 @@ func impersonationScenarios() []surfaceScenario {
 			},
 		},
 		{
+			name: "StartImpersonatedSession refuses a request no declaration made, before the store is asked anything",
+			run: func(t *testing.T, s *surface, events *[]sessioninfo.ImpersonationEventKind) {
+				// No store call is expected: the mock fails the test on any.
+				for name, req := range map[string]*ImpersonationRequest{"the nil request": nil, "the zero request": {}} {
+					err := s.startImpersonated(context.Background(), httptest.NewRecorder(), req)
+					if err == nil || httpio.HasBadRequest(err) || httpio.HasForbidden(err) {
+						t.Fatalf("StartImpersonatedSession() with %s error = %v, want a plain error: a mistake in the program, which no person can put right", name, err)
+					}
+					for _, want := range []string{"the impersonation request was made by no declaration", "session.NewImpersonations", "Request or RequestFor"} {
+						if !strings.Contains(err.Error(), want) {
+							t.Errorf("StartImpersonatedSession() with %s error = %q, want it to carry %q", name, err, want)
+						}
+					}
+				}
+				assertEvents(t, nil, *events)
+			},
+		},
+		{
 			name: "StartImpersonatedSession refuses an impersonated session as the caller",
 			run: func(t *testing.T, s *surface, _ *[]sessioninfo.ImpersonationEventKind) {
 				s.store.ImpersonationEnabled().Return(true)
 
-				req := &ImpersonationRequest{Actor: "bob", Principal: accesstypes.RolePrincipal("Editor")}
+				req := declaredRequest(&sessioncore.ImpersonationRequest{Actor: "bob", Principal: accesstypes.RolePrincipal("Editor")})
 				err := s.startImpersonated(impersonatedCtx(sessionID, "bob", liveImpersonation()), httptest.NewRecorder(), req)
 				if !httpio.HasForbidden(err) {
 					t.Errorf("StartImpersonatedSession() error = %v, want Forbidden", err)

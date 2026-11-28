@@ -39,6 +39,7 @@ impulse add method <auth> <kind> [<registration>]
   --agent-command string (default claude)
   --app string (default .)
   --authority string
+  --label string
   --shape string
   --skip-generate bool
   --slot string
@@ -67,6 +68,7 @@ impulse add tenancy
   --one-tenant-per-person bool
   --shape string
   --skip-generate bool
+  --tenant-directories bool (default true)
   --tenant-table string (default Tenants)
 impulse advise
   --agent bool
@@ -103,15 +105,18 @@ impulse new <dir>
   --auth string
   --dev-root string
   --files bool
+  --method string
   --module string (required)
   --name string
   --one-tenant-per-person bool
+  --organization string
   --outlet stringArray
   --shape string
   --site stringArray
   --skip-generate bool
   --skip-git bool
   --tenancy bool
+  --tenant-directories bool (default true)
   --tenant-table string (default Tenants)
 impulse remove
 impulse remove feature <name>
@@ -148,6 +153,7 @@ checks:
   generator-program
   options
   tenancy-wired
+  no-delete-cascade
   outlet-wired
   outlet-shape
   sites-wired
@@ -181,13 +187,18 @@ checks:
   ci-workflow
   paging
   rpc-execute
+  constant-annotations
   feature-flags
+  change-history
+  delete-tokens
   sites-generators
   env-template
   env-reads
   file-store
   secret-holders
   pins
+  framework-modules
+  framework-linkname
   gofmt
   prettier
   gowork-off

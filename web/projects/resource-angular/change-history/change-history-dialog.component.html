@@ -1,0 +1,27 @@
+<h2 mat-dialog-title>{{ history.title }}</h2>
+<mat-dialog-content>
+  @if (fields.length > 0) {
+    <mat-form-field appearance="outline" class="impulse-change-history-dialog-field" subscriptSizing="dynamic">
+      <mat-label>Field</mat-label>
+      <mat-select [value]="field()" (selectionChange)="choose($event.value)">
+        <mat-option value="">All fields</mat-option>
+        @for (option of fields; track option.name) {
+          <mat-option [value]="option.name">{{ option.label }}</mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+  }
+  @if (error(); as message) {
+    <p class="impulse-change-history-dialog-error" role="alert">{{ message }}</p>
+  } @else if (records()) {
+    <impulse-grid [rowData]="rows()" [columnDefs]="columns" [sortable]="false" [emptyMessage]="empty()" />
+    @if (next()) {
+      <div class="impulse-change-history-dialog-older">
+        <button mat-stroked-button type="button" [disabled]="reading()" (click)="older()">Show older</button>
+      </div>
+    }
+  }
+</mat-dialog-content>
+<mat-dialog-actions align="end">
+  <button mat-button mat-dialog-close>Close</button>
+</mat-dialog-actions>

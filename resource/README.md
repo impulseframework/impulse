@@ -58,52 +58,67 @@ type Ship struct { ... }
 
 | Annotation | Attaches to | Arguments | Effect |
 | --- | --- | --- | --- |
-| `@resource` | struct in the resources package | none | Marks the struct as a resource backed by a Spanner table. The generator emits query builders, request structs, handlers, routes, and TypeScript for it. Example: [Ship](../lodestar/pkg/resources/ships.go). |
+| `@resource` | struct in the resources package | none | Marks the struct as a resource backed by a Spanner table. The generator emits query builders, request structs, handlers, routes, and TypeScript for it. For every table-backed resource with a read route the generator also writes GET <read route>/changes, the record's change history (section 24 of the resource package's reference). It asks the record's own Read grant and answers 404 for a resource that does not track its changes. Example: [Ship](../lodestar/pkg/resources/ships.go). |
 | `@virtual` | struct in the resources package | none | A resource backed by a view instead of a base table. Because there is no table metadata, indexed fields must be declared with `index`/`uniqueindex` tags (see §2), and the read identity (if any) with `@primarykey`. A view that declares its key serves a keyed read route beside its list, as a table does (`@suppress(readHandler)` removes it). Without a key the view is a whole read-only list, with no read route and no paging: one list route serves every row the filter admits in one response, sorted when a `sort` is asked or an `@order` declared, a numeric `limit` or a `cursor` is refused with a 400 naming `@primarykey` as the way to page (section 4), `@page` is refused at generation, and its metadata says `readDisabled`. A view that carries a table's rows one to one declares the table with `@rowsOf`, so a page listing the view writes to the table; without it the view is a read-only list. A view declares two bindings on fields of its own, each in its bare form, since a view has no schema to resolve a join path against: `@domain` on the tenant column its query selects, and `@attribute` on a column a grant's condition reads by name (a fact about the row, which the view's query computes). A view keyed by one field may be a method's `@target`: the method's Execute grant is then judged against the row, within the tenant (see `@target`). Examples: [OpenMissionsBySquadron](../lodestar/pkg/virtualresources/open_missions_by_squadrons.go); [SectorPilot](../lodestar/pkg/virtualresources/sector_pilots.go), a view with a fact that is a method's target. |
-| `@computed` | struct in the resources package | none | A read-only resource (List/Read only) whose rows are produced by hand-written query logic rather than a table. Primary-key fields are marked with `@primarykey`, and the key is optional: without one the resource is a whole read-only list, with no read route and no paging (one list route, every row the filter admits in one response, sorted when asked or declared; a numeric `limit` or a `cursor` is refused naming `@primarykey` as the way to page, `@page` is refused at generation, and the Collection registers List only, so a Read grant on it is refused at deploy). Example: [StandingOrder](../lodestar/pkg/computedresources/standing_orders.go). A computed view that carries a table's rows one to one declares the table with `@rowsOf`, so a page listing it writes to the table. Its permission checks run when the request is decoded, since the rows come from a Go function and no query of the library's. A grant on it may still carry a condition that reads the row: the struct declares the fields a condition may read with a bare `@attribute(name)` on the field, and the library judges each row the function yields, in Go, by the rules a table's rows follow (a row the condition on the resource refuses is not listed, not counted, and read as a row that is not there; a field granted under a condition the row does not meet is left out of that row; a row that would show none of the fields a grant covers is left out). The condition reads the declared fields, `subject`, `now`, and the facts about the caller that are held in tables (`subject.<name>`, a subject set or a subject value). A table's statement reads such a fact as a subquery beside its rows; for a computed resource the library reads it once for the request, when the request is decoded, through the resource client, by a statement built from the same pieces (the anchor table, the caller's rows on it, the anchor's own tenancy filter, a dotted value hop by hop). So a request costs one read for each fact its conditions name, whatever the number of rows, and none where no condition names one. The read is implemented for Spanner, the database the resource client reads; the PostgreSQL statements are rendered and proven by test, as the rest of the PostgreSQL rendering is. Deploy-time role migration validates a computed resource's condition as a table's, against the fields the resource declares, and the generated Collection marks the resource computed so a refusal names that declaration. Example: Lodestar's Flight Lead reads the [expense manifests](../lodestar/pkg/computedresources/expense_manifests.go) of the missions their own squadrons fly (`assignedSquadron IN subject.squadrons`), through the list, the read and the rendered file. A field a list sorts, filters or searches by needs an unconditional grant, and `qSet.TakePage()` answers false while a condition is left to judge the rows by. Example: the roles a tenant picks from (section 22). From the browser a computed resource answers a list query exactly as a table does, with no code in its List function: the generated handler applies the filter, then the sort when the request asks one or the struct declares one (`@order`), then the page (cursor, Link header, count) over the rows the function yields; with neither a `sort` nor an `@order` only the whole list (`limit=all`) is served, the rows in the order the function yielded them, after the filter; a paged request without an order is refused (section 4). A field is filterable when it carries `allow_filter`, as on a table; `index` and `uniqueindex` are refused (there is no database index), and `allow_filter` on a field the in-memory evaluator cannot compare fails generation with the field named. A List function that runs its own queries may take pieces of the work to push down — `qSet.Filter().Take(fields…)` returns the conditions on those fields and leaves the handler the rest (defined on an AND-only filter; an OR takes nothing; a field is taken whole, so a body that takes a text field answers its matches too, `Condition.MatchesText`, and one that takes the box reads its `SearchTerms` and `SearchFields`, section 4), `qSet.TakeSort()` returns the total order (empty when the list is not sorted: the body's own order stands) and marks it the body's, and `qSet.TakePage()` returns the page bounds only when paging in the body is correct (nothing left to filter, the sort taken, no count asked) and otherwise answers false so the handler pages. Taking is the only way to opt out, so a body can never make the result wrong. A computed list sorts and pages `NULL` where the application's database does, the same end as the tables beside it (Spanner first ascending and last descending, PostgreSQL the reverse); a body's plain `ORDER BY` already produces that placement, and the generated decoder carries the database type so the handler's in-memory sort and page boundary agree with the rows a body yields. Example: [SectorHazardBoard](../lodestar/pkg/computedresources/sector_hazard_boards.go). |
+| `@computed` | struct in the resources package | none | A read-only resource (List/Read only) whose rows are produced by hand-written query logic rather than a table. Primary-key fields are marked with `@primarykey`, and the key is optional: without one the resource is a whole read-only list, with no read route and no paging (one list route, every row the filter admits in one response, sorted when asked or declared; a numeric `limit` or a `cursor` is refused naming `@primarykey` as the way to page, `@page` is refused at generation, and the Collection registers List only, so a Read grant on it is refused at deploy). Example: [StandingOrder](../lodestar/pkg/computedresources/standing_orders.go). A computed view that carries a table's rows one to one declares the table with `@rowsOf`, so a page listing it writes to the table. Its permission checks run when the request is decoded, since the rows come from a Go function and no query of the library's. A grant on it may still carry a condition that reads the row: the struct declares the fields a condition may read with a bare `@attribute(name)` on the field, and the library judges each row the function yields, in Go, by the rules a table's rows follow (a row the condition on the resource refuses is not listed, not counted, and read as a row that is not there; a field granted under a condition the row does not meet is left out of that row; a row that would show none of the fields a grant covers is left out). The condition reads the declared fields, `subject`, `now`, and the facts about the caller that are held in tables (`subject.<name>`, a subject set or a subject value). A table's statement reads such a fact as a subquery beside its rows; for a computed resource the library reads it once for the request, when the request is decoded, through the resource client, by a statement built from the same pieces (the anchor table, the caller's rows on it, the anchor's own tenancy filter, a dotted value hop by hop). So a request costs one read for each fact its conditions name, whatever the number of rows, and none where no condition names one. The read is implemented for Spanner, the database the resource client reads; the PostgreSQL statements are rendered and proven by test, as the rest of the PostgreSQL rendering is. Deploy-time role migration validates a computed resource's condition as a table's, against the fields the resource declares, and the generated Collection marks the resource computed so a refusal names that declaration. Example: Lodestar's Flight Lead reads the [expense manifests](../lodestar/pkg/computedresources/expense_manifests.go) of the missions their own squadrons fly (`assignedSquadron IN subject.squadrons`), through the list, the read and the rendered file. A field a list sorts, filters or searches by needs a grant with no condition left once the request is checked (an unconditional grant, or one whose conditions read the time of the request alone, while one of them holds), or one under the same condition as the list's own rows, since a row that fails that condition is dropped before the sort, the filter and the search read it; and `qSet.TakePage()` answers false while a condition is left to judge the rows by. Example: the roles a tenant picks from (section 22). From the browser a computed resource answers a list query exactly as a table does, with no code in its List function: the generated handler applies the filter, then the sort when the request asks one or the struct declares one (`@order`), then the page (cursor, Link header, count) over the rows the function yields; with neither a `sort` nor an `@order` only the whole list (`limit=all`) is served, the rows in the order the function yielded them, after the filter; a paged request without an order is refused (section 4). A field is filterable when it carries `allow_filter`, as on a table; `index` and `uniqueindex` are refused (there is no database index), and `allow_filter` on a field the in-memory evaluator cannot compare fails generation with the field named. A List function that runs its own queries may take pieces of the work to push down — `qSet.Filter().Take(fields…)` returns the conditions on those fields and leaves the handler the rest (defined on an AND-only filter; an OR takes nothing; a field is taken whole, so a body that takes a text field answers its matches too, `Condition.MatchesText`, and one that takes the box reads its `SearchTerms` and `SearchFields`, section 4), `qSet.TakeSort()` returns the total order (empty when the list is not sorted: the body's own order stands) and marks it the body's, and `qSet.TakePage()` returns the page bounds only when paging in the body is correct (nothing left to filter, the sort taken, no count asked) and otherwise answers false so the handler pages. Taking is the only way to opt out, so a body can never make the result wrong. A computed list sorts and pages `NULL` where the application's database does, the same end as the tables beside it (Spanner first ascending and last descending, PostgreSQL the reverse); a body's plain `ORDER BY` already produces that placement, and the generated decoder carries the database type so the handler's in-memory sort and page boundary agree with the rows a body yields. Example: [SectorHazardBoard](../lodestar/pkg/computedresources/sector_hazard_boards.go). |
 | `@rpc` | struct in the rpc package | none, or `max: 8MB`, `log: onEvent`, `trace: off` | Declares an RPC method: the struct's fields are the request payload, and the struct declares `Execute` in one of two forms, read off its signature — `Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error` runs inside the generated handler's read-write transaction; `Execute(ctx context.Context, client resource.Client, rpcClient *Client) error` runs outside one. The third parameter is the application's own RPC client type. `Execute` returns `error` alone, and the handler answers with an empty 200, or `(Result, error)` with `Result` a struct type or a pointer to one, and the handler answers with the result after the transaction commits, mirrored with generated wire names (a nil pointer answers empty). A method answers with identifiers and outcomes, never rows: a `@resource` or `@computed` struct in the result position is refused, since rows are read through their own routes, where permission masking applies. A struct with no `Execute`, or one of another shape, fails generation naming the struct; no interface declaration takes part. Example of an answering method: [InspectShip](../lodestar/pkg/rpc/inspect_ship.go). The generated frame stamps the caller into the context before `Execute` (`resource.CallerFrom`), so a body may arm a typed patch or query with `.Enforce(caller)` and run the pipeline the resource routes run, or ask `caller.Check` for a decision to branch on; without either the body is trusted, the default. A transaction-form method honors `X-Dry-Run: true`: the whole frame and the body run and the transaction rolls back, refusing exactly as the real call would and answering an empty 200 where it would have succeeded; a client-form method refuses the header with 400. The generated TypeScript method metadata says which a method is (`dryRun: true` on a transaction-form method, nothing on a client-form one), so a page knows a dry run previews the call before it sends one, and names on each request field the name a grant's condition reads it by (`attribute: 'role'` for a bare `@attribute(role)` on the field): the Angular library's method dialog rehearses a method this way where the caller's grant on it carries a condition, waiting for the fields a condition may read and marking them when the dry run is refused as not permitted. Examples: [HoldMission](../lodestar/pkg/rpc/hold_mission.go) (armed), [CompleteMission](../lodestar/pkg/rpc/complete_mission.go) (decision as data). Gated by the `Execute` permission. The struct lives in a file named after it in snake case (`claim_mission.go`), as every generated kind does; a name ending in `Test` carries the `_rpc` marker instead (`start_flight_test_rpc.go`), so neither it nor the `zz_gen_` files generated beside it are Go `_test.go` files. Example: [ClaimMission](../lodestar/pkg/rpc/claim_mission.go). `max:` bounds the method's request body (a byte count or `KB`/`MB`/`GB`, 1024-based), applied by its generated handler in place of the application's limit (section 8, request body limits); a method that declares none takes that limit. Example: [IssueBulletin](../lodestar/pkg/rpc/issue_bulletin.go). `log:` is the method's own request log word, `always`, `onEvent`, `sampled` (with `fraction: 0.01`) or `never`, and `trace:` its own trace setting, `followFrontEnd`, `capped` (with `rate: 0.1`) or `off`: the nearest declaration, over its outlet's and the application's (section 8, request logs and traces). A word is refused on a scheduled method, which declares it on `@schedule`, and with `@suppress`, where no route carries it; a trace setting needs `GenerateRouter`. Example: [IngestDroidReports](../lodestar/pkg/rpc/ingest_droid_reports.go). |
-| `@enumerate` | named type with underlying type `string` | enum table name | Generates typed constants for the named type from the rows of an enum table, and declares the table an enumeration: its rows are the program's constants, fixed at generation time. Two rules follow. A table-backed field whose foreign key points into the table is emitted as an `enumerated` picker whose values ride in the TypeScript metadata (`enumeration: [{ id, display }]`, Description as the display), so the browser needs neither a request nor a List grant, and this wins even when a struct also exposes the table as a resource. A `@resource` struct backing the table is read-only by derivation: no patch handler, no Create/Update/Delete in the collection, fields marked `readOnly`, and create or update defaults, validators, or a manual patch Set on it fail generation. A table is an enum table when it has an `Id` column and a `Description` column (the generator runs `SELECT DISTINCT Id, Description` against the migrated schema); a `Description` column on a table keyed otherwise, such as the feature flags or an auth's roles, names no enumeration. An enum table with more than 500 rows warns at every generation, since each field keyed into it carries every row in the TypeScript metadata; the warning names the bytes and the fields, and the way out is to drop `@enumerate` from the type and expose the table with a `@resource` struct, whose picker reads it whole or, under a `@page` maximum, one page at a time. Example: [ShipRole](../lodestar/pkg/resources/enums.go) behind [ShipClass.RoleID](../lodestar/pkg/resources/ship_classes.go). |
-| `@enumerate` | field of an `@rpc`, `@resource`, `@virtual`, or `@computed` struct | resource or enum table name | Declares which resource a picker for the field lists — the field holds another resource's identifier, and the generator alone says which. The generated metadata emits `displayType: 'enumerated'` with `enumeratedResource: Resources.X`; the browser narrows and presents X's rows and never chooses another resource. X must exist — a table-backed, virtual, or computed resource — and be keyed by a single column, since a picker stores one key. On a list field of an `@rpc` struct (a list of plain values) the field holds several picked keys and the metadata emits `displayType: 'enumerated[]'`; a list field of a table, a view or a computed resource refuses the annotation, since a column stores one key, and so does a list of nested values; a picker of several reads X whole, so an X with a `@page` maximum fails generation there. A picker reads X in one of two ways, chosen by X's `@page` maximum: with none, the whole list in one request (`limit=all`), the chosen row resolved from it, so X may suppress its read; with a maximum, one server page at a time, the chosen row read by key, so X must serve a read — a bounded X with a suppressed read fails generation naming the two ways out (keep the read, or drop the maximum), on this path and on an undeclared foreign key into a routed resource alike. A list field cannot declare one: the field would store many keys where a picker stores one, so `@enumerate` on a slice, an array, or a named list type fails generation on every path naming the struct and field (`struct Ship field Tags: @enumerate on a list field; a picker stores one key`), and a byte slice, one value on the wire, is not a list here. Four rules: a **plain column** (no foreign key) names the resource the picker lists, with no Go validation and no database check, as for an identifier held from outside the schema (example: [Mission.BriefingTemplateID](../lodestar/pkg/resources/missions.go) → [BriefingTemplates](../lodestar/pkg/computedresources/briefing_templates.go)); a **foreign key** may name a resource other than its target whose rows key into the same space, typically a virtual view over the target carrying display columns the target lacks, while the constraint stays the guard at write time — naming the target itself is refused as redundant, the schema already says so (example: [Mission.ClientID](../lodestar/pkg/resources/missions.go) → [ClientRosters](../lodestar/pkg/virtualresources/client_rosters.go)); naming an **enum table** — one an `@enumerate` type declares, with or without a struct over it — renders the field from the inline `enumeration` values exactly as an inferred key into that table does, one rule for declared and inferred (example: [FailMission.ReasonID](../lodestar/pkg/rpc/fail_mission.go)); and a declaration on a foreign key that **already points into an enum table** is refused as a contradiction, since those values are program constants baked into the metadata. A request field has no schema, so it always declares (example: [CompileBriefing.TemplateID](../lodestar/pkg/rpc/compile_briefing.go), naming a computed resource). A declared enumeration follows the RPC outlet rule: naming a resource that is not on the target outlet fails generation with the fix named, where an inferred key degrades to its plain type. |
+| `@enumerate` | named type with underlying type `string` | enum table name | Generates typed constants for the named type from the rows of an enum table, and declares the table an enumeration: its rows are the program's constants, fixed at generation time. Two rules follow. A table-backed field whose foreign key points into the table is emitted as an `enumerated` picker whose values ride in the TypeScript metadata (`enumeration: [{ id, display }]`, Description as the display), so the browser needs neither a request nor a List grant, and this wins even when a struct also exposes the table as a resource. A `@resource` struct backing the table is read-only by derivation: no patch handler, no Create/Update/Delete in the collection, fields marked `readOnly`, and create or update defaults, validators, a delete rule, or a manual patch Set on it fail generation. A table is an enum table when it has an `Id` column and a `Description` column (the generator runs `SELECT DISTINCT Id, Description` against the migrated schema); a `Description` column on a table keyed otherwise, such as the feature flags or an auth's roles, names no enumeration. An enum table with more than 500 rows warns at every generation, since each field keyed into it carries every row in the TypeScript metadata; the warning names the bytes and the fields, and the way out is to drop `@enumerate` from the type and expose the table with a `@resource` struct, whose picker reads it whole or, under a `@page` maximum, one page at a time. Example: [ShipRole](../lodestar/pkg/resources/enums.go) behind [ShipClass.RoleID](../lodestar/pkg/resources/ship_classes.go). |
+| `@enumerate` | field of an `@rpc`, `@resource`, `@virtual`, or `@computed` struct | resource or enum table name | Declares which resource a picker for the field lists — the field holds another resource's identifier, and the generator alone says which. The generated metadata emits `displayType: 'enumerated'` with `enumeratedResource: Resources.X`; the browser narrows and presents X's rows and never chooses another resource. X must exist — a table-backed, virtual, or computed resource — and be keyed by a single column, since a picker stores one key. On a list field of an `@rpc` struct (a list of plain values) the field holds several picked keys and the metadata emits `displayType: 'enumerated[]'`; a list field of a table, a view or a computed resource refuses the annotation, since a column stores one key, and so does a list of nested values; a picker of several reads X whole, so an X with a `@page` maximum fails generation there. A picker reads X in one of two ways, chosen by X's `@page` maximum: with none, the whole list in one request (`limit=all`), the chosen row resolved from it, so X may suppress its read; with a maximum, one server page at a time, the chosen row read by key, so X must serve a read — a bounded X with a suppressed read fails generation naming the two ways out (keep the read, or drop the maximum), on this path and on an undeclared foreign key into a routed resource alike. A list field cannot declare one: the field would store many keys where a picker stores one, so `@enumerate` on a slice, an array, or a named list type fails generation on every path naming the struct and field (`struct Ship field Tags: @enumerate on a list field; a picker stores one key`), and a byte slice, one value on the wire, is not a list here. Four rules: a **plain column** (no foreign key) names the resource the picker lists, with no database check, as for an identifier held from outside the schema (example: [Mission.BriefingTemplateID](../lodestar/pkg/resources/missions.go) → [BriefingTemplates](../lodestar/pkg/computedresources/briefing_templates.go)); a **foreign key** may name a resource other than its target whose rows key into the same space, typically a virtual view over the target carrying display columns the target lacks, while the constraint stays the guard at write time — naming the target itself is refused as redundant, the schema already says so (example: [Mission.ClientID](../lodestar/pkg/resources/missions.go) → [ClientRosters](../lodestar/pkg/virtualresources/client_rosters.go)); naming an **enum table** — one an `@enumerate` type declares, with or without a struct over it — renders the field from the inline `enumeration` values exactly as an inferred key into that table does, one rule for declared and inferred (example: [FailMission.ReasonID](../lodestar/pkg/rpc/fail_mission.go)); and a declaration on a foreign key that **already points into an enum table** is refused as a contradiction, since those values are program constants baked into the metadata. A request field has no schema, so it always declares (example: [CompileBriefing.TemplateID](../lodestar/pkg/rpc/compile_briefing.go), naming a computed resource). A declared enumeration follows the RPC outlet rule: naming a resource that is not on the target outlet fails generation with the fix named, where an inferred key degrades to its plain type. What a write or a method sends in the field is held to the rows the sender's own list of X shows (section 26). |
 | `@suppress` | `@resource`, `@computed`, or `@rpc` struct | one or more of `listHandler`, `readHandler`, `patchHandler`, `allHandlers`, `allRoutes` | Skips generating the named handlers, or all routes. Suppressing `readHandler` on a resource a picker lists is refused where the resource declares a `@page` maximum (`@enumerate`). Suppressing `patchHandler` also removes the resource from the consolidated patch handler. `allRoutes` is rejected on consolidated resources unless the patch handler is suppressed or the resource is excluded from consolidation. On an `@rpc` struct, any argument suppresses the generated handler. |
 | `@defaultsCreateType` | `@resource` struct | type name | The generated create path calls `Defaults()` on the named type to set defaults when creating the resource. |
 | `@defaultsUpdateType` | `@resource` struct | type name | As above, for updates. |
 | `@validateCreateType` | `@resource` struct | type name | The generated create path calls `Validate()` on the named type to validate the incoming resource. |
 | `@validateUpdateType` | `@resource` struct | type name | As above, for updates. |
+| `@validateDeleteType` | `@resource` struct | type name | A delete rule no grant gets around. Before a row of the resource is deleted, the generated delete calls `Validate()` on the named type with the delete patch, inside the delete's transaction, once the caller's grants and their conditions have passed and before anything is buffered. An error it returns refuses the delete and nothing is deleted: `httpio.NewBadRequestMessage` answers 400 with the rule's own sentence, which is what the person reads. Who may delete which rows stays in grant conditions; the rule is for what no role may do, such as a retention period, which a condition cannot hold because conditions add up across a person's grants. A caller the grants refuse hears their Forbidden and never the rule's sentence. A read-only enumeration table refuses the annotation. Example: [SortieExpenseDeleteRule](../lodestar/pkg/resources/sortie_expenses.go). |
+| `@deleteCascade` | `@resource` struct | kinds, then `refusedBy:` kinds | Declares what a delete of the record takes with it and what refuses it. `@deleteCascade(Project, Task, TaskComment, refusedBy: Invoice)` on `Client` lists the kinds of row that go with a client, in any order, and after `refusedBy:` the kinds that keep a client from being deleted while it has one. The generator reads what is under the record from the schema, the foreign keys and interleaves that lead up to it, and holds the list to it: every kind under the record is named in one list or the other, or generation fails naming the kind, the record and the way between them. A kind that is under the record only through a refusing kind needs no place, since it has no row there without a row of the kind that refuses. A name that is no resource, a kind that is not under the record, a kind named twice, and a read-only table among the kinds taken fail generation the same way, each in a sentence that says what to change. For the record the generator writes `DeleteTree()` on the resource (`resource.DeleteTree`): the kinds taken in the order their rows are deleted, deepest first, each kind's ways up to the record, and what the delete of one row costs in mutations (`resource.DeleteCost`: the delete, an entry in each index of its table, the change record where changes are tracked, and the release of each stored file). `DeleteTree.Mutations` is the one count of a whole delete, held against the 80,000 mutations Spanner takes in a commit (`resource.DeleteMutationLimit`). A delete of a record with a row of a kind listed under `refusedBy` is refused before the commit in a sentence that counts what refuses it. A delete of a record with rows of the kinds it takes asks first: it deletes nothing and is answered 428 with a question that names what will be deleted, and the same delete saying it takes them (`"everythingUnder": true` and the question's `"token"` as the remove operation's value) deletes those rows in code, each as its own delete would delete it, and the record last. A record that declares nothing is refused while it has rows under it that the database does not remove with it (section 10). The tenant record takes no `@deleteCascade`: the library declares its description, every kind of the application's rows that carry the tenant's key or lead to a row that does, with nothing listed to refuse it. A record lists its own kind where its table has a foreign key to itself (an answer names the message it answers): `@deleteCascade(DistressRelay)` on `DistressRelay` takes the answers under a relay, however deep, and a table with such a key is a kind under its own record like any other, to be named in one list or the other. A kind taken with another record carries its link to itself in the description (`DeleteKind.Within`), so that record's delete takes the rows under its rows too. A foreign key to columns that are not the other table's key (a case number) is a way up like any other: the description holds the columns each step references (`DeleteLink.References`), and the rows are found by them. Example: [Mission](../lodestar/pkg/resources/missions.go), [Client](../lodestar/pkg/resources/clients.go), and [DistressCall](../lodestar/pkg/resources/distress_calls.go) with [DistressRelay](../lodestar/pkg/resources/distress_relays.go). |
+| `@deletedWith` | field of a `@resource` struct | none | Says a row of the record goes with the group or the account of the library's that the column names, when that group or account is deleted: the delete's question counts the rows, and each goes through its own delete. Whoever deletes a group needs what deleting each row needs. An account's rows go on the permission to delete the account, in the tenants that permission reaches, and a row anywhere else refuses the delete. The column is one the schema holds, alone, by a foreign key to the key of an auth's groups table or users table; on a column the schema holds to a record of the application's, on any other column, on a read-only enumeration table and on the tenant record, generation fails and says what to write. A record that names a group or an account and says nothing keeps it from being deleted while the row is there. See "A record that names a group or an account of the library's". Example: [HangarPass](../lodestar/pkg/resources/hangar_passes.go). |
+| `@holdsRoles` | `@resource` struct with `@permissionScope(domain)` | none | Marks a tenant's record as one a role can be held on. A role whose `heldOn` in the role file names the resource can then be given to a person, or to a group of the tenant, on one row: its grants count on that row, on the rows under it by foreign key, and on the rows it names, and nowhere else. The table is keyed by one text column. See *A role held on one record*. |
 | `@primarykey` | field of a `@computed` or `@virtual` struct | none | Marks the field as (part of) the resource's primary key; multiple annotated fields form a compound key in declaration order. Primary-key fields are exempt from field-level permission enforcement (their readability follows the resource-level grant). The key is what gives a row identity: the read route (`/{key}`), the cursor's tie-break (the key fields end every order, so a keyset cursor walks a total order), and the browser's row identity (`keyOf`). Without a key the resource is a whole read-only list, with no read route and no paging: served in one response, sorted when asked or declared, refusing a numeric `limit` or a `cursor` with a 400 that names `@primarykey` as the way to page, and refusing `@page` at generation. Rejected on table-backed `@resource` structs, whose keys come from the schema. Compound example: [SectorHazardBoard](../lodestar/pkg/computedresources/sector_hazard_boards.go); key-less example: [StandingOrder](../lodestar/pkg/computedresources/standing_orders.go). |
 | `@rowsOf` | `@virtual` or `@computed` struct | table resource name | The view declares its backing table, a create goes into the table, and the new row shows up in the view on the next list because the view's SQL reads that table. The declaration states row identity, not columns: every row of the view is one row of the named table under the same key, and the view's other columns are its own — joined from other tables, aggregated, or computed in the projection; the generator compares none of them to the table. It checks, each refusal naming the fix: the named resource exists and is a table-backed `@resource` (a `@virtual` or `@computed` target is refused, since a view cannot back a view, and an `@enumerate` table — with or without a struct over it — is refused as a contradiction, since its rows are the program's constants and a create button for them would be policy about nothing); the view declares `@primarykey` fields matching the table's key in count, order, Go field name, and Go type, nullability included, and on a `@virtual` the `spanner` columns as well, the message naming the first mismatch and the table's key; the two share a `@permissionScope`; the table is served on every outlet the view is served on (fail loud, never a silent degrade); and the view does not name itself. Refused on `@resource` and `@rpc` structs. Several views may name one table. The view's TypeScript metadata carries `rowsOf: Resources.X`, so a page listing the view sends its create, edit, and delete to the table and opens a row on the table's page; a view without the declaration is what it is today, a read-only list. One backing table only: two tables sharing one key (a table and its one-to-one extension) is the door left open and not built, and a parent joined to its children is never one to one with anything and stays a read-only list or an RPC. Examples: [MissionBoard](../lodestar/pkg/virtualresources/mission_boards.go), a same-row view over Missions; [SquadronRoster](../lodestar/pkg/virtualresources/squadron_rosters.go) and [PilotAssignment](../lodestar/pkg/virtualresources/pilot_assignments.go), two association views over SquadronMemberships whose compound key is edited and deleted from the list. [OpenMissionsBySquadron](../lodestar/pkg/virtualresources/open_missions_by_squadrons.go) and [FeeByKind](../lodestar/pkg/virtualresources/fee_by_kinds.go) declare nothing and stay read-only lists. |
 | `@changedBy` | `@virtual` or `@computed` struct | table names | The tables whose changes change the resource, so a commit on them reaches the resource's live pages. On a virtual resource the declaration replaces what the generator reads off the query (the text behind its `Subquery` method, an embedded file, a string literal or a concatenation of constants, walked with memefish's lexer for the names in table positions, section 14), so it can drop a table the walk misread as well as add one the query does not show; the generator still reads the query, and a declaration that differs from the reading is a warning naming both sides, never a refusal. It is the way out when the reading refuses (a name in a table position that is neither a table nor a CTE in scope, a recursive `WITH`, a text the lexer refuses) and required for a query built at run time. A computed resource is Go, so the declaration is its only source: without one its changes are not published, its pages stay plain, and nothing refuses. The `@rowsOf` root must be in the set, read or declared, and a name the schema lacks is refused; refused on `@resource` and `@rpc` structs. The sets are recorded next to the resources, as each package's generated `LiveDerivations`, and assembled in the handler package's `zz_gen_live_derivations.go` (section 14), so what the generator concluded shows in the diff, and the resource's TypeScript metadata says `live: true`. A table of an Auth's generated management (section 22) is read or declared like any other and recorded by its name, since the type over it is internal to the management's tree. Examples: [MissionBoard](../lodestar/pkg/virtualresources/mission_boards.go), read off its query; [SectorHazardBoard](../lodestar/pkg/computedresources/sector_hazard_boards.go), declared. |
+| `@rowWord` | `@resource`, `@virtual` or `@computed` struct | the word for one row, and optionally `plural: <word>`: `@rowWord(pass)`, `@rowWord(person, plural: people)` | The word a person calls one row of the resource by. A generated list speaks of a row in three places, the button that adds one ("Add a hangar pass"), the question before one is deleted ("Delete this hangar pass?") and the message after ("Hangar pass deleted."), and takes the word from the generated metadata (`rowWords: { one, many }`). A resource that states nothing goes by its name split into words (`HangarPass` is "hangar pass", and several are "hangar passes", the plural the generator names the collection by), the tenant record by the label it declares (`@tenant(label: ...)`), and a view that declares its table (`@rowsOf`) by the table's word. A name that ends in an acronym keeps the acronym's letters where there are several (`PilotID` is "pilot id", and several are "pilot IDs"). State the word where the name is not what people call a row, and the plural where the plural rule misses it. Write the word alone, in the case it has inside a sentence: the screen puts "a", "an" or "this" before it and capitalizes it where it opens a sentence, so a word that opens with an article is refused. Refused on an `@rpc` struct, which lists no rows. |
 | `@typescript` | the declaration of a type used as a field: a struct, or a named type over another type (`type Position json.RawMessage`) | `Name`, or `Name, from: "module"` | Declares the TypeScript type of a Go type whose shape lives outside Go, once, on the type's declaration, and every generated file that carries the type imports `Name` from `module`, spelled verbatim. A table column, a computed field, or an RPC field typed by it is `Name` in its interface, with display type `object` in the metadata. Without `from:`, `Name` must be a TypeScript built-in (`string`, `number`, `boolean`, `unknown`). A plain struct needs no declaration: its interface is derived from its fields (section 12). A type that writes its own JSON (`MarshalJSON` or `UnmarshalJSON`) must declare, since its fields say nothing about the wire, and is refused without it. A type declared over `json.RawMessage`, or over any type with JSON methods, needs no hand-written methods: the generator writes its JSON pair (section 12), so the type is its declaration and this annotation and nothing else; `json.RawMessage` itself is `unknown` without any declaration. A declaration promising anything but `string` on a plain byte slice (`type Token []byte` with no JSON methods) is refused, since the wire carries base64 there. A slice comes from the field (`[]Position` is `Position[]`), never from the declaration; the declaration is read wherever the type is declared, in the application or in a dependency. Two declarations importing one `Name` from different modules are refused, as is `from:` on a built-in and a non-built-in without it. Not valid on a `@resource`, `@virtual`, `@computed`, or `@rpc` struct, which are typed field by field. Example: [Position](../lodestar/pkg/resources/distress_calls.go). |
-| `@attribute` | field of a `@resource` struct (bare form also on a `@virtual` struct and on a field of an `@rpc` or `@computed` struct) | `name[, via: Remote.Segments]` | Declares an attribute binding: the vocabulary name grant conditions reference for this row attribute (ABAC). Bare, the annotated column itself carries the attribute; with `via:`, the binding is a join path leaving through the annotated foreign key — `via:` carries only the remote segments, Go field names on each successive struct, dotted for multi-hop (`via: StationId.Sector`), and every hop must resolve many-to-one through a real foreign key or generation fails. On a virtual resource only the bare form is valid, naming a column the view's projection carries: a fact about the row is a column the view's query selects, whatever join computes it, and a `via:` there is refused with that as the way to the same fact. A view's attribute is a table's from there on: the collection carries it, `access.MigrateRoles` validates a condition's names and literals against it, a grant on the view (the resource's or a field's) may carry a condition that reads it, and so may the Execute grant of a method whose `@target` is the view. Example on a view: [SectorPilot](../lodestar/pkg/virtualresources/sector_pilots.go). On a field of a `@computed` struct the bare form names the row's own Go field: the row comes from the resource's function, so there is no schema for a `via:` path (a fact from elsewhere is a field the function fills), the type is one the library compares in Go (a string, an id, an integer, a float, a bool, a `time.Time` or a `civil.Date`, a pointer to one, or a list of one), and the library judges each row the function yields by reading the field (the `@computed` row). On a list column (an ARRAY: a slice field, never a byte slice) the bare form declares a list attribute, typed by one item: a condition that reads it is judged once for each item of the row's list, the whole condition each time with the item as the attribute's value, and holds only when it holds for every item. So `role != 'Administrator'` over the roles an invitation gives says none of them is Administrator, and `role IN ('Staff', 'Viewer')` that every one is Staff or Viewer. A list with no item, and no list at all, is judged once with no value: no value never permits, and `role IS NULL OR role != 'Administrator'` admits it. The database judges it in one statement (no item fails the condition), on Spanner and on PostgreSQL alike, and it is the rule a request's list field follows. A condition reads one list, on the left of a comparison, as the row holds it: a second list, a list on the right side, the list an update proposes (`new.`) and any list in a Create grant's condition are refused when the roles are deployed, and a list at the end of a `via:` path at generation. Example: the roles of a tenant's invitation (section 22). Every attribute is drawn in the package's generated `zz_gen_bindings.dot`: a `via:` path hop by hop, a bare attribute as a line in its resource's box, pointing at its table when the column is a foreign key (see `@domain`). On a field of an `@rpc` struct the bare form declares a request field a grant's condition may read: the method's Execute grant reads it as `new.<name>`, the word a Create grant uses for the row being written, so a role file can limit what its holder asks for (`new.role != 'Administrator'` on a method that gives a role). The field is a string, an id (`impulse.UUID`), an integer, a float, a bool, a `time.Time` or a `civil.Date`, a pointer to one, or a list of one; a decimal, a database wrapper (`spanner.NullString`) and a struct are refused at generation, since the value is compared as it was decoded. The condition is settled the moment the request is decoded, before any row is looked for: on a method with no `@target` the call is then allowed or refused, in the words a caller with no grant hears, and on a method with a `@target` the part that reads the row goes on to the gate, so one condition may hold both (`fliesElsewhere = false AND new.clearance <= 3`). A request field compares against literals alone: a comparison against `subject`, a subject value or set, `now` or an attribute of the row is refused when the roles are deployed, as is a `new.<name>` the method does not declare. A field left out of the request is its type's empty value, which the condition judges; a nil pointer is no value, and no value never permits. A list is judged once per element and every element has to pass; a list with no element is no value. A method declares one list field this way, and a second is refused at generation. The row's `capabilities=Execute` answer counts a `new.` term as possibly true, since no value is proposed yet, and the permission digest says `conditional`; a dry run of the method (`X-Dry-Run`) answers for a value. Examples: [SetSectorPilotClearance](../lodestar/pkg/rpc/set_sector_pilot_clearance.go), a request field beside a fact of the target row; the generated management's methods that give a role (section 22). Names follow the condition language's identifier rules (`[A-Za-z_][A-Za-z0-9_]*`); `subject`, `now`, and `new` are reserved; a name is declared once per resource, or once per method. |
-| `@domain` | field of a `@resource` struct (bare form also on a `@virtual` struct) | none, or `via: Remote.Segments` | Declares the structural tenancy binding: how every row of a domain-scoped resource resolves to its tenant. Bare on the tenant-key column itself, or `via:` a foreign-key path to it (same grammar as `@attribute`). **Mandatory on every domain-scoped table-backed or virtual resource** — missing is a generation error, and so is declaring it on a resource that is not domain-scoped: global scope is the explicit opt-out (design plan §06). On a virtual resource only the bare form is valid, naming a column the view's projection carries. A bare `@domain` derives the tenant column's runtime behavior — never stated twice: the column decodes output-only (create and update closed, so the wire cannot express a tenant write or re-tenant a row) and the framework stamps it from the request's domain partition on create, so the checked domain and the written domain are the same value by construction; restating behavior through `conditions` or `default_create_fn` tags is rejected, and Create/Update on the column are ungrantable while reads stay grantable. Deliberately not an `@attribute` — it is consumed by tenancy injection and never referencable from grant conditions. At most one per resource. It also tenant-filters the subject subqueries anchored on the resource (see the subject rows). The `via:` path is resolved through foreign-key metadata, not through the remote resource's own bindings — a domain-scoped parent table does **not** transitively supply tenancy to resources referencing it; each resource declares its own `@domain`. Generation warns at every run for a listed table-backed resource whose lists the schema does not serve under this binding: a bare `@domain` with an `@order` and no index leading with the tenant column and then the order columns, where the warning names the index wanted, or a `via:` path, whose lists scan the whole table (section 9). Every attribute and subject binding a package declares, and every `@domain(via:)` path, is drawn in one committed, drift-tested `zz_gen_bindings.dot` beside the workflow graphs: a box per resource declaring a binding, listing its bare bindings as `name: column` (`subject.name: column` for subject vocabulary); dashed boxes for the tables a path lands on or a foreign key points at; a `subject` ellipse for the requester, entering each anchor once with every set and value it yields there; one edge per hop drawn once however many paths share it (solid attribute, dotted domain, dashed subject), labeled `name: column` on a continuing hop and `name: column ⇒ column` where the path terminates; and a thin grey edge from a bare binding on a foreign key to its table, so the two names a condition pairs (`assignedSquadron IN subject.squadrons`) meet at one table. The bare tenant column is not listed, the state column's reference to its enum table is not drawn (the workflow graph covers the states), and a package declaring no binding writes no file. Example: [Lodestar](../lodestar/pkg/resources/zz_gen_bindings.dot). |
+| `@attribute` | field of a `@resource` struct (bare form also on a `@virtual` struct and on a field of an `@rpc` or `@computed` struct) | `name[, via: Remote.Segments]` | Declares an attribute binding: the vocabulary name grant conditions reference for this row attribute (ABAC). Bare, the annotated column itself carries the attribute; with `via:`, the binding is a join path leaving through the annotated foreign key — `via:` carries only the remote segments, Go field names on each successive struct, dotted for multi-hop (`via: StationId.Sector`), and every hop must resolve many-to-one through a real foreign key or generation fails. On a virtual resource only the bare form is valid, naming a column the view's projection carries: a fact about the row is a column the view's query selects, whatever join computes it, and a `via:` there is refused with that as the way to the same fact. A view's attribute is a table's from there on: the collection carries it, `access.ValidateRoles` validates a condition's names and literals against it, a grant on the view (the resource's or a field's) may carry a condition that reads it, and so may the Execute grant of a method whose `@target` is the view. Example on a view: [SectorPilot](../lodestar/pkg/virtualresources/sector_pilots.go). On a field of a `@computed` struct the bare form names the row's own Go field: the row comes from the resource's function, so there is no schema for a `via:` path (a fact from elsewhere is a field the function fills), the type is one the library compares in Go (a string, an id, an integer, a float, a bool, a `time.Time` or a `civil.Date`, a pointer to one, or a list of one), and the library judges each row the function yields by reading the field (the `@computed` row). On a list column (an ARRAY: a slice field, never a byte slice) the bare form declares a list attribute, typed by one item: a condition that reads it is judged once for each item of the row's list, the whole condition each time with the item as the attribute's value, and holds only when it holds for every item. So `role != 'Administrator'` over the roles an invitation gives says none of them is Administrator, and `role IN ('Staff', 'Viewer')` that every one is Staff or Viewer. A list with no item, and no list at all, is judged once with no value: no value never permits, and `role IS NULL OR role != 'Administrator'` admits it. The database judges it in one statement (no item fails the condition), on Spanner and on PostgreSQL alike, and it is the rule a request's list field follows. A condition reads one list, on the left of a comparison, as the row holds it: a second list, a list on the right side, the list an update proposes (`new.`) and any list in a Create grant's condition are refused when the roles are deployed, and a list at the end of a `via:` path at generation. Example: the roles of a tenant's invitation (section 22). Every attribute is drawn in the package's generated `zz_gen_bindings.dot`: a `via:` path hop by hop, a bare attribute as a line in its resource's box, pointing at its table when the column is a foreign key (see `@domain`). On a field of an `@rpc` struct the bare form declares a request field a grant's condition may read: the method's Execute grant reads it as `new.<name>`, the word a Create grant uses for the row being written, so a role file can limit what its holder asks for (`new.role != 'Administrator'` on a method that gives a role). The field is a string, an id (`impulse.UUID`), an integer, a float, a bool, a `time.Time` or a `civil.Date`, a pointer to one, or a list of one; a decimal, a database wrapper (`spanner.NullString`) and a struct are refused at generation, since the value is compared as it was decoded. The condition is settled the moment the request is decoded, before any row is looked for: on a method with no `@target` the call is then allowed or refused, in the words a caller with no grant hears, and on a method with a `@target` the part that reads the row goes on to the gate, so one condition may hold both (`fliesElsewhere = false AND new.clearance <= 3`). A request field compares against literals alone: a comparison against `subject`, a subject value or set, `now` or an attribute of the row is refused when the roles are deployed, as is a `new.<name>` the method does not declare. A field left out of the request is its type's empty value, which the condition judges; a nil pointer is no value, and no value never permits. A list is judged once per element and every element has to pass; a list with no element is no value. A method declares one list field this way, and a second is refused at generation. The row's `capabilities=Execute` answer counts a `new.` term as possibly true, since no value is proposed yet, and the permission digest says `conditional`; a dry run of the method (`X-Dry-Run`) answers for a value. Examples: [SetSectorPilotClearance](../lodestar/pkg/rpc/set_sector_pilot_clearance.go), a request field beside a fact of the target row; the generated management's methods that give a role (section 22). Names follow the condition language's identifier rules (`[A-Za-z_][A-Za-z0-9_]*`); `subject`, `now`, and `new` are reserved; a name is declared once per resource, or once per method. |
+| `@domain` | field of a `@resource` struct (bare form also on a `@virtual` struct) | none, or `via: Remote.Segments` | Declares the structural tenancy binding: how every row of a domain-scoped resource resolves to its tenant. Bare on the tenant-key column itself, or `via:` a foreign-key path to it (same grammar as `@attribute`). **Mandatory on every domain-scoped table-backed or virtual resource** — missing is a generation error, and so is declaring it on a resource that is not domain-scoped: global scope is the explicit opt-out (design plan §06). On a virtual resource only the bare form is valid, naming a column the view's projection carries. A bare `@domain` derives the tenant column's runtime behavior — never stated twice: the column decodes output-only (create and update closed, so the wire cannot express a tenant write or re-tenant a row) and the framework stamps it from the request's domain partition on create, so the checked domain and the written domain are the same value by construction; restating behavior through `conditions` or `default_create_fn` tags is rejected, and Create/Update on the column are ungrantable while reads stay grantable. Deliberately not an `@attribute` — it is consumed by tenancy injection and never referencable from grant conditions. At most one per resource. It also tenant-filters the subject subqueries anchored on the resource (see the subject rows). The `via:` path is resolved through foreign-key metadata, not through the remote resource's own bindings — a domain-scoped parent table does **not** transitively supply tenancy to resources referencing it; each resource declares its own `@domain`. Whether a resource carries a bare `@domain` or reads its tenant through a `via:` path, and whether a foreign key between two resources that each carry a bare `@domain` holds the tenant column of each, is the schema's choice, and generation takes either (section 10, "A link between two records of a tenant"). Generation warns at every run for a listed table-backed resource whose lists the schema does not serve under this binding: a bare `@domain` with an `@order` and no index leading with the tenant column and then the order columns, where the warning names the index wanted, or a `via:` path, whose lists scan the whole table (section 9). Every attribute and subject binding a package declares, and every `@domain(via:)` path, is drawn in one committed, drift-tested `zz_gen_bindings.dot` beside the workflow graphs: a box per resource declaring a binding, listing its bare bindings as `name: column` (`subject.name: column` for subject vocabulary); dashed boxes for the tables a path lands on or a foreign key points at; a `subject` ellipse for the requester, entering each anchor once with every set and value it yields there; one edge per hop drawn once however many paths share it (solid attribute, dotted domain, dashed subject), labeled `name: column` on a continuing hop and `name: column ⇒ column` where the path terminates; and a thin gray edge from a bare binding on a foreign key to its table, so the two names a condition pairs (`assignedSquadron IN subject.squadrons`) meet at one table. The bare tenant column is not listed, the state column's reference to its enum table is not drawn (the workflow graph covers the states), and a package declaring no binding writes no file. Example: [Lodestar](../lodestar/pkg/resources/zz_gen_bindings.dot). |
 | `@state` | field of a `@resource` struct | `default: <value>` | Marks the resource's state column (ABAC design plan §09). The column must be a foreign key to its state enum table (the ordinary Id/Description convention — the FK identifies the table, nothing is declared on it), and the declared default must be one of that table's values. The marker derives the field's behavior — never stated twice: the field decodes output-only (create and update closed, so the wire cannot express a state write; transitions happen inside RPC bodies), Create/Update on it are ungrantable, reads stay grantable, and the generated create patch applies the declared initial state on insert (never a database DEFAULT). State values change only by migration: a mutation permission registered against the state enum table is a generation error, while Read stays grantable. |
 | `@stateRoot` | FK field of a `@resource` struct | `RootStructName` | Declares workflow membership (ABAC design plan §09) on the foreign key anchoring the member — the field is the hop, so only the workflow root's struct name is spelled. Each member declares only its immediate hop; chains compose through other members and must reach the root (a cycle or a hop outside the workflow fails generation), every hop is many-to-one through a real foreign key, and member and root permission scopes must match. The generator synthesizes the uniform `state` attribute binding on the root (a column binding on its `@state` field) and every member (a join path through the chain), so one condition text reads identically across the workflow, and emits the assembled graph as a committed, drift-tested `zz_gen_workflow_<root>.dot` file per stateful root: the whole tree — root and members as solid nodes with one edge per hop labeled with the anchoring FK field, dashed context nodes for every FK reference leaving the tree (the tenant record included), a state cluster with every value and the default marked, one labeled edge per declared `@transition`, and a legend; undeclared state changes stay RPC-body business rules the framework cannot see. The TypeScript resource metadata carries the same facts (root, members with hops, states, default, transitions) as a `Workflows` constant, so a frontend can render the graph itself. A resource belongs to at most one workflow. |
 | `@transition` | `@rpc` struct | `RootStructName, from: a[, b…], to: c` | Declares the RPC method as a workflow state transition (ABAC design plan §09): the method moves rows of the named root resource along one edge. The root must carry `@state`, every `from`/`to` value must be a value of its state enum table, method and root permission scopes must match, and the struct's `Execute` must be the transaction form, carrying exactly one `@target` field. The generated handler owns the mechanical frame inside the transaction it already runs: before the body it locates the target row within the tenancy predicate (absent or cross-tenant is NotFound) and verifies the pre-image state is in the `from` set, then evaluates any row-referencing condition the caller's Execute grant carries against the same located row — either refusal is one uniform Forbidden naming the method and the row, so the wire never says whether the state or the condition said no (§12); after the body returns without error it stamps the `to` state as the last mutation. The body never reads or writes the state field — it carries only the edge's business effect. Who may run the method stays its Execute grant (grants-only, §09). The declared edge travels in the generated Collection, draws labeled edges in the workflow DOT file, rides the TypeScript method metadata, and answers `capabilities=Execute` per row. Example: [LaunchMission](../lodestar/pkg/rpc/launch_mission.go). |
-| `@target` | field of an `@rpc` struct | none, `RootStructName`, or `RootStructName, key: KeyField` | Marks the field carrying the target row's key, its type matching the key column it carries. A method addresses one row: a target keyed by one column is named by one field, and a target keyed by several is named by one field for each column, every one declaring `@target(Root, key: KeyField)` with the key field it carries (the fields may be declared in any order; a column left uncarried, a column carried twice, a field naming no key field, and fields naming two resources are generation errors). With `@transition` it is bare and single (the declared root is the target, and a workflow root is keyed by one column); without one, `@target(Root)` names the row resource directly and the method gets the plain located-row form (ABAC design plan §12): the generated handler locates the row inside its transaction (absent or cross-tenant is NotFound) and evaluates any row-referencing condition on the caller's Execute grant against it, with no state check and no stamp. Either way, a targeted method's Execute grants may carry row conditions — `access.MigrateRoles` validates them against the target resource's binding vocabulary — and the method joins the target resource's per-row `capabilities=Execute` answer. Requires the transaction form of `Execute`; method and target permission scopes must match. A domain-scoped target resolves tenancy through its `@domain` binding, either form: a bare tenant column is read off the located row, a join-path binding is verified with one query in the same transaction — absent and cross-tenant rows answer the same NotFound either way. In the plain form the target may be a view (a `@virtual` struct) keyed by its `@primarykey` field or fields. A view's row is one row of the view's query, and in a tenant-scoped view its key names a row in each tenant that holds one — the tenant column is not part of the key, since `@domain` already holds a row to its tenant, and a key that includes it is refused — so the handler reads no row by the key: it hands the gate the view's own value, named in the package the view is declared in, and one SELECT over the view's query, by the key within the request's tenant, both locates the row and evaluates the grant's condition against it (`ExecuteGate.EnforceView`), a condition that may read the view's `@attribute` facts. No row there answers NotFound, whether the key names nothing or another tenant's row; a key that names two rows there fails the call, as a fault of the view's query. Refused on a view: `@transition`, since a view has no `@state` to move; and a view with no `@primarykey`. The TypeScript method metadata names the target as `target: { resource, key }`, `key` mapping each request field to the row field it carries, so a page fills the request from a row. Examples: [HailShip](../lodestar/pkg/rpc/hail_ship.go), a table's row; [SetSectorPilotClearance](../lodestar/pkg/rpc/set_sector_pilot_clearance.go), a view's; `RemoveCrewSectorRole` of the generated management (section 21), a view's row keyed by two columns. |
+| `@target` | field of an `@rpc` struct | none, `RootStructName`, or `RootStructName, key: KeyField` | Marks the field carrying the target row's key, its type matching the key column it carries. A method addresses one row: a target keyed by one column is named by one field, and a target keyed by several is named by one field for each column, every one declaring `@target(Root, key: KeyField)` with the key field it carries (the fields may be declared in any order; a column left uncarried, a column carried twice, a field naming no key field, and fields naming two resources are generation errors). With `@transition` it is bare and single (the declared root is the target, and a workflow root is keyed by one column); without one, `@target(Root)` names the row resource directly and the method gets the plain located-row form (ABAC design plan §12): the generated handler locates the row inside its transaction (absent or cross-tenant is NotFound) and evaluates any row-referencing condition on the caller's Execute grant against it, with no state check and no stamp. Either way, a targeted method's Execute grants may carry row conditions — `access.ValidateRoles` validates them against the target resource's binding vocabulary — and the method joins the target resource's per-row `capabilities=Execute` answer. Requires the transaction form of `Execute`; method and target permission scopes must match. A domain-scoped target resolves tenancy through its `@domain` binding, either form: a bare tenant column is read off the located row, a join-path binding is verified with one query in the same transaction — absent and cross-tenant rows answer the same NotFound either way. In the plain form the target may be a view (a `@virtual` struct) keyed by its `@primarykey` field or fields. A view's row is one row of the view's query, and in a tenant-scoped view its key names a row in each tenant that holds one — the tenant column is not part of the key, since `@domain` already holds a row to its tenant, and a key that includes it is refused — so the handler reads no row by the key: it hands the gate the view's own value, named in the package the view is declared in, and one SELECT over the view's query, by the key within the request's tenant, both locates the row and evaluates the grant's condition against it (`ExecuteGate.EnforceView`), a condition that may read the view's `@attribute` facts. No row there answers NotFound, whether the key names nothing or another tenant's row; a key that names two rows there fails the call, as a fault of the view's query. Refused on a view: `@transition`, since a view has no `@state` to move; and a view with no `@primarykey`. The TypeScript method metadata names the target as `target: { resource, key }`, `key` mapping each request field to the row field it carries, so a page fills the request from a row. A key field of text (a `string`, or a named type over one) that does not declare `validate:"required"` is one the method takes empty, and the empty text is a value of the key there, as the group of a role a person holds directly is: the metadata lists the field in `target.mayBeEmpty`, and a page sends the empty text a row holds there as it is. Every other part of a key (a text field declared required, an id, a number) holds a value on every row, and a page refuses a row that is empty there before it sends anything. Examples: [HailShip](../lodestar/pkg/rpc/hail_ship.go), a table's row; [SetSectorPilotClearance](../lodestar/pkg/rpc/set_sector_pilot_clearance.go), a view's; `RemoveCrewSectorRole` of the generated management (section 21), a view's row keyed by three columns, the last of which may be empty. |
+| `@callerEnters` | `@rpc` struct | none, or resource structs | Says a row offers the method only to a caller whose session enters every tenant the row names. With no argument the method names its row with `@target` or `@transition`, and that row's struct names the tenants in a `TenantsToEnter` method (`resource.TenantsToEnter`). A method that names no row lists the resource structs whose rows a page runs it from (`@callerEnters(HeldRole, TakenRole)`), and each of them declares `TenantsToEnter`. It shapes what a page offers (`capabilities=Execute`) and refuses nothing: the method's own code refuses the call. |
+| `@notOnOwnAccount` | `@rpc` struct | the row's field | Says the row the method names does not offer it to the person whose account the row is (section 5). The field named is the one of the row's struct that holds the account's id, an `impulse.UUID`. The method's own code refuses the call; the declaration shapes what a page offers. |
 | `@answers` | `@rpc` struct | `200, 409` | Declares the statuses the method may answer with; the result type carries `HTTPStatus() int` and chooses one per response. Allowed: `200`, `201`, `202`, `204`, and any 4xx except `401`, `403`, and `404`, which stay the frame's own refusals; at least one must be a 2xx. A 4xx answer is the method's refusal with its typed body: in the transaction form the transaction rolls back first, so nothing the body armed commits. `204` writes no body and requires a pointer result returned nil, or an answerless method, whose only permitted declaration is `@answers(204)`. A result declaring `HTTPStatus()` without `@answers`, or the reverse, is a generation error; an undeclared status at runtime answers 500. The TypeScript client resolves `{ status, result }` for a method with declared statuses and still throws on every undeclared 4xx. Example: [CompleteMission](../lodestar/pkg/rpc/complete_mission.go). |
 | `@upload` | `@rpc` struct | `max: 5MB`, and `store: S` for a named store | Declares the method as a multipart upload. Its `Execute` takes `resource.Files` third, `Execute(ctx, txn resource.ReadWriteTransaction, files resource.Files, client *Client)`, the transaction form only, since the transaction is what claims the files, and the declaration and the signature go together (either alone is a generation error). With `store: S`, the files go to the named store `S` (section 13) and `Execute` takes `resource.FilesIn[S]`, whose keys are `resource.Key[S]`; the declaration and the signature name one store or neither, and a mismatch is a generation error. The request is `multipart/form-data`: one part named `request` first, carrying the JSON the method's decoder reads exactly as for a JSON RPC, then one or more parts named `file`. `max` (a byte count or `KB`/`MB`/`GB`, 1024-based) bounds the whole body; over it is a 413 naming the maximum, no `file` part a 400, a body that is not multipart a 415. The frame streams each file to the method's store, read off the resource client, under a key it minted, runs the body with the files, and on any failure before commit deletes the objects it streamed and answers with the failure; after a commit nothing more happens, since the rows the body wrote claim the keys. The body records each key in a `@file` column of the same store, a `string` column for the default store and a `resource.Key[S]` column for `S`, whose generated setter takes the typed key, so a key of another store does not compile into it; a key recorded anywhere else is invisible to the release and is the orphaned-file cleanup's. An upload naming a store no `@file` column holds is refused at generation. Reading a file back is the `@file` route (section 13). A dry run streams nothing: the files describe the parts with empty keys. The TypeScript handle gains `upload(body, files)`, which refuses locally over the maximum. Examples: [AttachRefitPhoto](../lodestar/pkg/rpc/attach_refit_photo.go) on the default store, [AttachMissionDocument](../lodestar/pkg/rpc/attach_mission_document.go) on a named one. |
-| `@warning` | `@rpc` struct | `typed: open` | Declares that the method warns before it runs (section 7): a person reads what the call will do, in the server's words, and types the word before the confirm button works. The struct declares `Warning(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*resource.Warning, error)` beside `Execute`, and the declaration and the method go together (either alone is a generation error). A request that carries `X-Warning: true` is decoded and checked exactly as the call is, answers the `resource.Warning` in place of running the call, and saves nothing; a method that declares no warning refuses the header with 400. The typed word is one lowercase word of 2 to 24 letters, which the generated metadata carries (`warning: { typed }`). Refused on the client form of `Execute` (the warning is read inside the handler's transaction, which is rolled back), on an `@upload` method, with `@suppress`, and with `@schedule`. |
+| `@warning` | `@rpc` struct | none, or `typed: open` | Declares that the method warns before it runs (section 7): a person reads what the call will do, in the server's words, before the confirm button works; with `typed: open` they type the word first. The struct declares `Warning(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*resource.Warning, error)` beside `Execute`, and the declaration and the method go together (either alone is a generation error). A request that carries `X-Warning: true` is decoded and checked exactly as the call is, answers the `resource.Warning` in place of running the call, and saves nothing; a method that declares no warning refuses the header with 400. The typed word, where the method declares one, is one lowercase word of 2 to 24 letters, which the generated metadata carries (`warning: { typed }`; `warning: {}` without one). Refused on the client form of `Execute` (the warning is read inside the handler's transaction, which is rolled back), on an `@upload` method, with `@suppress`, and with `@schedule`. |
+| `@deleteToken` | field of an `@rpc` struct | none | Marks the field, named `Token`, that carries the token a delete's question gave. The method's handler asks the question with no read-write transaction open while the field is empty, and hands the token to the method's delete (`resource.DeleteTokenFrom`) once it is not. |
 | `@schedule` | `@rpc` struct | the cron expression in quotes, `zone: "<IANA zone>"` (UTC when absent), and `log: onEvent`: `@schedule("30 3 * * *", zone: "America/Denver")` | Declares the method a scheduled route: Cloud Scheduler calls it on the schedule, read in the zone. The expression is five fields separated by single spaces (minute, hour, day of the month, month, day of the week), each a comma list of `*`, a value, or a range, the `*` and the range optionally stepped (`*/15`, `1-5/2`), months and days of the week also by name (`JAN`, `MON`); an expression outside that, a zone the time zone database does not know, and `Local` are generation errors. A scheduled method takes no input: no field, no `@upload`, no `@permissionScope` (a domain scope is a path parameter, and a scheduled method checks no permission), no `@target` or `@transition`, no `@outlet`, `@feature`, `@formerly` or `@suppress`, each refused naming the struct, and it needs `GenerateRouter`. It is served at `POST /_scheduled/<method in kebab case>` behind the scheduler's token check alone, never on an outlet, never in the permission collection or a TypeScript client. `log:` is the method's own request log word (`always`, `onEvent`, `sampled` with `fraction:`, `never`), set ahead of its handler as a route's is (section 8, request logs and traces); a scheduled method's spans follow the front end, so `trace:` is refused here and on its `@rpc`. Section 19. Example: [PruneDroidReports](../lodestar/pkg/rpc/prune_droid_reports.go). |
-| `@file` | field of a `@resource`, `@virtual`, or keyed `@computed` struct (the column holding the store key); or a keyed `@computed` struct | none, `segment`, on a field `name: Field`, `type: Field`, and `log: onEvent`, `trace: off` | A row says which stored object is its file, and the generator serves that file under the row's read route: `GET <read route>/content` answers the bytes with their type, name, size, time, and validator, gated by `Read` on the resource and a `Read` grant on `content`, the route's own field, which the Collection registers with no column behind it (`columns=content` on a read stays a 400; a grant naming it is accepted by `access.MigrateRoles`). On a field, the annotation marks the column holding the store key: `@file` bare serves under `content`, `@file(thumbnail)` under its own segment, and `name:` and `type:` name sibling columns carrying the file's name and media type (a struct may carry several, one per segment). The column's type says which store holds the file: `string` or `*string` is the default store, `resource.Key[S]` or `*resource.Key[S]` the named store `S`, a type the application declares by embedding `resource.Store` (section 13); both are `STRING` columns, and the generated `FileKeys()` names each column with its store. The key column goes off the wire in both directions: never returned on read or list, never accepted on create or update, absent from the TypeScript interface and metadata; a `NOT NULL` key means a row is added by the `@upload` method that stores its file, so `Create` is not registered and the patch handlers refuse a create op naming that way in, while a nullable key leaves `Create` ordinary. On a keyed `@computed` struct, `@file` or `@file(segment)` declares a rendered file: the computed package declares `<Name><Segment>(ctx, key…, qSet *resource.QuerySet[Name], client resource.Client, computedClient *Client) (*resource.Content, error)` beside `Read<Name>`, checked at generation as `Read<Name>`'s callers are, and a nil content is 404. Deleting a row that carries a key, or pointing it at another object, releases the old object: the patch machinery records the key on the transaction and the executor deletes it from the column's store, wired on the resource client (`resource.WithFileStore`, `resource.WithNamedFileStore[S]`), once the commit lands, from every transaction the application runs; one row owns one object, and a row the database deletes by cascade releases nothing (section 13). Under a suppressed read route the declaration serves nothing and still names the key column, so the release and the orphaned-file cleanup see its keys. `log:` and `trace:` are the file route's own request log word and trace setting, as on `@rpc` (section 8, request logs and traces), refused under a suppressed read route, where no route carries them. Refused at generation, naming the struct: a key-less struct, an unknown sibling, two declarations on one segment, a name or type field that is not a `string` or `*string`, a key field that is none of `string`, `*string`, `resource.Key[S]` and `*resource.Key[S]`, a `resource.Key[S]` column without the declaration, the struct-scope form on a table or view, a rendered file under a suppressed read route, and a content function that is missing or has another signature. Examples: [MissionDocument.StoreKey](../lodestar/pkg/resources/mission_documents.go), a stored file; [ExpenseManifest](../lodestar/pkg/computedresources/expense_manifests.go), a rendered one. |
-| `@subjectSet` | user-id field of a `@resource` struct; with a `who:` written, one of the fields the `who:` names | `name, value: Field`, and the two optional parts `who: <tests>` and `where: <condition>` | Declares subject-side set vocabulary: `subject.<name>` in grant conditions is the set of `value:` values on this table's rows whose annotated column matches the requesting user (`crew IN subject.crews`). The annotation designates the user-id column — no separate marker — and is repeatable per anchor; `value:` names the sibling Go field the set yields, dotted to continue through foreign-key hops with the same many-to-one validation as `via:`; every set is drawn in the package's `zz_gen_bindings.dot`: the requester enters the anchor once naming its sets, a bare set is listed in the anchor's box and points at its table when the column is a foreign key, and a dotted value continues as edges (see `@domain`). **Tenancy:** the rendered subject subquery is tenant-filtered by the anchor resource's own `@domain` binding, so a domain-scoped anchor must declare one — generation rejects it otherwise, because without it `subject.<name>` matches the user's rows from every tenant (a membership held at tenant B would satisfy conditions evaluated at tenant A). A global-scoped anchor is the deliberately shared pattern — a certification earned once applies everywhere — and stays unfiltered. Note the anchor's own binding is what counts: tenancy never arrives transitively from a domain-scoped parent table (see `@domain`). **Type:** the set's comparison type is derived from the `value:` column (the terminal of a dotted value) exactly as `@attribute`'s is, and a grant may test only an attribute of the same type for membership in it; `MigrateRoles` refuses the mismatch at deploy. **The two parts:** a set's definition may say two more things, each in the language grant conditions are written in ([`accesstypes/condition`](../accesstypes/condition), whose package documentation states the grammar of both) over the fields of the same struct, named as Go fields. Both are optional, and a set that writes neither is the set described above and generates as it always has. `who:` says which rows are the requester's: one test or several joined by `OR`, each tying a column of the row to the requester, `Field = subject` or `Field IN subject.<another set>`. Left out, it is the annotated column equal to the requester. `where:` says which of those rows count: a condition over the row's own columns compared to literals and to `now`, with the comparisons, `IN (…)`, `IS NULL`, `AND`, `OR` and `NOT`, judged as every condition is, so a row counts only where it is TRUE. One table then yields a set for each level it records, an expired row drops out at its hour, and a set follows a person through any table that declares a set of its own: `@subjectSet(hangarsRun, value: HangarID, who: UserID = subject OR SquadronID IN subject.squadrons, where: LevelID = 'run' AND (ExpiresAt IS NULL OR ExpiresAt > now))`, written on one line or continued over the comment's next lines. A role file does not change: a grant names the set (`hangar IN subject.hangarsRun`) and nothing of the table behind it. Sets build on sets to any depth, and each keeps its own tenant filter: a set on a tenant-scoped table reads the request's tenant, a set on a global table reads every row, whichever of the two names the other, so a table kept outside every tenant answers the same in each. Both parts render inside the one `EXISTS` the set already is, the set a `who:` follows as that set's own `EXISTS` with the row's column where an attribute would stand. With a `who:` written the annotation sits on one of the fields the `who:` names, as every annotation that ties a row to the requester or the tenant sits on the column it reads. **Refused at generation**, naming the struct, the field and the set: a `who:` test that does not tie the row to the requester (a comparison to a literal, `!=`, a negated test, tests joined by `AND`), since a set of everyone's rows is one mistake away without it; a `who:` naming a field the struct does not have or one no condition can compare, comparing a column that is not a string to the requester, or writing one test twice; a `who:` naming a set no `@subjectSet` declares (the message lists the sets declared), a `@subjectValue`, or a set whose value type differs from the tested column's; sets that build on each other in a loop, a set on itself included, with the loop spelled out; the annotation on a field its `who:` does not name, with the fields it may sit on; a `where:` naming something that is not a field of the struct, or a field no condition can compare; a `where:` literal that does not fit the column it is compared to (a string against a number, a timestamp that is not RFC 3339, a date that is not `YYYY-MM-DD`, `now` against anything but a timestamp); a `where:` value that an enumerated column does not hold (a foreign key into an `@enumerate` table, or a field-scope `@enumerate` naming one), with the values it does hold; and a `where:` that names the requester (`subject`, `subject.<name>`) or a proposed value (`new.`), since the test that ties a row to the requester is the `who:` and a set's rows are read as the database holds them. **Index warning:** generation warns, and never refuses, when no index of the set's table serves the set's lookup, one warning for each column the `who:` names (the annotated column for a set that writes none), each naming the `CREATE INDEX` it wants: the tenant column first where the row carries one, then the column, then the value (section 9). **Strings:** a string literal in a `where:` is written in single quotes and holds any character, a comma or a parenthesis among them; a quote inside it is written twice (`Code = ':)'`, `Note != 'it''s'`). A string that is never closed is refused as an unclosed single quote, at the annotation. Examples: [SquadronMembership](../lodestar/pkg/resources/squadron_memberships.go), a set that writes neither part; [HangarPass](../lodestar/pkg/resources/hangar_passes.go), two sets on one table, each with both. |
-| `@subjectValue` | user-id field of a `@resource` struct | `name, value: Field` | Declares subject-side scalar vocabulary for threshold comparisons (`amount <= subject.approvalLimit`). Same grammar — and the same tenancy rule, and the same place in `zz_gen_bindings.dot` — as `@subjectSet`, valid only where the annotated user-id column is the whole key of a unique index, the single-column primary key included, so the database enforces exactly one row per user; a column of a composite key or composite unique index does not qualify. It takes neither `who:` nor `where:`, the parts of a `@subjectSet`: its one row is the requester's by the unique column, and generation refuses either on it. **Type:** the value's comparison type is derived from the `value:` column as `@attribute`'s is, and a grant may compare it only against an attribute of the same type (`now` only against a timestamp-typed value); `MigrateRoles` refuses the mismatch at deploy. |
-| `@manualAddResource` | `accesstypes.Resource` constant | `permission[, scope]` | Registers the permission on the resource in the generated Collection for a hand-written route with no generated handler. Repeatable. Scope is `global` or `domain`; omitted means the global default. An `@outlet` annotation on the same constant names the outlets the hand-written route is mounted under, so an outlet-filtered TypeScript target (`ForOutlet`) carries the registration only when it names that outlet; omitted means the default outlet. The constant's value is the resource name and must not contain `:` (reserved for access-defined markers like `accesstypes.GlobalResource`); generation rejects it. The registration reaches the TypeScript constants like a generated one: an `Execute` registration joins `Methods`, any other permission joins `Resources`. |
+| `@file` | field of a `@resource`, `@virtual`, or keyed `@computed` struct (the column holding the store key); or a keyed `@computed` struct | none, `segment`, on a field `name: Field`, `type: Field`, and `log: onEvent`, `trace: off` | A row says which stored object is its file, and the generator serves that file under the row's read route: `GET <read route>/content` answers the bytes with their type, name, size, time, and validator, gated by `Read` on the resource and a `Read` grant on `content`, the route's own field, which the Collection registers with no column behind it (`columns=content` on a read stays a 400; a grant naming it is accepted by `access.ValidateRoles`). On a field, the annotation marks the column holding the store key: `@file` bare serves under `content`, `@file(thumbnail)` under its own segment, and `name:` and `type:` name sibling columns carrying the file's name and media type (a struct may carry several, one per segment). The column's type says which store holds the file: `string` or `*string` is the default store, `resource.Key[S]` or `*resource.Key[S]` the named store `S`, a type the application declares by embedding `resource.Store` (section 13); both are `STRING` columns, and the generated `FileKeys()` names each column with its store. The key column goes off the wire in both directions: never returned on read or list, never accepted on create or update, absent from the TypeScript interface and metadata; a `NOT NULL` key means a row is added by the `@upload` method that stores its file, so `Create` is not registered and the patch handlers refuse a create op naming that way in, while a nullable key leaves `Create` ordinary. On a keyed `@computed` struct, `@file` or `@file(segment)` declares a rendered file: the computed package declares `<Name><Segment>(ctx, key…, qSet *resource.QuerySet[Name], client resource.Client, computedClient *Client) (*resource.Content, error)` beside `Read<Name>`, checked at generation as `Read<Name>`'s callers are, and a nil content is 404. Deleting a row that carries a key, or pointing it at another object, releases the old object: the patch machinery records the key on the transaction and the executor deletes it from the column's store, wired on the resource client (`resource.WithFileStore`, `resource.WithNamedFileStore[S]`), once the commit lands, from every transaction the application runs; one row owns one object, and a row the database deletes by cascade releases nothing (section 13). Under a suppressed read route the declaration serves nothing and still names the key column, so the release and the orphaned-file cleanup see its keys. `log:` and `trace:` are the file route's own request log word and trace setting, as on `@rpc` (section 8, request logs and traces), refused under a suppressed read route, where no route carries them. Refused at generation, naming the struct: a key-less struct, an unknown sibling, two declarations on one segment, a name or type field that is not a `string` or `*string`, a key field that is none of `string`, `*string`, `resource.Key[S]` and `*resource.Key[S]`, a `resource.Key[S]` column without the declaration, the struct-scope form on a table or view, a rendered file under a suppressed read route, and a content function that is missing or has another signature. Examples: [MissionDocument.StoreKey](../lodestar/pkg/resources/mission_documents.go), a stored file; [ExpenseManifest](../lodestar/pkg/computedresources/expense_manifests.go), a rendered one. |
+| `@subjectSet` | user-id field of a `@resource` struct; with a `who:` written, one of the fields the `who:` names | `name, value: Field`, the two optional parts `who: <tests>` and `where: <condition>`, on a global-scoped anchor `domain: Field` or `domain: Field.Path`, and in an application with several auths `auth: <the auth's name>` | Declares subject-side set vocabulary: `subject.<name>` in grant conditions is the set of `value:` values on this table's rows whose annotated column matches the requesting user (`crew IN subject.crews`). The annotation designates the user-id column — no separate marker — and is repeatable per anchor; `value:` names the sibling Go field the set yields, dotted to continue through foreign-key hops with the same many-to-one validation as `via:`; every set is drawn in the package's `zz_gen_bindings.dot`: the requester enters the anchor once naming its sets, a bare set is listed in the anchor's box and points at its table when the column is a foreign key, and a dotted value continues as edges (see `@domain`). **Tenancy:** the rendered subject subquery is tenant-filtered by the anchor resource's own `@domain` binding, so a domain-scoped anchor must declare one — generation rejects it otherwise, because without it `subject.<name>` matches the user's rows from every tenant (a membership held at tenant B would satisfy conditions evaluated at tenant A). A global-scoped anchor is the deliberately shared pattern — a certification earned once applies everywhere — and stays unfiltered. Where a global table's rows still belong to tenants, the set says where a row's tenant is found, `domain:`. Where the row carries its tenant's key itself, `domain:` names that column (`domain: TenantID`), and `zz_gen_bindings.dot` lists it under the set in the anchor's box (`subject.keys domain: TenantId`). Where a row belongs to a tenant through a parent (a person's place in a group, the group being kept in one tenant or in none), it names a foreign key of the row and then the path to the column that holds the tenant's key (`domain: GroupID.DomainID`), validated many-to-one as `via:` is, and drawn in `zz_gen_bindings.dot` as an `@domain` path is, dotted, under the set's name (`crewGroups domain: GroupId ⇒ DomainId`). In a request that has a tenant the set then holds that tenant's rows alone, and a row that names another tenant, or none, is left out; in a request that has no tenant it holds every row. Generation refuses a `domain:` on a domain-scoped anchor (its own `@domain` is the filter), on a `@subjectValue`, on a path that does not start at a foreign key of the row, and on a column or a path's end that is not text. Text is all a column's type says, so where generation knows which column of the table a `domain:` ends on holds its tenant, the end must be that column, and the refusal names it: on a domain-scoped table, the column its bare `@domain` sits on (a table that finds its tenant through `@domain(via: ...)` holds no tenant's key, so the path goes on through that foreign key); on the `@tenant` record, its key; on an auth's groups table, the store's `DomainId`. A global table that is none of these tells generation nothing of a tenant, so there the end is held to text alone, and that the column holds a tenant's key is the author's word. `NewGeneratedCollection` refuses a collection built by hand that gives a set a domain on a domain-scoped resource, or gives one to a subject value, so nothing takes the place of a resource's own tenant filter. Note the anchor's own binding is what counts: tenancy never arrives transitively from a domain-scoped parent table (see `@domain`). **Whose people:** a set describes the people of one auth: its user column holds that auth's people and the set is looked up by their ids, so an engine opened for another auth takes no grant that reads it: one in its role file is refused when the file is loaded (`access.WithDefaultRoles`, `access.ValidateRoles`), one written to a custom role is refused, and one found in the store is left out and reported. An application with one auth need not say, and every set is that auth's. An application with several says which on every set it writes, `auth: crew`, the auth's name as its package names it (`@subjectSet(squadrons, value: SquadronID, auth: crew)`), since nothing in a schema says whose ids a user column holds: a table one auth's staff keep about another auth's people is served to the first and names the second. Generation refuses a set that says none where the application has several auths, naming them, and a name that is no auth of the application; a `@subjectValue` takes none, and the set of a person's groups that the generator declares for an auth names that auth itself, in an application with one auth too. A set follows a person through sets of its own auth alone: generation refuses a `who:` that tests a set labeled for another auth, the set of another auth's groups included, since through that test the set would hold rows for people it does not describe. The generated collection carries the name (`SubjectBindingData.Auth`) and the names of the auths its run knew (`CollectionData.Auths`), which the permission engine holds the name a role file is handed over under to, and the role-file check of an auth looks at that auth's sets and at no other auth's (`access.UnreadSetWarning`; `GeneratedCollection.SubjectSets(auth)`). **Type:** the set's comparison type is derived from the `value:` column (the terminal of a dotted value) exactly as `@attribute`'s is, and a grant may test only an attribute of the same type for membership in it; `access.ValidateRoles` refuses the mismatch at deploy. **The two parts:** a set's definition may say two more things, each in the language grant conditions are written in ([`accesstypes/condition`](../accesstypes/condition), whose package documentation states the grammar of both) over the fields of the same struct, named as Go fields. Both are optional, and a set that writes neither is the set described above and generates as it always has. `who:` says which rows are the requester's: one test or several joined by `OR`, each tying a column of the row to the requester, `Field = subject` or `Field IN subject.<another set>`. Left out, it is the annotated column equal to the requester. `where:` says which of those rows count: a condition over the row's own columns compared to literals and to `now`, with the comparisons, `IN (…)`, `IS NULL`, `AND`, `OR` and `NOT`, judged as every condition is, so a row counts only where it is TRUE. One table then yields a set for each level it records, an expired row drops out at its hour, and a set follows a person through any table that declares a set of its own: `@subjectSet(hangarsRun, value: HangarID, who: UserID = subject OR SquadronID IN subject.squadrons, where: LevelID = 'run' AND (ExpiresAt IS NULL OR ExpiresAt > now))`, written on one line or continued over the comment's next lines. A role file does not change: a grant names the set (`hangar IN subject.hangarsRun`) and nothing of the table behind it. Sets build on sets to any depth, and each keeps its own tenant filter: a set on a tenant-scoped table reads the request's tenant, a set on a global table reads every row unless it writes a `domain:`, whichever of the two names the other, so a table kept outside every tenant answers the same in each. Both parts render inside the one `EXISTS` the set already is, the set a `who:` follows as that set's own `EXISTS` with the row's column where an attribute would stand. With a `who:` written the annotation sits on one of the fields the `who:` names, as every annotation that ties a row to the requester or the tenant sits on the column it reads. **Refused at generation**, naming the struct, the field and the set: a `who:` test that does not tie the row to the requester (a comparison to a literal, `!=`, a negated test, tests joined by `AND`), since a set of everyone's rows is one mistake away without it; a `who:` naming a field the struct does not have or one no condition can compare, comparing a column that is not a string to the requester, or writing one test twice; a `who:` naming a set no `@subjectSet` declares (the message lists the sets declared), a `@subjectValue`, or a set whose value type differs from the tested column's; a `who:` naming a set that describes another auth's people where both sets say whose they are, the generated set of another auth's groups included (the message names both auths and where each is said); sets that build on each other in a loop, a set on itself included, with the loop spelled out; the annotation on a field its `who:` does not name, with the fields it may sit on; a `where:` naming something that is not a field of the struct, or a field no condition can compare; a `where:` literal that does not fit the column it is compared to (a string against a number, a timestamp that is not RFC 3339, a date that is not `YYYY-MM-DD`, `now` against anything but a timestamp); a `where:` value that an enumerated column does not hold (a foreign key into an `@enumerate` table, or a field-scope `@enumerate` naming one), with the values it does hold; and a `where:` that names the requester (`subject`, `subject.<name>`) or a proposed value (`new.`), since the test that ties a row to the requester is the `who:` and a set's rows are read as the database holds them. **Index warning:** generation warns, and never refuses, when no index of the set's table serves the set's lookup, one warning for each column the `who:` names (the annotated column for a set that writes none), each naming the `CREATE INDEX` it wants: the tenant column first where the row carries one, then the column, then the value (section 9). **Strings:** a string literal in a `where:` is written in single quotes and holds any character, a comma or a parenthesis among them; a quote inside it is written twice (`Code = ':)'`, `Note != 'it''s'`). A string that is never closed is refused as an unclosed single quote, at the annotation. Examples: [SquadronMembership](../lodestar/pkg/resources/squadron_memberships.go), a set that writes neither part; [HangarPass](../lodestar/pkg/resources/hangar_passes.go), two sets on one table, each with both. **Impersonation:** the record decides what a person may do, so its generated write refuses the real person behind an impersonated session a row that names them, by the annotated column or a column a `who:` compares to the requester, before the write and after it (section 21, "The rules on who is asking"). |
+| `@subjectValue` | user-id field of a `@resource` struct | `name, value: Field` | Declares subject-side scalar vocabulary for threshold comparisons (`amount <= subject.approvalLimit`). Same grammar — and the same tenancy rule, and the same place in `zz_gen_bindings.dot` — as `@subjectSet`, valid only where the annotated user-id column is the whole key of a unique index, the single-column primary key included, so the database enforces exactly one row per user; a column of a composite key or composite unique index does not qualify. It takes neither `who:` nor `where:`, the parts of a `@subjectSet`: its one row is the requester's by the unique column, and generation refuses either on it. **Type:** the value's comparison type is derived from the `value:` column as `@attribute`'s is, and a grant may compare it only against an attribute of the same type (`now` only against a timestamp-typed value); `access.ValidateRoles` refuses the mismatch at deploy. **Impersonation:** as for a `@subjectSet`, the record's generated write refuses the real person behind an impersonated session the row that names them (section 21, "The rules on who is asking"). |
+| `@manualAddResource` | `accesstypes.Resource` constant of the resources package | `permission[, scope]` | Registers the permission on the resource in the generated Collection for a hand-written route with no generated handler. Repeatable. Scope is `global` or `domain`; omitted means the global default. An `@outlet` annotation on the same constant names the outlets the hand-written route is mounted under, so an outlet-filtered TypeScript target (`ForOutlet`) carries the registration only when it names that outlet; omitted means the default outlet. The constant's value is the resource name and must not contain `:` (reserved for access-defined markers like `accesstypes.GlobalResource`); generation rejects it. The registration reaches the TypeScript constants like a generated one: an `Execute` registration joins `Methods`, any other permission joins `Resources`. A name is registered in one scope: generation refuses a name registered for the whole application and for a tenant, and `resource.NewGeneratedCollection` refuses the same in collection data built by hand. The name holds no dot, which separates a resource from one of its fields: a registration under a name with a dot is refused. The annotation is read from the comment of the constant it stands above: one in the comment above a `const ( ... )` group is refused, with where to write it. The constant's type is `accesstypes.Resource` or an alias of it (`type Name = accesstypes.Resource`): generation refuses the annotation on a constant of any other type, a type declared over `accesstypes.Resource` (`type Name accesstypes.Resource`) and an untyped string among them, with the type to give it. The annotation stands directly above its constant: generation refuses it in a comment that is no constant's (one a blank line parts from the constant below it). On a constant declared in another package, or in a comment there that is no declaration's, it is read by nothing, and `impulse check` reports it (`constant-annotations`). |
+| `@class` | `@rpc` struct; `accesstypes.Resource` constant carrying `@manualAddResource(Execute)` | comma list of class names, `credential`, `access` | Marks the action with the classes it carries, which a permission mask refers to: the mask of an impersonated session that refuses a class (`accesstypes.RefuseClass`) refuses every action that carries it, the ones declared after the mask was written among them, so nobody keeps a list of actions in step with the application (section 6). Repeatable, and a list and repeated annotations mean the same. A class is named by a lowercase letter, then lowercase letters, digits and underscores (`money_movement`); the library names two, which its generated identity methods carry (section 21): `credential` (`accesstypes.ClassCredential`), on the methods that change how a person signs in (a new password required, a password removed, a reset link sent, a sign-in identity unlinked, a username or an address changed), and `access` (`accesstypes.ClassAccess`), on the methods that give or take away what someone may do (a role given or removed, a group and who is in it and what it holds, an invitation, and what a sign-in method or a tenant's directory gives everyone who arrives through it; an account disabled, enabled or deleted carries neither class, section 21). An application marks its own actions with either or with a class it names. The generated Collection carries each action's classes (`CollectionResource.Classes`, read back with `ActionClasses`), which is where the masked check reads them, and the collection file declares a constant for each class in use (`ClassCredential`, `ClassAccess`, `ClassMoneyMovement`), so a mask is written against a name the compiler knows and one that names a class no action carries any more does not compile. A registration declared with `WithManualResources` carries its classes in `ManualRegistration.Classes`. A class is an action's alone, a name that registers Execute and nothing else. **Refused at generation:** a name no class may carry, a class named twice on one action, the annotation on a `@resource`, `@virtual` or `@computed` struct (the annotation marks an action; a record's writes are given the class `access` by the generator alone, where the record decides what a person may do, and a mask holds a session off any other record by naming it, `accesstypes.RefuseWrites`), the annotation on a constant that registers nothing, the annotation beside a registration of a permission other than Execute, on a constant or in `ManualRegistration.Classes` (`constant "LedgerRows": @class(sensitive) marks an action, and the registration is of List, which is no action's permission: a class is carried by a registration of Execute alone. …`), a name that carries a class and registers another permission beside Execute (`"ResetLogin" carries the class credential and registers Update beside Execute: …`; the collection refuses the same when the application starts, so a collection file written before the rule is not served), the annotation on a method that registers no action (its handler suppressed with `@suppress`, or a generation that writes no routes: the class rides the registration, so it goes on the constant that registers the action by hand, and is never dropped without a word), and two classes whose constants would share a name. A name registered twice, by a method and by hand, carries the classes of both. Example: [ScrapShip](../lodestar/pkg/rpc/scrap_ship.go). |
 | `@manualAddResourceSet` | `@resource` struct | comma list of `listHandler`, `readHandler`, `patchHandler`, or `allHandlers` | Declares that hand-written handlers register this resource's permission Sets for the given handler types; validated against the set of generated handlers. |
 | `@outlet` | `@resource`, `@virtual`, `@computed`, or `@rpc` struct; `accesstypes.Resource` constant carrying `@manualAddResource` | comma list of outlet names | Names the router outlets the struct's routes — or the constant's hand-written route — are registered under. Outlets are independent registration surfaces with their own route prefixes — the generator emits a `Generated<Name>Handlers` interface and `generated<Name>Routes` function per outlet, so the application composes different authentication and middleware around each (a browser app on one, a machine REST API on another). The default outlet is declared by `generation.GenerateRoutes` and carries the reserved name `default`; additional outlets are declared with `generation.WithRouterOutlet(name, routePrefix)`, and referencing an undeclared name is a generation error. An outlet serving browser sessions declares it (`WithRouterOutlet(name, prefix, Auth(pkg, flavor))` under the generated router, `ServesSessions()` under a hand-written one; section 8): the generated route tables register the permission-digest and user-domains routes under its prefix, and only a session-serving outlet may be the target of a `GenerateTypescript` call (`ForOutlet(name)`), which filters every emitted TypeScript file to that outlet's members — a client for a session-less outlet would have no permission channels and fail closed on every page, so it is a generation error. Without the annotation a struct is on the default outlet only; naming outlets replaces that default, so `@outlet(default, automation)` serves both while `@outlet(automation)` serves the automation outlet only. Consolidated resources get one consolidated patch dispatcher per outlet (`PatchResources`, `Patch<Name>Resources`), each bundling exactly that outlet's members. The generated router tests cover every outlet's routes and additionally prove isolation: a route's path under an outlet it is not attached to must 404. Example: [Consignment](../lodestar/pkg/resources/consignments.go). |
-| `@permissionScope` | `@resource`, `@virtual`, `@computed`, or `@rpc` struct | `global` or `domain` | Sets the permission scope used by all of the resource's registrations. Default: `global`. It also selects the domain the generated handlers evaluate permissions in: global-scoped handlers pass `accesstypes.GlobalDomain`, while domain-scoped handlers read it from a required `/<tenants>/{<tenant>ID}/` route segment pair between the route prefix and the resource path (pair-style, so domain values can never collide with resource or method route names). Both names derive from the package's `@tenant` record: the segment is the record's route name and the parameter its key's route parameter (`Sector` keyed by `ID` gives `/sectors/{sectorID}/`), and a tenant-scoped resource in a package with no `@tenant` record is refused. Domain-scoped routes are wrapped in the generated `DomainGuard`, which asks the application's tenant roster (`TenantRoster().Has`, section 16) and answers 404 for a domain the roster does not hold before the handler runs, and the same 404 for a tenant the session does not reach (`UserPermissions.Reaches`: the tenant's declaration does not admit the way the session was established, section 6). With `generation.WithConcealedDomains()` the guard asks the caller's foothold next (`UserPermissions.HasGrants` in the domain): a domain where the requesting user holds zero grants answers identically to a domain that does not exist (404 on routes, 400 in consolidated op paths), so refusals never confirm a tenant; any grant in the domain restores ordinary 403s (`access.Client.UserHasGrants` answers the foothold question from the in-memory snapshot, so the check stays legal inside the consolidated mutation transaction). Tenant identifiers must be a single URL-safe path segment and must never contain `:` (the character is reserved for access-defined markers; `accesstypes.GlobalDomain` is `access:global`); a URL domain is pure data, and `accesstypes.DomainScope` routes it to a tenant partition by construction, so no value can address the global partition. In the consolidated patch handler, a domain-scoped resource's operations carry the domain in the path exactly as the URL grammar does (`{"op":"patch","path":"/sectors/sector-alpha/berths/…"}`); global operations stay domainless, an unknown domain in an operation path is a 400, and cross-domain batches are legal (each operation is checked in its own partition; the batch is one transaction). Example: [Sector](../lodestar/pkg/resources/sectors.go). |
+| `@permissionScope` | `@resource`, `@virtual`, `@computed`, or `@rpc` struct | `global` or `domain` | Sets the permission scope used by all of the resource's registrations. Default: `global`. It also selects the domain the generated handlers evaluate permissions in: global-scoped handlers pass `accesstypes.GlobalDomain`, while domain-scoped handlers read it from a required `/<tenants>/{<tenant>ID}/` route segment pair between the route prefix and the resource path (pair-style, so domain values can never collide with resource or method route names). Both names derive from the package's `@tenant` record: the segment is the record's route name and the parameter its key's route parameter (`Sector` keyed by `ID` gives `/sectors/{sectorID}/`), and a tenant-scoped resource in a package with no `@tenant` record is refused. Domain-scoped routes are wrapped in the generated `DomainGuard`, which asks the application's tenant roster (`TenantRoster().Has`, section 16) and answers 404 for a domain the roster does not hold before the handler runs, and the same 404 for a tenant the session does not reach (`UserPermissions.Reaches`: the tenant is disabled, or its declaration does not admit the way the session was established, section 6). With `generation.WithConcealedDomains()` the guard asks the caller's foothold next (`UserPermissions.HasGrants` in the domain): a domain where the requesting user holds zero grants answers identically to a domain that does not exist (404 on routes, 400 in consolidated op paths), so refusals never confirm a tenant; any grant in the domain restores ordinary 403s (`access.Client.UserHasGrants` answers the foothold question from the in-memory snapshot, so the check stays legal inside the consolidated mutation transaction). Tenant identifiers must be a single URL-safe path segment and must never contain `:` (the character is reserved for access-defined markers; `accesstypes.GlobalDomain` is `access:global`); a URL domain is pure data, and `accesstypes.DomainScope` routes it to a tenant partition by construction, so no value can address the global partition. In the consolidated patch handler, a domain-scoped resource's operations carry the domain in the path exactly as the URL grammar does (`{"op":"patch","path":"/sectors/sector-alpha/berths/…"}`); global operations stay domainless, an unknown domain in an operation path is a 400, and cross-domain batches are legal (each operation is checked in its own partition; the batch is one transaction). Example: [Sector](../lodestar/pkg/resources/sectors.go). |
 | `@tenant` | `@resource` struct | none, or `label: "<word>"`: `@tenant(label: "Service district")` | The struct is the tenant record: the table whose rows are the tenants, one per package. Its route name is the segment tenant-scoped routes are served under and its key's route parameter is the domain parameter (`Sector` keyed by `ID` gives `/sectors/{sectorID}/…`); the generator emits `New<Record>Roster(client, opts...)` into the handler package, which builds the `resource.TenantRoster` the generated `DomainGuard` and the consolidated dispatcher ask (section 16); what makes a tenant (the generated `New<Record>Maker`, at the first sign-in of a person staff invited, and the create-your-tenant route) and the record's generated delete path reread the roster after their commit and signal the tenants kind, so a tenant made at run time is served by every instance without a restart or a release. Nobody creates a tenant directly: the record's create op is refused with how one is made (section 16). The record must be global, table-backed, and keyed by one generated id (`ID impulse.UUID`, whose text is the domain in every tenant-scoped URL; what people call the tenant is its `@tenantName` column, changed like any field): `@tenant` on a `@permissionScope(domain)` struct, on a compound key, on a key that is not a generated id (a typed string, a foreign key, an interleaved table), on a `@virtual`, `@computed` or `@rpc` struct, or on a second struct is refused naming the rule, and a tenant-scoped resource, view, computed resource or method in a package with no `@tenant` record is refused (`a tenant-scoped resource needs a tenant record; annotate it @tenant`). A key cannot change on update. The record names what the screen calls a tenant: the generated browser descriptor carries the word, one and many (`domainRoute.word`), for the frame's place switcher and menus, from the record's name in words (`Sector` reads "Sector" and "Sectors", `ShipClass` "Ship class" and "Ship classes"), or from `label:` where an application in production changes the word without renaming its tables; the plural is the generator's, as it spells the table. A label is letters, digits, single spaces and hyphens, starting with a letter; any other is refused. Example: [Sector](../lodestar/pkg/resources/sectors.go). |
-| `@directoryOnly` | field of the `@tenant` record, a `bool` column | none | The tenant's people enter through its directory only: a tenant whose flag is true admits a sign-in through its own directory and nothing else, so a password, a personal account and a sign-in through another organization's directory do not reach it. Two people are not held to it: a super administrator, and an administrator of the tenant itself, who enters with a password and a second factor so that a tenant whose directory is broken can be mended from inside (section 16, "Directory only"). The flag restricts that tenant's own door alone: a tenant whose flag is false admits everyone it seats, however they signed in, and a person the flag keeps out of one tenant still enters every other tenant that seats them. The flag is half of what the tenant record declares about who may enter a tenant (section 16); the other half is the directories record (`@tenantDirectory`), which the flag needs, since a tenant whose people enter through its directory only needs a directory to enter through, and the directory of such a tenant is not removed until the flag is turned off. The switch is the tenant's own: the generator writes two methods in the tenant's scope, `Make<Record>DirectoryOnly` and `End<Record>DirectoryOnly`, which the tenant's administrator runs under an Execute grant on each; turning the flag on is held to three rules (the tenant has its directory, the caller is signed in through it, and the caller has a password where their auth has passwords; section 16, "Directory only"). The record's own write paths, which are global, show the flag and never write it: the field is output only on the wire, at create and at update, and the record's change events are the audit. The generated create-your-tenant route leaves it out of its body: a new tenant declares nothing beyond its creator's directory. Refused on a resource that is not the tenant record, on a column that is not a `bool`, and on a second column. Example: [Sector](../lodestar/pkg/resources/sectors.go). |
-| `@tenantName` | field of the `@tenant` record, a `string` or `*string` column | none | The tenant's name as its people know it. The generated `New<Record>Roster` reads the column beside the key (`resource.WithTenantNames`), and the generated `UserDomains` handler names each tenant of the session's tenant list from the roster (`resource.WithDomainNames`), so a tenant's own people see its name in the place switcher without holding Read on the record, a global resource; without it the list names each tenant by its key. The generated browser metadata names the column on the record (`nameField`), so a picker over the tenant record lists tenants by name and the people pages name the tenant a role or an invitation is in. Refused on a resource that is not the tenant record, on a column that is not a string, and on a second column. Example: [Sector](../lodestar/pkg/resources/sectors.go). |
-| `@tenantDirectory` | `@resource` struct, `@permissionScope(domain)` | none | The struct is the directories record: the tenant-scoped table that holds each tenant's directory, the organization its people sign in through, as the sign-in method (`@directoryMethod`) and the connection (`@directoryConnection`). A tenant has one directory and a directory belongs to one tenant: the generator refuses a record whose table has no unique index on the tenant column alone, or none on the method and the connection together, naming the index to add, and the generated write paths refuse first, each with a sentence the person can act on (`resource.TenantDirectoryRules`, section 16). Nobody types a directory in: the method and the connection are output-only, the record's generated create sets both from the directory the caller is signed in through and refuses a session that came by password or with a personal account (any Google account, a Microsoft personal account), and its generated delete is refused while the tenant is directory only. The record's key is an id its create generates. Its tenant is the bare `@domain` column, the tenant's key on the row itself, so a tenant's administrator sets and removes its own directory under the record's Create and Delete grants, and the record's change events are the audit. With it the generated `New<Record>Roster` reads what each tenant declares beside its key (`resource.WithTenantDeclarations`), `New<Record>DeclarationReader` reads one tenant's declaration in the sign-in's transaction for `signin.TenantPolicy`, the record's write paths reload the roster after their commit and signal the tenants kind as the tenant record's do, and the generator emits `Set<Record>Directory`, the one step that sets a tenant's directory from a sign-in, which the create-your-tenant route calls with the directory its creator came through. Refused on a global resource, on the tenant record itself, on a second struct, with a join-path `@domain`, without either column, with a key that is not a generated id, and without either unique index. Example: [SectorDirectory](../lodestar/pkg/resources/sector_directories.go). |
+| `@directoryOnly` | field of the `@tenant` record, a `bool` column | none | The tenant's people enter through its directory only: a tenant whose flag is true admits a sign-in through its own directory and nothing else, so a password, a personal account and a sign-in through another organization's directory do not reach it. Two people are not held to it: a super administrator, and an administrator of the tenant itself, who enters with a password and a second factor so that a tenant whose directory is broken can be mended from inside (section 16, "Directory only"). The flag restricts that tenant's own door alone: a tenant whose flag is false admits everyone it seats, however they signed in, and a person the flag keeps out of one tenant still enters every other tenant that seats them. The flag is half of what the tenant record declares about who may enter a tenant (section 16); the other half is the directories record (`@tenantDirectory`), which the flag needs, since a tenant whose people enter through its directory only needs a directory to enter through, and the directory of such a tenant is not removed until the flag is turned off. The switch is the tenant's own: the generator writes two methods in the tenant's scope, `Make<Record>DirectoryOnly` and `End<Record>DirectoryOnly`, which the tenant's administrator runs under an Execute grant on each; turning the flag on is held to three rules (the tenant has its directory, the caller is signed in through it, and the caller has a password where their auth has passwords; section 16, "Directory only"). The record's own write paths, which are global, show the flag and never write it: the field is output only on the wire, at create and at update, and the record's change events are the audit. The generated create-your-tenant route leaves it out of its body: a new tenant declares nothing, and takes its creator's directory only where the application holds a person to one tenant. Refused on a resource that is not the tenant record, on a column that is not a `bool`, and on a second column. Example: [Sector](../lodestar/pkg/resources/sectors.go). |
+| `@tenantDisabled` | field of the `@tenant` record, a `bool` column | none | The tenant is disabled: its people are shut out while its records stay. No session enters a tenant whose column is true but a super administrator's: its own administrators, a person who came through its directory and a holder of a role in every tenant hold nothing in it from their next request, and a person whose every tenant is disabled is answered at sign-in as a member of no tenant is. The field is an ordinary field of the record, so the role file says who disables a tenant and who enables it, and enabling gives everyone back what they held. Every tenant record carries the column (generation fails without it); the generated roster and the sign-in's reader read it, and the record's generated delete refuses a tenant that is not disabled. Section 16, "A disabled tenant". |
+| `@tenantName` | field of the `@tenant` record, a `string` or `*string` column | none | The tenant's name as its people know it. The generated `New<Record>Roster` reads the column beside the key (`resource.WithTenantNames`), and the generated `UserDomains` handler names each tenant of the session's tenant list from the roster (`resource.WithDomainNames`), so a tenant's own people see its name in the place switcher without holding Read on the record, a global resource; without it the list names each tenant by its key. The generated browser metadata names the column on the record (`nameField`), so a picker over the tenant record lists tenants by name. The generated lists of an Auth's management point the key of the tenant a role or an invitation is in, and of the tenant that manages an account, to the record, so the people pages show, sort and filter by the tenant's name, where every outlet that serves the Auth's management (its own, and each that declares `Manages` on it) serves the tenant record; where one does not, the lists carry no name and the pages name a tenant from the reader's own list of tenants. Refused on a resource that is not the tenant record, on a column that is not a string, and on a second column. Example: [Sector](../lodestar/pkg/resources/sectors.go). |
+| `@name` | field of a `@resource` or `@virtual` struct, a `string` or `*string` | none | The field the resource's rows are known by. Beside every id field that points to one of its rows, by a foreign key or a field-scope `@enumerate`, the generator adds a name field for the name of that row, spelled as the id field with a trailing `Id` dropped, then `Name` (`SquadronID` gives `SquadronName`, `squadronName` on the wire): read-only and stored nowhere, with no column and no schema change. It is declared on the list's and the row's request types marked `nameof:"<the id field>"`, in the resource's generated `NameFields()` with the table and columns the name is looked up in, on the TypeScript row type and its field-name constants (among the PII names where the pointed-to name is `pii`), and in the metadata's `nameFields`. A name field is no column of the resource: the statement looks it up by the id, in one scalar subquery held to the request's tenant where the pointed-to row belongs to one (by its tenant column, or by the way it reaches its tenant through other tables), so a row of another tenant gives no name, and neither does a row whose id is masked. Reading a name takes two grants: the request's own grant on the id field, and the List grant on the pointed-to resource's name field, asked in the request's tenant where the pointed-to resource belongs to a tenant and globally where it does not. An enumeration table's names take the first alone. Where the second is held under a condition, a row gives the name only where the condition holds for the row it points to. A request may name a name field in `columns`, and a request that names no columns is given the name beside every id it returns, less the names the person may not read; a row carries the name under its wire name and leaves it out where there is none. A person without the second grant who names the field in `columns` or `sort` is refused in the words of any field they may not read ("You may not sort or filter hangar passes by the squadron name here."), and a declared `@order` by a name they may not read orders their list as if no row had that name. So does a row whose id they may not read: under a declared `@order` by the name it sorts as a row with no name. `sort` and `@order` may name one, which orders the list by the names, the key breaking ties, and pages by them; no index serves such an order. `@order` naming a name the generator adds no field for is refused, saying to declare the pointed-to resource's `@name`. A list's `filter` may name a name field where the id beside it is filterable and the name is filterable where it lives (the pointed-to name field is indexed, `allow_filter` or carries a search fact; an enumeration table's `Description` always): `squadronName:contains:red` is written `SquadronId IN (SELECT Id FROM Squadrons WHERE …)`, held to the request's tenant and to the condition the name's grant is held under, so the pointed-to table's own index or search index answers it. The name counts as the filter's indexed field only where the id and the pointed-to name are both indexed, and it answers the text matches only where the id is indexed and the pointed-to name carries a search fact. A filter by a name tests the name the row shows: a row that shows no name (no id, a masked id, a row of another tenant, a row the name's grant does not cover) matches `isnull` and nothing else. It takes the same two grants as showing the name, and a person without the second is refused as for `sort`. A name is filtered by in the request's body where the pointed-to name is `pii`, and never joins the search box. The row's own request type carries no filter tag for it; a name field with none is refused as not filterable. The entry in the metadata's `nameFields` states the same with a field's `filterable` and `search`. A name whose pointed-to resource, or whose name field there, stands behind a feature flag that is off is unknown to a request, as a name beside a hidden id is. A column or field that begins with `zzName`, the prefix a statement selects the names under, is refused, saying to rename it. A resource that marks no name is not refused: a field pointing to it gets no name field and stays an ordinary field showing its stored value. The tenant record is known by its `@tenantName` and an enumeration table by its `Description` column; neither needs `@name`. No name field is added for the name of a tenant's row on a list asked outside one tenant (a global resource's, and both lists of a resource declared `@listAcrossTenants`), where the pointed-to resource is a `@computed` resource, or beside a field called `Id` alone. A resource written by hand whose `NameFields()` describes the name of a tenant's row is refused when its list across tenants is decoded, saying to take the name out. Refused on a field that is not a string, on a second field, on a field the resource never returns (a `conditions:"secret"` or `conditions:"input_only"` field, or a `@file` store key: a row's name is shown to everyone who may read the resource's names), on the tenant record (write `@tenantName`), on an enumeration table's struct and on a `@computed` resource; and a name field that would take the name of a field the struct declares, or of another name field, is refused, naming the field to remove or rename. Where the pointed-to resource is a view, the name is read from the view's query, written into the statement where a table's name would be, with the view's parameters; the generated handlers hand every view that declares a name to their decoders (`WithNameViews`). A view may give its names through a lighter query than the one its rows are read from, a `NameSubquery()` method beside `Subquery()` whose query gives the view's key, its name and, where it belongs to a tenant, its tenant column, under the view's own column names, one row for each row of the view; the statement reads the name from it, except where the person holds the name's grant under a condition, which reads the view's own fields and so the view's whole query. The library's list of a tenant's people gives its names so. A statement writes the query a name is read from once to read the name (a name the list is ordered by is one column of the statement's FROM, which its select list, its order and its cursor name) and once more for each condition of the filter on the name; Spanner refuses a statement of more than twenty joins, the queries written into it counted. Such a view's query opens with no WITH clause. A name read from a view answers the text matches where the view's name field carries a search fact (`search:"Table.Column"`, the view projecting that column's token column), as a name read from a table does. A view a name is read from gives one row for each key, in one tenant where it belongs to a tenant, as a table's key does: the name of a key it gives twice cannot be read. The metadata names the field (`nameField`), and a form's picker over the resource shows and lists its rows by it. Example: [the fixture](../generation/testdata/namefixture/fixture.go). |
+| `@roleOf` | field of a `@resource`, `@virtual` or `@computed` struct, a `string`, a `*string` or a `[]string` | the auth whose roles the field holds, by its name: `@roleOf(Staff)` | The field holds the name of a role of that auth. The generated metadata lists the roles the field may hold (`roles`): the roles the auth's role file defines, a tenant's roles alone on a tenant-scoped resource, and on every other resource the Super Administrator role too. A list writes the field in words, "Night shift lead" for `NightShiftLead`, as the server's sentences name a role; the column's filter offers those roles to pick, in words, and sends the stored name. A picker over a list whose field carries it writes that field in words. A role made at run time (`access.UserManager.AddRole`) is written in words too, and the filter offers it where a row of the list holds it: the table asks the list which roles it holds beyond these. On a list field each item is a role's name; where a line of text follows the name after a space (where the role is held), the name is written in words and the rest as it is. The role file is thereby one of the generator's inputs: after a role is added to the file, renamed or removed, `go generate ./...` writes the lists again, and `impulse check`'s `regen` refuses generated files that are behind the file. |
+| `@tenantDirectory` | `@resource` struct, `@permissionScope(domain)` | none | The struct is the directories record: the tenant-scoped table that holds each tenant's directory, the organization its people sign in through, as the sign-in method (`@directoryMethod`) and the connection (`@directoryConnection`). A tenant has one directory and a directory belongs to one tenant: the generator refuses a record whose table has no unique index on the tenant column alone, or none on the method and the connection together, naming the index to add, and the generated write paths refuse first, each with a sentence the person can act on (`resource.TenantDirectoryRules`, section 16). Nobody types a directory in: the method and the connection are output-only, the tenant's generated method `Take<Record>Directory` sets both from the directory the caller is signed in through, after a statement that the caller is authorized to act for the organization, and refuses a session that came by password or with a personal account (any Google account, a Microsoft personal account); the record's own generated create is refused, naming that method, and its generated delete is refused while the tenant is directory only. The record's key is an id its create generates. Its tenant is the bare `@domain` column, the tenant's key on the row itself, so a tenant's administrator takes its own directory under an Execute grant on `Take<Record>Directory` and removes it under the record's Delete grant, and the record's change events are the audit. With it the generated `New<Record>Roster` reads what each tenant declares beside its key (`resource.WithTenantDeclarations`), `New<Record>DeclarationReader` reads one tenant's declaration in the sign-in's transaction for `signin.TenantPolicy` (a package that declares no directories record and makes the tenant record's rows itself is given the reader too, one that answers nothing for every tenant: "No directories", section 16), the record's write paths reload the roster after their commit and signal the tenants kind as the tenant record's do, and the generator emits `Set<Record>Directory`, the one step that sets a tenant's directory from a sign-in, which the create-your-tenant route calls with the directory its creator came through where the application holds a person to one tenant. Refused on a global resource, on the tenant record itself, on a second struct, with a join-path `@domain`, without either column, with a key that is not a generated id, and without either unique index. Example: [SectorDirectory](../lodestar/pkg/resources/sector_directories.go). |
 | `@directoryMethod` | field of the `@tenantDirectory` record, a `string` column | none | The column holds the sign-in method a directory is reached through, as `sessioninfo.AuthMethod` spells it: `google`, `azure`, `workos` or `oidc` (an organization's own OpenID Connect provider, named by its registration's connection). The column is output-only: the generated create sets it from the caller's session, and no request writes it. Refused off the directories record, on a column that is not a string, and on a second column. Example: [SectorDirectory](../lodestar/pkg/resources/sector_directories.go). |
 | `@directoryConnection` | field of the `@tenantDirectory` record, a `string` column | none | The column holds the connection a directory's identities carry, the value the session's first auth event records beside the method: a Google Workspace by its domain (the registration admitting any Workspace writes the account's domain), a Microsoft Entra tenant by its tenant id, a WorkOS connection by its id. The column is output-only, as the method is. Refused off the directories record, on a column that is not a string, and on a second column. Example: [SectorDirectory](../lodestar/pkg/resources/sector_directories.go). |
-| `@directoryDefaultSeat` | field of the `@tenantDirectory` record, a `string` or `*string` column | none | The column names the role a person is given in the tenant at their first sign-in through the tenant's directory, whether their account is created then or stood before, chosen by the tenant's administrator from the tenant's roles on its Sign-in page, with the generated method `Open<Record>ToDirectory` (section 16); NULL (or empty), which `Make<Record>InviteOnly` writes, says the tenant admits the directory's people by invitation only: a stranger is refused with the `invitation_only` refusal and no account is created, and an invitation link is the way in. A directories record without the column admits every stranger by invitation only. The role is given once for the link between the account and the directory: a person whose role an administrator removes is not given it back by signing in, and a link that is deleted and made again gives it again where the person holds no role in the tenant. With it the generated `New<Record>DirectoryReader` answers the tenant whose directory an identity came through with its seat, which the auth's directory admission reads (`session.Auth.SetDirectoryAdmission`) before the method's account rule, and the role is given by the Auth's generated identity client in the transaction that links the account to the directory (section 16). The column is output only on the wire: the two methods write it, and the record's create and update do not. Refused off the directories record, on a column that is neither a string nor a nullable string, and on a second column. Example: [SectorDirectory](../lodestar/pkg/resources/sector_directories.go). |
+| `@directoryDefaultSeat` | field of the `@tenantDirectory` record, a `string` or `*string` column | none | The column names the role a person is given in the tenant when they sign in through the tenant's directory and hold nothing in the tenant, at every sign-in, whether their account is created then or stood before, chosen by the tenant's administrator from the tenant's roles on its Sign-in page, with the generated method `Open<Record>ToDirectory` (section 16); NULL (or empty), which `Make<Record>InviteOnly` writes, says the tenant admits the directory's people by invitation only: a stranger is refused with the `invitation_only` refusal and no account is created, and an invitation link is the way in. A directories record without the column admits every stranger by invitation only. A person an administrator removes from the tenant is given the role again the next time they sign in through the directory: disabling their account keeps one person out while the tenant is open, and making the tenant invite only keeps everyone out who is not invited. Where the application holds a person to one tenant, a person who belongs to another tenant is moved: seated here, with what they held there taken in the same transaction. With it the generated `New<Record>DirectoryReader` answers the tenant whose directory an identity came through with its seat, which the auth's directory admission reads (`session.Auth.SetDirectoryAdmission`) before the method's account rule, and the role is given by the Auth's generated identity client in the sign-in's transaction (section 16). The column is output only on the wire: the two methods write it, and the record's create and update do not. Refused off the directories record, on a column that is neither a string nor a nullable string, and on a second column. Example: [SectorDirectory](../lodestar/pkg/resources/sector_directories.go). |
+| `@directorySecondFactor` | field of the `@tenantDirectory` record, a `bool` column | none | The column says the tenant says its directory asks its people for a second factor of its own. A person who signs in through the directory is then not asked for the application's mailed code, wherever they work. Output only: the tenant's administrator says it and takes it back with the two methods the generator writes (section 16). |
+| `@tenantSince` | field of the `@tenant` record, a `time.Time` or `*time.Time` column | none | When the tenant was made. The list of tenants an auth's generated management serves (`<Auth>Listed<Record>`) carries the column as `since`, and the browser package's tenants page shows it as Since; a record that marks none has no Since. The annotation marks the column and writes nothing: how the column is written is the application's. Written by the database with the row (`conditions:"output_only"` and `default_create_fn:"resource.CommitTimestamp"` on the field, a `TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true)` column), it is the moment the row was made, whichever way the tenant is made (an invitation's first sign-in, the create-your-tenant route), and nothing changes it afterward; a seed or an import of older tenants writes its own moment. Left for the wire to write, staff type it on the invitation that makes the tenant and whoever holds Update on the field changes it, so it says what they say. Refused on a resource that is not the tenant record, on a column that is not a timestamp, and on a second column. |
 | `@page` | `@resource`, `@virtual`, or `@computed` struct | `default: N` and/or `max: M` | Declares the list's page sizes: the page a request without `limit` receives, and the largest page a request may ask for. Both are positive integers; the default never exceeds the maximum, and a maximum alone must be at least the generator-wide default of 50. Undeclared, the list serves pages of 50 with no maximum. A request over the maximum is refused with a 400 naming it, never clamped, and a resource with a maximum refuses `limit=all`. The maximum is also the switch a picker reads: a resource with none is small enough to load whole, read in one request with `limit=all` and sort optional; a resource with a maximum is paged, one server page at a time, so its list needs an order (`@order`, or `sort` on the request) and a picker over it reads the chosen row by key, which is why a bounded picker source may not suppress its read (`@enumerate`). Declaring the maximum is the deliberate choice; nothing decides at runtime from an observed size. Refused on a `@computed` or `@virtual` struct with no `@primarykey`, naming the struct and the two ways out (declare the key, or drop `@page`): without a key the resource is a whole read-only list, with no read route and no paging, so a page size on it is a contradiction. The generated TypeScript descriptor carries both numbers. Example: [Mission](../lodestar/pkg/resources/missions.go). |
-| `@order` | `@resource`, `@virtual`, or `@computed` struct | comma list of `Field [asc\|desc]` | Declares the order a list takes when the request carries no `sort`, naming Go fields of the struct; the direction defaults to `asc`. The primary key is appended at runtime so the order is total, and a request's `sort` replaces the declared order for that request. The declaration is optional, and every paged request needs an order from somewhere: a resource that declares none serves a request without `sort` only as the whole list (`limit=all`), which is not sorted — its table or view statement carries no `ORDER BY` and the rows arrive in the database's own order, a computed list keeps the order its body yielded — and refuses a bare GET or a `limit` with a 400 naming the resource and the way out (section 4). A nullable column renders as the plain direction and sorts in its database's own `NULL` placement, so an index on the column serves the order: Spanner places `NULL` first ascending and last descending, PostgreSQL last ascending and first descending. A computed resource follows the same placement: its handler sorts and pages the body's rows where the application's database would. On a computed resource only a leaf field may be named (a nested field is opaque). The generated TypeScript descriptor carries the declared order (`order: [{ field, direction }]`, JSON names), so a browser client knows a request without a `sort` is already ordered and pages by cursor; to a resource that declares none it sends a `sort` of its own or asks `limit=all`. On a table-backed resource with a bare `@domain`, generation warns when no index leads with the tenant column and then these columns in this order and direction, naming the index it wants (section 9). Example: [Mission](../lodestar/pkg/resources/missions.go). |
-
+| `@order` | `@resource`, `@virtual`, or `@computed` struct | comma list of `Field [asc\|desc]` | Declares the order a list takes when the request carries no `sort`, naming Go fields of the struct; the direction defaults to `asc`. The primary key is appended at runtime so the order is total, and a request's `sort` replaces the declared order for that request. A declared order never shows a person what they may not read. Where they may not read a field it names, their list comes in the order of the order's other terms and then the key, as if no row had a value in that field. Where they hold the field under a condition, a row whose cell is masked sorts as a row with no value, as it does under a `sort` by that field. A field declared `masking:"positional"` is the exception, as it is under a `sort`: its masked cells keep their real place. Nothing is refused, since the person asked for no sort. A computed resource follows the same rule: its handler sorts and pages the rows by what the person may see of each, and it sorts again a list whose body took the sort where the person holds a field of the order under a condition. The declaration is optional, and every paged request needs an order from somewhere: a resource that declares none serves a request without `sort` only as the whole list (`limit=all`), which is not sorted — its table or view statement carries no `ORDER BY` and the rows arrive in the database's own order, a computed list keeps the order its body yielded — and refuses a bare GET or a `limit` with a 400 naming the resource and the way out (section 4). A nullable column renders as the plain direction and sorts in its database's own `NULL` placement, so an index on the column serves the order: Spanner places `NULL` first ascending and last descending, PostgreSQL last ascending and first descending. A computed resource follows the same placement: its handler sorts and pages the body's rows where the application's database would. On a computed resource only a leaf field may be named (a nested field is opaque). The generated TypeScript descriptor carries the declared order (`order: [{ field, direction }]`, JSON names), so a browser client knows a request without a `sort` is already ordered and pages by cursor; to a resource that declares none it sends a `sort` of its own or asks `limit=all`. On a table-backed resource with a bare `@domain`, generation warns when no index leads with the tenant column and then these columns in this order and direction, naming the index it wants (section 9). Example: [Mission](../lodestar/pkg/resources/missions.go). |
+| `@manualAddPermission` | `accesstypes.Permission` constant of the resources package | none | Declares the constant's value as a permission of the application that no resource registers: one a hand-written route checks for the whole of a scope (`access.Client.CheckUser`, `CheckRole`) and a custom role is given with `AddRolePermission`. The generated Collection lists it with no resource (`CollectionData.Permissions`), which is what makes it a permission the release has: a grant of a permission for the whole of a scope that the Collection does not list is refused when it is written and, when the policy is loaded, left out and reported as a `SkippedGrant`. The annotation stands alone and names no scope: the role a grant is written to decides where it holds. Generation refuses an `@outlet`, `@class` or `@manualAddResource` beside it, any of those three on an `accesstypes.Permission` constant that does not carry it (they are written on a resource's constant; on a permission's constant they would be read by nothing), the annotation on a constant of any other type (an untyped string or an `accesstypes.Resource` among them), a constant whose value is empty, and a permission two constants declare. A permission some resource registers needs no declaration. A declared permission adds nothing to the TypeScript constants, whose `Permissions` are the framework's own. The annotation is read from the comment of the constant it stands above: one in the comment above a `const ( ... )` group is refused, with where to write it. A constant whose type is an alias of `accesstypes.Permission` is read as a permission's. As with `@manualAddResource`, generation refuses it in a comment that is no constant's, and `impulse check` reports it on a constant of another package or in a comment there that is no declaration's. |
 | `@feature` | `@resource`, `@virtual`, `@computed`, or `@rpc` struct; field of a `@resource`, `@virtual`, or `@computed` struct | the flag's constant, `Debriefs` | Puts the resource, the field, or the method behind a feature flag, so it exists for the browser and the API only while the flag is on (section 15). The argument is the identifier of a `resource.Feature` constant declared in the resources package (`const Debriefs resource.Feature = "debriefs"`, its doc comment the flag's description); the constant's value is the flag's name, `[a-z][a-z0-9_]{0,63}`, and a name declared twice, a malformed name, an unknown identifier, or a value in place of the identifier is refused at generation naming the constants. On a struct every route of the resource or the method answers 404 while the flag is off, exactly as an unregistered route does, its consolidated arm answers as an unknown resource, and the resource, its fields and the method are absent from the permission digest. On a field the decoders answer the field as unknown while the flag is off (a 400 on `columns`, `sort`, `filter` and a patch body naming it) and the handlers leave it out of every response; a primary key, the tenant key, the state column, a `@file` key, and a column a create must supply (NOT NULL with no default, on a resource that serves a create) cannot be gated, and an `@rpc` struct's fields are not gated one by one. The TypeScript metadata and the descriptor carry `feature: '<name>'` on the gated entry, and the client file declares the `Feature` union and constants. |
 | `@searchAlso` | `@resource` struct | `Child.Field`, and `via: Column` where the child has several foreign keys to the parent | Adds a child table's text to the resource's search box (section 4): a term the box searches is found in the parent's own searchable fields or in the named child field, and the parent row is admitted when any of its child rows matches. The child is a table-backed `@resource` of the same package one hop down a foreign key to the parent's single-column key, under the same tenancy (both tenant-scoped on the row, or both global), and the child field carries a search fact (a token column in the child's search index); each is refused otherwise, naming the rule. The child field's own grant governs the branch: a caller denied the field searches the parent without it, a conditional grant conjoins its condition inside the branch. The generated resource declares `SearchBranches()`, the metadata lists the branch in `searchFields` under its dotted name (`clientContact.displayName`), and a box over the parent reads one key set per term (section 4). Generation warns where the child's search index does not store the foreign key, since every matching child row is then read back for its key. Example: [Client](../lodestar/pkg/resources/clients.go). |
 | `@listAcrossTenants` | `@resource` or `@virtual` struct with `@permissionScope(domain)` | none | Serves the resource's list a second time without the tenant's segment: `GET` (and `POST`) `/<prefix>/<resources>` reads the resource's rows in every tenant the session reaches in which the caller holds the List grant, with one filter, one sort, one page and one count across them (section 4, a list across tenants). Each row is checked under the caller's grants in its own tenant and carries the reserved `zzTenant` property, the tenant it is in. Only a declared resource gets the route, and the tenant's own list is unchanged by the declaration. It adds the handler `<Plural>AcrossTenants` beside the list handler, the route on the outlets and behind the `@feature` flag the resource declares, outside the `DomainGuard`, and `acrossTenants: true` on the resource's TypeScript descriptor, which gives the browser client `client.acrossTenants.<resources>`. It adds no permission: the list is the resource's List grant, asked in each tenant, and the global permission digest tells the list's page whether that is anything at all for the person (`ListAcrossTenants`, section 5). The generated collection marks the resource, and only a marked resource is decoded as a list across tenants or holds a live subscription over a set of tenants. Reads only: every write stays inside one tenant. Refused on a global resource (there is no tenant to read across), on a resource whose list is suppressed, on a `@computed` resource (its rows come from the application's own function, which answers for the one tenant it is handed) and on an `@rpc` struct, and where another route of the outlet already answers at the list's path (an RPC method named as the resource's plural). A column or field named `zzTenant` is refused on every resource, as the other reserved row names are. Generation warns where a declared table-backed resource with an `@order` has no index that leads with the order columns and carries the tenant column (section 9). Example: [Mission](../lodestar/pkg/resources/missions.go). |
 | `@formerly` | field of a `@resource` or `@virtual` struct; field of an `@rpc` struct or of the struct its `Execute` answers with; `@rpc` struct | the former name as it was written, `Title` | Keeps a renamed field or method answering under its former name while applications built before the rename are still answered (section 18). The column never changes; only the wire name moves, and the former wire name derives from the argument as the current one does from the field (`@formerly(Title)` on `Headline` answers `title` beside `headline`). On a field, a request body naming the former name is read as the current one and a body naming both is refused with a 400 saying to send one; `columns`, `sort` and `filter` take either name, with the permission checks running against the current field; and every row carries both keys, each masked when the field is. On an `@rpc` struct the router registers the former route (`/release` beside `/publish`) on the same handler, and the generated router test drives both. The generated collection carries the former names (`TagData.Formerly` on a field, `CollectionResource.Formerly` on a method), and the permission digest mirrors a renamed field's or method's entry under its former name, so an application built before the rename keeps its column or its action. The TypeScript knows only the current name. A former name equal to the current one, or to another field's or method's name or former name, is refused at generation, as is the annotation on a `@computed` struct and the struct form on a `@resource` or `@virtual` struct. |
+
 Exactly one of `@resource`, `@virtual`, `@computed`, or `@rpc` may appear on a struct. The generator refuses a struct carrying more than one, naming the kinds it found.
 
 ## 2. Struct tags you write (source structs)
@@ -115,6 +130,13 @@ Primary keys are exempt — their readability follows the resource-level grant. 
 no per-field permission tag to write: a `perm:` tag on a source struct is a generation
 error, and a stale one in a generated request struct fails Set construction at startup.
 
+A struct may list its key fields in any order. Everything generated takes a table's key in
+the table's own order, the order of its `PRIMARY KEY`: the row's route, the parameters of the
+generated patch constructors (`New<Name>CreatePatch`, `New<Name>UpdatePatch`,
+`New<Name>DeletePatch`), the TypeScript client's key, the key a write gives the database and
+the key a change record is filed under. A view's key is in the order its struct declares its
+`@primarykey` fields.
+
 | Tag | Where | Effect |
 | --- | --- | --- |
 | `spanner:"ColumnName"` | every field of `@resource`/`@virtual` structs | Maps the field to its Spanner column. Required — a missing tag or unknown column is a generation error, and field nullability must match the column's: a pointer or a Null wrapper on a nullable column, a plain value on a NOT NULL one. A slice-typed field follows the column's nullability, since a Go slice has one form: the Spanner client reads NULL into a nil slice and writes nil as NULL, so `[]byte` types a nullable `BYTES` column and a NOT NULL one alike, as `[]T` does an `ARRAY<T>` (section 12, nullable slices). A pointer to a slice is refused. |
@@ -125,14 +147,19 @@ error, and a stale one in a generated request struct fails Set construction at s
 | `index:"true"` | `@virtual` struct fields only | Declares the field indexed (filterable/sortable). Rejected on table-backed resources, which get index information from the schema. Refused on a list field: no index serves an `ARRAY` column. |
 | `uniqueindex:"true"` | `@virtual` struct fields only | As `index`, and marks the index unique. Refused on a list field, as `index` is. |
 | `search:"Table.Column"` | `@virtual` struct fields only | Names the table column whose search fact the field carries (section 4): the view's SQL projects that column's token column under its own name, and the field answers the matches and joins the box as the table's field does. The generator cannot read a view's projection, so the author states it, as `index` is stated; the fact itself is read off the schema, and a value that is not `Table.Column`, a table or column the schema does not have, or a column with no search fact is refused naming it. On a table-backed struct the tag is refused: the schema states the facts. Example: [ClientRoster.Name](../lodestar/pkg/virtualresources/client_rosters.go). |
-| `masking:"positional"` | `@resource` and `@virtual` struct fields | The field's masked cells stay hidden on the wire, but a list orders and filters on the real column, so the page comes off the index and a reader can tell where the hidden values fall. Every untagged field conceals: a sort or filter on it runs over `CASE WHEN <condition> THEN column END` (section 4), which hides where the masked values fall and which no index serves, so a page sorted or filtered by it sorts the tenant's whole partition. Declare `positional` on a field whose rank is not sensitive (a deadline; a fee's rank is) and that a list pays for: named in `@order`, indexed, or `allow_filter`. `masking:"concealing"` is accepted and says the default; another value is refused with the nearest one suggested. Refused as a contradiction on a primary key (keys are exempt from masking), on a field no query sorts or filters by with an index behind it (neither indexed, nor `allow_filter`, nor named in `@order`: there is no index to restore and the rank would be disclosed for nothing), and on `@computed` and `@rpc` structs (a computed list sorts and filters only by fields granted unconditionally, so no masked cell meets a sort or a filter there, and a method is never listed). Copied through to the generated list and read request structs and surfaced in the TypeScript field metadata as `masking: 'positional'`. Deploy-time role validation (`access.MigrateRoles`, `access.ValidateRoles`) warns where a role's conditional grant lands on a concealing field the resource orders by or admits as a sort or filter key and the role's other grants leave the `CASE` standing; the warning names the field, the cost, and the three ways out (grant the field unconditionally, tag it positional, accept the cost for a table that never pages at volume). Example: [Mission.Deadline](../lodestar/pkg/resources/missions.go). |
+| `masking:"positional"` | `@resource` and `@virtual` struct fields | The field's masked cells stay hidden on the wire, but a list orders and filters on the real column, so the page comes off the index and a reader can tell where the hidden values fall. Every untagged field conceals: a sort or filter on it runs over `CASE WHEN <condition> THEN column END` (section 4), which hides where the masked values fall and which no index serves, so a page sorted or filtered by it sorts the tenant's whole partition. Declare `positional` on a field whose rank is not sensitive (a deadline; a fee's rank is) and that a list pays for: named in `@order`, indexed, or `allow_filter`. `masking:"concealing"` is accepted and says the default; another value is refused with the nearest one suggested. Refused as a contradiction on a primary key (keys are exempt from masking), on a field no query sorts or filters by with an index behind it (neither indexed, nor `allow_filter`, nor named in `@order`: there is no index to restore and the rank would be disclosed for nothing), and on `@computed` and `@rpc` structs (a computed list sorts and filters only by fields granted unconditionally or under the list's own condition, so no masked cell meets a sort or a filter there, and a method is never listed). Copied through to the generated list and read request structs and surfaced in the TypeScript field metadata as `masking: 'positional'`. Role validation (`access.ValidateRoles`, and `access.Client.CheckPolicy` at a deploy) warns where a role's conditional grant lands on a concealing field the resource orders by or admits as a sort or filter key and the role's other grants leave the `CASE` standing; the warning names the field, the cost, and the three ways out (grant the field unconditionally, tag it positional, accept the cost for a table that never pages at volume). Example: [Mission.Deadline](../lodestar/pkg/resources/missions.go). |
 
 Values recognized in a `conditions` tag:
 
 - `immutable` — the client sets the field on create, and it can never change afterward:
   an update touching it is rejected with a 400 (the generator emits `immutable:"true"`
   into the patch request struct — you write the condition, never the emitted tag), and
-  the generated Collection never exposes `Update` on the field's tag as grantable.
+  the generated Collection never exposes `Update` on the field's tag as grantable. The
+  400 names the field (`json field hull is immutable`); an update that names several is
+  refused for all of them in one sentence, in the order of their names
+  (`json fields berth and hull are immutable`), before any other refusal of a field, so
+  the same body always gets the same answer. A name the request accepts in another case
+  (`Hull`) is refused the same way, by the declared name.
 - `pii` — marks the field as personally identifiable. Emitted as `pii:"true"`, surfaced
   in the TypeScript metadata, and the field is rejected in URL `filter` expressions
   (filter via the POST body instead, which doesn't land in access logs).
@@ -168,9 +195,8 @@ Values recognized in a `conditions` tag:
   `resource.Secret` (a plain `string` or `[]byte` would be stored as it was typed; the
   refusal names the type to give it), and on a column that is not `BYTES` with room for
   the 42 bytes sealing adds. A method's request field takes the same word, unchanged: text
-  or bytes, no picker, and the method's dialog draws the same masked input (the generated
-  temporary-password methods declare theirs so). That value is never stored, so it is
-  never sealed, and a request field typed `resource.Secret` is refused.
+  or bytes, no picker, and the method's dialog draws the same masked input. That value is
+  never stored, so it is never sealed, and a request field typed `resource.Secret` is refused.
   Example:
   [Ship.TransponderKey](../lodestar/pkg/resources/ships.go).
 - `output_only` — the server owns the value: returned to clients but never accepted from
@@ -258,7 +284,7 @@ none of them can be used as field names in filters:
 | Parameter | Meaning |
 | --- | --- |
 | `columns` | Comma-separated JSON field names to return; omitted means all accessible fields. Leaving out a sort field or the primary key changes nothing about paging: the cursor reads those keys from the statement, not from the returned row. |
-| `filter` | Filter expression over indexed/`allow_filter` fields, e.g. `name:eq:Vanta`. Operators: `eq`, `ne`, `gt`, `lt`, `gte`, `lte`, `in`, `notin`, `isnull`, `isnotnull`, and on a text field with a search fact `startswith`, `endswith` and `contains` (below). A value may be written in double quotes, `name:eq:"Vanta, Ltd."`, where it carries a comma, a pipe, a parenthesis or a space; a backslash escapes a quote or a backslash inside the quotes. The search box is the condition `*:search:"nguyen 1987 4321"`, one per filter (below). On POST query routes the filter may be sent in the body as `{"filter": "…"}` instead (required for `pii` fields, and for the box where it searches one), but not in both places. The expression is validated when the request is decoded, with the rest of the request's shape: a field that is unknown or not filterable, a malformed condition, or a value that does not fit its field is a 400 before any permission check runs, any query executes, or a computed resource's List function is called. A table filter must also touch at least one indexed field, which the database parse enforces; an indexed field is one whose column leads an index or, on a bare-`@domain` resource, follows the tenant column in one (section 3), and the tenant predicate itself does not count. The generated field metadata states the same eligibility, so a browser draws a filter control only where the server will answer: `filterable: 'always'` on an indexed table or view field and on a computed resource's `allow_filter` field, `'withIndexed'` on a table or view `allow_filter` field and on one filterable through its search fact alone (its `search` list names the matches that stand alone, below), and nothing on a field a filter may not name. |
+| `filter` | Filter expression over indexed/`allow_filter` fields, e.g. `name:eq:Vanta`. Operators: `eq`, `ne`, `gt`, `lt`, `gte`, `lte`, `in`, `notin`, `isnull`, `isnotnull`, and on a text field with a search fact `startswith`, `endswith` and `contains` (below). A value may be written in double quotes, `name:eq:"Vanta, Ltd."`, where it carries a comma, a pipe, a parenthesis or a space; a backslash escapes a quote or a backslash inside the quotes. The search box is the condition `*:search:"nguyen 1987 4321"`, one per filter (below). On POST query routes the filter may be sent in the body as `{"filter": "…"}` instead (required for `pii` fields, and for the box where it searches one), but not in both places. The expression is validated when the request is decoded, with the rest of the request's shape: a field that is unknown or not filterable, a malformed condition, or a value that does not fit its field is a 400 before any permission check runs, any query executes, or a computed resource's List function is called. A table filter must also touch at least one indexed field, which the database parse enforces; an indexed field is one whose column leads an index or, on a bare-`@domain` resource, follows the tenant column in one (section 3), and the tenant predicate itself does not count. The generated field metadata states the same eligibility, so a browser draws a filter control only where the server will answer: `filterable: 'always'` on an indexed table or view field and on a computed resource's `allow_filter` field, `'withIndexed'` on a table or view `allow_filter` field and on one filterable through its search fact alone (its `search` list names the matches that stand alone, below), and nothing on a field a filter may not name. A name field (`@name`) is filtered by through the pointed-to table, and its entry in `nameFields` carries the same `filterable` and `search`. |
 | `sort` | Comma-separated `field[:direction]` entries, e.g. `name:asc,rank:desc`; direction is `asc` (default) or `desc`. Omitted, the resource's `@order` applies. Every paged request needs one or the other: with neither, a request that is not `limit=all` is refused with a 400 naming the resource and the way out (`<Resource> declares no order; add a sort, or ask limit=all`; on a resource with a maximum, `<Resource> serves at most N rows per page and declares no order; add a sort`), and `limit=all` alone is served unsorted. |
 | `limit` | The page size: rows returned per request. Omitted, the resource's declared default applies (`@page`, generator-wide default 50). A value over the resource's declared maximum is refused with a 400 naming the maximum, never clamped; `0` is refused. `limit=all` returns every row with no `Link` header, is permitted only on a resource that declares no maximum, and is the one list request that needs no order (`sort`). A `@computed` or `@virtual` resource with no `@primarykey` is served whole on every request, `limit=all` or none: a numeric `limit` on it is refused with a 400 (`<Resource> declares no primary key, so its list is served whole and does not page; drop the limit, or declare @primarykey to page`). |
 | `cursor` | The page position, copied from the `Link` header of the page that issued it (`rel="next"` or `rel="prev"`); never assembled by a client. A sealed token carrying the boundary row's sort values, the direction, and a fingerprint of the resource, scope, filter, sort, and limit — a cursor altered, sealed by another application, or presented with a different query, tenant, or page size is a 400. A cursor is valid for the database that issued it: the seal binds it to the application, and its position is read back in that database's `NULL` placement. A request with a cursor carries the same `sort` and `limit` as the page that issued it. Every paged request carries an order (`@order` or `sort`), so every page has its `Link` relations; a cursor never names a position in an unsorted list, because such a list is served only whole. A cursor on a resource with no `@primarykey` is refused with a 400 naming the missing key: the list has no row identity to anchor a position on, so it is served whole (`limit`). |
@@ -351,8 +377,9 @@ on a denied field is a 403 like any filter on one), a conditionally granted fiel
 with its condition conjoined inside its match (`(condition AND SEARCH_SUBSTRING(…))`, so
 the search index still serves it, where an `eq` runs over the visible projection), a
 positional field renders bare, and a `@searchAlso` branch follows the child field's grant
-the same way; on a computed resource every searched field needs the caller's unconditional
-grant, as its sort and filter fields do. On Spanner a box whose fields come from one
+the same way; on a computed resource every searched field needs the caller's grant
+with no condition left once the request is checked, or under the same condition as the
+list's own rows, as its sort and filter fields do. On Spanner a box whose fields come from one
 search index renders inline; a box whose fields span several search indexes (a view
 projecting two tables' token columns) or whose resource declares `@searchAlso` branches
 reads the resource through one key set per term, a `UNION DISTINCT` of the matching keys
@@ -367,7 +394,7 @@ index comes back to the view's rows through the foreign key, and the key set cos
 matches only when that index serves it. On PostgreSQL every match renders as `ILIKE` over the role's
 expression of the column and a branch as a correlated `EXISTS`; the matching trigram or
 expression index is the application's DDL, as every PostgreSQL index is. `count=true`
-counts under the same box, and a cursor's fingerprint covers the filter as before.
+counts under the same box, and a cursor's fingerprint covers the filter as before. A branch whose child field, whose child resource, or whose foreign key to the parent stands behind a feature flag that is off is left out of the box for that request: the box searches it again when the flag is on.
 
 A sort or filter runs over the projection the caller can see. A field the caller is
 denied cannot be sorted or filtered on: the request is a 403 naming the field, because
@@ -416,7 +443,9 @@ show — so the cursor carries what the statement ordered by (a concealing key's
 projection, `NULL` where the cell is masked) and the row data stays exactly what was
 selected. `index:"true"` stays the declaration of which fields may be filtered. A `@computed` resource's
 rows are judged in Go as its function yields them, and no statement renders a visible
-projection over them, so its sort and filter fields still require an unconditional grant.
+projection over them, so its sort and filter fields require a grant with no condition left
+once the request is checked, or one under the same condition as the list's own rows: a row
+that fails that condition is dropped before the sort and the filter read it.
 
 The primary key sits outside these rules: it needs no field grant, is never masked, and
 its presence in a request keeps no row. So a request for the key alone (`columns=id`) has
@@ -549,15 +578,30 @@ flow's two endpoints, nothing else, so a machine outlet, the default included, r
 neither of these nor the live routes, and when no outlet serves sessions the generated `PermissionDigest`,
 `UserDomains` and live handlers are not written at all.
 
-**The digest.** The payload is the user's structural grant enumeration for the requested scope:
-resource → permission → `granted` | `conditional`, with field targets under their
-dotted names (`"WorkOrders.title"`) and **absence meaning denied** — consumers fail
-closed by construction. It is advisory UI material (which menus, routes, and form
-inputs to render); enforcement stays with the endpoint gate, the read rules, and the
-write stages. Nothing folds — no `now`, no row data — so a payload is stable for the
-life of a policy snapshot and caches cleanly per scope. An unknown or grant-free
-domain digests to `{}`, so the endpoint never confirms tenant existence under
-`WithConcealedDomains`. `@impulseframework/resource-angular/types` carries the matching `PermissionDigest` /
+**The digest.** The payload is the user's structural grant enumeration for the requested
+scope: resource → permission → `granted` | `conditional` | `conditionalOnTime` |
+`conditionalWithResource`, with field targets under their dotted names
+(`"WorkOrders.title"`) and **absence meaning denied** — consumers fail closed by
+construction. A grant on all of a resource's fields
+(`Documents.*`) is listed field by field, over the fields the release declares for the
+resource, so a field's own entry is the whole answer for it. It is advisory UI material (which
+menus, routes, and form inputs to render); enforcement stays with the endpoint gate, the
+read rules, and the write stages. Nothing folds — no `now`, no row data — so a payload
+is stable for the life of a policy snapshot and caches cleanly per scope.
+`conditionalOnTime` is structure too, read from the conditions' text and never from a
+clock: every condition the target is held under reads the time of the request alone
+(`now`, `timeOfDay`, `dayOfWeek` against literals), so the server answers the target
+whole while one of them holds and refuses it while none does. `conditional` says at
+least one reads more (the row, a fact about the caller, a request field), so the server
+may judge the target row by row. `conditionalWithResource` is a field's, where it would
+be `conditional`: the grants that cover the field are, as a set, the very ones that cover
+its resource, and nothing covers the resource without a condition, so the field is seen
+on every row of the resource the caller is shown, and a computed list is sorted, filtered
+and searched by it (section 4). Two sets of grants that fold to one condition for some
+caller stay `conditional`, so a page offers less than the server answers, never more.
+An unknown or grant-free domain digests to `{}`, so the endpoint never confirms tenant
+existence under `WithConcealedDomains`.
+`@impulseframework/resource-angular/types` carries the matching `PermissionDigest` /
 `PermissionDigestState` types (and `RowCapabilities` for the capability envelope).
 
 **Who a list across tenants is for.** No one tenant's digest can say whether a page that
@@ -582,10 +626,13 @@ least one grant, each with the tenant's name
 the library so no application hand-writes it. A tenant the session reaches is listed
 plainly. A tenant that seats the person and that this session cannot enter, a
 directory-only tenant whose directory the person did not sign in through, stays in the
-list marked `closed`, with the reason as a sentence
-(`{"domain": "…", "name": "Acme", "closed": "Acme admits only people who sign in through its own directory. You signed in with a password."}`):
+list under "Not available", with the reason as a sentence
+(`{"domain": "…", "name": "Acme", "unavailable": "Acme admits only people who sign in through its own directory. You signed in with a password."}`):
 the person holds a seat there, so the list tells them nothing new, and it says why this
-sign-in does not open the tenant. A session that came through another directory is told
+sign-in does not open the tenant. A tenant that is disabled is listed the same way, with
+one reason whatever way the person signed in
+(`{"domain": "…", "name": "Acme", "unavailable": "Acme is disabled."}`), and its own
+administrator is told of no way in, since there is none. A session that came through another directory is told
 which, in the words a person knows it by ("You signed in through Google Workspace
 north.example.", "You signed in through your organization's Microsoft directory."): the
 generated handler passes `WithDirectoryNames` with each auth's namer (section 16, "How a
@@ -599,11 +646,11 @@ sentence and the next sign-in agree; such a session arises when the role, or the
 came after the sign-in, and when a password change left the session without its code.
 Only a person's own sign-in is told so: a session that
 views the application as someone else, and one that acts as a role, are refused the
-tenant and are listed none closed. The browser library keeps a closed tenant out of the
+tenant and are listed none as not available. The browser library keeps such a tenant out of the
 session's domains (`PermissionStore.domains`, so the tenant guard refuses it as it
 refuses any tenant the session does not reach) and lists it apart in the place switcher,
-under "Closed to this sign-in", with the reason (`PermissionStore.closedDomains`,
-`AuthService.closedDomains`, `PlaceService.closed`). `resource.ClosedDomains(ctx, perms)`
+under "Not available", with the reason (`PermissionStore.unavailableDomains`,
+`AuthService.unavailableDomains`, `PlaceService.unavailable`). `resource.UnavailableDomains(ctx, perms)`
 is the list on the server. The name is the tenant roster's copy of the
 record's name column, the field the record marks `@tenantName` (section 1): the generated
 roster constructor passes `WithTenantNames` and the generated handler `WithDomainNames(roster)`
@@ -613,20 +660,143 @@ foothold test (`access.Client.UserHasGrants`) over the session's admission
 (`UserPermissions.Reaches`), so a domain listed here is exactly a domain whose routes
 answer the user with ordinary 403s rather than a concealing 404: the switcher and the
 domain guard can never disagree. A tenant is offered only when the session may enter it,
-and the application's tenant declaration decides (section 6); a tenant marked `closed`
-answers the session as a tenant that does not exist, as it did before the list named it. The global scope is never
+and the application's tenant declaration decides (section 6); a tenant listed under "Not
+available" answers the session as a tenant that does not exist, as it did before the list named it. The global scope is never
 a domain. The answer reports grants, not tenants — a domain the application has since
 removed still lists while grants in it remain; existence is the tenant roster's
 (`@tenant`, section 16). An empty membership is `[]`, never `null`.
 
+### What a refused caller is told
+
+A request the caller's grants refuse is answered 403 with one sentence a person can
+read, the same in every application:
+
+| What was refused | The sentence |
+|---|---|
+| a permission on a resource | "You may not change hangar passes here." |
+| a permission on a field alone | "You may not change the budget of hangar passes here." |
+| on several fields | "You may not change the budget, the due date or the notes of hangar passes here." |
+| a method, or a permission the application declares | "You may not do this here." |
+| a method that may not run against the row it names | "You may not do this to this mission." |
+| a sort or filter by a field the caller may not see | "You may not sort or filter hangar passes by the budget here." |
+| a search of a computed resource by such a field | "You may not search hangar passes by the budget here." |
+| a write whose grant holds for some rows and not for this one | "You may change some hangar passes here, but not this one." |
+| the same, where the grant is on a field | "You may change the budget of some hangar passes here, but not of this one." |
+| a change whose grant refuses the value sent, where the row would take another | "You may change the budget of this hangar pass, but not to this value." |
+| a new row whose grant refuses a value sent | "You may add hangar passes here, but not with this value for the budget." |
+| a column, a sort or a filter no tenant of a list across tenants grants | the same sentences, ending "anywhere." |
+| the history of a feature flag none of whose facts the caller may list | "You may not see this flag's history here." |
+| an act the mask of a session that acts as someone refuses | "You are acting as someone else, and this session cannot create a tenant." |
+| an answer a session that acts as a role the application runs no sessions as cannot give | "You are acting as a role, and this session cannot do this." |
+
+A write refused by a condition is told what to change. Where the condition reads a value
+the write sends (`new.` on an update, any attribute on a create) and the row would be
+accepted with another value, the sentence names the fields whose values the condition read
+and says the value is what may not be set. Where the stored row refuses the write whatever
+is sent, the sentence is the row's ("but not of this one"), and a write that fails both
+ways is told the row's. Several fields read "the budget or the due date" and "these
+values". Where a write's fields fall under several conditions, each is judged by itself,
+and the sentence is that of the first one that fails.
+
+The verb is the permission's: Create is "add", Read is "see", Update is "change", Delete
+is "delete" and List is "list". The resource is its name split into lower-case words
+(`HangarPasses` is "hangar passes"), and a field is its JSON name split the same way
+(`dueDate` is "the due date"). The sentence carries no id, no permission's code name and
+no table's name. Those stay in the request's log line, which names the scope, the
+person, the permission and the resources as it always has
+(`scope (…), user (…) does not have (Update) on [HangarPasses.budget]`), with the
+sentence the caller was sent after it.
+
+A handler that checks a permission itself answers its refusal in the same words with
+`resource.NotPermitted`, which takes what the log keeps, the permission and the
+resources refused. `ViewAsUser` here is a constant that carries
+`@manualAddResource(Execute)`:
+
+```go
+if !decisions[resources.ViewAsUser].IsGranted() {
+	return httpio.NewEncoder(w).ClientMessage(ctx, resource.NotPermitted(
+		errors.Newf("user %s does not have Execute on %s", user, resources.ViewAsUser),
+		accesstypes.Execute, resources.ViewAsUser,
+	))
+}
+```
+
+A method that names a row (`@target`, `@transition`) and may not run against it says
+the record and nothing else: the struct's name split into lower-case words (`Mission` is
+"this mission", `SectorPilot` is "this sector pilot"), with no method's name and no id.
+The sentence is the same whether the row's state or the grant's condition refused, so
+the caller is never told which. The log line keeps the rest, in the words the refusal
+used to say (`HoldMission may not run against Mission 8f0c…`). The generated handler
+and the method's gate both answer with `resource.TargetRefused`, which takes the
+method, the record's struct name and the row's key values; a handler that refuses a row
+itself answers the same way:
+
+```go
+return resource.TargetRefused("HoldMission", "Mission", p.MissionID)
+```
+
+A method whose row is not there for the caller is answered 404 by the same rule: "This
+mission does not exist.", the record's name in words and nothing else. The sentence is
+the same whether no row has the key or the row is another tenant's, so the caller is
+never told that a row is there. The log line keeps the struct's name and the key
+(`Mission 8f0c… does not exist`). The generated handler and the method's gate both
+answer with `resource.TargetNotFound`, which takes the record's struct name and the
+row's key values. A computed record's file route answers a row its read does not show
+with it too, and a content function's nil is told the same sentence. A handler that
+finds no row itself answers the same way:
+
+```go
+return resource.TargetNotFound("Mission", p.MissionID)
+```
+
+The library says the same sentence where it finds the row missing itself: a read of a
+row that is not there for the caller, and an update or a delete whose row it looks for
+and does not find, are answered "This mission does not exist.", by the record's struct
+name in words. What it looked for (the statement's `WHERE` clause with its values, or
+the row's key) is kept for the log and never sent. A write whose record names another
+that is not there for the caller is answered "A record this one refers to does not
+exist." A record that reads its tenant through other rows (`@domain(via: ...)`) is
+answered so on both writes: when it is created under a row of another tenant, and when
+an update moves it under one. The answer is given before any condition of a grant is
+judged, so a row of another tenant is answered exactly as no row is. On a create, a
+condition that reads through a row the record names reads it only where it is the
+request's tenant's; a row of another tenant reads as no row.
+
+A method can also be held to where its caller's session may go. `@callerEnters` on the method
+says a row offers it only to a caller whose session enters every tenant the row names, and the
+row's struct names them in a `TenantsToEnter` method: a query that selects a column named
+`Tenant` beside its key columns, and `Match`, which pairs each key column with the column of the
+row it is matched to (one pair for a row named by one column, a pair for each column of a row
+named by several). A row read with `capabilities=Execute` then leaves the method out for a
+caller whose session does not enter one of those tenants by the tenant's sign-in settings
+(`resource.AdmitsSession`, which does not ask whether the tenant is disabled). A method
+that names no row can be held the same way on the rows a page runs it from:
+`@callerEnters(Row, ...)` names the resource structs, each declares `TenantsToEnter`, and a row
+of one of them lists the method in its `Execute` answer as a row lists a method that names it.
+The generated method metadata carries the resources (`offeredOn`), and a page that fills the
+method's request from a row of one of them offers it only where the row's answer lists it;
+from a row of any other resource the method is offered by the grant alone. The declaration
+shapes what a page offers and refuses nothing: the method's own code refuses the call.
+
+A method can be kept off a person's own row as well. `@notOnOwnAccount(ID)` on a method that
+names its row says the row is an account's, by the field named, and that the row does not
+offer the method to the person whose account it is. A row read with `capabilities=Execute`
+leaves the method out where the field holds the caller's own account, and in a session that
+views as someone else on two rows: the row of the person viewed as and the row of the real
+person behind the session. As with `@callerEnters`, the declaration refuses nothing: the
+method refuses the call.
+
 ## 6. Impersonated sessions
 
 The `session` package can establish a session that operates as another user or as a role
-on behalf of an authenticated actor, optionally attenuated by an
-`accesstypes.PermissionMask`. Such a session is an ordinary session to every consumer;
-this package supplies the two pieces that must know about it:
+on behalf of an authenticated actor, attenuated by an `accesstypes.PermissionMask`. The
+mask is the control: a session that impersonates a person with no mask holds everything
+that person holds (the session package's "Impersonation is granted with a mask", which
+also has the declaration of the kinds an application offers). Such a session is an
+ordinary session to every consumer; this package supplies the pieces that must know
+about it:
 
-- **`SessionPermissions(ctx, forUser, forRole, roster, declarations)`** composes the
+- **`SessionPermissions(ctx, forUser, forRole, roster, declarations, classes)`** composes the
   request's `UserPermissions` from the session: `forUser` (typically
   `access.Client.ForUser`) for a user principal — an ordinary session or an impersonated
   user — and `forRole` (typically `access.Client.ForRole`) for a role principal, admits
@@ -641,11 +811,69 @@ this package supplies the two pieces that must know about it:
   to it, and a column that records who did something (the anchor of a `@subjectSet`, a
   `filedBy`) holds it. An application that does not operate sessions as roles passes
   `RolePrincipalsUnsupported` as `forRole`; a role principal then fails closed (every
-  check Denied, empty digest, no domains) with the same `User()`. `Masked(perms, mask)`
-  is the attenuation on its own: a permission the mask does not allow is Denied for every
-  resource before policy is consulted and dropped from the permission digest, so the
-  frontend's digest agrees with what `Check` enforces. Forgetting the mask fails *open*,
+  check Denied, empty digest, no domains) with the same `User()`. Forgetting the mask fails *open*,
   which is why the composition is here rather than hand-rolled per application.
+- **`Masked(perms, mask, classes)`** is the attenuation on its own. A check is Denied,
+  before policy is consulted, when the mask does not keep its permission kind (for
+  every resource asked about), when the mask refuses a class its resource carries
+  (in either scope: the class is the action's, whichever scope registers it), or
+  when the mask refuses the permission on the resource by name; the other resources of
+  the same check are answered as policy answers them. Each denial is logged as the
+  mask's, with the mask, the person, the resource and the reason
+  (`impersonation: Execute denied by mask (*;-class:credential) for … on
+  SendStaffUserPasswordResetLink: the mask refuses the class credential`), and the
+  permission digest drops the same entries, so the frontend's digest agrees with what
+  `Check` enforces and no page offers what the session is refused. A field is judged
+  by its record. `classes` is where the check reads an action's classes
+  (`ActionClasses`): the generated collection, `router.Collection()`, built once and
+  held by the application, as the skeletons do. A mask that refuses a class, checked
+  with no classes handed in (`nil`), refuses everything: the check cannot know which
+  actions carry the class, and it never guesses open. For the same reason such a mask
+  refuses Execute on a name that is no action of the application, one the collection
+  registers no Execute on for the whole application or for a tenant: a name spelled
+  wrong, an action checked by hand and never registered, or an action of a collection
+  other than the one handed in. Its classes are not none, they are unknown, and the
+  denial says so (`… "CreateWorkspace" is no action of the application, so the classes
+  it carries cannot be known: register it by hand (@manualAddResource(Execute) on the
+  constant, with the @class it carries) or correct the name`). It is the rule the
+  declaration of a kind holds its grant and its mask to when the application starts
+  (`session.NewImpersonations`), asked here of the names that arrive with a request. An
+  application's own route that asks the mask about an action no grant admits
+  (`resource.RefuseActionUnderMask`, `resource.MaskRefusesAction`, section 16) therefore
+  registers that action, by hand, under the name it asks about. The other permissions
+  are held to the collection too: under such a mask, Create, Read, List, Update or
+  Delete on a name the collection registers nothing under, for the whole application
+  or for a tenant, is refused before policy is asked (`… the application registers
+  nothing under "Shipyrds", so what the name is cannot be known: register it by hand
+  (@manualAddResource(Update) on the constant) or correct the name`). A record the
+  collection registers carries a class on the writes the generator gave one (below),
+  and is left to policy for each of its other permissions, the ones it registers and
+  the ones it does not; a field is judged by its record. Every check a generated handler makes names a record or an action of
+  the collection, so this rule refuses none of them; it is reached by a check written
+  by hand on a name registered nowhere, and by an application of several sites that
+  hands each site's check its own collection while one policy holds them all: under a
+  mask that refuses a class, a session at one site is refused the names of the other,
+  and they are left out of the digest that site serves. A mask that refuses no class
+  leaves such a name to policy, as before.
+- **`HoldsAction(perms, scope)`** answers whether the request's person holds Execute on
+  an action, granted outright, in one scope. It is the grant check the session
+  package's declaration of impersonation asks
+  (`session.Impersonations.Request(ctx, ask, resource.HoldsAction(perms, scope))`).
+- **Nobody is the subject of what they do in such a session.** The mask says what the
+  session may do. One thing no mask decides: the person who started the session changes
+  nothing of their own account from inside it, a role, a place in a group, a password,
+  an address, and writes no row of their own in a record that decides what a person may
+  do, a clearance, a spending limit, a place in a team. The generated user management
+  refuses every such act whatever the mask keeps. The generated write of a record that
+  carries a `@subjectValue` or a `@subjectSet` asks the same rule about the person the
+  row names, before the write and after it (`identity.RefuseImpersonatorAsRowSubject`),
+  about a set of theirs the row names (`identity.RefuseImpersonatorAsSetSubject`), and
+  the write of a record a dotted `value:` is read through asks it about the row their
+  own value is read through (`identity.RefuseImpersonatorAsReadThroughSubject`), with
+  nothing declared for it. An application's own action that names a person asks it
+  with `identity.RefuseImpersonatorAsSubject(ctx, account, act)` (section 21, "The rules
+  on who is asking", which also says what the rule cannot see, and the class `access`
+  and the named refusals a mask carries for it).
 - **The tenant list and the admission.** `roster` is the application's tenant roster
   (`DomainRoster`, the `TenantRoster`'s `Domains`; nil in an application without
   tenants), and `declarations` is the application's reader of what a tenant declares
@@ -682,8 +910,15 @@ this package supplies the two pieces that must know about it:
   a directory-only tenant admits a session established through its own directory and no
   other. So a session reaches every tenant that seats the person, except a tenant that
   is directory only and whose directory is not the one the person signed in through;
-  those are the session's closed tenants (`ClosedDomains`), which the tenant list of a
-  person's own sign-in names with the reason (section 5). An impersonated
+  those tenants are closed to the session, and the tenant list of a person's own
+  sign-in lists them under "Not available", with the reason (`UnavailableDomains`,
+  section 5). A tenant that is disabled is
+  apart from all of this: whatever its sign-in settings admit, no session reaches it but
+  a super administrator's (section 16, "A disabled tenant"). An account that signs in
+  through a directory-only tenant's directory does not get that far another way: the
+  sign-in policy refuses it a password, a personal account and any other directory at
+  the sign-in, whichever tenants seat the person (the session library's reference, "The
+  tenant policy", rule 2). An impersonated
   session is established by its impersonation event, so a directory-only tenant refuses
   it unless the actor, the real person behind it, is a super administrator; a super
   administrator's session started by a person who is none is refused it. The
@@ -693,19 +928,22 @@ this package supplies the two pieces that must know about it:
   `DomainGuard` refuses a direct request for the tenant exactly as it refuses a domain
   that is not a tenant, and the two can never disagree. One composed value reads a
   tenant's declaration once, whatever is asked about the tenant after.
-- **`UserEvent(ctx)`** — the event source every generated write handler stamps onto
-  `DataChangeEvents` — writes a person as their username with the id of their account,
-  and the session last: `bob (account id), session id`. It names the actor first for an
-  impersonated session: `alice (account id) impersonating bob (account id), session id`
-  and `alice (account id) as role PartnerViewer, session id`. A person with no account
-  here (an actor another application authenticated) is written by name alone. Every
-  tracked data change carries evidence of the real person with no regeneration, and a
-  rename changes nothing about who a change was made by.
+- **`eventsource.UserEvent(ctx)`** is who made a change in a person's request, the
+  value every generated write handler hands a tracked write: the person, by the id of
+  their account and their username on the day; who or what their session acted as,
+  where it acts as someone else; the session; the auth the request came through; and,
+  in an RPC method, the method's name, which the method's generated handler hands the
+  request (section 7). In a session acting as someone else the actor is the real
+  person, so every tracked change carries who really made it, and a rename changes
+  nothing about who a change was made by. A job passes
+  `eventsource.ProcessEvent(name)`, and a job run for the person of a request
+  `eventsource.UserProcessEvent(ctx, name)`. The value is of the package `eventsource`,
+  not of this one: section 24 says why, and lists the columns it is kept in.
 
 ## 7. RPC methods: what a method is for
 
 The generator enforces a method's shape (`@rpc`, the `Execute` forms, the wire
-vocabulary, the frame). Three conventions it cannot see are stated here, and hold
+vocabulary, the frame). Four conventions it cannot see are stated here, and hold
 across every application on this stack:
 
 - **A method answers with identifiers and outcomes, never rows.** `Execute` may return
@@ -742,14 +980,21 @@ across every application on this stack:
   framework ships (`resource/filestore`, section 13) removes such objects once they are
   older than the window, and the window is the application's decision. The cleanup is
   the safety net, never the mechanism.
+- **A picked field names a row the caller can list.** A request field that declares
+  `@enumerate` is filled by a picker over that list, and the generated handler holds what
+  the request sends in it to the rows the caller's own list shows, before the body runs
+  (section 26). A method's body does not check it again. The hold is the generated
+  handler's, so two things stay the author's: a method that suppresses its handler
+  (`@suppress`) makes the call itself, in the handler it writes
+  (`resource.Caller.HoldPicked`), and a body that takes a row's key any other way (a
+  field with no picker, a request it builds for another method) checks that key itself.
 
 ### A method that warns before it runs
 
 Some calls a person should not be able to make by a slip of the hand: the one that
 opens a sign-in method to the world, the one that deletes a year of records. Such a
 method declares a warning, and the dialog a page runs it through shows the warning
-before anything is saved. Three things make a warning, and the method declares all of
-them:
+before anything is saved. A warning is made of these, and the method declares them:
 
 - **The consequence, in the server's words for that call.** The method's `Warning`
   writes it, inside the handler's transaction, with the request as the person has filled
@@ -760,11 +1005,18 @@ them:
   things a person would want to read one by one (the people who lose access, the
   missions that are canceled) may carry them in `Names`, and the dialog draws them as a
   list of their own under the sentence. `Names` holds only what the caller may see: the
-  method decides it, as it decides the sentence.
-- **The typed word.** `@warning(typed: retire)` names the word a person types before
-  the confirm button works.
-- **The warning style.** The library's method dialog draws the consequence in its
-  warning colors under a warning icon, with no configuration.
+  method decides it, as it decides the sentence. A warning with more to say than one
+  sentence and one list carries notes in `Also`: each is a sentence (`Says`) with the
+  names it speaks of (`Names`), and the dialog draws them under the first, in order. A
+  note holds only what the caller may see, as `Names` does.
+- **The typed word, where the act calls for one.** `@warning(typed: retire)` names the
+  word a person types before the confirm button works. A bare `@warning` names none: the
+  dialog asks in the server's words and its button works once they are on the screen,
+  which suits an act a person does often and should still read first (taking a role
+  away, which says whose role goes and where it is held).
+- **The style.** The library's method dialog draws the consequence of a method with a
+  typed word in its warning colors under a warning icon, and that of a method without
+  one as the dialog's question, with no configuration.
 
 ```go
 // RetireShip takes a ship out of service and cancels the missions it was assigned.
@@ -876,6 +1128,19 @@ proposed row does not carry is an error, never a pass. The generated user manage
 asks this way what a change to a group needs (section 21), and which roles may be the
 default role of a sign-in method opened to sign-up.
 
+A method may also have no grant of its own, where it does to a row what another method
+would do with the row's values: the collection marks it an action no role is given,
+judged by that other method's grant (`CollectionResource.JudgedBy`). The frame then asks,
+and a row's Execute answer gives, the other method's Execute grant in the scope the
+request was checked in, and a condition on that grant that reads the other method's
+request (`new.<name>`) is read over the attribute of the same name on the row this method
+names. A role file that grants the method itself is refused when the roles are read, and
+a permission mask is asked about the other method. The permission digest and
+`Caller.Check` answer what the role files grant, so they hold nothing under such a
+method's name: a page offers the method by the row's Execute answer, and a body asks
+`ExecuteGate`. The generated user management marks one such method: sending an
+invitation again, judged by the grant on the invitation.
+
 A computed resource's functions are asked as the caller too. Its generated frames stamp
 the caller the request was checked as (`qSet.Caller()`: the checker, the scope and the
 environment of the query's own check) into the context before the `List` function, the
@@ -891,6 +1156,19 @@ sign-in) or one of the acts a generated route does in the application's name, su
 seating the person who creates a tenant; the user management reads it that way and
 judges nothing there (section 21). A handler written by hand that runs code which asks
 who the caller is stamps one itself (`resource.WithCaller`).
+
+A change a method makes says which method made it. The generated frame hands the
+method's name to the request (`resource.WithRPC`) before `Execute` runs, and
+`eventsource.UserEvent(ctx)` reads it there, so every change record the body writes, and
+the record of the frame's own stamp of a `@transition`'s state, holds the name in its
+`Rpc` column (section 24) and reads "dana, through the RPC CloseOrder". The body passes
+nothing for it and cannot leave it out. A write the body arms through another role's
+checker (`Caller.As`) is recorded the same way: the person and the method, and no
+role, because the session acts as nobody else; `PrincipalRole` holds a role only for a
+session that acts as one. A handler written by hand that runs a method's code hands
+the name itself, as it stamps the caller. The methods the library serves for a
+tenant's directory hand their names the same way; SetFeature hands none, since every
+flip a person makes is that one method's.
 
 ## 8. The generated router
 
@@ -981,9 +1259,7 @@ sign-in's three handlers, and each declared method's handlers under its registra
 name (`PasswordLogin`; `GoogleLogin` and `GoogleCallback` for a method named `google`;
 `LakesideEntraLogout` too for an Azure one), the default outlet's embedded
 (`DefaultSession`) and each additional one's through a getter named after it
-(`Portal() PortalSession`); `BindAuth(name)` only when more than one session
-auth is declared, so a misspelled or removed auth package is a compile error at
-`BindAuth(crew.Name)`; `<Outlet>Tokens` per machine outlet (`Droids() DroidsTokens`,
+(`Portal() PortalSession`); `<Outlet>Tokens` per machine outlet (`Droids() DroidsTokens`,
 embedded as `DefaultTokens` for a default machine outlet), the token check the issuing
 auth's `*session.MachineOutlet` satisfies, and on the issuing auth's session surface the
 device and token handlers (`DeviceAuthorize`, `DeviceToken`, `DeviceLookup`,
@@ -1027,7 +1303,8 @@ outlet, top to bottom; a not-found handler per outlet prefix, so an unknown API 
 paths first, so an application at `"/"` is the catch-all; and, with several web apps, the
 root redirect.
 
-A session outlet's group is `BindAuth(<pkg>.Name)` (with two session auths), `NoCaching`,
+A session outlet's group is `resource.BindAuth(<pkg>.Name)` (with two session auths; the
+router's own, so a misspelled or removed auth package is a compile error there), `NoCaching`,
 `CompressionMiddleware`, `StartSession`, `SetXSRFToken`; the session routes under the
 prefix; then the authenticated sub-group, `ValidateSession` and `ValidateXSRFToken`
 around the hook and the generated routes. In that sub-group the routes a signed-in
@@ -1049,23 +1326,51 @@ external method under its registration name, `GET user/<name>/login` and `GET
 user/<name>/callback` (`GET user/<name>/logout` too for Azure, the directory's
 front-channel logout). The sign-in's POSTs sit behind the outlet's XSRF guard alone, as
 the session library wires them: `POST user/password/login`, `POST user/password/change`,
-`POST user/password/remove`, `POST user/pending/confirm`, `POST user/pending/cancel`, `POST user/pending/code` (mails
-the sign-in code to a sign-in that waits for the second factor), `POST
-user/pending/code/verify` and `POST user/pending/email` (the address a person who holds
-none gives for the code); a browser reaches them with the XSRF cookie its first request
-was issued, echoed in the header. The password change
+`POST user/password/remove`, `POST user/password/strength`, `POST user/pending/cancel`,
+`POST user/pending/code` (mails the sign-in code to a sign-in that waits for the second
+factor), `POST user/pending/code/verify` and `POST user/pending/email` (the address a person who holds
+none gives for the code); `POST user/email/confirm` (the link an administrator's change
+of a person's address mails to the new address, confirmed by a person who need not be
+signed in); and, for an Auth with a password method, `POST user/pending/confirm` (a
+sign-in that matched an account with a password, finished with that password), `POST
+user/password-reset` (a person's own request for a reset link), `POST
+user/password-reset/open` and `POST user/password-reset/complete` (the mailed link
+opened, and completed with the new password). An Auth with no password method gives
+nobody a password, so its outlet serves no `user/pending/confirm`, names none in what
+the login page is told, and its session surface needs no `PendingConfirmWithPassword`. A browser reaches them with the XSRF cookie its first request
+was issued, echoed in the header. The methods route names the reset paths
+(`passwordReset`), the request's only while an administrator lets people ask for a link
+themselves (section 21, "Who may sign up"), so the login page offers "Forgot your
+password?" from the list it already reads. The password change
 (`PasswordChange`, the password method's `ChangeUserPassword`) validates the session
-itself, so it sits outside `ValidateSession`: a person whose operator-set password must
-change before anything else is served reaches it, and the methods route tells the login
+itself, so it sits outside `ValidateSession`: a person an administrator required a new
+password of, who chooses it before anything else is served, reaches it, and the methods route tells the login
 page where (`changePassword`), which renders the change form before the signed-in page
 (section 21). The removal of a person's own password (`PasswordRemove`, the password
 method's `RemoveUserPassword`) is mounted beside it the same way, and the methods route
 names it as `removePassword`: where the person's account page posts the password as
-proof.
+proof. The password strength question (`PasswordStrength`, the password method's
+`Strength`) reads no session and is mounted beside them; the methods route names it as
+`passwordStrength`, where every page that sets a password asks while the person types.
+
+With two session auths the router binds every request of an outlet to the outlet's auth,
+and `resource.SessionPermissions` answers a bound request only from that auth's permission
+engine. The checkers it is handed say which auth their engine was opened for (`Auth()`);
+where that is another auth, or none, every check, digest and list of the request answers an
+error that names both, so the request fails with a 500 and the log says which engine was
+asked. The application chooses the engine for a request by `resource.BoundAuth(ctx)`. A
+surface written by hand binds its own requests the same way, with
+`resource.BindAuth(<pkg>.Name)` in front of its routes. The bind is the one record of a
+request's auth: `resource.AuthFrom` answers it on every route of the group, a route
+registered by hand in the outlet's hook among them, and nothing under the group changes it.
+A call of `resource.WithAuth` leaves a request a group bound as it is. A second
+`resource.BindAuth` that names another auth fails the request with a 500, and so do an
+outlet's generated routes (`live.Subscribing`) mounted under a group of another auth; the
+logged cause names both auths.
 
 **Machine outlets.** A machine outlet declares the auth whose `Auth` issues its tokens,
 `Tokens(importPath)`, the same `*session.Auth` a session outlet of the program binds to
-through `Auth`; its people issue the tokens there. The outlet's group is `BindAuth`
+through `Auth`; its people issue the tokens there. The outlet's group is `resource.BindAuth`
 (when several auths are declared), `NoCaching`, `CompressionMiddleware`,
 `ReleaseHeader`, the device flow's two public endpoints (`POST <prefix>/oauth/device/authorize`
 and `POST <prefix>/oauth/token`, RFC 8628 and the refresh grant, served by the issuing
@@ -1166,6 +1471,21 @@ names the check per outlet with its oldest answered release, and the generated t
 proves it: in range answered, below or above refused with the header and no handler run
 and no body read, no header and `dev` answered, session and file routes answered at any
 release, the machine outlets unchecked, and the refusal landing before the hook.
+
+**The environment's name.** Beside its release a server names the environment it runs in,
+wherever that is not production, so a browser application can show it and a problem
+report can say where it happened. The name is `Handlers.ServerEnvironment()`, which the
+application answers from its configuration's `APP_ENVIRONMENT`: a deployment sets the
+variable to the environment's name (`tst`, `development`) everywhere but production,
+which leaves it unset. The generated router names it on every answer in `X-Environment`
+(`resource.NameEnvironment`, in front of every route, last in the chain every request
+passes), percent-encoded as a path segment is, so a name with a space or a letter outside
+ASCII arrives whole; a server that reports no name sends no such header, which is how
+production reads. The browser's client keeps the name from any answer
+(`client.serverEnvironment`) and the library's About pop-up shows it and copies it, with
+the application's name and the release, as one line for a report. The generated test
+proves both halves: a server told its environment names it on an answer, the answer for
+an address no route serves included, and a server told none names none.
 
 **The release file.** Beside the router the generator writes `zz_gen_release.json`, which
 names every outlet and, for each session outlet, the oldest release it answers, so a
@@ -1433,7 +1753,7 @@ much from the schema:
   the field's condition covers the whole row predicate (a role whose every grant on the
   resource carries the one condition, or a condition that implies it: an equality inside
   the field's `IN` list prunes too), and a field declared `masking:"positional"` never
-  renders one; `access.MigrateRoles` warns, per role, where a concealing sort or filter
+  renders one; `access.ValidateRoles` and `access.Client.CheckPolicy` warn, per role, where a concealing sort or filter
   key keeps its `CASE`. Lists that page at volume sort on unconditionally visible
   columns, on positional ones, or on columns whose condition the row filter proves.
 - Write and insert checks are point lookups at any volume.
@@ -1448,31 +1768,501 @@ so a write the schema refuses surfaces from the commit, not from the patch that 
 `SpannerClient.ExecuteFunc` answers such a commit with a 4xx and a message the library
 composes itself. The translation keys on the gRPC code alone, never on the message text,
 which differs between the emulator and the service and is not documented. The message
-names only the resources whose patches the transaction buffered, in the order they were
-buffered, and never the referencing table, the constraint, the index, the key, the value,
-or a count:
+says the records whose patches the transaction buffered, in words, and never a resource's
+or a table's code name, the referencing table, the constraint, the index, the key, the
+value, or a count. One buffered patch is said by its record's struct name in words ("This
+hangar"; "This record" where the patch gives no name), several by their resources' names
+in words, each once, in the order they were buffered:
 
 | gRPC code | The transaction buffered | Status | Message |
 | --- | --- | --- | --- |
-| `FailedPrecondition` (a delete of a row other rows still reference through a foreign key without `ON DELETE CASCADE` or as an interleaved parent under `ON DELETE NO ACTION`; a write whose foreign key names a row that does not exist; a required column left empty; a string longer than its column's declared length) | Deletes on one resource | 409 | `Hangars: this record cannot be deleted while other records still reference it.` |
-| | Deletes on several resources | 409 | `Hangars, Ships: a record cannot be deleted while other records still reference it.` |
-| | Creates or updates only | 409 | `Ships: a referenced record does not exist, or a value is too long for its field.` |
+| `FailedPrecondition` (a delete of a row other rows still reference through a foreign key, or as an interleaved parent; a write whose foreign key names a row that does not exist; a required column left empty; a string longer than its column's declared length) | One delete | 409 | `This hangar cannot be deleted while other records still refer to it.` |
+| | Several deletes | 409 | `One of the hangars or ships this request deletes cannot be deleted while other records still refer to it.` |
+| | One create or update | 409 | `This ship refers to a record that does not exist, or holds a value that is too long for its field.` |
+| | Several creates or updates | 409 | `One of the ships or missions this request adds or changes refers to a record that does not exist, or holds a value that is too long for its field.` |
 | | Deletes and writes together, or nothing buffered through the transaction wrapper | 409 | `The request could not be applied: a deleted record is still referenced, or a referenced record does not exist.` |
-| `AlreadyExists` (a duplicate primary key; a duplicate unique-index value) | Any create | 409 | `Ships: a record with this key or a unique value already exists.` |
-| | Updates only | 409 | `Clients: a unique value already exists on another record.` |
+| `AlreadyExists` (a duplicate primary key; a duplicate unique-index value) | Any create, one write | 409 | `This ship already exists, or it has a value that must be unique and another record already has it.` |
+| | Any create, several writes | 409 | `One of the clients or ships this request adds or changes already exists, or it has a value that must be unique and another record already has it.` |
+| | Updates only, one | 409 | `This client has a value that must be unique, and another record already has it.` |
+| | Updates only, several | 409 | `One of the clients or ships this request changes has a value that must be unique, and another record already has it.` |
 | | Nothing buffered | 409 | `The request could not be applied: a record with this key or a unique value already exists.` |
-| `OutOfRange` (a violated `CHECK` constraint) | Any write | 400 | `Missions: a value is outside the range the record allows.` |
+| `OutOfRange` (a violated `CHECK` constraint) | One write | 400 | `This mission has a value that is outside the range allowed.` |
+| | Several writes | 400 | `One of the ships or missions this request adds or changes has a value that is outside the range allowed.` |
 | | Nothing buffered | 400 | `The request could not be applied: a value is outside the range the record allows.` |
-| `NotFound` (an update of a row that does not exist; an interleaved child whose parent does not exist) | Updates only | 404 | `Clients: this record does not exist.` |
-| | Any create | 409 | `RefitTasks: a referenced record does not exist.` |
+| `NotFound` (an update of a row that does not exist; an interleaved child whose parent does not exist) | One update | 404 | `This client does not exist.` |
+| | Several updates | 404 | `One of the clients or pilots this request changes does not exist.` |
+| | Any create, one write | 409 | `This refit task refers to a record that does not exist.` |
+| | Any create, several writes | 409 | `One of the refits or refit tasks this request adds or changes refers to a record that does not exist.` |
 | | Nothing buffered | 409 | `The request could not be applied: a record to update does not exist, or a referenced record does not exist.` |
 | anything else (`InvalidArgument`, `Internal`, `Aborted`, …) | | 500 | passes through unchanged |
 
-"Create" is a create or a create-or-update; a touch is an update. Deletes cannot cause any
-code but `FailedPrecondition`, so deletes buffered beside writes do not change the other
-codes' sentences. A tracked resource's change-event rows do not count among the buffered
-patches. An error the transaction function itself returns passes through unchanged, whatever
-its code.
+"Create" is a create or a create-or-update; a touch is an update. Several writes are "this
+request adds or changes" where a create is among them and "this request changes" where
+every one is an update; one or several is counted over the patches, so two deletes of one
+resource are several. Deletes cannot cause any code but `FailedPrecondition`, so deletes
+buffered beside writes do not change the other codes' sentences. A tracked resource's
+change-event rows do not count among the buffered patches. An error the transaction
+function itself returns passes through unchanged, whatever its code. The 404 is said as
+every record that is not there is said: where one update was buffered, the record by its
+struct's name in words ("this record" for a patch that is not a `PatchSet`); where several
+were, the resources by their names in words.
+
+### A delete with rows under the record
+
+A delete of a record that has rows under it is answered before the commit, in a sentence
+that says what is in the way. For every record the generator writes the kinds with a row
+directly under it on a reference that says nothing of a delete (`DeleteTree.Under`, in the
+record's generated `DeleteTree()`): the database removes none of those rows with the
+record, so a commit that leaves one refuses the delete. Once the transaction's function
+has returned and before the commit, `SpannerClient.ExecuteFunc` counts the rows of each
+such kind under each record a patch deleted, one count per kind, inside the same
+transaction, and answers the first delete that has one with a 409:
+
+| Under the record | Message |
+| --- | --- |
+| Rows of one kind | `This ship has 2 sorties. Delete them first.` |
+| One row | `This ship has 1 sortie. Delete it first.` |
+| Rows of several kinds | `This ship has 9 droid reports and 2 sorties. Delete them first.` |
+| Rows that can be taken from under the record | `This squadron has 8 missions. Move or delete them first.` |
+| One such row | `This squadron has 1 mission. Move or delete it first.` |
+| A row of a kind the record lists under `refusedBy` (`@deleteCascade`) | `This client has 10 missions and 5 consignments, so it can't be deleted.` |
+| Rows of kinds the person may list none of | `This ship has records under it that you can't see, so it can't be deleted.` |
+
+- The sentence names the record by its kind, in the words of its resource
+  (`DeleteTree.RowName`, the one place a row's name comes from).
+- "Move or delete" is said where every kind the sentence names can be taken from under
+  the record without being deleted: each of the kind's references to the record has a
+  column that may be empty and is no part of the row's key (`DeleteLink.MayBeEmpty`,
+  which the generator writes from the schema). A mission's assigned squadron may be
+  empty, so the missions can be given to another squadron or to none; a sortie always
+  names a ship. A kind with one reference that may not be empty, or one such kind among
+  those named, and the sentence says only to delete them.
+- A kind the record lists under `refusedBy` answers before any other, counted by every
+  way it leads up to the record, and keeps the record from being deleted at all. The
+  kinds a record lists as going with it are not in the way: its delete takes them, once
+  it has asked (the next part).
+- The sentence is written for the person the delete is for: the one the patch is armed
+  against, else the caller the request carries. A kind they may not list is never named
+  or counted for them, and a grant to list it that carries a condition is not enough,
+  since the count is of every row. A trusted call is told every kind. A kind of a
+  tenant's rows under a record whose key holds its tenant, the tenant record above all,
+  is asked about in that tenant, whatever scope the delete is asked in (section 16,
+  "Deleting a tenant").
+- A row of another tenant is never counted. Where the kind's rows are a tenant's
+  (`@domain`) and the record is a tenant's, or is the tenant record, the count is of the
+  rows of the record's own tenant (`DeleteKind.Tenant` and `DeleteTree.Tenant`, which the
+  generator writes). A row of another tenant that names the record is not under it, and
+  its foreign key refuses the commit in the commit's own sentence (the table that opens
+  this section).
+- The count reads what the database held before the save: a read inside the transaction
+  does not see its buffered writes. Rows that go with a record are declared
+  (@deleteCascade). Rows that are not declared are deleted in an earlier save. A kind the
+  database removes with the record itself is not in the description.
+
+What the count does not reach is still the commit's to refuse, in the sentences of the
+table above: a row under a foreign key the generator does not follow. The mock client
+holds no rows and refuses nothing here, and PostgreSQL has no write path.
+
+Example: [the served suite](../lodestar/test/integration/delete_refusal_test.go).
+
+### A delete that takes what is under the record
+
+Rows are deleted in code only, never by the database. No foreign key and no interleave of
+an application's records says `ON DELETE CASCADE`: a row the database removes is not
+checked against the grants of the person who asked, leaves no change record, is not
+announced to open pages and keeps its stored files, and it counts toward the commit's
+mutation limit all the same. `impulse check` holds the schema to it (`no-delete-cascade`).
+What a delete takes with it is declared on the record and deleted by the library, as
+below. A record with rows under it and no declaration is refused, in words that say what
+to delete first.
+
+A record that declares what goes with it (`@deleteCascade`) is deleted together with the
+rows of the kinds it lists as taken, and the library deletes them in code: it finds the
+rows, checks each one as that row's own delete would be checked, and deletes them in the
+record's transaction, deepest first and the record last.
+
+Such a delete asks first. A delete of a record with rows to take deletes nothing unless
+it says it takes them, and is answered 428 (`httpio.HasPreconditionRequired`) with the
+question a person is asked before anything goes:
+
+| Under the record | Message |
+| --- | --- |
+| Rows of kinds the person may list | `Delete this mission and everything under it: 1 mission document, 2 sorties, 1 sortie expense. This can't be undone.` |
+| Some rows of kinds they may not list | `Delete this mission and everything under it: 2 sorties, and records you can't see. This can't be undone.` |
+| Rows of kinds they may list none of | `Delete this mission and everything under it? This can't be undone.` |
+
+The same delete, saying it takes them, deletes the rows and the record:
+
+- On the wire the remove operation carries a value, `{"op": "remove", "path": "/missions/…",
+  "value": {"everythingUnder": true, "token": "…"}}`. A value that is not an object, or
+  that says `everythingUnder` with anything but true or false, is a 400. The token is the
+  one the question's answer gave. A remove that says `everythingUnder` without it, or with
+  one that does not hold, is answered with the question again.
+- The TypeScript client takes it as an option,
+  `missions.remove([id], { everythingUnder: true, token })` and
+  `missions.ops.remove([id], { everythingUnder: true, token })`. The library's delete dialog
+  asks the server's question in the place of its own and sends the second delete when the
+  person presses Delete again.
+- In Go the generated delete patch of a record that declares its cascade, and of the
+  tenant record, carries `WithEverythingUnder()` (`PatchSet.DeleteEverythingUnder`). That
+  is for code that deletes outside a request; a handler hands a request's token to
+  `WithDeleteToken(token)` (`PatchSet.DeleteWithToken`).
+
+A record with nothing to take under it is deleted without a question, whatever the delete
+says. Before the question is asked, and whatever the delete says, the delete is refused
+with nothing gone where it cannot be made whole:
+
+| What stops it | Status | Message |
+| --- | --- | --- |
+| A row of a kind the record lists under `refusedBy` | 409 | `This client has 10 missions and 5 consignments, so it can't be deleted.` |
+| More rows than one save takes | 202 | `{"deleted": 6800}`: the rows this save deleted. Send the same remove again. |
+| A row the person may not delete, of a kind they may list | 403 | `This mission has sortie expenses that you can't delete, so it can't be deleted.` |
+| A row the person may not delete, of a kind they may not list | 403 | `This mission has records under it that you can't delete, so it can't be deleted.` |
+| A row its delete rule refuses (`@validateDeleteType`) | the rule's | the rule's own sentence |
+
+- The rows are found a kind at a time, by one statement that follows the kind's ways up to
+  the record (`DeleteKind.Paths`), on the columns each foreign key references
+  (`DeleteLink.References`), the other table's key or not: a relay names its call by the
+  call's case number. A kind that sits under itself (`DeleteKind.Within`: an answer names
+  the relay it answers) is found level by level, the same statement with the kind's link
+  to itself repeated until a level finds nothing, and to any depth: where the database
+  refuses a level's statement because it joins too many tables, the delete takes the rows
+  of the last level it could read, a page of them at a time, and follows what is under
+  them from the page's rows as it follows what is under the record from its key, as often
+  as it must. The library holds no number of its own for it. What that costs grows with
+  the depth faster than with the rows: a level's statement follows every level above it
+  again, so a record whose rows sit twenty deep is asked about and deleted many times
+  slower than one with as many rows three deep. The question counts everything under the
+  record before anything goes, however deep, and a save deletes the deepest rows first,
+  as everywhere. Rows of a kind that sit under each other in a ring are never found to
+  end: the delete fails until the ring is broken. One ring is not found at all: where
+  every row of the ring also holds the record's own key, its rows are at no level, so the
+  question does not count them and the delete does not take them. The save that takes
+  the record is then refused by their foreign key to it, or, where they have none, leaves
+  them naming a record that is gone. A row belongs to the deepest level that finds it, so
+  a row is deleted before the row it is under. A row that two levels find, with a level
+  between them that does not find it, is counted at both, and the question's count comes
+  out high by it.
+- A save is filled to Spanner's 80,000 mutations by what each row costs as the service
+  counts it: one for the delete and one for each index of the row's table; for a kind that
+  keeps a change history, one more for each column its change record sets (eleven for a
+  person in a session); for an update the library makes in a delete (an invitation
+  withdrawn, a session ended), one for each column of the key, one for each column written,
+  and for each index that holds a written column two where the column is in its key and one
+  and its stored columns otherwise. A row with an empty optional column costs less than its
+  count, never more.
+- A row is under a record of a tenant only where it is that tenant's. For a kind whose
+  rows are a tenant's (`@domain`), each statement reads the rows of the record's own tenant
+  alone: the tenant the record's key holds (the tenant record, or a record keyed by its
+  tenant), or the one the record's row resolves to (`DeleteTree.Tenant`), compared with
+  the tenant each row of the kind resolves to (`DeleteKind.Tenant`), through other rows
+  where its `@domain` goes through them. A row of another tenant that names the record,
+  or a row under it, is not found, counted, named or taken, whoever asks, a trusted
+  delete included. Its foreign key refuses the commit, in the commit's own sentence, and
+  nothing is deleted. Only a foreign key that holds the tenant's key beside the rest (a
+  relay's `(SectorId, CaseNumber)` to its call's) keeps such a row from being written; a
+  foreign key on the other row's key alone does not. Which of the two a link is written
+  with is the schema's choice ("A link between two records of a tenant", below). A
+  record that is no tenant's has under it whatever its links put there, and so does a
+  kind whose rows are no tenant's.
+- A foreign key of two or more columns is written with its columns in the order of the
+  key it references: for an order keyed `(Depot, Number)`, a line's is
+  `FOREIGN KEY (OrderDepot, OrderNumber) REFERENCES Orders (Depot, Number)`. The generator
+  refuses one written in another order, naming the table and the foreign key and printing
+  the line to write. The emulator the schema is read through answers a column's position
+  in the referenced key with its position in the foreign key, so the other order would
+  read with its columns crossed, and what is under a record would be looked for by the
+  wrong column. Where the columns referenced are not the other table's key, the order is
+  the one the database holds them in, which the refusal prints.
+- A row of a kind the record lists under `refusedBy` refuses the delete wherever it is
+  under the record. One under a row that is under the record through a row of its own
+  kind alone (an invoice for a task under a task) is found level by level as the rows the
+  delete takes are, and the delete answers in the same counted sentence before any row
+  is checked, asked about or deleted.
+- A kind with a row straight under the record that the record's description neither takes
+  nor lists under `refusedBy` refuses the delete as it refuses a plain one, in the
+  sentence of the part before ("… Delete them first."), before any row is asked about.
+  The generator writes such a description for a group or an account of the library's that
+  a record of the application's names and says nothing (the next part).
+- Every row goes through its own kind's generated delete (`DeleteKind.Rows`, which the
+  generator writes with `resource.NewTakenRows`): the person's Delete grant on the kind,
+  what a session that acts as someone else is asked about a row that decides what a
+  person may do (`identity.RefuseImpersonatorAsRowSubject` and the two beside it), the
+  grant's condition against the row, the kind's delete rule, its change record where
+  the kind is tracked, and the release of its stored
+  files. One row that may not go stops the whole delete. A kind behind a feature flag
+  (`@feature`) goes with the record whether its flag is on or off: a flag turns a
+  feature's routes and pages off, and does not change what belongs to a record.
+- The tenant record declares nothing, and `@deleteCascade` on it is refused: the library
+  declares what a tenant's delete takes, which is every kind of the application's whose
+  rows carry the tenant's key or lead to a row that does. Its rows are found, asked about
+  and deleted as any record's are, with one difference: no grant is asked on a row. The
+  grant to delete a tenant answers for every row under it, and a person who may delete a
+  tenant need hold no role in it. Each kind's delete rule is asked on every row all the
+  same, with its change record and the release of its files (section 16, "Deleting a
+  tenant").
+- A delete larger than one save runs in rounds: each request deletes what fits one save,
+  deepest rows first, and answers 202 with the rows it deleted; the record goes last. A
+  save ends at Spanner's 80,000 mutations or at its time limit, whichever comes first, and
+  always takes at least one row. Where a save's time has passed before it reaches its
+  first row, it takes the whole of the first page of rows it reads (the rows of one kind
+  at one level, as many as the commit has room for), so that it does not take one row a
+  request; that save runs past its limit by its reads and that page. The limit is
+  the client's (`resource.WithDeleteSaveTime`; `resource.DefaultDeleteSaveTime` without
+  it, none where it is set below zero): keep it under the time the deployment gives a
+  request. The 202 does not say how many rows are left: the question's answer (the 428)
+  carries the count of everything under the record as `records`, and the dialog counts
+  down from it. A round that goes on the question's token checks nothing again, and a
+  round of a delete made in code checks everything again (the next three bullets). A
+  refusal that comes after rounds have run stops the delete there: what is gone stays
+  gone, what is left is a whole, smaller record, and the same delete goes on once the
+  refusal's cause is gone. Nothing is kept between rounds but the token: each round starts
+  from the record again.
+- A request's delete takes rows only on the token its question gave. When the question
+  passes, the server writes one row to `DeleteTokens`: a random id, the record, the
+  session and the person it was given to, and when it expires (`resource.DeleteTokenLife`
+  from then). The 428 carries the id as `token`. The remove that goes ahead brings it back
+  with `everythingUnder`, and so does each request after it while the answer is 202. The
+  delete takes rows only while the token's row is there, names the record, belongs to the
+  caller's session and person, and has not expired; otherwise it is answered with the
+  question again and nothing is gone. So no request skips the question. A save on a token
+  asks nothing of the rows it takes: the question asked every one. Each save that leaves
+  rows moves the token's expiry on; the save that takes the record deletes the token in
+  the same commit; a save that fails deletes it too, and the person is asked again. An RPC
+  method that deletes declares the field that carries the token (`@deleteToken`).
+- A save that goes on a token reads only what it takes. It finds the deepest level by
+  reads of one row, then reads each kind's rows from the deepest level up, a page at a
+  time by their keys, and takes them. It counts nothing and asks nothing: the question
+  counted everything under the record and asked all of it (the refusing kinds, the rows
+  the delete does not take, the rows beyond the reach of whoever deletes, the caller's
+  grant on each kind, each row's tenant, the grant's conditions and the row's delete rule)
+  before it gave the token. A kind handed to the delete in code (`PatchSet.DeleteAlso`)
+  has its `Take` called by every save, and its `Count` and `Check` by the question and by
+  each save of a delete made in code (the next bullet).
+- A delete made in code brings no token, and every save of it asks everything again.
+  Code that deletes outside a request says `WithEverythingUnder()`
+  (`PatchSet.DeleteEverythingUnder`): a job in a transaction of its own, an RPC method of
+  the application's that deletes a record in its own code, the library's own delete of
+  an account or a group that goes with its tenant. Nobody was asked a question for such a
+  delete, so each save first does all that the question does: it counts everything under
+  the record, refuses over a row of a refusing kind, over a row the delete does not take
+  and over a row beyond the caller's reach, asks the caller's grant on each kind, and
+  asks every row still under the record (its tenant, the grant's conditions, its delete
+  rule), not only the rows it is about to take. Only then does it take its rows, as a
+  save on a token does. So a save takes nothing while any row under the record refuses.
+  Such a save is slower than one on a token by the question's own time, which runs
+  inside its time limit: a job with no request deadline to keep sets the limit below
+  zero on its client (`resource.WithDeleteSaveTime`).
+- The rows are checked as the person the record's delete is armed against, and the
+  sentences are written for that person, as the count of the part before is. A trusted
+  delete (a patch that is not armed) checks no grant, runs each kind's rule, and is told
+  every kind; it is asked the question all the same, and takes the rows once it says so.
+- The delete reads what the database held before the save: a row the same save deleted
+  is found and deleted again, with the one change record its first delete wrote, and a
+  row the same save changed is found where it stood before the save.
+- The question is asked in a read-only transaction, alone. A request whose remove does
+  not bring the token its question gave (a remove with no value, or one that says
+  `everythingUnder` with no token) is first run with no read-write
+  transaction open: the record's own checks, the counts, the refusals and each row's
+  check read the database as it stood at one moment and lock nothing, so asking about a
+  record, however much is under it, holds up nobody who is writing, in the record or
+  anywhere else. A refusal or the question is answered from there. Where nothing is
+  under the record there is nothing to ask: the same request then opens its read-write
+  transaction and deletes the record as any delete of one row, its checks made again
+  inside that transaction. The answer is right for a record nobody is changing, which is
+  what is deleted in real use: a record is closed long before it is deleted, or was made
+  by mistake and never used. A delete rule (`@validateDeleteType`) the question asks of
+  a row is handed a transaction that reads at the question's moment, and nothing it
+  buffers is written. In code, `Client.ExecuteDeleteFunc` with `resource.DeleteRunAsks`
+  runs a function this way; a delete buffered in a transaction opened another way
+  (`ExecuteFunc`, `Apply`, `resource.NewSpannerReadWriteTransaction`) asks inside that
+  transaction.
+- A save on a token runs at Spanner's repeatable read isolation level. A request that
+  holds nothing but removes that bring their tokens is opened that way
+  (`resource.DeleteRunOf` reads it from the body, and `Client.ExecuteDeleteFunc` takes
+  it). What the save reads is then not locked: a write anywhere else in the application,
+  in another tenant or in a table the delete also reads, does not wait for the save.
+  Spanner still aborts the save where another transaction wrote a row the save writes,
+  and a foreign key still refuses a commit that would leave a row naming a deleted one.
+  Every other transaction of the library stays serializable. A delete of a record with
+  nothing under it is among them, but for one case. The level is fixed when the
+  transaction is opened, from the request's body, before any token is read: a request of
+  nothing but removes that bring tokens is opened at repeatable read whatever its
+  removes take. So a remove in it of a record whose delete takes no rows with it runs at
+  that level too, as the delete of one row, and its token is never read. A question
+  gives a token only for a record with rows under it, so only a request written by hand
+  holds such a remove.
+- A delete reads only the rows under its record. Each statement it sends about a kind (a
+  count, a page of rows, a read of whether there is any) starts from the record's key and
+  follows, a step at a time, the foreign keys or interleaves that put the kind's rows
+  under the record; under a page of a kind nested under itself it starts from the page's
+  rows the same way: a page holds each row's key and whichever other columns of the row
+  the rows under it name, so what is under a page is found without reading the page's
+  rows a second time. A page's rows are read again, by their keys, in two cases: where
+  one of its rows has no value in such a column, and for a column the kind's resource
+  holds no field for. Nothing it sends starts from the kind's whole table.
+- Under the tenant record, a kind is read by its rows' own way to their tenant, where that
+  is one of the kind's ways up to the record. Every row of the kind in the tenant is
+  under the record, so the kind's other ways find nothing more and are not written. A
+  kind that holds its tenant's key in a column of its own is found by one read of the
+  rows that hold it. A kind that reaches its tenant through another table is found by a
+  look under each row of that table, whether or not anything is there: the delete of a
+  tenant with 8,000 projects and no tasks looks 8,000 times for a project's tasks. That
+  is what it costs to read nothing outside the record, and it grows with the record,
+  never with the table.
+
+The delete in code is Spanner's write path. The mock client holds no rows and takes none,
+and PostgreSQL has no write path.
+
+Example: [the served suite](../lodestar/test/integration/delete_cascade_test.go), over
+[Mission](../lodestar/pkg/resources/missions.go), [Client](../lodestar/pkg/resources/clients.go)
+and [DistressCall](../lodestar/pkg/resources/distress_calls.go).
+
+### A record that names a group or an account of the library's
+
+A group and an account are records of the library's, so an application cannot list its
+own rows on them with `@deleteCascade`. The application's record says it instead, on the
+column that names the group or the account: `// @deletedWith`, with no argument.
+`@deleteCascade` sits on the record that is deleted and lists what goes with it;
+`@deletedWith` sits on a column of the row that goes, and names the group or the account
+whose delete takes it. The column is one the schema holds, alone, by a foreign key to the
+key of an auth's groups table or users table; on any other column generation fails and
+says what to write.
+
+- **With `@deletedWith`,** a delete of the group or the account takes the rows that name
+  it. The question counts them after the library's own rows: "Delete this group and
+  everything under it: 12 members, 3 roles, 5 task assignments. This can't be undone.";
+  "Delete this account and everything under it: 7 task assignments. This can't be
+  undone." Each row goes through its own kind's delete, as the part before says of every
+  taken row. The generated methods that delete a group and a person ask the same way:
+  sent without `everythingUnder` for one that rows go with, each answers 428 with the
+  question and its token, and the Groups page and the People page show it and send the
+  delete again with `everythingUnder` and the token.
+- **A group's rows are checked as the person who asked,** though the library's own delete
+  of the group is not armed (`DeleteKind.AsCaller`): whoever deletes the group needs what
+  deleting each row needs. Without it the delete is refused whole: "This group has task
+  assignments that you can't delete, so it can't be deleted."
+- **An account's rows go on the permission to delete the account**
+  (`DeleteKind.WithinReach`). No grant is asked on the rows' own table, the question
+  counts them for whoever may delete the account, and each row's delete rule is asked all
+  the same. The permission answers as far as it reaches. A request made for the whole
+  application takes every row. A request made under a tenant's address takes the rows of
+  that tenant, and of each other tenant in which the person holds the same permission,
+  with or without a condition (a condition is judged where the request is made); a
+  row of any other tenant refuses the delete, with nothing gone, in a sentence that names
+  the tenant: "This account still has 2 task assignments in Borealis. They have to be
+  removed there before the account can be deleted." It says "in another company" where
+  the tenant record marks no name. A row of a table that belongs to no tenant is the
+  whole application's, and so is a row whose way to its tenant ends empty: "This account
+  still has 3 saved filters that are not part of any company. Only someone who manages
+  accounts for the whole application can delete it." Removing a person from a tenant
+  takes none of these rows.
+- **Without it,** the delete is refused while a row names the group or the account, in
+  the counted sentence: "This group has 5 tasks. Move or delete them first.", or "Delete
+  them first." where the column may not be empty. For an account the count is of every
+  tenant's rows, so a person who deletes it under one tenant's address can be refused
+  over rows they cannot see there.
+- **What is under such a row** goes with it where the row's own `@deleteCascade` takes
+  it, and is counted in the question. A row that would refuse the row's own delete (a
+  kind its `@deleteCascade` lists under `refusedBy`, or, where it declares none, a kind
+  straight under it) refuses the group's or the account's: "This group has 2 assignment
+  notes, so it can't be deleted."
+- **Which table carries the column is the schema's choice.** A link table
+  (`TaskAssignments`: a task, and the group or the person it is assigned to) with
+  `@deletedWith` on its columns loses its link rows with the group or the account, and
+  the tasks stay, assigned to whoever else holds them or to nobody. A column on the
+  record itself (`Tasks.GroupId`) with `@deletedWith` deletes the tasks with the group;
+  without it, the group stands until the tasks are moved or deleted.
+- **The count reads what the database held before the save,** as every delete's does. A
+  save that deletes the rows that name a group or an account and then the group or the
+  account itself is refused over those rows where their column says nothing: the rows are
+  deleted in an earlier save, or the column says `@deletedWith`.
+- **The save that takes the account's row** also ends the person's sessions and removes
+  their sign-ins, their roles and their places in groups, and the size of a save does not
+  count those writes. An account whose last rows fill that save to within them is refused
+  by the database at the commit, at every try, for holding too many changes; it is deleted
+  once a few of its rows are deleted first.
+- **The application's resources package must not import the auth's generated packages.**
+  The generated description of the group or the account names the delete of the
+  application's record (`<Record>TakenRows`, which the generator writes in the
+  application's resources package), so the import would be a cycle, and the application
+  does not compile.
+- **A tenant's delete** takes the application's rows under the tenant itself, on its one
+  permission, and then deletes the tenant's groups and the accounts that were its alone
+  with the library's rows alone (section 16, "Deleting a tenant").
+- **Left to the database.** Three kinds of row are neither counted nor taken, and the
+  foreign key refuses the save, in the commit's own sentence, while one is there: a row
+  of a table no resource declares; a row that names another row of the auth's (a place in
+  a group, a role a group holds) and not the group or the account itself; and, in a
+  tenant's delete, a row outside the tenant that names a group or an account the delete
+  takes.
+- **Spanner, through the generated management.** The delete in code is Spanner's write
+  path. The session library's own delete of a user (`DeleteSessionUser`), which an
+  application without the generated management calls, takes no row of the application's
+  on Spanner or on PostgreSQL: a row that names the user by a foreign key refuses it in
+  the database's own sentence.
+
+**How a table should name a person.** A record that names an account by a foreign key
+leaves the account's delete two outcomes: it is refused while the row is there, or, with
+`@deletedWith`, the row goes with the account. For a record that should outlive the
+person (a task, an order) neither is wanted, so keep the foreign key off it. Use a link
+table for assignments (`TaskAssignments`: its rows go with the account, and the tasks
+stay). Rely on the change history for who did what: each change record says who made the
+change (section 24) and stays when the account is gone. Where a record must name a person
+itself, keep a copy of the person's information on it (their name, their address), with
+no foreign key. A column that holds an account's id with no foreign key can still say
+whose it is: give the field the accounts as its picker (`@enumerate(<Auth>SessionUsers)`),
+and a list shows the username beside the id while the account stands, and the record's
+own change history keeps the username after the account is gone (section 24). The same
+holds for a group, by `@enumerate(<Auth>Groups)`. A copy keeps personal data after the
+account is gone, so an application that must erase a person cleans up its own copies.
+Disable is the usual way to remove a person who has history; delete is for when the
+account itself must go, and a design that names people these three ways keeps it possible.
+
+Example: [HangarPass](../lodestar/pkg/resources/hangar_passes.go), and
+[the served suite](../lodestar/test/integration/group_share_test.go).
+
+### A link between two records of a tenant
+
+How one record of a tenant names another is the schema's choice, made record by record and
+link by link: the generator and `impulse check` refuse none of the designs below.
+
+A record keeps its tenant in a column of its own (a bare `@domain`) or reads it through the
+record it is under (`@domain(via: ...)`). With the column, its foreign keys can hold the
+tenant, as below, and its tenant is its own: it stays where it is when the record it is under
+is moved to another tenant. Read through the record it is under, it has no tenant column to
+put in a foreign key, and it is always in that record's tenant: moved to another tenant, that
+record takes it along. Section 9 has what each costs a list, with the generator's warning for
+a list read through other rows.
+
+Between two records that each keep their tenant in a column, a foreign key is written in one
+of two ways:
+
+| The foreign key | What it prevents | What it allows |
+| --- | --- | --- |
+| Holds the tenant, the tenant column of the one beside the tenant column of the other: a pass's `FOREIGN KEY (HangarId, SectorId) REFERENCES Hangars (Id, SectorId)` | A row that names another tenant's row. The database refuses every write that would leave one, whoever writes it: a create, an update of the link, a change of either row's tenant. The caller is answered as for a row that names nothing: `This hangar pass refers to a record that does not exist, or holds a value that is too long for its field.` | Links inside one tenant and no other. It is the key for a record that must never be under another tenant's record. |
+| Is the other row's id alone: `FOREIGN KEY (HangarId) REFERENCES Hangars (Id)` | A row that names no row, and nothing more. The database does not compare the two rows' tenants, and the library holds the record being written to the request's tenant without looking whose row a foreign key names. | A record under a record of another tenant. The application's own code can move either one to another tenant, and a caller who knows the id of another tenant's row can name it. It is the key for a record that may be moved between tenants. |
+
+A key that holds the tenant has two columns or more, written in the order "A delete that takes
+what is under the record" gives above; the generator prints the line for one written in
+another order. A child interleaved in its parent is linked by the parent's key, so the link
+holds the tenant only where that key does. What becomes of a row that names another tenant's
+row is in the same part: no delete counts or takes it for the other tenant, and its foreign
+key refuses the delete of the row it names while it stands.
+
+A record that links to a row of one tenant and to a row of another is a fault of the schema's
+design. A schema allows one where a record has two links that nothing holds to one tenant: two
+foreign keys on an id alone, or, on a record that reads its tenant through other rows, a
+foreign key beside the link its tenant is read through, which is the one link the library
+proves when the row is written (section 5). No tool looks for such a record. It is found when
+the schema is designed and when it is reviewed. `impulse advise` hands an agent a brief to
+read the schema for it.
+
+Example: [a pass's key to its hangar and an answer's to its relay](../lodestar/schema/migrations/000001_Baseline.up.sql),
+which hold the sector, and [the served test](../lodestar/test/integration/tenancy_test.go) of
+both.
+
+### What the translation does not do
 
 What the library does not do: it reads nothing before buffering to name the offending
 field. A read inside the transaction does not see the transaction's own buffered writes, so
@@ -1480,7 +2270,9 @@ two creates sharing a value in one batch would pass such a check and fail at com
 and concurrent requests would race past it; the commit translation is needed regardless.
 The application's validators (`@validateCreateType`, `@validateUpdateType`) are where a rule
 is answered as 400 naming the field before anything is buffered; the commit translation is
-the backstop for what they do not cover. A value the decoder can size never reaches the
+the backstop for what they do not cover. A delete has its rule too (`@validateDeleteType`):
+it reads the row inside the transaction and answers 400 in its own sentence before the
+delete is buffered. A value the decoder can size never reaches the
 commit through the API: a string longer than its `STRING(n)` column, a byte slice longer
 than its `BYTES(n)` column, and a decimal beyond `NUMERIC`'s digits answer 400 naming the
 field at decode (section 11). The 409 for a too-long string remains for `STRING(MAX)`,
@@ -1499,9 +2291,10 @@ Two consequences to know:
 
 The tenancy check's 404 for a referenced row outside the request's partition, and the 404
 a tenanted or tracked update answers when its row is missing, are unchanged; they run before
-the commit, so the same request answers 404 whatever the resource's shape. A request that
-deletes children and their parent in one transaction still succeeds in either order,
-because nothing is checked before the commit.
+the commit, so the same request answers 404 whatever the resource's shape. The count of
+the rows under a record reads what the database held before the save. Rows that go with a
+record are declared (@deleteCascade). Rows that are not declared are deleted in an earlier
+save.
 
 ## 11. Value limits from the schema
 
@@ -1601,10 +2394,11 @@ refused:
 Every offending field in a run is reported together.
 
 **The built-in table.** `string`, `bool`, and the numeric types by their names;
-`impulse.UUID` and `impulse.NullUUID` (`uuid`, a `string` in the interface); `decimal.Decimal` and
-`decimal.NullDecimal` (`number`); `time.Time` (`Date`); `civil.Date` (`civilDate`, a
+`impulse.UUID` and `impulse.NullUUID` (`uuid`, a `string` in the interface); `decimal.Decimal`,
+`decimal.NullDecimal`, and `spanner.NullNumeric` (the `number` display type, a `string` in
+the interface; see below); `time.Time` (`Date`); `civil.Date` (`civilDate`, a
 `Date` in the interface); the Spanner Null wrappers (`spanner.NullString` is `string`,
-`NullInt64`, `NullFloat32`, `NullFloat64`, and `NullNumeric` are `number`, `NullBool` is
+`NullInt64`, `NullFloat32`, and `NullFloat64` are `number`, `NullBool` is
 `boolean`, `NullTime` is `Date`, `NullDate` is `civilDate`); `securehash.Hash` (`string`,
 its text form); and `spanner.NullJSON` and `json.RawMessage` (`unknown`, a value with no
 fixed shape, display type `object`; the two share one wire form, any JSON value or
@@ -1616,6 +2410,21 @@ does. A `json.RawMessage` is pass-through: a nil one marshals as `null`, and byt
 not valid JSON fail `encoding/json` at response time, the application's own
 responsibility. Declare a type whenever a TypeScript type exists for the value (below);
 `json.RawMessage` is for the value the application does not model.
+
+**A decimal is a string in the interface.** `decimal.Decimal`, `decimal.NullDecimal`, and
+`spanner.NullNumeric` each write their JSON as a quoted string (`"fee":"15000"`), which
+keeps every digit a floating-point number would round. So a decimal is `string` in every
+generated interface, a row's, a write shape's (`MissionsCreate`, `MissionsPatch`), a
+method's request and result, a computed row's, and a struct nested in any of them, and a
+list of decimals is `string[]`. The metadata keeps the display type `number`, so a form
+draws the number control and a table prints the value as it arrives, and it marks the
+field `decimal: true` beside the display type: on a column, a computed row's field and a
+method's request field, and on a list of decimals. An integer and a float carry no mark.
+The library's number control reads it: for a marked field it writes what the person typed
+into the form as text, so the string that is sent has every digit typed, and a field with
+no mark is written as a number. A page that prints a decimal formats the string, and a
+page of the application's own that sends one sends the string: the quoted form is the one
+all three types read back.
 
 **`json.RawMessage` on a Spanner column is refused.** The Spanner client types a named
 byte slice as `BYTES`, so a read of a `JSON` column through it fails with a type mismatch
@@ -1732,13 +2541,13 @@ by construction and never checks the generator's output.
 | Display type | In the interface | Emitted for |
 | --- | --- | --- |
 | `string` | `string` | text columns and fields, named string types, `securehash.Hash` |
-| `number` | `number` | integers, floats, and decimals |
+| `number` | `number`; `string` for a decimal | integers and floats; `decimal.Decimal`, `decimal.NullDecimal`, and `spanner.NullNumeric`, a quoted string on the wire |
 | `boolean` | `boolean` | a `bool` column that is `NOT NULL`, and every `bool` field on the other paths |
 | `nullboolean` | `NullBoolean` | a nullable `BOOL` column (`*bool`, `spanner.NullBool`); the tri-state rule for one column |
 | `date` | `Date` | `time.Time`, `spanner.NullTime` |
 | `civildate` | `Date` | `civil.Date`, `spanner.NullDate` |
 | `uuid` | `string` | `impulse.UUID`, `impulse.NullUUID` |
-| `enumerated` | the key's type | a declared or inferred picker (`@enumerate`, a key into a resource or an enumeration table) |
+| `enumerated` | the key's type | a declared or inferred picker (`@enumerate`, a key into a resource or an enumeration table). A foreign key to a column that is not the other table's key (a case number) infers none and keeps its own type, since a picker writes the key of the row picked |
 | `object` | the derived or imported interface, or `unknown` | a struct, a `@typescript` type, `spanner.NullJSON`, `json.RawMessage` and a type declared over it |
 | `bytes` | `string` | a byte slice, base64 on the wire |
 | `string[]`, `number[]`, `boolean[]`, `date[]`, `civildate[]`, `uuid[]`, `object[]`, `bytes[]` | the element's interface type with `[]` | a slice, an array, or a named slice type of the leaf (an `ARRAY<...>` column); element pointers are read through, so `[]*int64` is `number[]` and a nullable `[]*bool` is `boolean[]` |
@@ -1885,8 +2694,11 @@ conditions and tenancy: an absent, cross-tenant, or hidden row is 404, as on the
 route, and a conditional grant on `content` (`client = subject.client`) is the row
 condition the statement renders. The columns that deliver the file — the key, and the
 `name:` and `type:` columns where declared — are read by the frame for itself, without
-field grants. A NULL key is 404 in the row's words, and so is a key the store does not
-hold; the key itself is never written into a refusal.
+field grants. A NULL key is 404 in one sentence a person can read ("This mission
+document has no content."), and so is a key the store does not hold ("The content of
+this mission document was not found."): the record by its name in words and the file by
+its segment, with no key of the row, and the store's key is never written into an
+answer. The row's own name and key stay in the server's log.
 
 **The response.** Every file is served as a document that can do nothing, because its
 type is the uploader's word. `Content-Type` comes from the type column, then the stored
@@ -2027,18 +2839,16 @@ keeps its objects, since the rows may hold them, and logs the keys for the clean
   is a row of its own, a table with `@file`, that the other rows reference by foreign
   key; the foreign-key refusal protects it while anything references it, and its own
   delete releases the object.
-- Rows the database deletes by cascade (`ON DELETE CASCADE`, an interleaved child) or
-  by a row deletion policy never pass through the patch machinery; their objects are the
-  orphaned-file cleanup's. An application that cares deletes the children by patch
-  first. The audit pass names the cascade tables.
+- Rows the database deletes by a row deletion policy never pass through the patch
+  machinery; their objects are the orphaned-file cleanup's. No table's rows go by a
+  cascade: rows are deleted in code only (`impulse check`, `no-delete-cascade`).
 - A crash between the commit and the delete leaves an object no row claims; the
   cleanup's.
 - A reader that located the row before the delete committed may find the object gone;
   the `@file` route answers 404 as for any absent object.
 
-**The audit pass.** The generator can tell you which `@file` tables the cascade
-limitation applies to. A finding of that kind is advisory, a shape the framework handles
-under a stated limitation, and raising it as a warning would print it on every
+**The audit pass.** A finding of the audit pass is advisory, a shape the framework
+handles under a stated limitation, and raising it as a warning would print it on every
 generation of every application that carries the shape, so the generator reports it
 through a separate pass instead: `Generator.Audit()` returns the findings of the last
 `Generate()` (a `[]Finding`, each a sealed kind beside `Warnings()`; nil before a run),
@@ -2046,22 +2856,12 @@ and a normal generation never prints them. An application's generate program pri
 on demand: `go run ./cmd/generate/resourcegenerator -audit` in Lodestar, which prints
 the warnings as `Warning: <text>` and then each finding as `Audit: <text>`, one per line
 (`impulse audit` runs the same for a skeleton application once it lands); `go generate
-./...` passes no flag and prints no finding. The first finding, `CascadeReleaseFinding`,
-names a resource that stores files on a table whose rows the database deletes by cascade,
-because the table is an interleaved child declared `ON DELETE CASCADE` (the finding
-names the parent) or a foreign key on it carries the `CASCADE` delete rule (the finding
-names the column), one finding per cause, in resource order: a cascade releases none of
-their objects and the orphaned-file cleanup removes them. The facts ride the table map the schema read
-records, `INFORMATION_SCHEMA.TABLES.ON_DELETE_ACTION` and
-`REFERENTIAL_CONSTRAINTS.DELETE_RULE`, so a cached schema audits like a fresh one.
-Further findings of this class arrive with their own register items. Example:
-[RefitTask.PhotoKey](../lodestar/pkg/resources/refit_tasks.go), interleaved in Refits on
-cascade.
+./...` passes no flag and prints no finding. No shape is reported today.
 
 **The orphaned-file cleanup.** An object no row holds is left behind only by a crash
-between the stream and the commit, a cascade, or a row deletion policy, and the
-framework ships the command that removes it: `filestore.Cleanup`, run as a command of
-the application's job process, one store per run. It lists the store's objects older
+between the stream and the commit or by a row deletion policy, and the framework ships
+the command that removes it: `filestore.Cleanup`, run as a command of the application's
+job process, one store per run. It lists the store's objects older
 than the window whose names are UUIDs, the keys the frame mints, keeps every key the
 store's `@file` columns hold, and deletes the rest. The keys come from the holders the
 generator writes into each resources package, `FileHolders()` in `zz_gen_file_holders.go`:
@@ -2099,8 +2899,9 @@ content: struct-scope `@file` on a keyed `@computed` struct, and the computed pa
 declares `<Name><Segment>(ctx, key…, qSet, client, computedClient) (*resource.Content,
 error)` beside `Read<Name>`, the QuerySet carrying the checked scope and identity as it
 does for `Read<Name>`. The function renders and returns; it never touches the response.
-A nil content is 404. Set `Tag` to something that changes when the document does and
-the browser revalidates for free.
+A nil content is 404, in the words a row that is not there gets ("This expense manifest
+does not exist."). Set `Tag` to something that changes when the document does and the
+browser revalidates for free.
 
 **The browser client.** The generated descriptor lists a resource's segments
 (`files: ['content']`), and its handle gains `fileUrl(key, segment = 'content')` beside
@@ -2150,6 +2951,17 @@ the window is the browser's own; before any change arrived the client mints a se
 login, so a second user on a shared machine never hits the first's cached answers. Every
 other response stays uncached; the session and digest routes never carry the header.
 
+**A write the resource client did not make.** Code that changes a row some other way
+(another library's store, a statement of its own) says so on the collector:
+`TouchedRows.Touch` names a row by its key, and `TouchedRows.TouchTable` says a table
+changed in rows the writer cannot name, which tells every subscriber of the table and of
+every view that reads it, in every tenant, with one resource document each. A
+transaction wrapped with `NewSpannerReadWriteTransaction` and committed outside the
+executor hands the rows its patches wrote to the collector its context carries when
+`Committed` is called. Inside a generated handler the request's publish carries all of
+it; outside one, `live.Announce` publishes a collector with no answer to name its
+documents on.
+
 **Whose change it is, and when a page fetches.** A page shows a person's own change at
 once and groups other people's, and what tells the two apart is the write's id. A
 committed request is one write: `live.Publish` mints its id (26 random characters) once,
@@ -2191,6 +3003,44 @@ seconds. A tab that is not shown fetches nothing; it remembers that something ch
 and fetches once when it is shown again. The two times are the client library's
 defaults, and an application sets its own where it creates its client. The server holds
 none of this: it publishes each write as it always did, once.
+
+**A page that shows names.** A live list or row that shows a name read from another
+resource (a name field, `@name` in section 1) is told when that name may have changed. With its
+own subscription, in the same write to the record, the request registers the list of each
+resource its names are read from: the names in play as its statement reads them (the
+columns it asks for, the names it sorts by or its declared order sorts by, the names its
+filter names, and every name it may be given where it named no columns), each whose own
+grant the person holds, outright or under a condition, and never an enumeration table's,
+whose words every page carries already. The list is the one in the request's tenant where
+the pointed-to resource belongs to a tenant, and the one of no tenant where it belongs to
+none. A write adds nothing for it: a write to the pointed-to resource tells that list's
+subscribers as it always did, and the page that shows its names is one of them, so the
+page refetches exactly when a page listing that resource in that tenant does, for any
+write to it, a rename or another field. A name read from the request's own list (a list of
+crew that shows each one's lead) adds nothing. The answer names what was registered in the
+response header `X-Names` (`live.Names`), as JSON, percent-encoded as `X-Changes` is: the
+request's own subscription as the record keeps it (`of`: a list by resource and domain, a
+row by resource and key, a list across tenants by resource, `acrossTenants` and the
+`domains` it was narrowed to), and the lists registered beside it, each with the
+pointed-to resource's name field as the grants name it (`nameField`, absent where the name
+is the resource's key); decoded, for a list of ships in the tenant `anvil` that shows each
+ship's squadron by name:
+
+```
+X-Names: {"of":{"resource":"Ships","domain":"anvil"},"names":[{"resource":"Squadrons","domain":"anvil","nameField":"name"}]}
+```
+
+The tab keeps those lists under the subscription and renews them with it, each carrying
+its `nameField`. The renewal re-checks such a list by `List` on that field in the
+subscription's tenant, the question the page's read asked, since a person may hold a
+name's grant and not the list's, and keeps or drops it by that alone; the record keeps it
+as the resource's list, as any other, and the answer echoes `nameField` as sent. A
+renewal's subscription that carries `nameField` with a key, or as a list across tenants,
+or whose `nameField` holds a dot, is refused with 400. An answer carries no `X-Names`
+when the request registered nothing
+beside its own subscription, and none when the record did not take them. Reading the lists
+is best effort: where it fails, the request's own subscription is registered alone and the
+failure is logged.
 
 **Derived resources.** A virtual or computed resource has no rows of its own, so a commit
 reaches it through the tables it reads, which the generator records next to the resource:
@@ -2235,15 +3085,30 @@ the same run from the same schema; and a name brings no import, so the tree's ow
 methods may read the view. The view's query is read, or `@changedBy` declared, exactly
 as for any other table. The Auth's handlers publish their commits with the application's
 derivations, which the application hands them where it constructs them, so a membership
-given or an account disabled through the management reaches the view's pages; a write to
-those tables that no generated handler commits (a sign-in, the session library's own
-routes) is published by nothing, as a write behind any table's back is not.
+given or an account disabled through the management reaches the view's pages. A sign-in
+is announced too, though no generated handler commits it. Once a sign-in's session
+stands, the Auth's identity client tells the open pages of the session it made and of
+the person's account, and that the Auth's identities and role memberships changed
+(`live.Announce`, through the service and the derivations the Auth's handlers hand it,
+`AnnounceThrough`). The roles an accepted invitation, a directory's default role or a
+sign-up gives, and a tenant an invitation makes, are announced when their transaction
+commits, and so is what a person's leaving a tenant from their own account page writes.
+So a list of accounts, a person's page and a tenant's people show a new account, a role
+given, a sign-in identity linked and a session started without a reload. Each
+announcement asks the subscription record once for every table and view it reaches,
+inside the sign-in's request, bounded by the two seconds of every publish; a failure is
+logged and the sign-in stands. The session library's other routes (a sign-out, a
+password or an address a person changes on their own page, a reset) still publish
+nothing, as a write behind any table's back does not.
 
-The views the generated management declares itself, a tenant's lists (section 21), are
-recorded where the assembly can reach them: in the Auth's handlers package
-(`crewhandlers.LiveDerivations`), since the declarations package is internal to the tree.
-That record is inside the tree, so it names every table by its type, the Auth's own and
-the application's, and the assembly merges it with the packages' values.
+The lists the generated management declares itself (section 21), a tenant's lists and
+the lists of how a person signs in, are recorded where the assembly can reach them: in
+the Auth's handlers package (`crewhandlers.LiveDerivations`), since the declarations
+package, where the views among them are declared, is internal to the tree. That record
+is inside the tree, so it names every table by its type, the Auth's own and the
+application's, and every list by its type in the package that declares it (a computed
+list, such as how a person signs in, is in `crewidentity`), and the assembly merges it
+with the packages' values.
 
 **The routes**, on every session-serving outlet under its API prefix, behind the outlet's
 session middleware like every other route:
@@ -2260,13 +3125,23 @@ written or renewed. The renewal re-checks each subscription against the user's g
 `Read` on the resource for a row, `List` for a list, in the subscription's domain (the
 global scope when none is sent) — writes the kept ones with a fresh expiry in one batch,
 and echoes, in the order sent, which were kept and which dropped; a resource the grants
-do not know is dropped, never refused. A row subscription of a domain-scoped resource
+do not know is dropped, never refused, while a subscription whose `resource` holds a dot
+is refused with 400: a resource's own name holds none. A row subscription of a
+domain-scoped resource
 sends the domain the row was read in, or its re-check runs in the global scope, where a
 domain-scoped resource holds no grant, and the subscription is dropped. Revocation
 therefore ends a subscription at the next renewal, and the refetch is refused meanwhile;
 the publisher never checks permission. A page sends `unsubscribe {tab}` best effort as it
 leaves; a logout sends `{tab, all: true}`, which deletes every subscription of the
-principal and revokes the browser's identity. The token route answers the session
+principal and revokes the browser's identity. An unsubscribe that has reached its
+handler is finished whatever becomes of the connection: its deletes run under the
+handler's own five seconds and not under the request's context, so a page that closes
+before the answer leaves no subscription behind, and its closing logs nothing. A record
+that refuses the delete, or does not answer within the five seconds, is logged as any
+failure is. An unsubscribe that never reaches the handler leaves the tab's subscriptions
+to their expiry: they are not renewed, the publisher's lookups pass them over five
+minutes after their last renewal at the latest, and the time-to-live policy deletes the
+documents (`live/firestore/README.md`). The token route answers the session
 principal's id (below), how to reach the change set, and the identity: in production a
 Firebase custom token the browser signs in with, against the emulator an empty token and
 the emulator host, which the browser connects to with the SDK's mock user token. A
@@ -2285,8 +3160,9 @@ sets, and a logout through one auth ends that person's subscriptions and identit
 The id is the Firebase user id (uid) the browser signs in as, and Firebase allows a uid
 of at most 128 bytes (`live.MaxPrincipalIDLength`). Nothing is truncated or hashed: a
 person whose id is longer uses the application as always while the live pages refuse
-them. The token, renew and unsubscribe routes answer 403 naming the length and the
-limit, and a subscribing list or read registers nothing, each with the reason logged.
+them. The token, renew and unsubscribe routes answer 403 ("Pages do not update on their
+own for your sign-in. Reload a page to see what has changed."), and a subscribing list or
+read registers nothing, each with the reason, the id's length and the limit logged.
 The refusal sits in the live routes because the sign-in belongs to the session library
 and the auth package, which the generated code does not configure. The session library
 sets no length on a user name (its username columns are `STRING(MAX)`), so nothing is
@@ -2332,9 +3208,25 @@ written after it was made, while one made after it hears only the signals after 
 with backoff by the subscriber, the one place that owns reconnection, and on the
 reopen every kind that advanced while it was down wakes once. A signal carries nothing
 but the fact of a change, so the signaler coalesces: while a write of a kind is in
-flight, later signals of the kind are absorbed into one following write. A signal's
-failure is returned for the caller to log and never fails the request, since every
-subscriber also rereads at its own backstop. The kinds are `resource.SignalKind`
+flight, later signals of the kind wait for one write that covers them all, which one
+of their callers makes when the write in flight ends, so a burst costs two writes where
+the channel answers well inside the limit below. A `Signal` returns once its signal is
+sent and leaves nothing to be sent behind it, so an instance that gets no CPU once its
+requests have answered (Cloud Run's default) owes no signal; a covering write that fails is the failure of every
+caller that waited for it. No caller's context ends another's signal: a caller whose
+context ends, or whose deadline passes, under the covering write it is making fails
+alone and another waiting caller makes the write, so no call makes more than one write
+or waits past its context.
+The live service gives every `Signal` its own limit of two seconds
+(`live.SignalTimeout`), for its wait and its write together and on top of the caller's
+context: a caller that brings no deadline, as the tenant write paths do, is not held by
+a channel that does not answer, and a caller whose own deadline is shorter keeps it. On
+a channel too slow for both writes of a burst to fit in two seconds, the callers that
+waited reach their limit in turn, each of them alone.
+A signal's failure is returned for the caller to log and never fails the request, since every
+subscriber also holds its copy to its own backstop, on the request's path and not only
+on a loop's (sections 15 and 16: the feature flags and the tenant roster; the permission
+engine's heartbeat interval in the access package). The kinds are `resource.SignalKind`
 (`KindFeatures`, `KindTenants`, `KindPolicy`), re-exported by the live package as
 `live.Kind`; the document needs no index, no time-to-live and no rules exposure, since
 no client reads it.
@@ -2352,10 +3244,11 @@ Lodestar's wiring is [pkg/config/data.go](../lodestar/pkg/config/data.go) and
 the routes `live/renew`, `live/unsubscribe` and `live/token` under the outlet's prefix,
 the renewal interval 120 s, the expiry 300 s, the cache header `Cache-Control: private,
 max-age=300`, the bulk threshold 100, the response header `X-Changes` and its JSON
-(`write`, `changes`, `all`), and the change document's shape (`kind` of `row`,
-`list` or `resource`; `resource`; `key` and `deleted` on a row; `domain` on a list; `at`,
-`expires` and `write`). The generated descriptor names the routes per outlet:
-`live: { renewRoute, unsubscribeRoute, tokenRoute }`.
+(`write`, `changes`, `all`), the response header `X-Names` and its JSON (`of`, `names`,
+each entry a subscription), a subscription's `nameField`, and the change document's
+shape (`kind` of `row`, `list` or `resource`; `resource`; `key` and `deleted` on a row;
+`domain` on a list; `at`, `expires` and `write`). The generated descriptor names the
+routes per outlet: `live: { renewRoute, unsubscribeRoute, tokenRoute }`.
 
 ## 15. Feature flags
 
@@ -2395,11 +3288,11 @@ A `FeatureSet` that is nil (the application wired none) leaves every gated targe
 
 **The table.** Every application has two tables, `FeatureFlags` (`Name` STRING(64) the
 key, `Description`, `Enabled`, `UpdatedAt` a commit timestamp, `UpdatedBy`) and
-`FeatureFlagChanges` (`Name`, `ChangedAt` a commit timestamp, `Enabled`, `ChangedBy`),
-the second a record of every flip written in the flip's own transaction; the rows outlive
-their flag, so there is no foreign key. `resource.FeatureFlagsDDL(dbType)` renders the
-statements for Spanner and for PostgreSQL, and an application copies them into a
-migration as Lodestar does in
+`FeatureFlagChanges` (`Name`, `ChangedAt` a commit timestamp, `Enabled`, and who made the
+change, in the columns a change record uses: section 24), the second a record of every
+flip written in the flip's own transaction; the rows outlive their flag, so there is no
+foreign key. `resource.FeatureFlagsDDL(dbType)` renders the statements for Spanner and
+for PostgreSQL, and an application copies them into a migration as Lodestar does in
 [000001_Baseline.up.sql](../lodestar/schema/migrations/000001_Baseline.up.sql),
 pinned to the function by a test. The generator never derives a resource from the table:
 `FeatureFlags` has a `Description` column but no `Id`, and an enumeration table is
@@ -2418,10 +3311,28 @@ bootstrap commands.
 **The copy every instance holds.** `resource.LoadFeatures(ctx, client)` reads the table
 into a `FeatureSet`, and `FeatureSet.Follow(ctx, liveService)` keeps it current until
 ctx ends: the flags ride the `features` kind of the live service's signals document
-(section 14), so on every signal of that kind, and at the five-minute backstop
-regardless, the table is reread; a failed reread is logged and the copy stays as it
-was. A flip therefore reaches every instance within a moment, and the backstop is the
-guard should a signal be missed. The subscriber is the application's live service,
+(section 14). The freshness is the request's own: a lookup (`Enabled`, `Flag`,
+`EnabledNames`) that finds the copy older than the backstop
+(`resource.WithFeatureBackstop`, five minutes by default), or behind a signal of that
+kind this instance received, rereads the table before it answers, under the context
+`Follow` was given and never the request's, and one reread serves every request waiting
+at that moment. A signal is recorded the moment it arrives, before any reread is tried,
+and a reread already in flight then does not clear it. `Follow`'s loop rereads on every
+signal and at the backstop interval too, ahead of the requests, so on an instance that
+is serving a lookup finds the copy fresh and reads nothing; nothing depends on the loop,
+so an instance that got no CPU between requests (Cloud Run's default) answers its next
+one from a read no older than the backstop. A failed reread is logged, the copy stays as
+it was, and the table is left alone for one second: lookups in that pause are answered
+from the copy without a read, so a database that is down is read, and its failure
+logged, once a pause and not once a lookup, and the first lookup after the pause tries
+again. `Reload`, which a flip's handler calls after its commit, records the flip before
+it reads, so a reload that fails (the request that flipped had ended) is made good by
+the next lookup, under the set's own context. A flip of this instance ends the pause
+too: the database has just taken a write, so the next lookup reads it, and a read that
+fails after the flip begins a pause of its own. A database that does not answer holds a
+lookup for less than twice the read's timeout (ten seconds): the read in flight when the
+lookup came, and at most one after it. A flip therefore reaches every instance that
+is serving within a moment, and the backstop bounds the rest. The subscriber is the application's live service,
 which every application wires; `Follow` refuses a nil one. The application exposes the
 copy as `FeatureSet() *resource.FeatureSet`, asserted on the application type beside
 `LiveService`, and the generated decoders, routes and digest read it. Lodestar reads it
@@ -2434,6 +3345,9 @@ through the configuration's database client when the App is built and follows it
 GET  <prefix>/features                       → 200 {"enabled":["debriefs", ...]}     anyone signed in, every outlet
 GET  <prefix>/feature-flags                  → the FeatureFlags list, sort=name       List on FeatureFlags (global)
 GET  <prefix>/feature-flags/{featureFlagName} → one flag                              Read on FeatureFlags (global)
+GET  <prefix>/feature-flags/{featureFlagName}/changes
+                                             → 200 {"changes":[{"changedAt","enabled","changedBy"}, ...],"more":false}
+                                                                                      List on FeatureFlags (global)
 POST <prefix>/set-feature                    {"name":"debriefs","enabled":true}      Execute on SetFeature (global)
                                              → 200 {"name","enabled","updatedAt"}; an undeclared flag is 404
 ```
@@ -2444,16 +3358,65 @@ again after a flip, and what the client's `features` state (`enabled(name)`,
 generator registers in every application's collection (List and Read over `description`,
 `enabled`, `updatedAt` and `updatedBy`, `name` the key, listed by name) and carries in
 the TypeScript constants, metadata and descriptor exactly as a generated resource, so
-the feature flags dialog reads it through an ordinary handle; the routes are the
-library's handlers (`resource.FeatureFlagsHandler`, `resource.FeatureFlagHandler`),
-delegated to from the generated `zz_gen_features.go` in the handler package, and a
-struct or a manual registration that would take the name `FeatureFlags` is refused.
+the Feature flags page is the library's list over it and reads it through an ordinary
+handle; the routes are the library's handlers (`resource.FeatureFlagsHandler`,
+`resource.FeatureFlagHandler`), delegated to from the generated `zz_gen_features.go` in
+the handler package, and a struct or a manual registration that would take the name
+`FeatureFlags` is refused. Three of its fields are served as a person reads them. The
+`description` is the constant's doc comment with the flag's name in words in the
+constant's place where the comment opens with it, as a Go comment does
+(`FeatureDeclaration.Words`: "CargoManifest shows a ship's cargo bays." is served as
+"Cargo manifest shows a ship's cargo bays."), which is how `MigrateFeatures` writes the
+table. `updatedAt` and `updatedBy` are when the flag was last flipped and by whom, read
+from the flag's newest change record and not from the row's columns of those names,
+since the deploy step that declares a flag writes the row too, under a process's name
+and at the time of the deploy: so the list says what the flag's history says.
+`updatedAt` is the moment of the last flip, and `null` for a flag nobody has flipped.
+`updatedBy` is who last flipped the flag, as one sentence (`EventSource.String()`,
+section 24): the name the person signs in under, "alice, acting as bob" for a session
+acting as someone else, "alice, through the RPC StartPilot" where an RPC method of
+the application flipped it for her, "the process bootstrap" where a process flipped
+it, and the empty string for a flag nobody has flipped. The sentence is for showing to
+a reader and for no decision.
+
+Each change of a flag is one row of `FeatureFlagChanges`, with who made it in the columns a
+change record uses (section 24): the account and the username of the person, who or what
+their session acted as, the session, the process, and the RPC method where one made the
+change. The routes serve it as one sentence, written when it is read.
+
+A list request that asks for a sort on `updatedAt` or `updatedBy` is refused with 400,
+in a sentence that says the two are worked out from the flag's history and what the list
+can be sorted on (`name`, `description`, `enabled`): the statement that orders the list
+reads the row's own columns, the last write of any kind, so the order would be by
+something the answer does not show. The Feature flags page offers no sort on them.
+
+**A flag's history.** `GET <prefix>/feature-flags/{featureFlagName}/changes`
+(`resource.FeatureFlagChangesHandler`) reads the flag's change records back newest
+first: when each flip was committed, what the flag was turned to, and who did it, by the
+same rule as `updatedBy`. It asks no grant of its own. The flag is read first as the
+list reads it, under List on `FeatureFlags` with whatever condition the grant carries, so
+whoever may see the flag in the list may see its history, a caller without the grant is
+refused with 403 and an undeclared flag is 404. Each flip carries what the caller may see
+of the flag: its facts ride the grants on the flag's fields that hold the same facts
+today (`changedAt` under `updatedAt`, `enabled` under `enabled`, `changedBy` under
+`updatedBy`), so a grant that leaves out who last flipped a flag leaves `changedBy` out
+of every flip, and a caller who may list none of the three (the description alone, say)
+is refused with 403, since the answer would tell them only how often the flag was
+flipped. The request's query is not read; nothing asked of the list (`columns`, a
+filter, a page) narrows the history. One read answers the newest
+`resource.FeatureFlagChangesLimit` flips (100) and says with `more` when older ones are
+left out; a flag nobody has flipped answers an empty list. The route reads the change
+table and never the `FeatureSet`, so it adds nothing to how the instances keep their
+copies.
 `SetFeature` is the library's method (`resource.SetFeatureHandler`), registered with
 Execute and carried as an RPC method entry: it writes the row and its change record in
 one transaction, honors `X-Dry-Run`, refuses `X-Warning` (it declares no warning),
-signals the other instances through the live service (`Signal(ctx,
-resource.KindFeatures)`, bounded by two seconds, a failure logged), reloads this
-instance's copy, and answers the flag as written. An `@rpc` struct named `SetFeature`
+reloads this instance's copy, then signals the other instances through the live
+service (`Signal(ctx, resource.KindFeatures)`, bounded by two seconds, a failure
+logged), and answers the flag as written. The reload comes first, so this instance
+answers from the flip while the signal is being sent; the signal does not run under the
+request's context, so a request that ends once the flip is committed still tells the
+other instances. An `@rpc` struct named `SetFeature`
 is refused.
 
 **The role.** A role that administers flags holds Execute on `SetFeature` and List and
@@ -2470,8 +3433,9 @@ Read on `FeatureFlags` with its four non-key fields, in the global scope:
 }
 ```
 
-The digest decides what the dialog may do: a user without Execute sees the flags and
-cannot flip them; a user without List is never shown the dialog.
+The digest decides what the Feature flags page may do: a user without Execute sees the
+flags and each flag's history and cannot flip one; a user without List is never shown the
+page.
 
 **Tests.** The generated authorization matrix carries the features route as an open
 case (200 without a grant), the FeatureFlags routes as query pairs, and SetFeature as
@@ -2543,9 +3507,10 @@ holds, built by the generated constructor in the handler package,
 `New<Record>Roster(client, opts...)` (`NewSectorRoster` for `Sector`), which carries the
 record's table and key column so the application names neither. `Start(ctx)` reads the
 set once, failing the start when the read fails, and then keeps it current until ctx
-ends. `Has(domain)` answers from the set behind an atomic pointer, so it never waits and
-performs no read: a domain the set does not hold is unknown, whatever the table says at
-that moment. `Domains(ctx)` lists the set sorted, in `DomainRoster`'s signature, so the
+ends. `Has(domain)` answers from the set behind an atomic pointer: while the copy is
+inside its backstop and no tenants signal has arrived since its last read, it waits on
+nothing and performs no read (Keeping up, below, says when it rereads first). A domain
+the set does not hold is unknown. `Domains(ctx)` lists the set sorted, in `DomainRoster`'s signature, so the
 roster's `Domains` is what the application hands `SessionPermissions`. `Add` and
 `Remove` change the set at once. The read is one statement selecting the key column,
 rendered for Spanner and for PostgreSQL and run outside any request transaction. The
@@ -2576,11 +3541,28 @@ the application's one signals document, after the commit and before the response
 feature flip signals the features kind; a failure to reload or to signal is logged and
 never fails the request. Every instance's roster reloads on the signal: `Start`
 subscribes to the application's one watch when `resource.WithTenantSignals(liveService)`
-is passed, and never opens a listener of its own. Behind the push, a backstop reread
-(`resource.WithTenantBackstop`, five minutes by default) is the correctness guard, so an
-instance that missed a signal is at most that far behind; a failed reread is logged and
-the set stays as it was until the next. A role held in every tenant domain reaches a new
-tenant with nothing written for it; the one membership written when a tenant is made is
+is passed, and never opens a listener of its own. The freshness is the request's own: a
+lookup (`Has`, `Domains`, `Declarations`, `Name`, `Named`) that finds the copy older
+than the backstop (`resource.WithTenantBackstop`, five minutes by default), or behind a
+tenants signal this instance received, rereads the table before it answers, under the
+context `Start` was given and never the request's, and one reread serves every request
+waiting at that moment. A signal is recorded the moment it arrives, before any reread is
+tried, and a reread already in flight then does not clear it. `Start`'s loop rereads on
+every signal and at the backstop interval too, ahead of the requests, so on an instance
+that is serving a lookup finds the copy fresh; nothing depends on the loop, so an
+instance that got no CPU between requests (Cloud Run's default) answers its next one
+from a read no older than the backstop, and an instance that missed a signal is at most
+that far behind. A failed reread is logged, the set stays as it was, and the table is
+left alone for one second: lookups in that pause are answered from the set without a
+read, so a database that is down is read, and its failure logged, once a pause and not
+once a lookup, and the first lookup after the pause tries again. `Reload` records the
+change before it reads, so a reload that fails (the request that wrote had ended) is
+made good by the next lookup, under the roster's own context. A write of this instance
+ends the pause too: the database has just taken a write, so the next lookup reads it,
+and a read that fails after the write begins a pause of its own. A database that does
+not answer holds a lookup for less than twice the read's timeout (ten seconds): the read
+in flight when the lookup came, and at most one after it. A role held in every tenant
+domain reaches a new tenant with nothing written for it; the one membership written when a tenant is made is
 its first administrator's. `Add` stays for a test harness that seeds a roster without a
 table; the generated paths never call it.
 
@@ -2597,8 +3579,9 @@ connection the method's identities record (a Google Workspace by its domain or b
 name the registration gives it, a Microsoft Entra tenant by its tenant id); the
 directories record binds to the tenant with the bare `@domain` on the row, never through
 a join path, and a second directories record is refused naming the first. Both halves
-are the tenant's own to change: its directory under the tenant's grants on the
-directories record, and the flag by the method the generator writes in the tenant's
+are the tenant's own to change: its directory by the method the generator writes in the
+tenant's scope to take it (`Take<Record>Directory`, below) and the tenant's grant to delete
+the directories record, and the flag by the method the generator writes in the tenant's
 scope ("Directory only", below), never by the tenant record's global write paths; with
 `TrackChanges` on the two records, every edit leaves a change event, and no second audit
 is needed. The generator then emits, in
@@ -2610,7 +3593,10 @@ whose `New` sets the library's sign-in rule over it
 whose people may sign up and create a tenant of their own adds
 `signin.AdmitWithoutTenant()`), and `resource.SignInRoles`
 reads the person's memberships outside the transaction, since the Spanner client refuses
-the engine's read under the transaction's context as a nested transaction. The roster
+the engine's read under the transaction's context as a nested transaction.
+`resource.OutsideSignIn(db, reader)` reads the same declaration outside a sign-in, each
+read in a transaction of its own, for the check that says whose password the tenants'
+sign-in settings disable (`signin.PasswordsDisabledByTenants`). The roster
 keeps the request-time copy: `New<Record>Roster` is built with
 `resource.WithTenantDeclarations` naming the columns, `Reload` reads the keys and the
 declarations in one read, and `Declarations(ctx, domain)` answers from the copy, nil for
@@ -2619,13 +3605,30 @@ argument (section 6): a tenant is offered to a session only when its declaration
 the way the session was established, or the session's actor is a super administrator.
 A declaration restricts its own tenant and nobody else's: a tenant that is not directory
 only admits everyone it seats, however they signed in, and its directory closes it to
-nobody; it is what seats a stranger at their first sign-in through it (the default
-seat, below) and what the tenant can be made only of. An invitation that makes a tenant,
-accepted through an organization's directory, and the record's create-your-tenant route
-("How a tenant comes to exist", below) each set the directory the person came through on
-the new tenant in the row's transaction, beside the person's administrator membership;
-the route reloads the roster before it waits on that membership, so the wait's probe asks
-what the next request asks.
+nobody; it is what seats a person who signs in through it and holds nothing in the
+tenant, at every sign-in (the default seat, below), and what the tenant can be made only
+of. An invitation that makes a tenant, accepted through an organization's directory,
+sets the directory the person came through on the new tenant in the row's transaction,
+beside the person's administrator membership, and so does the record's create-your-tenant
+route ("How a tenant comes to exist", below) in an application that holds a person to
+one tenant; a tenant made by sign-up anywhere else takes no directory, and its
+administrator takes the organization's directory afterwards. The route reloads the
+roster before it waits on that membership, so the wait's probe asks what the next
+request asks.
+
+**No directories.** An application whose resource package declares no `@tenantDirectory`
+record has tenants with no directories: no tenant takes one, none is opened to one and
+none is made directory only, so a tenant's people come by invitation alone. Where that
+package makes the tenant record's rows itself (the record's patch handler is not
+suppressed), the generator still emits `New<Record>DeclarationReader()`, over the one
+column such a tenant declares, whether it is disabled
+(`resource.NewTenantDeclarationReader(table, key, &<record>Declaration)`, which reads the
+tenant's row in the sign-in's transaction). Each auth's `New` therefore sets
+`signin.TenantPolicy` over the generated reader in both kinds of application, and here
+every tenant that is not disabled admits everyone it seats, however they signed in. The
+roster keeps the same column beside each key, and `Declarations` answers it. A package that declares the tenant record
+another site serves, with its handlers suppressed, is given no reader: the site that
+makes the record's rows is where the directories record is declared or left out.
 
 **One directory, set from a sign-in.** A tenant has one directory, and a directory, its
 method and its connection together, belongs to one tenant. The schema holds both with
@@ -2686,7 +3689,8 @@ reason. Which registrations name a directory is the session library's to say (it
 README, "DirectoryName"): a Microsoft Entra tenant has a name only where the
 registration lists it with `azure.NamedTenant`.
 
-The caller's grants answer before a rule does: the generated create and delete ask
+The caller's grants answer before a rule does: the method that takes a directory asks
+its Execute grant before anything is read, and the generated create and delete ask
 `PatchSet.Permitted` first, the check `Buffer` opens with (the permission on the record
 and on each field the request names), so a caller who holds no grant for the write is
 refused with the Forbidden (403) any record answers, and learns nothing a rule's
@@ -2694,13 +3698,24 @@ sentence says.
 
 Nobody types a directory in. The record's method and connection are output-only, so a
 request that names either is refused as naming fields the record does not take, and
-the generated create (the record's `add`, under its Create grant in the tenant) sets
-both from the session: `TenantDirectoryRules.FromSession` answers the directory the
-caller is signed in through, held to the rules, and refuses a session that came through
+the tenant's generated method `Take<Record>Directory` (POST
+`<prefix>/<tenants>/{tenant}/take-<record>-directory` with an empty body, under its
+Execute grant in the tenant) sets both from the session: `TenantDirectoryRules.FromSession`
+answers the directory the caller is signed in through, held to the rules, and refuses a
+session that came through
 none ("You are signed in with a password. A directory is set by signing in through it:
 sign in with your organization's account (Google Workspace or Microsoft Entra), then
 make it the directory."). The person who sets a directory is therefore always a member
-of the organization; no other proof that a tenant controls it is asked for. The session
+of the organization; no other proof that a tenant controls it is asked for. Taking a
+directory is attested instead: the method declares a warning, the statement a person
+reads before it runs (`TenantDirectoryRules.TakeDirectoryWarning`), which opens with "You
+are stating that you are authorized to act on behalf of Acme." and then says what taking
+the directory does, in the organization's own name as the directory gives it, and the
+dialog holds its button until the person types "I am authorized"
+(`resource.TakeDirectoryPhrase`); asked for its warning, the method answers every refusal
+above in the same words. The record's own create is refused (400): "A tenant's directory
+is not created directly. Take it with TakeTenantDirectory, which says what taking it does
+before anything is written." The session
 read (`GET .../user/session`) carries `directory`, the method and the connection of the
 organization's directory the session came through, absent for a password, a personal
 account and an impersonation, which is what a tenant's Sign-in page offers its
@@ -2708,10 +3723,12 @@ administrator to make the tenant's ("Make acme.example this tenant's directory")
 what tells it to offer nothing. A write that sets a directory in code, from a sign-in,
 takes one step: the generated `Set<Record>Directory(ctx, txn, tenant, directory)`, which
 asks the rules and buffers the row through the record's create patch, so its change
-event is written with it. The create-your-tenant route calls it with the directory its
-creator came through, so a creation from an organization that already has a tenant is
-refused with the sentence above and nothing is written, and the maker of an invited
-tenant holds the directory the accepting person came through to the same rules; a
+event is written with it. In an application that holds a person to one tenant the
+create-your-tenant route calls it with the directory its creator came through, so a
+creation from an organization that already has a tenant is refused with the sentence
+above and nothing is written, and the route's GET answers the same statement, said of the
+tenant being created, for the person to read and type under before they create; the maker of an invited tenant holds the directory the
+accepting person came through to the same rules; a
 caller inside a sign-in hands
 it the identity's method and connection over the sign-in's transaction
 (`resource.NewSpannerReadWriteTransaction`). The rules read what is committed, on
@@ -2728,7 +3745,11 @@ serves the record: `Make<Record>DirectoryOnly`, at
 `End<Record>DirectoryOnly`, at
 `POST /<prefix>/<tenants>/{tenant}/end-<record>-directory-only`, turns it off. Neither
 takes anything in its body (`{}`: the route names the tenant), and `X-Dry-Run: true`
-runs the frame and rolls back, as on every method. The tenant's administrator runs
+runs the frame and rolls back, as on every method. Both say who may sign in to the
+tenant at all, so their actions carry the class `access` (`accesstypes.ClassAccess`)
+in the generated collection, as the two methods that say how a tenant admits its
+directory's people do (`Open<Record>ToDirectory` and `Make<Record>InviteOnly`, below),
+and a session whose mask refuses the class runs neither. The tenant's administrator runs
 them: a role file grants Execute on each to the domain role that manages the tenant's
 sign-in settings, and the record's own write paths, which are global, show the flag and
 never write it (the field is output only on the wire, so a create or an update that
@@ -2751,7 +3772,7 @@ tenant:
   acme.example and try again.";
 - a caller whose own account has no password, where their auth has the password method:
   "Directory only is turned on by a person who has a password: an administrator of this
-  tenant enters it with a password and a code sent to their email, and that is your way
+  tenant enters it with a password and a code sent to their email, and that is the way
   back in if the directory has a problem. Choose a password on Your account first, then
   try again." A person who has only ever signed in through the directory has none, and
   chooses one on their account page (the session library's "A person's first
@@ -2807,6 +3828,7 @@ to enter this tenant."):
 {
   "consequence": "Only people who sign in through acme.example will be able to enter this tenant. An administrator of this tenant who has a password can still sign in with it and a code sent to their email. 2 people seated here sign in another way and will lose access.",
   "names": ["Gale Ferris (gale)", "hollis"],
+  "also": [{"says": "2 administrators of this tenant have a password and can still enter without the directory. Take the role away first from anyone who should not keep that way in.", "names": ["Ines Okoro (ines)", "wren"]}, {"says": "1 invitation that has not been accepted gives a role that administers this tenant. Whoever accepts it can choose a password and enter without the directory. Withdraw it first if it should not stand.", "names": ["kit@example.com"]}],
   "confirm": "Admit only people who sign in through acme.example"
 }
 ```
@@ -2817,8 +3839,8 @@ seats (each auth's generated identity client answers its own, `DirectoryOutsider
 super administrator is not among them, and neither is an administrator of the tenant
 who has a password, who does not lose access: the second sentence says how they still
 get in, and is there where an auth whose people the tenant seats has the password
-method (`DirectoryPeople.AdministratorsEnter`). It is a general sentence and counts
-nobody: who the administrators are is the People list's to say. `names` lists them, each by their name and
+method (`DirectoryPeople.AdministratorsEnter`). It is a general sentence; who those
+administrators are is said in `also`. `names` lists the people who lose access, each by their name and
 sign-in name, only to someone who may list them: the people of an auth are named where
 the caller holds List, in the tenant, on the tenant's list of that auth's people
 (section 21) and, on no condition, on its `username` and `name` fields, and counted
@@ -2829,6 +3851,18 @@ list nobody the warning carries no names and a page says how many without saying
 An application whose people no generated management lists counts nobody, and the
 sentence then gives no number ("Anyone seated here who signs in another way will lose
 access."): a count nobody made is never read as nobody.
+
+Where the tenant's administrators keep that way in, `also` says who has it, so the person
+closing the tenant sees them first. Its first note counts the tenant's own administrators
+who have a password (each auth's `DirectoryAdministrators`, the people list's
+`AdministratorWithPassword`), and its second the invitations into the tenant that have not
+been accepted and give one of its administrator roles (`DirectoryInvitations`). An
+administrator is named to a caller who may list the tenant's people, as above, and an
+invitation's address to a caller who holds List, in the tenant, on the tenant's list of
+invitations and, on no condition, on its `email` and `name` fields; anyone else reads the
+count. A note with nobody to count is left out, and so are both where no auth has the
+password method.
+
 The warning is refused as the call is refused, with the same sentences, so a page that
 asks for it first shows the refusal and opens no dialog. For a
 tenant that is directory only already there is nothing to turn on, and the warning is a
@@ -2838,22 +3872,85 @@ nothing to turn on."); who the flag keeps out now is the people list's to say, b
 `End<Record>DirectoryOnly` declares no warning, and a request for one is refused (400)
 and does not run.
 
-The switch as it stands is read in the tenant too:
-`GET /<prefix>/<tenants>/{tenant}/directory-only` answers `{"directoryOnly": false}`
-under the Execute grant of either method in the tenant, held without a condition (a read
-has no request for a condition to judge, so it is Forbidden under a grant that holds on
-one), and writes nothing (`resource.DirectoryOnlyStateHandler`). The tenant's
-administrator does not read the global record, and this is what a Sign-in page shows
-them. The browser client's `directoryOnlyState(api, tenant)` is the typed read, and the
+A tenant's sign-in settings as they stand are read in the tenant too:
+`GET /<prefix>/<tenants>/{tenant}/sign-in-settings` answers them under the Execute grant
+of any of the tenant's own sign-in methods the application serves (the two that turn
+directory only, the two that set the default role, the two that say the directory's
+second factor), held without a condition (a read has no request for a condition to
+judge, so it is Forbidden under a grant that holds on one), and writes nothing
+(`resource.TenantSignInSettingsHandler`). The route is on every session outlet that
+serves at least one of those methods, and one handler answers on all of them, so a
+person who holds a method that only another outlet serves is answered too. The tenant's
+administrator does not read the global record, and this is what a Sign-in settings page
+shows them. It is served for every tenant record that declares a directories record; a
+record with no switch answers `directoryOnly` false and counts nobody.
+
+While the switch is off and the tenant has a directory, the read also says what turning
+it on takes of the caller (`conditions`, `resource.TenantSignInCondition`), in the
+order the call checks: the sign-in through the tenant's directory, then the password
+where the caller's auth has the password method. Each is the `sentence` the refusal
+above opens with, whether the caller meets it (`met`), and, where they do not, what they
+do (`toDo`): the rest of that refusal. The call refuses with `sentence`, a space and
+`toDo` of the first one not met, built from the same parts, so the words are held in one
+place: a page shows the read's sentences before the person presses, and holds no copy of
+its own. The generated read is given the rules the two methods are given, each auth's
+`CallerPassword` with them (`PasswordsBy`), and stamps the caller it checked before it
+asks them; rules that ask no auth say the first condition alone, though the call still
+refuses for the second.
+
+```json
+{
+  "directoryOnly": false,
+  "conditions": [
+    {
+      "sentence": "Directory only is turned on by a person who is signed in through this tenant's directory, Google Workspace acme.example: that shows the directory works, and that you will not shut yourself out.",
+      "met": true
+    },
+    {
+      "sentence": "Directory only is turned on by a person who has a password: an administrator of this tenant enters it with a password and a code sent to their email, and that is the way back in if the directory has a problem.",
+      "met": false,
+      "toDo": "Choose a password on Your account first, then try again."
+    }
+  ]
+}
+```
+
+A tenant with no directory is refused before anything is asked of the person, and a
+tenant that is directory only already has nothing to turn on, so the read names no
+condition for either. The browser client's `tenantSignInSettings(api, tenant)` is the typed read, and the
 methods are handles of the tenant's client
 (`api.domain(tenant).make<Record>DirectoryOnly`, `.end<Record>DirectoryOnly`); the
-skeletons' Sign-in page runs each through the library's method dialog
+library's Sign-in settings page runs each through its method dialog
 (`openMethodDialog`), which draws the warning with its list of people and the typed
-word, and turning the flag off is a plain confirmation.
+word, and turning the flag off is a plain confirmation. The page offers the method that
+turns it on only where the tenant has a directory and the person meets every condition
+of the read, and shows in its place each condition they do not meet.
 
-The tenant's own list of its people (section 21) is made from who holds a role in the
-tenant, never from who can sign in, so a person the flag keeps out stays in it with
-their roles. Where the record declares the flag the list carries one more field,
+The read also says what a page of the tenant's sign-in settings shows
+(`TenantSignInSettings`): `Directory`, the tenant's directory as people know it;
+`DefaultRole`, the role a person gets when they sign in through it and hold nothing in the tenant, in words;
+`Passwords`, whether the caller's auth has a password method; `SignedIn`, a sentence
+that says how the caller signed in; `SessionDirectory`, the organization's directory the
+caller is signed in through; `People`, how many people the tenant's list holds
+(`Seated`: who holds a role in the tenant, and who signs in through its directory) and
+how many of them the switch keeps out (`Outside`), counted as the warning counts them,
+with each auth's share of both (`Shares`: what a page calls the auth's people, the
+tenant's list of them, and its two numbers), so a page that links the count to one
+auth's people never says more people than the link opens; and `SecondFactor`, where the
+directories record carries `@directorySecondFactor` and the tenant has a directory:
+whether the tenant vouches for its directory's second factor (`Vouched`), whether the
+caller's auth asks everyone for one now (`Asked`), the one sentence a page shows for the
+two (`Says`), and what vouching takes of the caller (`Conditions`). The generated rules
+are told who counts (`CountedBy`), one entry for each auth whose people a tenant seats
+(`resource.DirectoryPeople`): the readers of how many people its list of the tenant
+holds (`SeatedCount`), whom the switch keeps out (`DirectoryOutsiders`) and who keeps
+the administrators' way in, and the lists that decide whether a caller is told names.
+The read and the warning that turns the switch on read the same entries.
+
+The tenant's own list of its people (section 21) holds everyone who holds a role in the
+tenant, whether or not they can sign in, so a person the flag keeps out stays in it with
+their roles; it holds everyone who signs in through the tenant's directory too, whatever
+they hold. Where the record declares the flag the list carries one more field,
 `cannotEnter`: while the tenant is directory only, the row of a person who has no
 sign-in through the tenant's directory says so ("Has not signed in through this
 tenant's directory, so cannot enter while this tenant is directory only"), and it is
@@ -2871,8 +3968,41 @@ said to a person. The library's People page shows it as a column
 ("Cannot enter") to a role that is granted the field, so the tenant's administrator sees
 who the flag keeps out for as long as it is on.
 
-**The default seat.** What a person gets at their first sign-in through a tenant's
-directory is the directory row's to say, before the method's account rule is reached.
+**A tenant's word for its directory's second factor.** The directories record may carry
+a second column of the tenant's own, `@directorySecondFactor` (section 1), a BOOL. Where
+the application asks everyone for a second factor at sign-in, a tenant whose directory
+already asks its people for one can say so, and the application then stops asking the
+people who sign in through that directory for its mailed code. The sign-in reads the
+column in its own transaction, for the directory the person signed in through, so it
+holds in every tenant that gave the person a role and a word taken back holds from the
+next sign-in. It is the tenant's word and nothing checks it: a super administrator, and
+a sign-in an application's own rule holds, are asked as before. An auth whose directory
+writes its roles is not reached by it: such an auth sets no directory admission, no
+tenant's word is read at a sign-in through a method that synchronizes roles, and its
+people are asked as its own setting says. The generator writes two
+methods in the tenant's scope for a record that carries the column, served on every
+session outlet that serves the directories record:
+`VouchFor<Record>DirectorySecondFactor`, at
+`POST /<prefix>/<tenants>/{tenant}/vouch-for-<record>-directory-second-factor` with
+`{}`, and `StopVouchingFor<Record>DirectorySecondFactor`, at
+`POST /<prefix>/<tenants>/{tenant}/stop-vouching-for-<record>-directory-second-factor`
+with `{}`. A role file grants Execute on each to the role that manages the tenant's
+sign-in settings. Vouching declares a warning (section 7), which a person confirms by
+typing `vouch` (`resource.VouchForDirectoryWord`): "You are saying that acme.example
+asks its people for a second factor when they sign in. This application will stop
+asking them for a code.", under the button "Stop asking people who sign in through
+acme.example for a code". It is refused (409) for a tenant with no directory, for a
+caller who is not signed in through that directory, and while the application asks
+nobody for a second factor; the warning is refused in the same words, and for a tenant
+that says so already. Taking the word back is plain, asks nothing of how the caller
+signed in, and holds from the next sign-in. Each writes the column through the
+directories record's update patch, so the record's change events say who said it and
+when, and each carries the class `access`. A record with no such column has no such
+word and no such methods.
+
+**The default seat.** What a person gets when they sign in through a tenant's directory
+and hold nothing in the tenant is the directory row's to say, at every sign-in, before
+the method's account rule is reached.
 The directories record may carry one more column, `@directoryDefaultSeat` (section 1), a
 nullable string naming a role of the tenant. A person no user exists for who signs in
 through a tenant's directory is created and seated with that role in the tenant, and
@@ -2880,18 +4010,23 @@ signed in; where the row names none (NULL, the default, and every row of a recor
 without the column), they are refused with the `invitation_only` refusal and no account
 is created, unless they followed an invitation link, which is the way past. A person
 whose account stood before, made by another tenant's invitation or before the tenant
-set its directory or named a role, is given the role too: the sign-in that links their
-account to the directory is their first through it, whether the directory's identity
-is linked at once or after their password confirmed it, and the link gives the default
-role where they hold no role in the tenant. Who is the directory's person is decided by
-how they signed in, the link between the account and the directory, never by their
-address. The role is given once for a link: a second sign-in finds the link and gives
-nothing, so a person whose role an administrator removes is not seated again by signing
-in, and an administrator who wants one person out removes the role and leaves the link,
-or disables the account. A link that is deleted and made again is a first sign-in
-again, and gives the default role where the person holds no role in the tenant. A
-person whose link was made before the tenant named a default role is given a role by
-hand. A directory no tenant has falls to what was chosen for the method (invite only,
+set its directory or named a role, or tied to the directory before the tenant took it,
+is given the role too, at their next sign-in through the directory, whether the
+directory's identity is linked then or was linked before, and whatever they hold in
+other tenants. Holding nothing in the tenant is holding no role of one's own there and
+no place in a group kept there, whose period has not ended. Who is the directory's
+person is decided by how they signed in, through the directory, never by their address.
+A person an administrator removes from the tenant is given the starting role again the
+next time they sign in through the directory. Disabling their account keeps one person
+out while the tenant is open: a disabled account is refused at every sign-in and given
+nothing. Making the tenant invite only keeps everyone out who is not invited. Where the
+application holds a person to one tenant
+(`identity.WithOneTenantPerPerson`), a person who signs in through the directory of an
+open tenant and belongs to another tenant is moved: they are given the starting role in
+the directory's tenant, and every role and every place in a group they held in the other
+tenant is taken away in the same transaction; their account is untouched, and the
+application's own people, who hold a role for the whole application or in every tenant,
+are seated and keep everything. A directory no tenant has falls to what was chosen for the method (invite only,
 or open to sign-up: section 21, "Who may sign up"), and so does a personal account,
 which is no tenant's directory. The generator emits
 `New<Record>DirectoryReader()`, a `signin.DirectoryReader[*spanner.ReadWriteTransaction]`
@@ -2903,8 +4038,8 @@ An auth whose directory names the roles (a registration that syncs them) sets no
 admission: its directory is the authority on who holds what, and a default seat would
 be overwritten at the next sign-in.
 The role is written the way an accepted invitation's roles are, by the Auth's generated
-identity client in the transaction that links the account to the directory (section 21,
-"At a sign-in"), so the link and its role are committed together or not at all, and the
+identity client in the sign-in's transaction (section 21, "At a sign-in"), so the sign-in
+and its role are committed together or not at all, and the
 sign-in
 policy, which decides after the commit, finds the membership.
 
@@ -2922,13 +4057,14 @@ people nobody named, so `Open<Record>ToDirectory` declares a warning (section 7)
 a person confirms by typing `open` (`resource.OpenToDirectoryWord`). Its words are the
 server's, for the role as picked so far (`TenantDirectoryRules.OpenToDirectoryWarning`):
 "Anyone who signs in through acme.example will be able to enter this tenant without an
-invitation and gets the role Member.", under the button "Open to people who sign in
-through acme.example"; before a role is picked the sentence ends "Choose the role each
-of them gets." The directory is named as the directory-only warning names it, never by
-a connection that is an id. The role is held to what giving it by hand needs
+invitation and gets the role Night shift lead.", the role in words (`NightShiftLead` is
+what is stored), under the button "Open to people who sign in through acme.example";
+before a role is picked the sentence ends "Choose the role each of them gets." The
+directory is named as the directory-only warning names it, never by a connection that
+is an id. The role is held to what giving it by hand needs
 (`identity.Manager.DirectoryRole`, through the generated identity client): it is a role
-of the tenant ("... is not a role of this tenant: choose one of the roles the picker
-lists", 400), and the caller could give it there directly, by the grant of the method
+of the tenant ("... is not a role of this tenant. Choose one of the roles the picker
+lists.", 400), and the caller could give it there directly, by the grant of the method
 that gives a role in a tenant, conditions included (403, saying which role and what to
 do; the grant answers before the role is looked for, so the refusal is the same for a
 role the tenant holds and one it does not, and tells nobody of a role the grant keeps
@@ -2937,7 +4073,10 @@ for no person: a grant whose condition reads the person a role is given to admit
 default role. A tenant with no directory is refused (409): there is nobody to open it
 to. `Make<Record>InviteOnly` is plain and declares no warning. Each method writes the
 column through the directories record's update patch, so the record's change events
-are the audit of who opened the door and when. The role is picked from a list of its own,
+are the audit of who opened the door and when. Both give or take away what people may
+do, so their actions carry the class `access` (`accesstypes.ClassAccess`) in the
+generated collection, as the generated management's role and group methods do (section
+21), and a session whose mask refuses the class runs neither. The role is picked from a list of its own,
 `<Auth><Record>DirectoryRoles` (Lodestar's `CrewSectorDirectoryRoles`), a computed
 resource the generated management declares for the auth that judges the role: the roles
 of the tenant that the caller could give there directly
@@ -2984,14 +4123,37 @@ has no `create`), and there are two ways a tenant is made, neither a declaration
   writes the create-your-tenant route (`POST <prefix>/create-<record>`, no grant
   needed), which a signed-in person holding no tenant calls with the new tenant's
   fields. Whether anyone may is no declaration: the route reads, in the transaction that
-  writes the row, whether an administrator has a sign-in method of the auth open to
-  sign-up (section 21, "Who may sign up"), and refuses while every method is invite
-  only. The same route answers `GET` with whether the caller may create one now
-  (`{"offered": true}`, the generated client's `Create<Record>Offered`), by the two
-  facts the creation refuses on: the caller holds no tenant, and a method is open. A
-  page reads it before it offers the creation, so nobody is shown a dialog the server
-  would refuse; the skeletons' home page shows its create-your-tenant card only while
-  the answer is yes.
+  writes the row, whether the sign-in method the session came through is open to sign-up
+  (section 21, "Who may sign up"), and refuses a session that came through a method that
+  is invite only, or that records no sign-in; that another method is open does not count.
+  The same route answers `GET` with whether the caller may create one now
+  (`{"offered": true}`, the generated client's `Create<Record>Offered`), by the four
+  facts the creation refuses on: the session's mask does not refuse the creation, the
+  caller is not the real person behind a session that acts as a role (both under "The
+  first administrator", below), the caller holds no tenant, and the session's sign-in
+  method is open. Whether
+  the caller holds a tenant is read from every tenant they hold a grant in
+  (`HeldDomains`, a method of `resource.UserPermissions`), and not from the tenants the
+  session lists: a tenant that a session's mask leaves nothing of, or that is closed to
+  the way the session signed in, is still the person's, so neither opens the way to a
+  second one. Every permissions value answers it, since the method is part of the
+  interface: a type of the application's that embeds the composed value passes the call
+  through, and one that implements the interface itself does not compile until it
+  answers, from the person's grants before any mask and never from `Domains`. In a
+  session that runs with a role's grants the person is the real person behind it, and
+  the list is theirs and not the role's. A page reads the answer before it offers the
+  creation, so nobody is shown a dialog the server would refuse; the skeletons' home
+  page shows its create-your-tenant card only while the answer is yes.
+  The `POST` asks the rule twice. The permissions answer before a body is read, as the
+  `GET` does. The auth's tables answer again in the transaction that writes the tenant's
+  row and its administrator's membership (`<Auth>Identity().HoldsTenant`,
+  `identity.Manager.HoldsTenant`): a role the person holds in one tenant, of their own
+  or through a group kept in one, whose period has not ended. So of two creations one
+  person sends at once, one is written and the other is refused with the words a second
+  creation is always refused in, and a creation an instance has not heard of yet still
+  counts. The second read is of the rows and not of what they grant: a role in a tenant
+  whose period has not begun, or one that grants nothing, refuses a creation there that
+  the first read would have let through.
 
 `@tenant(creation: ...)`, which declared the choice in code, is refused at generation
 with these words. A record served by session outlets bound to different auths is refused
@@ -3016,6 +4178,40 @@ exist fails the creation. After the route's commit, and once this instance's ros
 lists the tenant, the answer waits until the permission engine answers the membership,
 so the person's next request stands in the tenant; an engine that does not answer
 within ten seconds is logged and the request answered, since the rows are committed.
+In a session that acts as a role, the caller is the real person behind it, who would
+become the tenant's administrator: nobody is the subject of what they do while they act
+as someone else (section 21), so the route refuses them before it reads the body, with
+nothing written ("You are acting as someone else, so you cannot create a sector of your
+own."), and its `GET` answers that none is offered. In a session that acts as a person,
+the person acted as would become the tenant's administrator, and the mask decides. No
+grant admits the route, so no permission is checked there for a mask to deny; the route
+carries an action's name instead, `Create<Record>` (Lodestar's `CreateSector`), which
+the generated collection registers in the global scope with the class `access`
+(`accesstypes.ClassAccess`), and asks the session's mask about it before anything else
+(`resource.RefuseActionUnderMask`). A session whose mask refuses the class `access`,
+refuses the action by name or keeps no Execute is refused with nothing written ("You
+are acting as someone else, and this session cannot create a sector."; why the mask
+refuses it is said in the server's log alone), the denial is logged as the mask's, in
+the line the masked check writes for a denial of its own, and the route's `GET` answers
+that none is offered (`resource.MaskRefusesAction`). A session that acts as a person with no mask
+makes the tenant, and the person acted as is its administrator: to let someone act as
+a person with no mask is to give them what the person holds. One tenant per person holds
+in such a session as in the person's own, whatever its mask shows: a mask that keeps the
+creation and leaves nothing of the person's grants in their tenant takes the tenant off
+the session's list and not off the person, and the route counts the person's
+(`resource.UserPermissions.HeldDomains`). The name is for masks
+alone, and the collection says so: the generator registers it as an action no role is
+given (`NoRole: true` in the generated collection file,
+`resource.CollectionResource.NoRole`). Nothing asks a role for it, so a grant of it
+would do nothing and its absence refuses nobody. A role file that names it is refused
+wherever the file is validated, in words that say why (the permission engine at start,
+`access.ValidateRoles`, and the `roles-file` check of `impulse check`, which reads the
+mark from the generated collection file); the browser constants (`Methods` in
+`zz_gen_constants.ts`) leave it out on every outlet, so no page that lists what a
+person may be shown or given names it; and a registration made by hand under the name
+is refused at generation. The collection still answers for the name where a mask is
+declared and where the masked check asks (`Scope`, `HasPermission`, `ActionClasses`),
+so a kind refuses it by its class or by name.
 
 **The maker.** What makes a tenant from an accepted invitation is generated beside the
 roster: `New<Record>Maker(roster, liveService)` in the handler package answers an
@@ -3039,24 +4235,113 @@ transaction has committed, the maker has this instance's roster reread its table
 signals the tenants kind, so the person's first request stands in the new tenant and
 every instance serves it at once.
 
-**Deleting a tenant.** The record's generated delete clears what each auth holds for the
-tenant in the transaction that deletes its row, through the generated identity client of
-every auth whose management the program generates (`<Auth>Identity().ClearTenant`,
-`identity.Manager.ClearTenant`): every membership held in the tenant, the custom roles
-made in it with their grants, and the invitations into it that still stand, which are
-withdrawn. A person who held roles in the tenant alone then holds none anywhere and is
-deleted with their identity links and sessions, by the rule on an account nothing admits
-(section 21, "The rules"); a person who holds a role anywhere else stays, and so does a
-role held in every tenant, which is no one tenant's. The permission engine is told once
-the delete has committed. The rows the tenant owns are the application's: a foreign key
-on a tenancy column refuses the delete while they remain. An application that deletes a
-tenant in a transaction of its own calls `ClearTenant` there, and a program that
-generates no auth's management removes the memberships itself.
+**A disabled tenant.** An application shuts a tenant without deleting anything of it: a
+customer that has left, has not paid, or is about to be deleted. The tenant record marks
+a bool column `@tenantDisabled` (section 1), and every tenant record carries one:
+generation fails without it, in a sentence that gives the column and the field to add.
+The column is an ordinary field of the record. Whoever holds Update on it disables a
+tenant and enables it again, by the record's own update, so the role file says who; there
+is no method for it and no permission of its own.
+
+A disabled tenant is entered by nobody but a super administrator (the session's actor, as
+for a tenant's sign-in settings). Its own administrators are shut out with everyone else:
+the way in that a directory-only tenant keeps for them is not open while the tenant is
+disabled. The door is the one the tenant's sign-in settings are asked at
+(`UserPermissions.Reaches`), so from their next request the tenant's people hold nothing
+in it: every check there is denied, the digest is empty, and the generated guard answers
+as for a tenant that does not exist. The instance that saved the change knows at once, the
+others when they hear the tenants signal, and every one by its backstop at the latest. The
+tenant list of a person's own sign-in keeps the tenant, with the reason ("Acme is
+disabled."), and the place switcher lists it under "Not available".
+
+At sign-in the tenant policy passes a disabled tenant over (`signin.TenantPolicy`,
+`TenantDeclaration.Disabled`): a person whose every tenant is disabled is answered as a
+member of no tenant is, refused `no_tenant`, or admitted where the policy was built with
+`signin.AdmitWithoutTenant()`; a person with another tenant signs in by what that tenant
+declares.
+
+Nothing else changes. No role, group or invitation is touched, so enabling the tenant
+gives everyone back what they held; an invitation into a disabled tenant is accepted, and
+its person holds a place in a tenant they cannot enter until it is enabled; a person who
+holds a role in a disabled tenant still holds a tenant (`HeldDomains`); and a
+directory-only tenant that is disabled still keeps the accounts of its directory to that
+directory. The rules of who may manage a tenant's administrators ask what the tenant's
+sign-in settings say (`resource.AdmitsSession`), not whether it is disabled, so the
+application's staff manage the people of a disabled tenant as they did before. Code that
+runs without a session, a scheduled task or a consumer, is not asked
+the door and reads and writes a disabled tenant's records as any other's.
+
+**Deleting a tenant.** A tenant is disabled before it is deleted; a delete of a tenant that
+is not is refused. The delete asks first, with a count of every kind of the application's
+rows under the tenant and of what each auth holds for it: the accounts that belong to it
+alone, the roles held in it, its groups, its custom roles and its invitations. It asks one
+permission, to delete a tenant: no grant is asked row by row, and each row's delete rule
+still runs. It then runs in rounds like any delete, the application's rows first, deepest
+first, then the auths' rows, and the tenant's own row last. An account is the tenant's
+alone where everything it holds is in the tenant, or the tenant's directory manages it and
+it holds nothing elsewhere; a person who holds anything elsewhere, or whom another tenant's
+directory manages, keeps their account.
+
+The refusal of a tenant that is not disabled comes after the caller's grant and before the
+question (409, "Disable this tenant before deleting it.", with the application's word for
+one; `resource.RequireTenantDisabled`), so nobody of the tenant is at work in it while its
+records go. What each auth holds for the tenant is handed to the record's generated delete
+as kinds of it (`DeleteAlso`), through the generated identity client of every auth whose
+management the program generates (`<Auth>Identity().TenantKinds`,
+`identity.Manager.TenantKinds`): an account taken goes with its identity links, its
+sessions ended; a group goes with its members and its roles; the custom roles go with
+their grants; an invitation is withdrawn; the roles held on the tenant's records go. A role
+held in every tenant is no one tenant's and stays. The permission engine is told once a save
+that took any of them has committed. A record a role can be held on hands its own generated
+delete the roles held on it the same way (`<Auth>Identity().RecordKinds`, section 25).
+
+The rows under the tenant go with it, and the library deletes them in code (section 10,
+"A delete that takes what is under the record"): every row of a resource of the
+application's that carries the tenant's key or leads to a row that does, each through its
+kind's own delete, so its delete rule (`@validateDeleteType`) is asked, its change event is
+written and its stored files are released. The tenant's directory is one of those rows and
+goes with the rest, whether the tenant is directory only or not, and is free for another
+tenant afterwards; the rule that keeps the directory of a directory-only tenant is for a
+tenant that stays and is not asked. A person who may delete a tenant need hold no role in
+it. A row of another tenant that names one of the tenant's rows is not under the tenant
+and is not taken (section 10, the same part). The tenant's groups and the accounts that
+were its alone are then deleted with the library's rows alone: the application's rows that
+name them were under the tenant and went before them, on the one permission, and a row
+outside the tenant that names one of them is not taken, so its foreign key refuses the
+save (section 10, "A record that names a group or an account of the library's").
+
+A tenant that has such rows, or that an auth holds anything for, is not deleted by a
+request that does not say so. The remove is answered 428 with the question a person is
+asked first (`Delete this tenant and everything under it? This can't be undone.`), and
+nothing is gone; the request that goes ahead carries
+`"value": {"everythingUnder": true, "token": "…"}` on the remove operation, the token being
+the question's, and the library's delete dialog sends it when the person presses
+Delete at the question, and again after each round until the tenant is gone. The question
+counts every kind, whatever the person may list, since the one permission to delete a
+tenant answers for all of them (each kind under the tenant record is trusted,
+`DeleteKind.Trusted`), the application's kinds first: `Delete this tenant and everything
+under it: 3 projects, 12 tasks, 2 accounts, 5 roles held. This can't be undone.` A tenant with nothing under it and
+nothing held for it is deleted by the plain remove. A table of the application's that no
+resource describes is not a row the library can delete: its foreign key refuses the
+tenant's delete while its rows remain, so the application deletes them first, in code. An
+application that deletes a tenant in a transaction of its own buffers the record's
+generated delete patch with `WithEverythingUnder()`, handed each auth's
+`TenantKinds(domain)` (`DeleteAlso`), there, and a program that generates no auth's
+management removes the memberships itself. Nobody is asked a question for a delete made
+this way, so each save of it counts and asks everything under the tenant again before it
+takes a row (section 10, "A delete that takes what is under the record").
+
+Each thing the delete takes is an action of the class `access` when it is done alone (a
+role removed, a group deleted, an invitation withdrawn), so the generator gives the
+tenant record's delete that class. A session whose mask refuses the class, a person
+acting as someone else under a kind that is not to change who may do what, cannot delete
+a tenant, whatever the person acted as may do; a kind that is to keep it names it as an
+exception (`accesstypes.ExceptPermission`).
 
 With the last-owner rule (section 21, "The rules") an operator brings a customer's
 tenant in by inviting its first administrator and holds no role in it: the tenant is its
-administrator's from its first moment, and is never left with nobody to give the next
-role.
+administrator's from its first moment, and its last administrator cannot leave it with
+nobody to give the next role.
 
 **Tests.** The generated authorization matrix drives domain-scoped routes with one
 tenant, the generated router's `TestDomain` constant (an id's text), and the
@@ -3176,13 +4461,14 @@ names no row or tenant: the struct declares no field, and nothing that adds a pa
 parameter or a body is admitted. It checks no permission and is in no outlet: the
 scheduler's token is its gate, so no role names it, the permission collection and the
 digest leave it out, and no TypeScript client carries it. `Execute` runs as the
-application, with no caller stamped on its context, so `Enforce` and `Check` refuse inside
-it and its queries and patches run trusted; it records its writes under a process
-(`resource.ProcessEvent`) rather than a person. The frame is a method's otherwise: the
-transaction form runs inside the handler's transaction, the rows it writes are published to
-the live pages after the commit, and it answers with its result or its chosen status
-(`@answers`), which the scheduler records as the call's success or failure. There is no
-dry run.
+application, with no caller stamped on its context, so `Enforce` and `Check` refuse
+inside it and its queries and patches run trusted; it records its writes under a process
+(`eventsource.ProcessEvent`) rather than a person. Its change records name that process
+and no RPC method: `eventsource.ProcessEvent` takes no request to read a method's name
+from. The frame is a method's otherwise: the transaction form runs inside the handler's
+transaction, the rows it writes are published to the live pages after the commit, and it
+answers with its result or its chosen status (`@answers`), which the scheduler records as
+the call's success or failure. There is no dry run.
 
 **The route.** The generated router mounts every scheduled method under one prefix it
 reserves, `/_scheduled` (`scheduled.Prefix`), one `POST` each at the method's name in kebab
@@ -3259,6 +4545,21 @@ level names that seam in one comment. Lodestar
 ([data.go](../lodestar/pkg/config/data.go), [site.go](../lodestar/pkg/config/site.go)) and
 the skeleton candidates are the examples.
 
+**The isolation level on Spanner.** Every read-write transaction the library runs on
+the Spanner client names the serializable isolation level: the resource client's
+(`SpannerClient.ExecuteFunc`, and so every generated handler and every `@rpc` method in
+the transaction form), the session store's, the permission store's, the persona store's
+and the migration runner's DML groups. The library decides its rules by reading before
+it writes: a sign-in reads the user's row and inserts a session, a delete counts the
+rows under the record, taking the role from an auth's last super administrator reads who
+else holds it. Each holds only while Spanner serializes the read with what another
+transaction writes at the same moment. At repeatable read only two writes of one row
+conflict, and two such transactions would both commit. So a level set for the client
+(`spanner.ClientConfig.TransactionOptions`) reaches none of the library's transactions.
+It applies to the transactions the application opens on the client itself
+(`Driver.SpannerClient`), and to `spxscan.UpdateAndGet` and `spxscan.UpdateAndSelect`,
+which run the application's own statement.
+
 ## 21. User management: an auth's management as generated code
 
 `generation.GenerateIdentity(treeDir)` writes the management of every Auth the program
@@ -3266,15 +4567,16 @@ declares as code of the application: a resource declaration over each table the 
 keeps, and the methods that change them. The lists are read through the application's
 permission surface like any resource, each method is a route behind an Execute grant, and
 the same method is a Go call the application makes in a transaction of its own, so a
-person is created and seated beside the application's own rows and committed with them.
+person is given a role beside the application's own rows and committed with them.
 The option requires `GenerateRoutes` and `GenerateHandlers`, and a program that declares
 at least one `Auth`. It is the user management of the whole application: accounts, roles,
-temporary passwords, the second factor's reset, lockouts and invitations. In an
+password reset links, the second factor's reset, lockouts and invitations. In an
 application with a tenant record it is also one tenant's management of the people who
 hold a role in it: the tenant's lists (its people, the roles held there, its invitations)
 and the methods the tenant changes them through, both below; and, for the Auth a tenant
 is made through, the invitation staff bring a tenant in by ("The invitation that makes a
-tenant", below).
+tenant", below). Where the auth's role file holds a role on one of a tenant's records, it is
+also that record's sharing (section 25).
 
 **The tree.** `treeDir` (Lodestar's is `pkg/identity`) is the generator's alone. Per Auth
 it holds three packages, the `crew` Auth's being:
@@ -3288,9 +4590,9 @@ it holds three packages, the `crew` Auth's being:
 - `crewhandlers`: the generated frames of those resources and methods, over a `Deps`
   interface the application's handler type satisfies, constructed with the application's
   live derivations (`crewhandlers.New(app, derivations)`), which every frame publishes
-  its commit with. It also holds the record of what changes the tenant's lists
-  (`crewhandlers.LiveDerivations`), which the application's assembly merges into those
-  derivations (section 14).
+  its commit with. It also holds the record of what changes the tenant's lists and the
+  lists of how a person signs in (`crewhandlers.LiveDerivations`), which the
+  application's assembly merges into those derivations (section 14).
 
 The generator writes the declarations and the methods before it loads the packages, so
 the same run extracts them as it extracts the application's own. From there they are
@@ -3309,27 +4611,41 @@ the schema holds its table, so an Auth that issues no tokens has no tokens list:
 
 ```
 GET  <prefix>/crew-session-users, …/{id}                   List, Read on CrewSessionUsers (sort=username)
+GET  <prefix>/crew-listed-users, …/{id}                    List, Read on CrewListedUsers (the accounts with what each holds, sort=username)
 GET  <prefix>/crew-sessions, …/{id}                        List, Read on CrewSessions (newest first)
+GET  <prefix>/crew-listed-sessions, …/{id}                 List, Read on CrewListedSessions (the sessions with the state of each, whose they are and how they signed in, most recently used first)
 GET  <prefix>/crew-session-identities, …/{id}              List, Read on CrewSessionIdentities
+GET  <prefix>/crew-listed-identities, …/{id}               List, Read on CrewListedIdentities (the sign-in identities with who manages each account, where the application has a tenant record)
 GET  <prefix>/crew-sign-in-ways?filter=userId:eq:{id}      List on CrewSignInWays (how one person signs in: the password, then the identities that count)
 GET  <prefix>/crew-session-tokens, …/{id}                  List, Read on CrewSessionTokens
+GET  <prefix>/crew-listed-mail-links, …/{id}               List, Read on CrewListedMailLinks (the mailed links with what became of each and who sent it, newest first)
 GET  <prefix>/crew-session-mail-links, …/{id}              List, Read on CrewSessionMailLinks
-GET  <prefix>/crew-session-impersonations, …/{sessionId}   List, Read on CrewSessionImpersonations
+GET  <prefix>/crew-session-impersonations, …/{sessionId}   List, Read on CrewSessionImpersonations (newest first; `mask` is each session's mask in words)
 GET  <prefix>/crew-session-trusted-devices, …/{id}         List, Read on CrewSessionTrustedDevices (the remembered browsers)
+GET  <prefix>/crew-listed-sign-in-attempts                 List on CrewListedSignInAttempts (the counts that are locked or still being counted, the locked first)
 GET  <prefix>/crew-session-sign-in-attempts                List on CrewSessionSignInAttempts
 GET  <prefix>/crew-session-auth-events                     List on CrewSessionAuthEvents
 GET  <prefix>/crew-user-roles                              List on CrewUserRoles (the role memberships)
+GET  <prefix>/crew-held-roles                              List on CrewHeldRoles (the roles people hold, their own and through a group, sort=username,role)
+GET  <prefix>/crew-taken-roles                             List on CrewTakenRoles (the roles held for a set time with a reason, the last to end first)
+GET  <prefix>/crew-takeable-roles                          List on CrewTakeableRoles (the roles the caller may take for a set time)
+GET  <prefix>/crew-take-lengths                            List on CrewTakeLengths (the lengths a role is taken for)
 GET  <prefix>/crew-roles                                   List on CrewRoles (the custom roles)
-GET  <prefix>/crew-role-grants                             List on CrewRoleGrants
+GET  <prefix>/crew-listed-role-grants                      List on CrewListedRoleGrants (the custom roles' grants, each with why the permission engine leaves it out, where it does)
+GET  <prefix>/crew-givable-roles                           List on CrewGivableRoles (the roles one of the whole application's methods gives, by where they are held)
 GET  <prefix>/crew-groups, …/{id}                          List, Read on CrewGroups (the groups of people, sort=name)
 GET  <prefix>/crew-group-members                           List on CrewGroupMembers
 GET  <prefix>/crew-group-roles                             List on CrewGroupRoles (the roles the groups hold)
 GET  <prefix>/crew-group-users, …/{id}                     List, Read on CrewGroupUsers (the people of the groups, with their names)
 GET  <prefix>/crew-user-group-roles, …/{id}                List, Read on CrewUserGroupRoles (the roles people hold through a group)
+GET  <prefix>/crew-listed-groups, …/{id}                   List, Read on CrewListedGroups (the groups with what each holds, sort=name)
+GET  <prefix>/crew-listed-group-roles                      List on CrewListedGroupRoles (the roles the groups hold, each with how many people lose it)
 GET  <prefix>/crew-sign-in-methods                         List on CrewSignInMethods (the methods the Auth registers, with what was chosen for each)
 GET  <prefix>/crew-invited-sectors                         List on CrewInvitedSectors (the invitations that make a sector and still stand)
+GET  <prefix>/crew-invited-sector-roles                    List on CrewInvitedSectorRoles (the roles a new sector's directory people may start with)
 GET  <prefix>/sectors/{sectorID}/crew-sector-users, …/{id}         List, Read on CrewSectorUsers (sort=username)
 GET  <prefix>/sectors/{sectorID}/crew-sector-user-roles, …/{id}    List, Read on CrewSectorUserRoles (sort=username,role)
+GET  <prefix>/sectors/{sectorID}/crew-sector-held-roles            List on CrewSectorHeldRoles (the roles held in the sector, their own and through a group)
 GET  <prefix>/sectors/{sectorID}/crew-sector-invitations, …/{id}   List, Read on CrewSectorInvitations (newest first)
 GET  <prefix>/sectors/{sectorID}/crew-sector-identities, …/{id}    List, Read on CrewSectorIdentities (newest first)
 GET  <prefix>/sectors/{sectorID}/crew-sector-sign-in-ways?filter=userId:eq:{id}   List on CrewSectorSignInWays (how one of the sector's people signs in)
@@ -3337,69 +4653,83 @@ GET  <prefix>/sectors/{sectorID}/crew-sector-groups, …/{id}             List, 
 GET  <prefix>/sectors/{sectorID}/crew-sector-group-users, …/{id}        List, Read on CrewSectorGroupUsers
 GET  <prefix>/sectors/{sectorID}/crew-sector-group-roles, …/{id}        List, Read on CrewSectorGroupRoles
 GET  <prefix>/sectors/{sectorID}/crew-sector-user-group-roles, …/{id}   List, Read on CrewSectorUserGroupRoles
-POST <prefix>/create-crew-user                {"username","name","email","password","roles","domain","everyDomain"} → {"id"}   Execute on CreateCrewUser
-POST <prefix>/rename-crew-user                {"userId","username"}            Execute on RenameCrewUser, targeting CrewSessionUsers
-POST <prefix>/delete-crew-user                {"userId"}                       Execute on DeleteCrewUser, targeting CrewSessionUsers
-POST <prefix>/set-crew-user-name              {"userId","name"}                Execute on SetCrewUserName, targeting CrewSessionUsers
-POST <prefix>/set-crew-user-email             {"userId","email"}               Execute on SetCrewUserEmail, targeting CrewSessionUsers
-POST <prefix>/set-crew-temporary-password     {"userId","password"}            Execute on SetCrewTemporaryPassword, targeting CrewSessionUsers
-POST <prefix>/revoke-crew-user-trusted-devices {"userId"}                      Execute on RevokeCrewUserTrustedDevices, targeting CrewSessionUsers
-POST <prefix>/unlock-crew-sign-in             {"name"}                         Execute on UnlockCrewSignIn, targeting CrewSessionSignInAttempts
-POST <prefix>/invite-crew-user                {"email","name","roles","domain"} → {"id","sent"}   Execute on InviteCrewUser
-POST <prefix>/withdraw-crew-invitation        {"invitationId"}                 Execute on WithdrawCrewInvitation, targeting CrewSessionMailLinks
+POST <prefix>/rename-crew-user                {"userId","username"}            Execute on RenameCrewUser, targeting CrewListedUsers
+POST <prefix>/delete-crew-user                {"userId","everythingUnder","token"}   Execute on DeleteCrewUser, targeting CrewListedUsers (202 with the rows it deleted)
+POST <prefix>/set-crew-user-name              {"userId","name"}                Execute on SetCrewUserName, targeting CrewListedUsers
+POST <prefix>/set-crew-user-email             {"userId","email"} → {"sent","reason"}   Execute on SetCrewUserEmail, targeting CrewListedUsers
+POST <prefix>/send-crew-user-password-reset-link {"userId"} → {"sent","reason"}  Execute on SendCrewUserPasswordResetLink, targeting CrewListedUsers
+POST <prefix>/revoke-crew-user-trusted-devices {"userId"}                      Execute on RevokeCrewUserTrustedDevices, targeting CrewListedUsers
+POST <prefix>/unlock-crew-sign-in             {"name"}                         Execute on UnlockCrewSignIn, targeting CrewListedSignInAttempts
+POST <prefix>/invite-crew-user                {"email","name","domain","everyDomain","roles"} → {"id","sent"}   Execute on InviteCrewUser
+POST <prefix>/withdraw-crew-invitation        {"invitationId"}                 Execute on WithdrawCrewInvitation, targeting CrewListedMailLinks
+POST <prefix>/resend-crew-invitation          {"invitationId"} → {"id","sent"}   no grant of its own: Execute on InviteCrewUser, read over the row of CrewListedMailLinks
 POST <prefix>/invite-crew-sector              {"email","name","sectorName",…,"sectorDirectoryOnly","defaultRole"} → {"id","sent"}   Execute on InviteCrewSector, and Create on Sectors
 POST <prefix>/withdraw-crew-invited-sector    {"invitationId"}                 Execute on WithdrawCrewInvitedSector
-POST <prefix>/disable-crew-user               {"userId"}                       Execute on DisableCrewUser, targeting CrewSessionUsers
-POST <prefix>/enable-crew-user                {"userId"}                       Execute on EnableCrewUser, targeting CrewSessionUsers
-POST <prefix>/end-crew-user-sessions          {"userId"}                       Execute on EndCrewUserSessions, targeting CrewSessionUsers
-POST <prefix>/require-crew-password-change    {"userId"}                       Execute on RequireCrewPasswordChange, targeting CrewSessionUsers
-POST <prefix>/end-crew-session                {"sessionId"}                    Execute on EndCrewSession, targeting CrewSessions
+POST <prefix>/disable-crew-user               {"userId"}                       Execute on DisableCrewUser, targeting CrewListedUsers
+POST <prefix>/enable-crew-user                {"userId"}                       Execute on EnableCrewUser, targeting CrewListedUsers
+POST <prefix>/end-crew-user-sessions          {"userId"}                       Execute on EndCrewUserSessions, targeting CrewListedUsers
+POST <prefix>/require-crew-password-change    {"userId"}                       Execute on RequireCrewPasswordChange, targeting CrewListedUsers
+POST <prefix>/end-crew-session                {"sessionId"}                    Execute on EndCrewSession, targeting CrewListedSessions (declares a warning)
 POST <prefix>/end-crew-session-impersonation  {"sessionId"}                    Execute on EndCrewSessionImpersonation, targeting CrewSessionImpersonations
-POST <prefix>/unlink-crew-session-identity    {"identityId"}                   Execute on UnlinkCrewSessionIdentity, targeting CrewSessionIdentities
-POST <prefix>/remove-crew-password            {"userId"}                       Execute on RemoveCrewPassword, targeting CrewSessionUsers
+POST <prefix>/unlink-crew-session-identity    {"identityId"}                   Execute on UnlinkCrewSessionIdentity, targeting CrewListedIdentities
+POST <prefix>/remove-crew-password            {"userId"}                       Execute on RemoveCrewPassword, targeting CrewListedUsers
 POST <prefix>/revoke-crew-session-token       {"tokenId"}                      Execute on RevokeCrewSessionToken, targeting CrewSessionTokens
-POST <prefix>/assign-crew-role                {"userId","role","domain","everyDomain"}   Execute on AssignCrewRole
-POST <prefix>/remove-crew-role                {"userId","role","domain","everyDomain"}   Execute on RemoveCrewRole
+POST <prefix>/assign-crew-role                {"userId","role","domain","everyDomain","startsAt","endsAt","reason"}   Execute on AssignCrewRole
+POST <prefix>/take-crew-role                  {"domain","role","length","reason"}        Execute on TakeCrewRole (the caller takes the role themselves)
+POST <prefix>/remove-crew-role                {"userId","role","domain","everyDomain"}   Execute on RemoveCrewRole (declares a warning)
 POST <prefix>/create-crew-group               {"name","description","domain"} → {"id"}   Execute on CreateCrewGroup
-POST <prefix>/describe-crew-group             {"groupId","description"}        Execute on DescribeCrewGroup, targeting CrewGroups
-POST <prefix>/delete-crew-group               {"groupId"}                      Execute on DeleteCrewGroup, targeting CrewGroups
-POST <prefix>/add-crew-group-member           {"groupId","userId"}             Execute on AddCrewGroupMember, targeting CrewGroups
-POST <prefix>/remove-crew-group-member        {"groupId","userId"}             Execute on RemoveCrewGroupMember, targeting CrewGroupUsers
-POST <prefix>/give-crew-group-role            {"groupId","role","domain","everyDomain"}   Execute on GiveCrewGroupRole, targeting CrewGroups
+POST <prefix>/describe-crew-group             {"groupId","description"}        Execute on DescribeCrewGroup, targeting CrewListedGroups
+POST <prefix>/delete-crew-group               {"groupId","everythingUnder","token"}   Execute on DeleteCrewGroup, targeting CrewListedGroups (202 with the rows it deleted)
+POST <prefix>/add-crew-group-member           {"groupId","userId"}             Execute on AddCrewGroupMember, targeting CrewListedGroups
+POST <prefix>/remove-crew-group-member        {"groupId","userId"}             Execute on RemoveCrewGroupMember, targeting CrewGroupUsers (declares a warning)
+POST <prefix>/give-crew-group-role            {"groupId","role","domain","everyDomain"}   Execute on GiveCrewGroupRole, targeting CrewListedGroups
 POST <prefix>/take-crew-group-role            {"groupId","role","domain","everyDomain"}   Execute on TakeCrewGroupRole
 POST <prefix>/open-crew-sign-up               {"name"}                         Execute on OpenCrewSignUp (declares a warning; {"name","defaultRole"} without tenants)
 POST <prefix>/make-crew-invite-only           {"name"}                         Execute on MakeCrewInviteOnly
-POST <prefix>/sectors/{sectorID}/create-crew-sector-user   {"username","name","email","password","roles"} → {"id"}   Execute on CreateCrewSectorUser
+POST <prefix>/set-crew-self-service-reset     {"on"}                           Execute on SetCrewSelfServiceReset
 POST <prefix>/sectors/{sectorID}/invite-crew-sector-user   {"email","name","roles"} → {"id","sent"}                  Execute on InviteCrewSectorUser
 POST <prefix>/sectors/{sectorID}/withdraw-crew-sector-invitation   {"invitationId"}     Execute on WithdrawCrewSectorInvitation, targeting CrewSectorInvitations
-POST <prefix>/sectors/{sectorID}/assign-crew-sector-role   {"userId","role"}            Execute on AssignCrewSectorRole, targeting CrewSectorUsers
-POST <prefix>/sectors/{sectorID}/remove-crew-sector-role   {"userId","role"}            Execute on RemoveCrewSectorRole, targeting CrewSectorUserRoles
+POST <prefix>/sectors/{sectorID}/resend-crew-sector-invitation   {"invitationId"} → {"id","sent"}   no grant of its own: Execute on InviteCrewSectorUser, read over the row of CrewSectorInvitations
+POST <prefix>/sectors/{sectorID}/assign-crew-sector-role   {"userId","role","startsAt","endsAt","reason"}   Execute on AssignCrewSectorRole, targeting CrewSectorUsers
+POST <prefix>/sectors/{sectorID}/remove-crew-sector-role   {"userId","role"}            Execute on RemoveCrewSectorRole, targeting CrewSectorHeldRoles (declares a warning)
 POST <prefix>/sectors/{sectorID}/unlink-crew-sector-session-identity   {"identityId"}   Execute on UnlinkCrewSectorSessionIdentity, targeting CrewSectorIdentities
 POST <prefix>/sectors/{sectorID}/remove-crew-sector-password           {"userId"}       Execute on RemoveCrewSectorPassword, targeting CrewSectorUsers
 POST <prefix>/sectors/{sectorID}/create-crew-sector-group          {"name","description"} → {"id"}   Execute on CreateCrewSectorGroup
 POST <prefix>/sectors/{sectorID}/describe-crew-sector-group        {"groupId","description"}   Execute on DescribeCrewSectorGroup, targeting CrewSectorGroups
-POST <prefix>/sectors/{sectorID}/delete-crew-sector-group          {"groupId"}          Execute on DeleteCrewSectorGroup, targeting CrewSectorGroups
+POST <prefix>/sectors/{sectorID}/delete-crew-sector-group          {"groupId","everythingUnder","token"}   Execute on DeleteCrewSectorGroup, targeting CrewSectorGroups (202 with the rows it deleted)
 POST <prefix>/sectors/{sectorID}/add-crew-sector-group-member      {"groupId","userId"} Execute on AddCrewSectorGroupMember, targeting CrewSectorGroups
-POST <prefix>/sectors/{sectorID}/remove-crew-sector-group-member   {"groupId","userId"} Execute on RemoveCrewSectorGroupMember, targeting CrewSectorGroupUsers
+POST <prefix>/sectors/{sectorID}/remove-crew-sector-group-member   {"groupId","userId"} Execute on RemoveCrewSectorGroupMember, targeting CrewSectorGroupUsers (declares a warning)
 POST <prefix>/sectors/{sectorID}/give-crew-sector-group-role       {"groupId","role"}   Execute on GiveCrewSectorGroupRole, targeting CrewSectorGroups
 POST <prefix>/sectors/{sectorID}/take-crew-sector-group-role       {"groupId","role"}   Execute on TakeCrewSectorGroupRole, targeting CrewSectorGroupRoles
 POST <prefix>/sectors/{sectorID}/disable-crew-sector-user, enable-…, delete-…, rename-…, set-crew-sector-user-name, set-crew-sector-user-email,
-     set-crew-sector-temporary-password, require-crew-sector-password-change, revoke-crew-sector-user-trusted-devices,
-     end-crew-sector-user-sessions            the whole application's bodies                Execute on each, targeting CrewSectorUsers
+     send-crew-sector-user-password-reset-link, require-crew-sector-password-change,
+     revoke-crew-sector-user-trusted-devices, end-crew-sector-user-sessions
+                                              the whole application's bodies and answers    Execute on each, targeting CrewSectorUsers
 ```
 
 The names are table-derived: the Auth's package name in PascalCase and the library's own
 name for the table, with the tenant record's name between them for a tenant's list
 (`Sector` in the ones under the domain pair, which exist only where the application has
-a tenant record). Every resource over a table is global, none has a write route, and none
+a tenant record). In an application without tenants the six methods of the whole
+application that say where (`invite-crew-user`, `assign-crew-role`, `remove-crew-role`,
+`create-crew-group`, `give-crew-group-role`, `take-crew-group-role`) have neither `domain`
+nor `everyDomain`: every role is held and every group kept for the whole application, and
+a request that names either field is refused as any field the method does not have (400).
+Every resource over a table is global, none has a write route, and none
 carries a password hash or a token hash: no declaration has such a field. A method that
 targets a resource is listed in that resource's rows' Execute answer
-(`capabilities=Execute`), so a page draws its buttons from the row. The Auth's shape
-decides which methods exist: the two role methods, the two invitation methods, the
-create, and the list and the two methods of the sign-in methods ("Who may sign up",
-below) are left out for an Auth whose roles a directory writes (`SyncsRoles`), where the
-directory admits its own members and the first sign-in creates the row, the two password
-methods (and the create's `password`) for an Auth with no password method, as are the
+(`capabilities=Execute`), so a page draws its buttons from the row. While a tenant is
+directory only, the methods that change how one of its administrators signs in or
+whether their account stands (rename, change the email address, require a new password,
+remove the password, unlink a sign-in identity, disable, enable, delete) are in that
+person's row only for a caller whose session enters the tenant, and for a super
+administrator. Nobody else is shown them, and the server refuses them as before. The
+Auth's shape decides which methods exist: the two role methods, the two invitation methods, and the
+list and the two methods of the sign-in methods ("Who may sign up", below) are left out
+for an Auth whose roles a directory writes (`SyncsRoles`), where the directory admits its
+own members and the first sign-in creates the row, the method that requires a new
+password, the method that mails a reset link and the one that says whether a person may
+ask for one themselves for an Auth with no password method, as are the
 method that removes a person's password and the list of how a person signs in, which are
 also written only where the schema holds the identities table (the rule they keep reads a
 person's identity links), the rename and
@@ -3415,23 +4745,101 @@ application's own resource or method under one of these names is refused at gene
 as is a resource field named for a method of the generated set (`Resource`,
 `DefaultConfig`, `FileKeys`, `SearchBranches`).
 
+**The credential methods carry a class.** The methods that change how a person signs in
+are written with `@class(credential)` (`accesstypes.ClassCredential`), in the whole
+application's form and in a tenant's alike: the required new password
+(`require-crew-password-change`), the removal of a password (`remove-crew-password`), the
+reset link an administrator sends (`send-crew-user-password-reset-link`), the unlinking
+of a sign-in identity (`unlink-crew-session-identity`), the rename (`rename-crew-user`)
+and the address set by hand (`set-crew-user-email`). The generated collection carries
+the class on each, and a session whose mask refuses the class is refused every one of
+them before any policy is read, and its permission digest leaves them out (section 6;
+the session package's "Impersonation is granted with a mask"). No method refuses an
+impersonated session by a rule of its own for being a credential action: the mask is the
+control.
+
+**The methods that change who may do what carry a class too.** The methods that give or
+take away what someone may do are written with `@class(access)`
+(`accesstypes.ClassAccess`), in both forms: a role given or removed (`assign-crew-role`,
+`remove-crew-role`), a role a person takes themselves for a set time (`take-crew-role`,
+which refuses every session that acts as someone else by itself as well), a group made or deleted and a person put in one or taken out
+(`create-crew-group`, `delete-crew-group`, `add-crew-group-member`,
+`remove-crew-group-member`), a role given to a group or taken from it
+(`give-crew-group-role`, `take-crew-group-role`), an invitation sent or withdrawn, the
+one that makes a tenant among them (`invite-crew-user`, `withdraw-crew-invitation`,
+`resend-crew-invitation`, `invite-crew-sector`, `withdraw-crew-invited-sector`), a sign-in method opened to sign-up
+or made invite only
+(`open-crew-sign-up`, `make-crew-invite-only`), and the switch that lets people ask at
+the sign-in page for a link that resets their own password
+(`set-crew-self-service-reset`), which says who may get back into an account without an
+administrator. What the generator writes for a tenant record, which has no declaration
+to annotate, carries the class by its registration: the two methods of the tenant's
+directory, `open-sector-to-directory`, which gives a role to everyone who arrives
+through the directory, and `make-sector-invite-only`; the two that turn the switch
+that makes a tenant sign in with its directory alone, `make-sector-directory-only` and
+`end-sector-directory-only`, which say how a tenant's people must sign in to enter it;
+and the action of the create-your-tenant route, `CreateSector`, which makes its caller
+a tenant's administrator (section 16, "The first administrator"). A session that acts
+as a person under a grant declared "everything except the credential actions and the
+actions that change who may do what" is refused every one of both classes.
+
+What carries neither class: an account disabled, enabled or deleted
+(`disable-crew-user`, `enable-crew-user`, `delete-crew-user`), which is the work a
+person who stands in for an administrator is there to do, and which the rule on who is
+asking still refuses on the real person's own account ("The rules on who is asking");
+the name people read and a group's description
+(`set-crew-user-name`, `describe-crew-group`), which are words; the end of a session, of
+a person's sessions or of an impersonation, the revocation of a token or of the
+remembered browsers, and the unlock, each of which ends a sign-in already made or lets
+one be tried again and leaves what the person may do as it was; and the switch of a
+feature flag (`SetFeature`). An application puts no class on a record: the generator
+gives the class `access` to the writes of every record that carries a subject value or
+a subject set, to the change of a record such a value is read through, and to the
+delete of the tenant record, which takes every role held in the tenant with it, so a mask
+that refuses the class refuses them, and a mask names any other record it is to refuse
+(`accesstypes.RefuseWrites`). A value read through a table that no `@resource` struct
+declares has no record to carry the class. Generation warns of it at every run, naming
+the table (`SubjectPathWarning`): a route written by hand that changes a row of that
+table moves the standing of everyone the set reaches, and a mask that refuses the class
+does not refuse it until the table is declared or the route is registered as an action
+of the class.
+
+The generator's own tests list the methods and fail when one is written without the
+class its act is listed with, or with a class it is not listed with: `identityMethodActs`
+in `generation/identity_classes_test.go` for the generated identity methods, and
+`generatorActions` in `generation/classes_test.go` for the actions the generator
+declares with no struct to annotate, the tenant record's among them. They are the two
+tables to keep in step.
+
 **A tenant's lists.** An account is one row for the whole application, and a role held
 is a row that names where it is held, so neither table can be served under a tenant's
 address. In an application with a tenant record (`@tenant`) the generated management
 declares four views per Auth, each a tenant record like any other (`@virtual`,
 `@permissionScope(domain)`, the tenant in a `domain` column), listed and read under the
 domain pair on the outlets that serve the Auth's management. The whole application's
-lists carry the names of their tables; a tenant's list is named for what it holds, with
-the Auth's name and the application's tenant record's before it. A tenant record whose
-name would give a list the name of one of the tables' declarations (a record named
-`Session` or `User`) is refused at generation:
+lists are named after the Auth alone, the declarations over its tables and the views
+beside them (`CrewHeldRoles`, `CrewListedUsers` and `CrewListedGroups` among them); a
+tenant's list is named for what it holds, with the Auth's name and the application's
+tenant record's before it. A tenant record whose name would give a list one of those
+names (a record named `Session`, `User` or `Listed`) is refused at generation:
 
-- `CrewSectorUsers`, the tenant's people: one row per person who holds a role in
-  the tenant or in every tenant, keyed by the account's id, with the columns of
-  `CrewSessionUsers`. A person who holds a role in two tenants is a row in each. Two
-  facts: `heldElsewhere` (the person also holds a role outside this tenant's own: in
-  another tenant, or in every tenant) and `heldGlobally` (the person holds a role for
-  the whole application).
+- `CrewSectorUsers`, the tenant's people: one row per person who holds a role in the
+  tenant or in every tenant, and, where the tenant has a directory, per person who signs
+  in through it, keyed by the account's id, with the columns of `CrewSessionUsers`. A
+  person who holds a role in two tenants is a row in each. Six facts: `heldElsewhere`
+  (the person also holds a role outside this tenant's own: in another tenant, or in
+  every tenant), `heldGlobally` (the person holds a role for the whole application),
+  `heldHere` (the person holds something in this tenant itself), `heldInEveryTenant`
+  (the person holds a role in every tenant at once), `managedHere` (this tenant manages
+  the person's account) and `managedByAnotherDirectory` (the person signs in through
+  another tenant's directory, and that tenant manages the account). `displayName` is what
+  a list that points to a person shows them by: their name, or their username when they
+  have none. It is the view's name (`@name`), so a field of another resource that holds a
+  person's id gets a name field read from it. It is made of `name` and `username`: a role
+  that grants `displayName` shows a person's name, or their username, whatever condition
+  the role keeps on those two. A change record of a field that holds a person's id keeps
+  the person's username and not this name, and it is the grant on `username` that shows
+  it in a record's history (section 24).
 - `CrewSectorUserRoles`, the roles held there: one row per person and role, keyed by the
   account's id and the role (`userId`, `role`), with `username` and `createdAt`. Two facts: `role`, the role itself, and `everyDomain`, true
   where the role is held there through a membership in every tenant alone, so it is not
@@ -3442,23 +4850,44 @@ name would give a list the name of one of the tables' declarations (a record nam
   invitation stands (not accepted, not withdrawn, not expired), and `role`, the roles
   it gives: a list, so a condition that reads it is judged once for each role and holds
   only when it holds for every one (section 2, `@attribute` on a list column).
-- `CrewSectorIdentities`, the identities of the tenant's people: one row per
-  identity link of a person of the first list, keyed by the link's id, with the columns
-  of `CrewSessionIdentities` (`tenant` is the link's own, the organization its directory
-  vouched for), the person's `userId` and `username`, and the person's two facts,
-  `heldElsewhere` and `heldGlobally`. The identity of a person who holds a role in two
-  tenants is a row in each. A person's page lists their identities by `userId`.
+- `CrewSectorIdentities`, the identities of the tenant's people: one row per identity
+  link of a person of the first list, keyed by the link's id, with the columns of
+  `CrewSessionIdentities` (`tenant` is the link's own, the organization its directory
+  vouched for), the person's `userId` and `username`, and four of the person's facts,
+  `heldElsewhere`, `heldGlobally`, `managedHere` and `managedByAnotherDirectory`. The
+  identity of a person who holds a role in two tenants is a row in each. A person's page
+  lists their identities by `userId`.
+
+The whole application reads who manages each account off two of its own lists, where the
+application has a tenant record: `CrewListedUsers`, the accounts, and
+`CrewListedIdentities`, their sign-in identities. Each carries `managedByTenant` (a tenant
+manages the account) and `managingTenant` (that tenant's key, empty where none does), read
+as each tenant's list reads `managedHere`, so a role file gives the application's own
+administrators the accounts no tenant manages (`"condition": "managedByTenant = false"`).
+
+One party manages each account, and the lists say which. The tenant whose directory a
+person signs in through manages their account. A person who signs in through no tenant's
+directory, and holds something in one tenant and nothing anywhere else, is managed by
+that tenant. Every other account is the application's own administrators' to manage.
+`managedHere` is true on the row of the tenant that manages the account. No sign-in
+links an account under a second tenant's directory. An account that came under two all
+the same (its links stood before either tenant took its directory, or the application
+wrote one itself with the store's `LinkIdentity`) is managed by both, and `managedHere`
+is true on both rows. On the whole application's side `managedByTenant` says a tenant
+manages the account and `managingTenant` which, and Lodestar's Headquarters holds each
+of the crew's account methods under `managedByTenant = false`.
 
 Each fact is a column of the view under a bare `@attribute`, so a grant's condition reads
-it by name, and the role file says what a tenant's administrator sees of a person who is
-not the tenant's alone. Lodestar's Sector Marshal sees every person of the sector and
-their address only where the sector holds them alone, and its Dispatcher the roles the
-sector itself gave:
+it by name, and the role file says what a tenant's administrator sees of a person whose
+account the tenant does not manage. Lodestar's Sector Marshal sees every person of the
+sector with their name, their address and whether the account is disabled, and the rest
+of the account only where the sector manages it, and its Dispatcher the roles the sector
+itself gave:
 
 ```json
 "List": [
-  { "resource": "CrewSectorUsers", "fields": ["username", "disabled", "createdAt", "lastSignInAt", "heldElsewhere", "heldGlobally"] },
-  { "resource": "CrewSectorUsers", "fields": ["email", "emailVerifiedAt", "passwordChangeRequired"], "condition": "heldElsewhere = false" }
+  { "resource": "CrewSectorUsers", "fields": ["username", "name", "email", "disabled", "heldElsewhere", "heldGlobally", "heldHere", "heldInEveryTenant", "managedHere", "managedByAnotherDirectory", "outsideDirectory", "cannotEnter"] },
+  { "resource": "CrewSectorUsers", "fields": ["emailVerifiedAt", "passwordChangeRequired", "createdAt", "lastSignInAt"], "condition": "managedHere = true" }
 ]
 "List": [{ "resource": "CrewSectorUserRoles", "fields": ["username", "role"], "condition": "everyDomain = false" }]
 ```
@@ -3466,8 +4895,15 @@ sector itself gave:
 So an application where a tenant owns its people and one where the people are shared
 between tenants are two role files over the same lists. A grant names its fields, as on
 any view: a grant with none answers the key alone. The people's list filters and sorts by
-`username` and by the two facts; the account's other columns are no filter keys, so a
+`username` and by the six facts; the account's other columns are no filter keys, so a
 grant may carry any of them under a condition at no cost to a page.
+
+A tenant's people list also says what each person holds in the tenant, `roles`: the name
+of each role once, of their own or through a group. A role held in every tenant at once is
+not among them: `heldInEveryTenant` says it, and a grant gives or keeps back each by
+itself. Where the schema holds the sign-in attempts table the list carries `lockedUntil`
+too: until when the person's sign-in is locked by failed tries, and nothing for a person
+who is not locked. Neither is a filter key.
 
 A view is a query the framework selects from (`FROM (<query>) AS <Resource>`), not a
 database object: nothing is created in the schema and nothing is migrated. The generator
@@ -3502,16 +4938,27 @@ those of the tenant, at any size of the application. (Read through an index by u
 when a membership named its person by username, the people took 0.45 s at 50,000 and the
 roles and identities longer.) The invitations read their own page from the index (26 rows
 at any size).
-Three costs are worth knowing. A filter on `heldElsewhere` or `heldGlobally`,
-or a grant on the list whose condition reads one and so holds every row to it, costs two
-index reads for each person of the tenant (seconds at 50,000 people; a condition on a
-field costs them for the page's rows alone). A row of the roles held is keyed by the
+Three costs are worth knowing. A filter on one of the person's facts (`heldElsewhere`,
+`heldGlobally`, `managedHere`, `managedByAnotherDirectory`), or a grant on the list
+whose condition reads one and so holds every row to it, costs index reads for each
+person of the tenant (the person's own memberships, places in groups and roles on
+records, each through the permission store's index by user, which the list's statement
+names, and the person's identities besides for who manages them; seconds at 50,000 people
+on 2026-11-15, when the facts were two such reads; a condition on a field costs them for
+the page's rows alone). The whole application's two lists pay the same for each account:
+sorted or filtered by `managedByTenant`, `managingTenant` or `managingTenantName`, or read
+under a grant whose condition reads one of them, they make those index reads for every
+account of the application. A reader who lists a tenant's own people reads the accounts
+that tenant manages at the cost of that tenant alone: the tenant's list, filtered by
+`managedHere`. A row of the roles held is keyed by the
 user's id and the role, two columns the database looks up, so a read of one row, and the
 check a method makes of the role it names, reads the one person's memberships (2 to 4 ms
 and three rows at 50,000 people; a key that joined the two in one value could not be
 looked up, and the same read joined the tenant's memberships, about a second there). And
 a schema applied by hand without those two indexes serves the identities and the
-invitations by reading their tables whole.
+invitations by reading their tables whole; one applied without the permission store's
+three indexes by user is refused by the database when one of these lists is read, since
+the lists' statements name them.
 
 **The roles a tenant picks from.** Where a tenant gives roles by hand, the generated
 management declares one more list per Auth, `CrewSectorRoles`: the roles that
@@ -3525,46 +4972,110 @@ query selects it. It serves a list and no read, under the domain pair, and the r
 grants it like any resource.
 
 The role field of each method a person gives a role with in a tenant names the list
-(`@enumerate`): `AssignCrewSectorRole`, the create and the invitation that start a person
-with a role (`CreateCrewSectorUser`, `InviteCrewSectorUser`), and
-`GiveCrewSectorGroupRole`. A page draws the field as a picker, and a page offers what
-the caller may do, so the list holds the roles the caller could give and no other. A
-role file says which roles a person hands out once, on the methods' Execute grants,
-where a condition reads the role:
+(`@enumerate`): `AssignCrewSectorRole`, the invitation that starts a person with a role
+(`InviteCrewSectorUser`), and `GiveCrewSectorGroupRole`. A page draws the field as a picker, and a dialog offers what
+its own method takes from the caller, so the list is asked for one method at a time and
+holds the roles the caller could give with it and no other. A role file says which
+roles a person hands out once, on each method's Execute grant, where a condition reads
+the role:
 
 ```json
 "Execute": [{ "resource": "AssignCrewSectorRole", "condition": "new.role != 'SectorMarshal'" }]
 ```
 
-For each role of the tenant the list asks the grant of every one of those methods, with
-the role and nobody named (`identity.Manager.RolesToGive`, which asks the generated
-`CouldGive` of `identity.RoleGrants`), and leaves out a role every one of them refuses
-the caller: Lodestar's Sector Marshal is offered every role of the sector but the
-Marshal's own. A grant whose condition also reads the row the method names (the person,
-the group) could admit the role for some of them, so the role is offered and the method
-decides. One list serves all four pickers, so it holds a role that one method takes
-and another refuses, which the method then says; a role file that gives the methods the
-same limit, as Lodestar's does, has a picker that offers exactly what each takes. A
-request that names a role the list left out is refused by the method's own grant, as
-before.
+A row carries a third field for this, `method`: a filter key, and nothing a page shows.
+A request names the method whose dialog is picking
+(`filter=method:eq:AssignCrewSectorRole`), and for each role of the tenant the list asks
+that method's grant, with the role and nobody named (`identity.Manager.RolesToGive`,
+which asks the generated `CouldGive` of `identity.RoleGrants`), and leaves out a role it
+refuses the caller: Lodestar's Sector Marshal is offered every role of the sector but
+the Marshal's own. A grant whose condition also reads the row the method names (the
+person, the group) could admit the role for some of them, so the role is offered and
+the method decides. A role one method takes and another refuses is in the first one's
+list and not in the second's, so each of the four pickers offers exactly what its own
+method takes. A request that names no method is answered no role: a picker that does
+not say which method it serves is empty, never wider than the method. One that names a
+method whose role field does not pick from the list, or names methods any other way
+(`in`, `ne`, two conditions), is refused (400) with the names it may send. A request
+that names a role the list left out is refused by the method's own grant, as before.
 
 The list's own List grant may carry a condition too, which narrows it further. The
 role's name is declared for conditions (`@attribute(name)` on the field), and the library
 judges the condition over each role the list answers (a computed resource's rows,
 section 2); a request for the names alone and the list's count are trimmed the same way.
 Lodestar keeps one, which says nothing its methods' grants do not, to show a condition
-judged over a computed resource's rows:
+judged over a computed resource's rows. A caller filters by the fields they may read, and
+a computed list filters only by a field granted with no condition left once the request is
+checked, or under the same condition as the list's own rows (section 2). So a role is
+granted `method` with the list: among the fields of the list's grant, or, where the list's
+grant leaves it out, as a grant of the field alone:
 
 ```json
-"List": [{ "resource": "CrewSectorRoles", "fields": ["description"], "condition": "name != 'SectorMarshal'" }]
+"List": [
+  { "resource": "CrewSectorRoles", "fields": ["description"], "condition": "name != 'SectorMarshal'" },
+  { "resource": "CrewSectorRoles.method" }
+]
 ```
 
-An Auth whose directory writes the roles gives none by hand and has no such list. The
-roles of the whole application are given by a field a person types, with no list to
-pick from, and the two other lists a role is picked from are limited the same way: the
-default role of a method opened to sign-up (`CrewSignUpRoles`) and the role a tenant is
-opened to its directory's people with (`CrewSectorDirectoryRoles`) each hold the roles
-the caller may give by the method that gives one (`MayGive`).
+**The roles the whole application gives.** The whole application's methods pick their
+role the same way, from one more list per Auth, `CrewGivableRoles`, declared beside the
+methods and served on their outlets (a list and no read). Its rows are the roles that
+exist where the role is to be held, each with its `name` and `description`, the
+`method` it is listed for, and, in an application with tenants, where it is held:
+`domain`, the one tenant ("" for the whole application or every tenant), and
+`everyDomain`. The three are filter keys. Filtered by
+one tenant (`domain:eq:<id>`) the list holds that tenant's roles; otherwise it holds the
+roles held for the whole application (`everyDomain` false) and those held in every
+tenant (`everyDomain` true), which a filter on `everyDomain` narrows. A filter that
+names tenants any other way beside its other conditions (`in`, `ne`, a range, two
+conditions on `domain`) is refused (400), in the application's word for a tenant; one
+that joins its conditions with `or` names no method the list can read apart from the
+rest, and is answered no role. A role is listed once for each place, so a custom role held both for the whole
+application and in every tenant is two rows under one name until the request names a
+place, as the dialogs always do. In an application without tenants the list holds the
+whole application's roles and has neither field of a place.
+
+The role fields that name it (`@enumerate`) are those of `AssignCrewRole`,
+`InviteCrewUser` and `GiveCrewGroupRole`, each written where the Auth has the method. Each request asks where the role is held first (`domain`, then
+`everyDomain`, before the role), so a dialog drawn from the metadata asks where, then
+offers the roles that exist there. As for a tenant, the list is asked for one method at
+a time, named beside the place (`filter=method:eq:InviteCrewUser,domain:eq:<id>`): a
+role is listed where that method's grant could let the caller give it there, with the
+role, the place and nobody named (`identity.Manager.GivableRoles`, over the generated
+`CouldGive`), and left out where it refuses. A role only the invitation's grant admits
+is in the invitation's picker and in no other, and a request that names no method is
+answered no role. The list's own List grant may carry a
+condition on `name` that narrows it further. Two rules hold whatever the grants say: the
+Super Administrator role is listed for the whole application alone, and only to a
+caller who holds it, since only a super administrator gives it; and a tenant's
+administrator's role of a tenant that is directory only is listed only to a caller the
+tenant admits (section "Directory only", the rule the methods keep).
+
+Where the Auth keeps groups, the list has one more filter key, `group`. The method
+that gives a group a role is asked with the group beside it
+(`filter=method:eq:GiveCrewGroupRole,group:eq:<id>,domain:eq:<id>`), and the list then
+holds the roles that group may hold there (`identity.Manager.GivableGroupRoles`), by
+the rule the method holds the group to (`access.GroupMayHold`): never the Super
+Administrator role, and for a group kept in one tenant that tenant's roles alone, so
+no role for the whole application, in every tenant or in another tenant. Asked with no
+group, `GiveCrewGroupRole` is answered no role, and so is an id that is no group's,
+as a group that may hold no role there is: the list never says whether an id is a
+group's. The rule for a tenant that is directory only is the method's here too: its
+administrator's role is listed for a group kept in that tenant only to a caller the
+tenant admits, and for a group kept for the whole application to any caller the grant
+lets give it, since such a group makes nobody the tenant's administrator. A group named
+beside another method, or any other way than by one id, is refused (400). The role file grants the list to the roles that give one, `group`
+among its fields where the role gives a group a role:
+
+```json
+"List": [{ "resource": "CrewGivableRoles", "fields": ["description", "method", "group", "domain", "everyDomain"] }]
+```
+
+An Auth whose directory writes the roles gives none by hand and has neither list. The
+two other lists a role is picked from are limited the same way: the default role of a
+method opened to sign-up (`CrewSignUpRoles`) and the role a tenant is opened to its
+directory's people with (`CrewSectorDirectoryRoles`) each hold the roles the caller may
+give by the method that gives one (`MayGive`).
 
 **A tenant's methods.** Beside the lists the generated management writes the methods a
 tenant changes its people through. Each is a method of the tenant's scope
@@ -3573,14 +5084,16 @@ tenant's roles, and is named as the whole application's method with the tenant r
 name after the Auth's: `DisableCrewSectorUser` beside `DisableCrewUser`.
 
 - The tenant is the one the request was made under. No body carries a tenant, so no
-  request names another: the create and the invitation have no `domain`, and a role is
-  given and taken in that tenant alone. A tenant's method acts for a request, so one run
+  request names another: the invitation has no `domain`, and a role is given and taken
+  in that tenant alone. A tenant's method acts for a request, so one run
   in a transaction of the application's own, outside any request, is an error: there the
   application runs the whole application's method and names the tenant.
 - A method that names something names a row of one of the tenant's lists (`@target` on
   the view): a person by their row of `CrewSectorUsers`, a role held by its row of
-  `CrewSectorUserRoles` (`userId` and `role`, the two columns of the row's key, each a
-  `@target` field naming the column it carries), an invitation by its row of
+  `CrewSectorHeldRoles` (`userId`, `role` and `groupId`, the three columns of the row's
+  key, each a `@target` field naming the column it carries; `groupId` is the empty text
+  on a role held directly, which the method's metadata says it may be, so a page sends
+  it as the row holds it), an invitation by its row of
   `CrewSectorInvitations`, an identity by its row of `CrewSectorIdentities`.
   The frame locates the row within the tenant, so a person who holds no role there, or
   an invitation into another tenant, is not found (404), and
@@ -3592,26 +5105,37 @@ name after the Auth's: `DisableCrewSectorUser` beside `DisableCrewUser`.
   tenant's list and is not the tenant's to take: `RemoveCrewSectorRole` refuses it (409)
   whatever the role file says.
 - The rules are the whole application's, in the same code: nobody disables or deletes
-  their own account, the tenant's last administrator keeps the role, a rename moves the
-  roles, the last role a person holds anywhere takes the account with it, a create and an
-  invitation give at least one role. A refusal that speaks of a tenant says the
-  application's word for one, the tenant record's label or its name in words ("you are
-  the last administrator of this sector"): the generated client hands it to the rules
-  (`identity.WithTenantWord`).
+  their own account, the last administrator of a tenant's own cannot leave it or give
+  up the role (someone whose role lets them take the role away may), a rename moves the
+  roles, the last role a person holds anywhere leaves the account standing, holding
+  nothing, and an invitation gives at least one role. A tenant's administrators are counted as the
+  permission engine counts them (`access.AdministersTenant`): the people who hold an
+  administrator's role in the tenant itself, themselves or through a group kept in the
+  tenant. A person who holds the role in every tenant, or through a group kept for the
+  whole application, does not stand in for the tenant's last one, since a tenant that
+  admits its people through its directory only keeps that person out with everyone
+  else. A holding counts while it is in force: one whose period is over, or has not
+  begun, makes nobody an administrator, and a person removes their own freely. A
+  holder whose account is disabled is not counted either: the account keeps its roles
+  and administers nothing until it is enabled again, so the person beside it is the
+  tenant's last administrator and keeps the role. A
+  refusal that speaks of a tenant says the application's word for one, the tenant
+  record's label or its name in words ("You are the last administrator of this
+  sector."): the generated client hands it to the rules (`identity.WithTenantWord`).
 
-What a tenant may do to a person who also holds a role outside it, and which roles its
+What a tenant may do to a person whose account it does not manage, and which roles its
 administrator hands out, the role file says, in the conditions of the Execute grants: over
 the facts of the row, and over the request's own fields (`new.role`, section 2's
 `@attribute` on a field of an `@rpc` struct). Lodestar's Sector Marshal acts on the
-account of a person the sector holds alone, gives every role but the Marshal's own, takes
+account of a person the sector manages, gives every role but the Marshal's own, takes
 a role away where the sector itself gave it, and withdraws an invitation that stands and
 gives no Marshal's role:
 
 ```json
 "Execute": [
-  { "resource": "DisableCrewSectorUser", "condition": "heldElsewhere = false AND heldGlobally = false" },
+  { "resource": "DisableCrewSectorUser", "condition": "managedHere = true" },
   { "resource": "AssignCrewSectorRole", "condition": "new.role != 'SectorMarshal'" },
-  { "resource": "CreateCrewSectorUser", "condition": "new.role != 'SectorMarshal'" },
+  { "resource": "InviteCrewSectorUser", "condition": "new.role != 'SectorMarshal'" },
   { "resource": "RemoveCrewSectorRole", "condition": "role != 'SectorMarshal' AND everyDomain = false" },
   { "resource": "WithdrawCrewSectorInvitation", "condition": "pending = true AND role != 'SectorMarshal'" }
 ]
@@ -3619,11 +5143,25 @@ gives no Marshal's role:
 
 A grant with no condition on an account method lets a tenant's administrator rename,
 disable or delete a person another tenant also holds: the account is one row for the
-whole application. `roles` is a list, judged role by role, and a create or an invitation
+whole application. `roles` is a list, judged role by role, and an invitation
 with no role is refused by a grant that reads `new.role`, since no value never permits.
 The roles of an invitation's row are a list too, judged the same way: an invitation the
 whole application's administrator sent in the Marshal's role, alone or among others, is
 not the Marshal's to withdraw, and its row's Execute answer leaves the withdrawal out.
+
+Sending an invitation again has no grant of its own, and a role file that grants it is
+refused when the roles are read: whoever may invite a person into the roles an
+invitation gives may send that invitation again. The method is judged by the grant on
+the invitation of its side (`InviteCrewUser` for the whole application,
+`InviteCrewSectorUser` for a sector), and a condition on that grant that reads
+`new.role` is read over the roles of the invitation's row, by the request's own check and
+by the row's Execute answer alike. So the Marshal, who invites into every role but the
+Marshal's own, sends again an invitation that gives no Marshal's role, whether it stands,
+has expired or could not be mailed, is refused one that gives the Marshal's role (403),
+and is not offered Send again on its row, and the role file says the limit once. The
+method itself refuses an invitation that was accepted or withdrawn (409). A session that
+acts as someone else is judged the same way: a permission mask that lets the session
+invite lets it send again.
 
 **The invitation that makes a tenant.** Nobody creates a tenant directly (section 16,
 "How a tenant comes to exist"): staff bring an organization in by inviting one person,
@@ -3643,8 +5181,8 @@ schema without it is refused at generation, naming the column.
   carries the switch (`sectorDirectoryOnly`), and where the directories record carries
   `@directoryDefaultSeat` it carries the role the people of the tenant's directory
   start with (`defaultRole`). It answers the invitation's id and whether its message
-  went (`{"id","sent"}`); an invitation whose message did not go is withdrawn, so no
-  link stands that nobody holds.
+  went (`{"id","sent"}`); an invitation whose message did not go is ended, not
+  mailed, so no link stands that nobody holds.
 - `<Auth>Invited<Record>s` (`CrewInvitedSectors`) lists the invitations that make a
   tenant and still stand: not one that was accepted or withdrawn, not one that expired,
   and not an invitation into a tenant that exists. A row carries the address, the
@@ -3653,10 +5191,36 @@ schema without it is refused at generation, naming the column.
   row only for a caller who may list that field on the tenant record: a caller who
   lists a sector's name alone reads the name the invitation carries and none of its
   other details.
+- `<Auth>Invited<Record>Roles` (`CrewInvitedSectorRoles`) lists the roles the people of
+  a new tenant's directory may start with, where the invitation carries a starting
+  role: the roles held in every tenant that the sender could give a person in a tenant
+  directly and that the invitation's own grant does not refuse, each with its
+  description, and never the Super Administrator role. The invitation's `defaultRole`
+  is picked from it, so its form offers the roles the invitation takes from its sender
+  and no other; a sender who may give no role is listed none and sends the invitation
+  without one. The list is its own grant: grant List on it to each role that is granted
+  `Invite<Auth><Record>`.
 - `Withdraw<Auth>Invited<Record>` (`WithdrawCrewInvitedSector`) withdraws one by its id
   (204), and answers 404 for anything but an invitation that makes a tenant and still
   stands. An invitation is not edited: staff who want other details withdraw it and
   send another.
+
+The auth whose people make the tenants also lists them: `<Auth>Listed<Record>`
+(`StaffListedTenants`), a view over the tenant record's table with the record's own
+fields and three facts no table holds. People is how many people hold something in the
+tenant itself right now, a role of their own, a place in one of its groups or a sign-in
+through its directory; a person who is there only through a role held in every tenant,
+or through a group kept for the whole application, is not counted. Directory is the kind
+of directory its people sign in through, and of a Google Workspace its connection too:
+its domain, or the name the application's sign-in registration gives it. Administrators
+names each person who holds a tenant administrator's role in the tenant itself. A person
+whose account is disabled is not named, since a disabled account administers nothing;
+People still counts such a person, as the tenant's own list of people shows them. Since
+is when the tenant was made: the column the record marks `@tenantSince`, served as
+`since` whatever the record calls it; a record that marks none has no Since in its list.
+The view names the record as where its rows are written (`@rowsOf`), so a page lists the
+view and a row opens, is changed and is deleted as the record's own. The description
+names it `tenants`, and the browser package's tenants page is drawn from it.
 
 Sending is held to what the sender could have done by creating the tenant. Beside the
 method's own grant it takes the Create grant on the tenant record, on the record and on
@@ -3664,9 +5228,10 @@ each field the invitation carries, with every condition: the details are run thr
 the record's own create, armed with the sender, in a transaction that is rolled back,
 so a rule the record's create applies is applied when the invitation is sent, and the
 answer goes to the person who can correct it. The starting role is a role the sender
-could give a person directly. A value the record keeps unique in a single column that
-takes no NULL (the name, under the skeletons' index) is looked up when the invitation
-is sent and again when it is accepted, and one that is taken is refused with a sentence
+could give a person directly, picked from `<Auth>Invited<Record>Roles`. A value the
+record keeps unique in a single column that takes no NULL (the name, under the
+skeletons' index) is looked up when the invitation is sent and again when it is
+accepted, and one that is taken is refused with a sentence
 (409, "a sector with the name Anvil already exists: give the new one another"). The
 lookup runs once the sender's grants have answered, so the refusal tells nobody who may
 not create a tenant which values are taken. A rule
@@ -3712,9 +5277,10 @@ invitation names. All of it commits or none does.
   (`organization_account_required`); nothing is made and the invitation stands.
   Accepted through a directory, the tenant is made directory only with that directory
   as its own: the one case in which a tenant is directory only from the start.
-- A directory belongs to one tenant, so a first sign-in through a directory another
-  tenant has is refused (`organization_has_tenant`), the person told their organization
-  is already set up and whom to ask; nothing is made and the invitation stands.
+- A directory belongs to one tenant, so the sign-in that would accept the invitation
+  through a directory another tenant has is refused (`organization_has_tenant`), the
+  person told their organization is already set up and whom to ask; nothing is made and
+  the invitation stands.
 
 The person enters nothing and changes nothing by accepting: the details are the
 sender's. After the commit the instance that took the sign-in rereads its roster and
@@ -3751,9 +5317,11 @@ holding some of them is refused at generation.
   group is a change to what people hold, so it is judged as the role changes it makes,
   beside the grant of the group's own method, which says who manages groups at all.
   Putting a person in a group needs what giving that person each role the group holds,
-  where it holds it, needs. Taking a person out needs what taking each of those roles
-  from them needs. Giving a group a role needs what giving it to each person in the
-  group needs, and taking a role from a group what taking it from each of them needs.
+  where it holds it, needs, and for each role it holds on a record, what giving them the
+  role on that record needs (section 25). Taking a person out needs what taking each of
+  those roles from them needs. Giving a group a role needs what giving it to each person
+  in the group needs, on a record as across the tenant, and taking a role from a group what
+  taking it from each of them needs.
   What a role change needs of the caller is the role file's to say, in the grants of
   the methods that give a role and take one away (`AssignCrewRole`, `RemoveCrewRole`;
   for a request made under a tenant the tenant's own, `AssignCrewSectorRole` and
@@ -3764,40 +5332,79 @@ holding some of them is refused at generation.
   grants a sector's marshal `AssignCrewSectorRole` with `new.role != 'SectorMarshal'`,
   the marshal puts nobody in a group that holds SectorMarshal, whatever the grant on
   `AddCrewSectorGroupMember` says. A change the caller could not make directly is
-  refused (403), naming the role. A place or a group's role whose period has ended
+  refused (403), naming the role as a role picker shows it, in words ("Putting a person
+  in the group Night shift gives them the role Sector marshal, which you may not give
+  them."). A place or a group's role whose period has ended
   gives nobody anything and is not judged; one that has not begun is. A method the
   application runs in a transaction of its own, outside any request, is the
   application's act and is not judged.
 - Taking a role away from a person removes the membership of their own. What they hold
   through a group stays, and goes when they leave the group or the group loses the
-  role.
+  role. A tenant's removal (`RemoveCrewSectorRole`) names a row of the tenant's one list
+  of roles (`CrewSectorHeldRoles`) by the person, the role and the group the role comes
+  through, which is none for a role of the person's own, the row a request that names
+  no group names. A row that comes through a group is refused (400), and the refusal
+  says where the role is changed. It asks first (a bare `@warning`): the server says
+  whose role goes and where it is held.
 - No group holds the Super Administrator role (400): a super administrator gives it to
   one person at a time, so a group is no way around the rule that only a super
   administrator makes another. The methods a super administrator always executes stay
   the two that give and take a person's own role.
-- A group that still has a member or holds a role is not deleted (409): empty it first.
-  Nobody loses a role because a group was deleted. Deleting a tenant removes the
-  tenant's groups with their members and roles, and every role a group of the whole
-  application holds in it (`ClearTenant`); deleting a person takes them out of their
-  groups.
-- A place in a group keeps an account as a role of the person's own does: a person whose
-  last role is taken away stays while they are in a group, and a person taken out of
-  their last group who holds no role is deleted with their identity links and sessions.
-  Where a person belongs to one tenant (`identity.WithOneTenantPerPerson()`), a place in
-  a tenant's group counts as a role in that tenant.
+- A group's delete takes its members and the roles it holds with it, after a question
+  that counts them. Asked without `everythingUnder`, a group that has either deletes
+  nothing and is answered 428 with the question ("Delete this group and everything under
+  it: 12 members, 3 roles. This can't be undone."); asked with it and the question's
+  token, they go with the group.
+  Each member and each role whose period has not ended is asked what its own removal
+  asks: the caller's grant of `RemoveCrewGroupMember` and of `TakeCrewGroupRole` (403,
+  "This group has members, and you can't remove people from a group, so it can't be
+  deleted." and the same of roles), and the rules of the removal, so nobody deletes a
+  group that gives them the last administrator's role of a tenant. A member or a role
+  whose period has ended is asked nothing: the question counts it and it goes with the
+  rest. A group with more under it than one save
+  holds answers 202 with the rows it deleted, and the same delete, sent again, goes on. The
+  lists of groups say what each holds (`people`, `roles`). The roles people hold in the
+  tenant, its groups, its custom roles, its invitations and the accounts that belonged to
+  it alone are kinds of the tenant's delete: counted in its question and taken in its
+  rounds. A tenant's group goes with its members and its roles, and a role a group of the
+  whole application holds in the tenant goes with the roles held (section 16, "Deleting a
+  tenant"); deleting a person takes them out of their groups.
+- A person taken out of their last group who holds no role keeps their account: the
+  account stays, holding nothing. Where a person belongs to one tenant
+  (`identity.WithOneTenantPerPerson()`), a place in a tenant's group counts as a role in
+  that tenant.
 - The declaration over the members table declares a subject set, the ids of the groups
-  the caller is in: `subject.groups` (section 2, `@subjectSet`). Every list over groups
-  carries the group's id under the attribute `group`, so a role file holds a grant to
-  the caller's own groups (`group IN subject.groups`: Lodestar's sector crew see the
-  groups they are in and the people in them), and a table of the application's own
-  whose rows name a group follows a person through it in a set of its own
-  (`who: GroupID IN subject.groups`). An application with several Auths that keep
-  groups has one set for each, named for its Auth (`subject.crewGroups`,
-  `subject.staffGroups`), since `subject.<name>` is one namespace for the application.
-  The set holds every group the caller is in, whichever tenant keeps it: a group's id
-  names one group in the whole application, so a tenant's group counts in a condition
-  wherever a row names it, and a tenant's rows name a tenant's groups by the picker the
-  application offers.
+  the caller is in, named after the auth: `subject.crewGroups` for Lodestar's auth
+  `crew`, `subject.staffGroups` for an auth `staff` (section 2, `@subjectSet`). Every
+  list over groups carries the group's id under the attribute `group`, so a role file
+  holds a grant to the caller's own groups (`group IN subject.crewGroups`: Lodestar's
+  sector crew see the groups they are in and the people in them), and a table of the
+  application's own whose rows name a group follows a person through it in a set of its
+  own (`who: GroupID IN subject.crewGroups`: a hangar pass in Lodestar names a person, a
+  squadron or a group). The members table is no tenant's, so the set names its own way to a
+  group's tenant (`domain: GroupID.DomainID`): in a tenant's request it holds the groups
+  kept in that tenant alone, so a tenant's row that named another tenant's group, or a
+  group kept for the whole application, would give nobody anything; in a request with no
+  tenant it holds every group the caller is in. The library writes no such row. Every
+  create and every update of a tenant's row that names a group asks, in the write's own
+  transaction, where the group is kept, and refuses the write unless that is the row's
+  own tenant (400, `groupId names a group that is not one of this sector's own. Choose a
+  group kept in this sector: a group kept in another sector, or for the whole application,
+  cannot be named here.`, the column by its JSON name and the tenant by the application's
+  word for one). An update that moves a row which names a group to another tenant is held
+  the same way, and an id that is no group's is refused in the same words, so the answer
+  says nothing of what another tenant keeps. A column that is also picked from a list
+  (section 26) is held to its writer's own list as well, and a request's create that names
+  a group the list does not show is answered by that rule, as a row that is not there
+  (404), before this one is asked; this rule's own sentence is what a writer no list is
+  asked of (a job, a bootstrap) reads. The rule is the patch set's, so it holds for every
+  writer that writes through a patch (a generated route, a method, a job, a bootstrap),
+  armed or trusted, and no application states it: the generator declares the columns
+  (`GroupColumns` on the generated resource), every column of a `@domain` resource that a
+  `who:` tests against an Auth's groups set. A writer that goes past the patch with SQL of
+  its own is outside it. An application with several Auths that keep groups has one set
+  for each, named for its Auth (`subject.crewGroups`, `subject.staffGroups`), since
+  `subject.<name>` is one namespace for the application.
 
 The lists: `CrewGroups` (the groups, with where each is kept), `CrewGroupUsers` (the
 people of the groups, with their names), `CrewGroupRoles` (the roles the groups hold)
@@ -3813,7 +5420,115 @@ while it has not begun and the one held in every tenant counts. The lists of wha
 Administrator role in a group, a tenant's group with a role outside its tenant). A
 tenant's list of its people (`CrewSectorUsers`) holds who a group puts there: the
 members of its own groups, and the members of a group of the whole application that
-holds a role there, the latter with `heldGlobally`.
+holds a role there, the latter with `heldGlobally`. `CrewGroups` says what its rows are
+known by (`@name` on `name`), so a field of another resource that holds a group's id, by
+a foreign key to the groups table or by `@enumerate(CrewGroups)`, gets a name field read
+from it (`groupId` gives `groupName`), shown to a reader who holds List on `name` there,
+asked for the whole application. `CrewListedGroups` declares no name.
+
+**What a page reads of them.** Four lists say what is held in the words a page shows,
+each a view like a tenant's lists: nothing is created in the database, and the role file
+grants each like any resource.
+
+- `CrewHeldRoles` is the one list of the roles people hold, each with where it comes
+  from: a row for each role of a person's own, with its period and the reason it was
+  given for, and a row for each role that comes to a person through a group, which
+  `groupId` and `groupName` name (both empty for a role of the person's own). A person
+  may hold a role both ways, so the group is part of what names a row. A tenant has its
+  own (`CrewSectorHeldRoles`), with `globalGroup` where the group is the whole
+  application's and `groupPage`, the group's id where the tenant keeps the group and so
+  has a page for it. It stands beside `CrewSectorUserRoles`, which holds the roles
+  people hold themselves and is read by a row's key; the one list is read as a list
+  alone. An auth whose roles a directory writes has the list too, and every row of it
+  is the person's own.
+- `CrewListedUsers` is the accounts with what each holds: the account's columns,
+  `roles`, a line for each role the account holds ("Engineer", "Engineer in sector
+  Anvil", "Pilot in every sector"; the role's name alone where the application has no
+  tenants), and, where the schema holds the sign-in attempts table, `lockedUntil`: until
+  when the account's sign-in is locked by failed tries. A line names the tenant its role
+  is held in by the name people call the tenant by, or by its key where the tenant record
+  marks no name, so a grant of `roles` shows those names whatever the reader is granted
+  on the tenant record, as a line of `CrewListedGroups` does. Where the schema holds the
+  trusted devices table it carries `trustedDevices` too: how many browsers are remembered
+  for the account and skip the second factor right now. Where the application has a
+  tenant record it says who manages each account too: `managedByTenant` and
+  `managingTenant`. Where every outlet that serves the Auth's management serves the
+  tenant record, `managingTenant` points to the record, so a row carries the managing
+  tenant's name beside the key, `managingTenantName`: a name field as `@name` describes
+  them, shown to a reader who holds List on the record's name field, which the list sorts
+  by and, where a filter may name it, filters by. An account no tenant manages carries
+  neither. The Accounts page lists it, it filters by `username`, `name`, `email` and the
+  two facts, and the whole application's methods on a person name their person by its
+  row. `CrewSessionUsers`, the users table's own list, stays: a picker of a person reads
+  it. It says what its rows are known by (`@name` on `username`), so a field of another
+  resource that holds an account's id, by a foreign key to the users table or by
+  `@enumerate(CrewSessionUsers)`, gets a name field read from it (`userId` gives
+  `userName`), shown to a reader who holds List on `username` there, asked for the whole
+  application. A tenant's roles hold nothing for the whole application, so a tenant's
+  record that should show a person to the tenant's own people picks from the tenant's
+  list (`@enumerate(CrewSectorUsers)`), whose name is granted in the tenant.
+  `CrewListedUsers` declares no name: a field that should show the username points at
+  `CrewSessionUsers`.
+- `CrewListedIdentities` is the sign-in identities with who manages each account,
+  declared where the application has a tenant record: a row for each identity link, with
+  the columns of `CrewSessionIdentities`, the person's `username`, and the person's
+  `managedByTenant` and `managingTenant`. A person's page lists it, and the whole
+  application's unlink names an identity by its row, so a role file gives the unlink under
+  the same condition as the methods on the account. `CrewSessionIdentities`, the
+  identities table's own list, stays.
+- `CrewListedSessions` is the sessions as a page lists them: the session's columns under
+  the account's present username, the person's name, how the session signed in, the
+  browser, whether it is live, and its state in one word (live, timed out, ended). A
+  session that is neither `live` nor `expired` timed out. `live` judges the session alone:
+  a request is also refused where the session names no account, or its account is disabled
+  or gone, and disabling or deleting an account ends its sessions. The Sessions page and
+  the list of live sessions under an account list it, it filters by `id`, `userId`,
+  `username`, `expired`, `live`, `state`, `signedInWith` and `updatedAt`, and the method
+  that ends a session names its session by its row. `CrewSessions`, the sessions table's
+  own list, stays. A session's `userId` points at the list of the accounts
+  (`CrewListedUsers`), which is what opens the account from a session's row. Where the
+  schema holds no memberships table the accounts' list is `CrewSessionUsers` itself, the
+  session's `userId` points at nothing, and its row opens nothing.
+- `CrewListedMailLinks` is the mailed links as a page lists them: the link's columns, its state
+  (open, accepted, withdrawn, expired, not mailed), the sender's name, and whether the invitation
+  makes a tenant.
+- `CrewListedSignInAttempts` is the failed sign-ins as a page lists them: the counts that are
+  locked or still being counted, each with what it counts, the account that holds the name, and
+  the limit that locks a name.
+- `CrewListedGroups` is the groups with what each holds: `people`, how many people are
+  in the group, and `roles`, the roles it holds, a line each: the role's name, and where
+  it is held when that is not where the group is kept ("Engineer in sector Anvil",
+  "Pilot in every sector"), the tenant by the name people call it by where the tenant
+  record marks one (`@tenantName`). Both count what has not ended, a place or a role
+  whose period has not begun among it. The whole application's group methods name their
+  group by its row here. A tenant's list of its groups (`CrewSectorGroups`) carries the
+  two columns itself.
+- `CrewListedGroupRoles` is the roles the groups hold, each with `losing`: how many
+  people lose the role when the group stops holding it, the people in the group now who
+  hold the role there in no other way, neither by a membership of their own nor through
+  another role of a group they are in. A person who holds the role in every tenant
+  keeps it in each, so they do not lose a role held in one. Nobody loses a role whose
+  period has not begun, or one the group gives its members nothing by. A tenant's list
+  (`CrewSectorGroupRoles`) carries the count itself.
+
+**The audit log.** The generated management lists the log twice:
+`<Auth>ListedAuditRecords` for the whole application and `<Auth><Tenant>AuditRecords` for
+the acts done in one tenant. Both are computed resources: the rows come from the table,
+and the three texts a person reads (`who`, `what`, `doneTo`) are written by the library as
+each row is read. A role file grants each as it grants any list, and the Audit log page
+draws it, newest first. A list filters by the time, the act, the username of the person
+who acted, the name of whom or what it was done to, and the role. A filter that matches
+part of a text (starts with, ends with, contains) is applied to the rows in memory, so on
+a long log it reads every row the other filters admit. It is not filtered or sorted by the
+three texts, which no column holds, and it shows no total. Both lists are read only.
+
+**The custom roles' grants.** `CrewListedRoleGrants` is the custom roles' grants as the
+store holds them, each with `skipped`: empty for a grant its role holds, and for one the
+permission engine leaves out when it loads the policy, why, in the words the deploy
+check prints. It is a computed list: the engine is asked of every row, and no query
+selects it. The grants table itself has no route. The role file grants the list like any
+resource, and `skipped` is a field of that grant: a role whose grant does not name it
+reads the rows without it, and a grant the engine leaves out then reads as any other.
 
 **The period of an assignment.** A role given to a person, a person's place in a group
 and a role given to a group may each carry a period: a start and an end, each optional,
@@ -3839,7 +5554,12 @@ An Auth whose roles a directory writes gives none by hand and so gives no period
   own role or the caller's own place in a group that ends later, or never, or begins
   sooner while it has not begun, and the same for a role of a group the caller is in.
   It holds for a period that has ended too, while its row stands. Someone else who may
-  give the role gives it its new period; the caller shortens their own freely.
+  give the role gives it its new period. The caller shortens their own, with one
+  exception: the last administrator of a tenant's own does not cut the role short
+  there. A period that takes it away from now on, or from a sooner end, is refused
+  (403) in the words that refuse them the role's removal, on their own role, on their
+  place in the group that gives it and on that group's role, until another person
+  administers the tenant.
 - The Super Administrator role takes no period (400): there is always a super
   administrator, and a period could leave none.
 - The permission engine applies the period at the instant a check is made with, the
@@ -3847,8 +5567,9 @@ An Auth whose roles a directory writes gives none by hand and so gives no period
   request after the end. The sign-in rule and the session's list of tenants read what a
   person holds at the moment, and so do a tenant's list of its people
   (`CrewSectorUsers`) and the list of the identities of those people: a person whose
-  only role in a tenant has ended, or has not begun, is not one of its people. The two
-  facts about a person (`heldElsewhere`, `heldGlobally`) read what has not ended.
+  only role in a tenant has ended, or has not begun, is not one of its people. The
+  facts about where a person holds roles (`heldElsewhere`, `heldGlobally`, `heldHere`,
+  `heldInEveryTenant`), and `managedHere`, which reads them, read what has not ended.
 - The lists of roles and of places carry the period (`startsAt`, `endsAt`) under a
   field grant of their own, leave out a row that has ended and show one that has not
   begun, where it is given another period or taken away: `CrewSectorUserRoles`, the
@@ -3858,19 +5579,20 @@ An Auth whose roles a directory writes gives none by hand and so gives no period
   `CrewGroupRoles`) list each row as the table holds it, period included.
 - The subject set of a person's groups counts a place inside its period alone: the
   members' declaration says so with the set's `where:` part, so a condition that tests
-  `subject.groups` leaves a group out exactly when the engine stops giving its roles.
+  `subject.crewGroups` leaves a group out exactly when the engine stops giving its roles.
 - An ended row goes at its person's next sign-in, and no job runs on a schedule. The
   generated client answers the session library's hook for a sign-in that stands
   (`crewidentity.Client.SignedIn(db)`), and the Auth's package sets it where it sets
   the invitation's hook (`session.Auth.SetSignedInHook`); an application that has a hook
-  of its own calls the client's from it, since one Auth has one hook. The session
-  library calls it once the session is committed and logs an error it answers, so the
-  removal neither fails a sign-in nor undoes one, and a sign-in with nothing to clear
-  costs one read of the person's own rows. What has ended is the database's to say, by
-  its own clock, the one the lists and the sign-in rule read: the statement that finds
-  the rows carries the condition, before the transaction and again inside the
-  transaction that removes them, so a server whose clock runs fast removes nothing that
-  still counts. It removes the person's ended roles and
+  of its own calls the client's from it, since one Auth has one hook. The same hook
+  announces the sign-in to the open pages (section 14). The session library calls it
+  once the session is committed and logs an error it answers, so the removal neither
+  fails a sign-in nor undoes one, and a sign-in with nothing to clear costs one read of
+  the person's own rows. What has ended is the database's to say, by its own clock, the
+  one the lists and the sign-in rule read: the statement that finds the rows carries the
+  condition, before the transaction and again inside the transaction that removes them,
+  so a server whose clock runs fast removes nothing that still counts. It removes the
+  person's ended roles and
   places and nothing else: never the account, also when the ended role was the last
   thing the person held; the rule on a tenant's last administrator does not judge it;
   the engine is told nothing, since an ended assignment already counts for nothing; and
@@ -3880,31 +5602,90 @@ An Auth whose roles a directory writes gives none by hand and so gives no period
   a person whose every assignment has ended is refused, nothing is cleared for them,
   and the rows go with the account.
 
+**The reason of a role, and taking one for a set time.** A role given to a person may
+carry the reason it was given for: one line of plain text, kept in a nullable column of
+the permission store's memberships table (`Reason`; the store's `DDL()` has it, and
+every policy store's schema holds it).
+
+- The methods that give a person a role (`AssignCrewRole`, `AssignCrewSectorRole`) take
+  it as `reason`, which is optional there. It is one line of at most 500 characters; a
+  line break is refused (400).
+- Nothing edits a reason. Giving the role again writes the period and the reason of the
+  new request over the ones it had, so a request that gives none leaves the role with
+  none.
+- It is shown wherever the roles a person holds are listed, beside the role and when it
+  ends: `CrewUserRoles`, `CrewHeldRoles`, `CrewSectorUserRoles` and
+  `CrewSectorHeldRoles` carry it under a field grant of its own, so a tenant's
+  administrator reads why someone from outside holds a role with them.
+- `TakeCrewRole` gives the request's caller a role for a set time, with a reason: the
+  act of the Break glass page. The request names no person. It names the tenant (in an
+  application that has tenants; without them the role is the whole application's), the
+  role, a length and the reason, which is required here. The lengths are the ones
+  `CrewTakeLengths` lists (1 hour, 4 hours, 8 hours, 1 day), and the role is held from
+  now until the length is over, when it ends by itself as any period does. A longer
+  need is an ordinary role with an end. The length is picked from that list, so a role
+  that runs `TakeCrewRole` also holds the List on `CrewTakeLengths`, and a length the
+  list does not hold is answered as a row that is not there (section 26).
+- Taking gives nobody a power that giving themselves the role directly would not.
+  Beside the grant of `TakeCrewRole`, the caller needs what `AssignCrewRole` needs of
+  them for the same role in the same place, asked for themselves, which a super
+  administrator always holds. `CrewTakeableRoles` lists the roles the caller could take,
+  so a page offers what the caller may do. The one rule taking sets aside is that
+  nobody lengthens their own holding: taking a role the caller holds there already
+  writes the new time and the new reason over the old ones. The last administrator of a
+  tenant's own is refused the taking of the role they hold there where its time ends
+  sooner than their holding (403), since the tenant would have no administrator once the
+  time is over. A session that views as someone else takes nothing (403), and neither
+  does a caller who is not a person of the Auth.
+- Ending a taken role early is taking it away, by whoever may: a tenant's administrators
+  by the role file's grant on `RemoveCrewSectorRole`, headquarters by `RemoveCrewRole`.
+  Nothing here is permission code of its own.
+- `CrewTakenRoles` lists the roles held for a set time with a reason, whoever gave them:
+  a role a person took, and a role given the ordinary way with an end and a reason,
+  which is the same thing held the same way. `ended` says the time is over, by the
+  database's clock. An ended row stands, with its reason, until its person next signs
+  in, which removes it as it removes any ended role: nothing keeps an assignment once
+  its row is gone.
+
 **The rules** are the `identity` package's, written once over a `Store` the generated
 `crewidentity` package implements with the Auth's own typed queries and patches:
 
-- A new user holds at least one role (400 without one) and, where the create carries
-  one, a temporary password: required where the password is the Auth's one way in,
-  optional beside another registration, whose people may sign in through it instead. A username or an address another user holds is refused at the
-  commit.
-- A temporary password, given at the create or set on an account, is hashed by the
-  session library and marks the account: the person chooses a password of their own
-  before anything else is served. Set on an account, it also ends every session the
-  person holds and clears the count of failed sign-ins under their name, so a person
-  locked out signs in with it at once.
+- A person is added by an invitation, which gives at least one role (400 without one).
+  Nobody creates an account for someone else: the account is made when the person
+  accepts, with a password they choose there or through a directory.
+- Nobody chooses a password for someone else. A person who has lost theirs is mailed a
+  reset link and chooses the next one themselves, and a person required to change
+  theirs chooses another before anything else is served (both below).
 - A rename takes with it what is held under the old name: the person's sessions, the
   sessions they hold as someone else with their impersonation records, and every role
   membership. A name another user holds is refused (409).
-- An address set by hand is written bare and held unverified, whatever the one before it
-  was: it is trusted for nothing until the person verifies it themselves, and it
-  reserves the address, so one another user holds is refused at the commit. No address
-  (`email` null or left out) takes the one held off.
+- An address an administrator sets changes nothing until the person confirms it. The
+  method mails a link to the new address once the transaction has committed, and the
+  account keeps the address it has until the person follows that link from the new
+  mailbox (`POST user/email/confirm`, which the login page reaches with
+  `#address=<token>`). The old address is told once the change is made, and never asked
+  to allow it. One change stands at a time: a second request withdraws the first one's
+  link. An account always keeps an address, so the method replaces one and never takes
+  one off, and the answer says whether the link went (`sent`) and, where it did not,
+  why (`reason`), which the page shows the administrator.
+- A password reset link is mailed to the address the person confirmed, once the
+  transaction has committed, and changes nothing until it is used: the password the
+  account has signs the person in and their sessions stand. The message says who asked,
+  an administrator of the tenant the request was checked in or of the application. The
+  link works once; the new password ends every session of the person. The answer says
+  whether the link went and why not (the account has no password or no confirmed
+  address, or the address was sent too many reset links: five in fifteen minutes, the
+  person's own requests counted with the administrators' and apart from sign-in codes).
+  The role file decides who may send one, as for every method of the set, and a link to
+  a super administrator's account is sent by a super administrator alone, whatever the
+  role file grants: the link changes how the account signs in.
 - Deleting a user removes their role memberships, ends their sessions, and removes
   their identity links and the account; whatever else the Auth keeps for the person
   goes with the row.
 - Resetting a person's second factor forgets every browser the Auth remembered for
   them, so their next sign-in from any of them is asked for the factor. The sessions
-  that stand are left.
+  that stand are left. The person is told at their confirmed address, once the
+  transaction has committed.
 - A lockout is cleared by removing the count of failed sign-ins kept under the name.
   Each instance of the application trusts what it remembers of a name for five seconds,
   a lock included, so the lock is gone from every instance within that time of the
@@ -3915,7 +5696,8 @@ An Auth whose roles a directory writes gives none by hand and so gives no period
   someone else, each with its impersonation record. Ending all of a user's sessions is
   the same act without the disable.
 - One session ends by its id; an impersonated session also ends by its record, which is
-  then closed as revoked.
+  then closed as revoked. Before it runs, the method says what it does (Warning): for the
+  session the caller is using, that ending it signs them out.
 - A password change is required only of a user who has a password (400 otherwise): a
   person with none would be shut out with no way back in. Whether a user has one is
   asked of the database, never read into a row.
@@ -3941,21 +5723,23 @@ An Auth whose roles a directory writes gives none by hand and so gives no period
   "or"). Never a hash, a subject or an address.
   It is a computed list, asked for one person at a time (`filter=userId:eq:<id>`): a
   request that names nobody lists nobody's, and one that names people any other way is
-  refused (400). A tenant's answers for a person of the tenant's own list of people,
-  nothing for anyone else, and carries the two facts of the person's row
-  (`heldElsewhere`, `heldGlobally`) for a grant's condition, with `password`, which says
-  whether the row is the password. A role file grants it to whoever reads the
-  identities. Lodestar's and the skeletons' grant a tenant's administrator the list
-  under `password = false OR heldElsewhere = false`: the identities that count of
-  every person of the tenant, and the password only of a person no other tenant holds,
-  the condition `passwordChangeRequired` is read under. Whether a person another tenant
-  holds too has a password is then not the tenant's to learn, the page offers no
-  removal for them (it offers one by the rows), and the removal is the whole
-  application's administrator's, who reads the password in the whole application's
-  list. Every field of that grant is under the condition, so a tenant's administrator
-  cannot ask for the list sorted or filtered by one of them (a sort or filter field
-  needs an unconditional grant): the list comes in its declared order, the password
-  first.
+  refused (400). It declares the tables that change it (`@changedBy`: the accounts and
+  the identities, and for a tenant's list the role memberships and the groups too), so a
+  page that holds it open reads it again when a sign-in links an identity or an
+  administrator removes a password. A tenant's answers for a person of the tenant's own
+  list of people, nothing for anyone else, and carries four facts of the person's row
+  (`heldElsewhere`, `heldGlobally`, `managedHere`, `managedByAnotherDirectory`) for a
+  grant's condition, with `password`, which says whether the row is the password. A role
+  file grants it to whoever reads the identities. Lodestar's and the skeletons' grant a
+  tenant's administrator the list under `managedHere = true`: how a person signs in is
+  read by the tenant that manages their account, the condition `passwordChangeRequired`
+  is read under. Whether a person another party manages has a password is then not the
+  tenant's to learn, the page offers no removal for them (it offers one by the rows), and
+  the removal is the whole application's administrator's, who reads the password in the
+  whole application's list. Every field of that grant is under the grant's one condition,
+  which is the list's own, so the server answers a tenant's administrator's request for
+  the list sorted or filtered by one of them. The page draws the list in its declared
+  order, the password first.
 - A token is revoked with the rest of its device authorization; a token that is expired
   or already revoked is not found (404).
 - A role is assigned in the global scope, in one domain, or in every domain, and must
@@ -3969,11 +5753,15 @@ An Auth whose roles a directory writes gives none by hand and so gives no period
   written in the caller's transaction, beside whatever else the transaction writes, and
   the link is mailed once the transaction has committed (`resource.AfterCommit`). The
   answer's `sent` says whether the message went: an invitation whose message could not
-  be sent is withdrawn, so no link stands that nobody received, and the caller invites
-  again.
+  be sent is ended, not mailed, so no link stands that nobody received, and the caller
+  invites again.
 - Withdrawing holds to invitations. A mail link of another kind (a verification, a
   sign-up) is not found, and neither is an invitation that was accepted, withdrawn or
   has expired (404).
+- Send again mails a new link with the same address, roles, place and name and withdraws
+  the one that stood; it is offered on an invitation that is open, has expired or could
+  not be mailed. It takes no grant of its own: whoever may invite into the invitation's
+  roles may send it again.
 
 **Who may sign up.** Whether a sign-in method admits a person who has no account and no
 invitation is chosen for each method in the running application, never in code. The
@@ -3990,7 +5778,9 @@ assigns the page's two halves, with nothing written by the application:
   (`admits`: "Anyone with a Google account", "Anyone with an account at acme.example",
   from how wide the method's registration is), `openSignUp`, `defaultRole`,
   `directoryGivesRoles` and `ownRule` (the two kinds of method nothing is chosen for,
-  below), and `says`, what a person with no invitation meets, as a sentence. It is
+  below), `selfServiceReset` (on the password method's row alone: people may ask at the
+  sign-in page for a link that resets their own password), and `says`, what a person
+  with no invitation meets, as a sentence. It is
   computed from the Auth's registrations and the table's rows, so a method with no row is
   listed as invite only, and a row of a method the Auth no longer registers is not listed.
 - `OpenCrewSignUp` and `MakeCrewInviteOnly`, the two methods that write the row. Opening
@@ -3999,6 +5789,17 @@ assigns the page's two halves, with nothing written by the application:
   gets, with the words for the confirm button ("Open to anyone with a Google account"),
   and saves nothing. Making a method invite only says nothing first: the people who have
   accounts keep them, and new people need an invitation.
+- `SetCrewSelfServiceReset`, for an Auth with a password method: whether a person may
+  ask at the sign-in page for a link that resets their own password (`on`). It is off
+  until an administrator turns it on, and the choice holds in the running application
+  from the commit on, with no restart: the methods route names the request's path while
+  it is on, the login page offers "Forgot your password?" from it, and the request's
+  route answers 404 while it is off. A link asked for while it was on still works once
+  it is off, until it is used or runs out, and a link an administrator sends is never
+  held to the choice. Every Auth that declares the password method has the method and
+  the list of its sign-in methods, whether or not it carries the choice of who may sign
+  up: an Auth that carries none (its people join a tenant somebody else made) has the
+  Sign-in page for this switch alone.
 
 What a person who signs up gets depends on the application. Without tenants they get the
 method's default role, a role held for the whole application: opening a method without
@@ -4010,8 +5811,10 @@ Auth's assign method with the role as the new value (the judge that already hold
 role given to a group to what its giver may give, `identity.RoleGrants`, written to the
 client's `grants.go`), so a role file that conditions the assign method's grant on the
 role (`"when": "new.role in [...]"`) holds the default role to the same list. Opening a
-method with a role the caller may not give is refused with 403 naming the role, at the
-warning as at the save, and `CrewSignUpRoles` lists only the roles the caller may give.
+method with a role the caller may not give is refused with 403, in one sentence that
+names the role as a role picker shows it, in words ("Opening the method gives every
+person who signs up the role Sector marshal, which you may not give."), at the warning
+as at the save, and `CrewSignUpRoles` lists only the roles the caller may give.
 The grant answers before the role is looked for, so the refusal is the same for a role
 the application holds and one it does not, and tells nobody of a role the grant keeps
 from them.
@@ -4060,7 +5863,7 @@ nothing once it is closed. The table's rows are written through its generated pa
 with change tracking on, so the change record keeps who opened a method and who made it
 invite only, and when (`DataChangeEvents` under `CrewSessionSignInMethods`); the table
 itself has no route, and nothing but the two methods writes it. The role file grants
-List on `CrewSignInMethods` (and `CrewSignUpRoles`) and Execute on the two methods to the
+List on `CrewSignInMethods` (and `CrewSignUpRoles`) and Execute on the methods to the
 roles that may decide, and nobody else reads the list or the warning.
 
 **What the application supplies.** One client per Auth, built by the Auth's own package
@@ -4072,6 +5875,7 @@ and handed to the handler type, which returns it from an accessor named for the 
 identityClient, err := crewidentity.NewClient(accessClient,  // the Auth's permission engine
 	authSession.API(),                                        // the API of the session.Auth that signs its people in
 	settings.TenantMaker,                                     // what makes a tenant, for the Auth a tenant is made through
+	identity.WithFirstAdministratorRoles(FirstAdministratorRoles()), // the first administrator's roles, by where they are held
 	identity.WithAdministratorRoles(tenantAdministrators))    // the roles that administer a tenant
 
 // In the handler type's package.
@@ -4089,8 +5893,11 @@ Auth is built, so the roster is built before that Auth; the client hands it to t
 `identity` package (`identity.WithTenantMaker`), which an application never calls. The
 same client needs the roles that administer a tenant
 (`identity.WithAdministratorRoles`): the person who accepts is seated with them, and an
-invitation is refused while the Auth names none. The client of every other Auth takes
-the engine and the session API alone.
+invitation is refused while the Auth names none. An Auth whose first administrator the
+deployment invites hands its client the roles that person is given, by where they are
+held (`identity.WithFirstAdministratorRoles`, handed the two lists the foothold's
+`FirstAdministratorRoles` returns; "At a sign-in", below). The client of every other Auth
+takes the engine and the session API alone.
 
 The generated `zz_gen_identity.go` in the handlers package asserts the accessor
 (`var _ crewhandlers.Deps = (*App)(nil)`) and holds the Auth package's `TablePrefix` equal
@@ -4126,20 +5933,52 @@ authSession.SetSignUpSeated(identityClient.SignedUp())
 authSession.SetDirectoryAdmission(settings.TenantDirectories, identityClient.DirectorySeated())
 ```
 
-An invitation into a tenant gives its roles in that tenant; one into the application
-gives each role where the role is held, the global scope or every tenant; one that makes
-a tenant makes it there, in the same transaction, and gives the person the roles that
-administer it ("The invitation that makes a tenant", below). A role that can
-no longer be given (the role file changed since the invitation was sent) fails the
+An invitation into a tenant gives its roles in that tenant; one into every tenant gives
+them in every tenant; one into the whole application gives them in the global scope; one
+that makes a tenant makes it there, in the same transaction, and gives the person the
+roles that administer it ("The invitation that makes a tenant", below). The sender says
+where the roles go: `domain` for one tenant, `everyDomain` for every tenant, or
+neither, which is the whole application. The invitation's row keeps that place
+(`TenantId` for one tenant, the boolean `EveryTenant` for every tenant, neither for the
+whole application), and the acceptance gives each role there and nowhere else, whatever
+another place holds under the same name by then. The mail links table of every Auth
+therefore carries the column (`EveryTenant BOOL NOT NULL DEFAULT (false)`, which the
+session migration `impulse` renders has), and a schema without it is refused at
+generation, naming the column and the statement that adds it. The Auth's list of its
+mail links serves the place as two fields (`tenantId` and `everyTenant`), so a page tells
+an invitation into every tenant from one into the whole application. A link whose message
+could not be mailed ends where the mail failed, and its row says so: the table carries
+`MailFailedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true)`, a schema without it is
+refused at generation the same way, and the list serves it as `mailFailedAt`, so a page
+tells such a link from one that was used or withdrawn. A link that was taken back is
+consumed with `WithdrawnAt` set, so a list tells Withdrawn from Accepted. An invitation is
+held to its place when it is sent. One that says every tenant takes roles that exist in every
+tenant: a role of the whole application alone is refused (400), and a custom role whose
+name a role of the whole application carries too is invited like any other, the person
+being given the tenants' one. One that says neither takes roles of the
+whole application alone: a role that exists only in the tenants is refused (400), in
+words that say to choose the tenant it is for, or every tenant. The first
+administrator's invitation is the one invitation whose roles are held in two places.
+The deployment sends it for the whole application, and the acceptance gives each of its
+roles where the Auth's first-administrator setup declares it
+(`identity.WithFirstAdministratorRoles`): the roles the setup names for the whole
+application there, with the Super Administrator role, and the roles it names for the
+tenants in every tenant. No other invitation reads that declaration, and a client built
+without it gives the first administrator's roles in the whole application alone. A role
+that its place
+no longer holds when the person accepts (the role file changed, or a custom role was
+deleted, since the invitation was sent) fails the
 transaction: the invitation stands and no account is created. The permission engine is
 told once the transaction has committed, before the sign-in policy decides. The client
-of an Auth whose roles a directory writes has none of the hooks: the directory's answer at
-every sign-in is that Auth's roles.
+of an Auth whose roles a directory writes has neither of these two hooks: the
+directory's answer at every sign-in is that Auth's roles.
 
 A third hook runs once a sign-in stands, apart from it: the client's `SignedIn` removes
 the person's roles and places in groups whose period has ended (the period of an
-assignment, above), in a transaction of its own on the application's database. It is set
-beside the other two, and an Auth whose roles a directory writes has none:
+assignment, above), in a transaction of its own on the application's database, and then
+announces the sign-in to the open pages (section 14). It is set beside the other two,
+and it is the one hook the package of an Auth whose roles a directory writes sets: there
+it removes nothing and only announces:
 
 ```go
 authSession.SetSignedInHook(identityClient.SignedIn(resource.NewSpannerClient(db)))
@@ -4157,35 +5996,25 @@ application runs it wherever it holds a transaction, beside its own writes:
 ```go
 err := resourceClient.ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 	sector := anvil.String() // the tenant's id
-	created, err := (&crewidentity.CreateCrewUser{Username: "ada", Roles: []string{"Dispatcher"}, Domain: &sector}).Execute(ctx, txn, a.CrewIdentity())
-	if err != nil {
-		return err
-	}
-	// A further role for the person just created, by the client's own call: it looks
-	// nobody up, and the new user is not readable until the commit.
-	if err := a.CrewIdentity().AssignRole(ctx, txn, accesstypes.GlobalPolicyScope(), identity.User(created.ID), "CrewCommon"); err != nil {
+	posting := &crewidentity.AssignCrewRole{UserID: ada, Role: "Dispatcher", Domain: &sector}
+	if err := posting.Execute(ctx, txn, a.CrewIdentity()); err != nil {
 		return err
 	}
 
-	return recordHire(ctx, txn, created.ID) // the application's own rows, in the same commit
+	return recordPosting(ctx, txn, ada) // the application's own rows, in the same commit
 })
 ```
 
-The served method that gives a role (`AssignCrewRole`) names a person a request gave it,
-so it reads the user first and answers 404 for an id no user holds; run in the transaction
-that creates the user it would not find it, which is why the example gives the further
-role through the client.
-
-A person is created holding a role: `Roles` names at least one, all held in one place
-(the global scope, the one tenant `Domain` names, or every tenant with `EveryDomain`),
-and the memberships are written in the transaction that writes the user. A create
-without a role is refused, since an account that holds no role anywhere is not kept. A
-role held somewhere else is one more `AssignCrewRole` beside it, as above.
+The method that gives a role (`AssignCrewRole`) names a person who has an account
+already: it reads the user first and answers 404 for an id no user holds. A role is held
+in one place (the global scope, the one tenant `Domain` names, or every tenant with
+`EveryDomain`), and a role held somewhere else is one more `AssignCrewRole` beside it. A
+person new to the application is invited (`InviteCrewUser`), and holds the invitation's
+roles once they accept.
 
 Nothing is written until the commit, so a method does not read what an earlier method of
-the same transaction buffered: a role is given to a person who has an account already
-(a person new to the application is created holding their roles), and one identity link
-is removed per user per transaction.
+the same transaction buffered: a role is given to a person who has an account already,
+and one identity link is removed per user per transaction.
 
 **Limits.** It runs on Spanner. A rule reads the rows as committed: a method does not see
 what an earlier method of the same transaction buffered, so the rule on a person's last
@@ -4195,19 +6024,229 @@ committed too: who is in it and what it holds, so a person put in a group and a 
 given to the group in one transaction of the application's are each judged without the
 other. Every generated route runs one method, which
 names one person, in a transaction of its own, so no request puts two in one; the limit
-is for an application that runs the methods in a transaction it opens itself. A temporary password is the one the session library has today: the
-operator chooses it and passes it on.
+is for an application that runs the methods in a transaction it opens itself.
 
-**The rules on who is asking.** Who may run a method is the role file's to say. Four
+**The rules on who is asking.** Who may run a method is the role file's to say. Five
 rules of the user management are the methods' own, whatever the role file grants, and
 each judges the request's caller (a method an application runs in a transaction of its
 own, outside any request, has no caller and is the application's act):
 
 - Nobody disables or deletes their own account, which is the account of the real person
   behind the session: a person who views as someone else is refused their own account,
-  which they could not get back. They are refused the account they view as too ("you
-  cannot disable the account you are viewing as"): a session that views as a person
+  which they could not get back. In a session that acts as someone else that refusal is
+  the next rule's, in its sentence and with its log line, so disabling, enabling and
+  deleting the real person's own account are refused the same way there. The rule is
+  asked by these methods and, beneath them, by the session API's three switches
+  (`DeactivateSessionUser`, `ActivateSessionUser`, `DeleteSessionUser`), which every
+  generated route goes through. The session store's own `DeactivateUser`,
+  `ActivateUser` and `DeleteUser` are the bare writes and are not held to it, so a
+  route an application wrote calls the Manager or the session API, never the store.
+  They are refused the account they view as too ("You
+  cannot disable the account you are viewing as."): a session that views as a person
   does no more than that person may, and nobody disables or deletes themselves.
+- In a session that acts as someone else, nobody is the subject of what they do. It is
+  the rule above, widened for the person who impersonates to every change of their
+  account: a person who acts as an administrator holds, for the length of the session,
+  what the administrator may do, and an act on their own account would leave them
+  holding it afterward. The real person behind the session is refused a role given to
+  them or taken from them, a place in a group, a new password required, a password
+  removed, a reset link, an address, a name, a rename, a disable, an enable, a delete,
+  the end of their own sessions, their remembered browsers, a sign-in identity and a
+  token of theirs, the
+  unlock of the counts kept for their account, and an invitation to the address their
+  account has confirmed. The refusal says so, in one sentence: "You are acting as
+  someone else, so you cannot give yourself a role." The rule reads the session's record
+  and nothing else, so it holds whatever the session's mask keeps and whether or not
+  the application declared the kind of impersonation. It is for changes: the person's
+  own row is still listed and read. The same act on anyone else goes through, and the
+  impersonated session itself is still ended by the person who started it. An actor
+  from another application has no account here, so the rule has nobody to name.
+
+  An application's own action that names a person asks the same rule, before it
+  changes anything, with the id of the person's account:
+
+  ```go
+  if err := identity.RefuseImpersonatorAsSubject(ctx, account, "set your own clearance"); err != nil {
+      return errors.Wrap(err, "identity.RefuseImpersonatorAsSubject()")
+  }
+  ```
+
+  A route that answers whether to offer such an action asks the same question without
+  refusing anyone, `identity.ImpersonatorIs(ctx, account)`, so a page does not offer what
+  the action would refuse. The generated create-your-tenant route does both: its `POST`
+  asks the rule for its caller, who would become the tenant's administrator, and its
+  `GET` answers that none is offered (section 16, "The first administrator").
+
+  A record that decides what a person may do is held to the rule by its generated
+  write. Such a record is one the policy reads about the requester: a struct that
+  carries a `@subjectValue` or a `@subjectSet`, whose rows say what `subject.<name>` is
+  for the person each row names (a clearance, a spending limit, a place in a team). A
+  person who acts as an administrator would otherwise raise their own clearance by the
+  record's ordinary write, and keep it after the session ends. So every generated add,
+  change and removal of such a record, on the record's own patch route and in the
+  consolidated patch, asks `identity.RefuseImpersonatorAsRowSubject` once the operation
+  is decoded and before anything is written. The annotation places the call; an
+  application declares nothing for it. The rule is asked about the row twice:
+
+  - **Before the write**, about the person the stored row names, read by the key in the
+    operation's path inside the write's transaction. A change or a removal of the real
+    person's own row is refused ("you cannot change your own pilot record", "remove
+    your own pilot record"), and so is handing that row to someone else.
+  - **After the write**, about the person the operation's fields name. A row added for
+    the real person is refused ("add your own pilot record"), and so is another
+    person's row moved onto them ("make another pilot record your own").
+
+  The columns asked are the ones that name a person: the column each annotation is
+  written on, and every column a `who:` part compares to the requester (`Field =
+  subject`). The refusal names the record by its struct's name in lower-case words.
+
+  A row reaches a person by two more roads, and the generated write asks about each:
+
+  - **A row that names a set the person is in.** A column a `who:` part looks up in
+    another set (`TeamID IN subject.teams`) names a set and no person: a pass given to
+    a team is given to everyone in it. For each such column and set the write asks
+    `identity.RefuseImpersonatorAsSetSubject`, before the write about the value the
+    stored row holds and after it about the value the write gives the column. The real
+    person adds no such row for a set they are in ("add a pass record for one of your
+    own teams"), changes and removes none, and moves none onto their own set.
+  - **The row a person's value is read through.** A set or a value declared with a
+    dotted `value:` (`TeamID.DivisionID`) is read through a column of another record,
+    the team's own row. The write of that record asks
+    `identity.RefuseImpersonatorAsReadThroughSubject` for each such column: a change
+    that sets the column is refused on the row the real person's own value is read
+    through ("change the division id of the team record that decides your own
+    divisions"; the column is said by its name in words, and the server's log has it
+    by its own). A change that leaves the column alone asks nothing and reads nothing,
+    and neither does an add or a removal.
+
+  The generated code names the column and the set, and nothing else. The library builds
+  the statement at run time from the set's own declaration
+  (`resource.PatchSet.SubjectSetHolds`, `resource.PatchSet.SubjectReadThrough`), with
+  the pieces a condition's `x IN subject.<set>` renders, so the rule and the policy
+  share one definition of who is in a set: its `who:`, its `where:` and the sets it
+  builds on. The real person is asked about by name, in no one tenant. Both questions
+  are asked on Spanner and on PostgreSQL, each in its own dialect of the one statement:
+  on Spanner through the transaction's reads, on PostgreSQL through the connection the
+  PostgreSQL transaction holds. On PostgreSQL the two questions are what is proven,
+  against real rows: this package's PostgreSQL client runs no generated write yet, so
+  the rule is proven from the request to the row there when that client does. A
+  question that cannot be asked (a patch decoded with
+  no collection, a PostgreSQL transaction that holds no connection) answers an error
+  and the write does not happen, never a pass. The
+  caller's grants and the session's mask answer first, so a person the record's write
+  is refused gets the same Forbidden as on any record and learns nothing from the
+  rule's sentence. Outside an impersonated session nothing is read: the same write
+  from the person's own session goes through as it always has, and inside one the same
+  write for anyone else goes through. The stored row is read by its key alone and is
+  not held to a tenant, since the read only decides whether to refuse; the write that
+  follows is held to its tenant as ever.
+
+  What the rule cannot see is whatever reaches the person by another road: a role
+  given to a group they are in, an invitation to an address they hold and never
+  confirmed on the account, a colleague
+  who returns the favor, and an action of the application's own that does not ask.
+  These are the rule's stated limits. A session whose mask does not refuse the class
+  `access` gives such a role. To let someone act as a person with no mask is to give
+  them what the person holds. An application closes them through its mask: a kind of
+  impersonation that is not to change who may do what refuses the class `access`. The
+  generator gives that class to the create, the change and the delete of every record
+  that carries `@subjectValue` or `@subjectSet`, and to the change of a record a dotted
+  `value:` is read through, so the mask refuses those writes for every person and not
+  the real one alone, with no list of records kept by hand
+  (`resource.CollectionResource.WriteClasses`; a record that gains a subject value is
+  covered when the application is generated again). A kind that is to keep one of
+  those records names it as an exception to the class
+  (`accesstypes.RefuseClassExcept(class, accesstypes.ExceptWrites(record)...)`): the
+  session writes the record for other people, and the three questions above still
+  refuse the real person their own row, their own set and the row their own value is
+  read through.
+
+  A row taken with the record it is under (the record's `@deleteCascade`) is held to the
+  same three questions. They are written once for each record, as
+  `RefuseImpersonatorAs<Record>Subject` in the resources package, which the record's
+  generated write calls and the delete of a taken row calls as a removal. So a delete
+  that would take the real person's own row, or a row of a set they are in, is refused
+  whole, in the sentence the row's own removal is refused with ("You are acting as
+  someone else, so you cannot remove your own client contact record."), before any
+  question is asked, and nothing is deleted. A mask that refuses the row's own delete
+  refuses the record's delete too. A row that goes with a group of the library's that it
+  names (`@deletedWith`) is held to the same three questions: the library deletes the
+  group without arming the delete, and the row is checked as the request's caller all
+  the same (`DeleteKind.AsCaller`). A delete an application runs trusted, with no
+  caller, asks neither: an action that deletes such a record in its own body takes the
+  rows under it unasked, and an application closes that by refusing the action by name
+  in the kind's mask (`accesstypes.RefuseAction(action)`).
+
+  A row that goes with its tenant is a limit of its own. A tenant's delete takes every
+  row under the tenant on the grant to delete the tenant: no grant is asked on a row,
+  and the questions are not asked about the person a row names. The generator gives the
+  tenant record's delete the class `access`, so a kind whose mask refuses that class
+  does not delete a tenant. An application closes it for any other kind by refusing, in
+  the kind's mask:
+
+  - the tenant's delete (`accesstypes.RefusePermission(accesstypes.Delete, tenant)`);
+  - an action that deletes a tenant in its own body, by name
+    (`accesstypes.RefuseAction(action)`): an action is asked for Execute on its name,
+    not for Delete on the record.
+
+  A row that goes with an account it names (`@deletedWith`) is the same limit. The
+  account's delete takes it on the permission to delete the account: no grant is asked
+  on the row, and the questions are not asked about the person or the set it names. An
+  application closes it for a kind by refusing, in the kind's mask, the methods that
+  delete a person, by name (`accesstypes.RefuseAction(method)`).
+
+  A row a foreign key's referential action removes or rewrites is another: no write of
+  the row is made, so nothing is asked. `impulse check` refuses `ON DELETE CASCADE` on an
+  application's tables, wherever the link points (`no-delete-cascade`). An application's
+  record that names a group or an account of the library's says in code whether it goes
+  with it (`// @deletedWith` on the column). PostgreSQL has referential actions that change
+  the row where it stands.
+  `ON DELETE SET NULL` and
+  `ON DELETE SET DEFAULT` rewrite the column that named the parent when the parent is
+  deleted, and refusing the parent's delete under the mask closes them
+  (`accesstypes.RefusePermission(accesstypes.Delete, parent)`). `ON UPDATE CASCADE`,
+  `SET NULL` and `SET DEFAULT` rewrite it when the parent's key is changed: a rank
+  renamed is renamed on every row that holds it, the real person's among them. Refusing
+  the parent's update closes that
+  (`accesstypes.RefusePermission(accesstypes.Update, parent)`, or the same on the one
+  column the foreign key names, `parent.field`), with any action that changes the key.
+
+  A column that records who made a row is another. A grant may compare a column of a
+  record to the requester (`bookedBy = subject`). Such a column carries no
+  `@subjectValue` or `@subjectSet` annotation, so it is not among the columns asked,
+  though the row names a person and decides what they may do. While the application
+  stamps the column from the session and people cannot write it (an `output_only`
+  field with a `default_create_fn`), no write moves a row that exists onto the real
+  person, and a row made in a session that acts as a person is stamped with the person
+  acted as. A session that acts as a role is the stated case. A role is not anyone, so
+  the request's `User()` there is the person who started the session, and a stamp
+  taken from it puts their name on a row the role's powers made. What the grants give
+  the row's author (reading it, an action on it) is theirs from then on, after the
+  session has ended too, though their own roles might not have let them make the row.
+  An application that does not want that closes it one of two ways: the role kind's
+  mask refuses the record's create
+  (`accesstypes.RefusePermission(accesstypes.Create, record)`), or the function that
+  stamps the column answers nobody, a value that is no account's id, in a session that
+  acts as a role, so that no grant that compares the column to the requester holds for
+  the row. The session's record says it is one
+  (`imp, ok := sessioninfo.ImpersonationFromCtx(ctx); ok && imp.Principal.IsRole()`);
+  the request's principal does not, since a session of a person's own that the
+  application's principal resolver gave a role is a role to `PrincipalFromCtx` too, and
+  its `User()` is the row's true author. Where people can write such a column, the
+  application closes it by refusing the record's writes under the mask.
+
+  The unlock knows the person's counts by their username, their account and the address
+  they confirmed; a count kept under an address the account holds unconfirmed (the mail
+  of a first password, or of an address change asked for) is cleared like anyone's. A
+  mask that refuses the class `access` refuses the library's share of those. One limit
+  no class closes: an account disabled, enabled or deleted carries no class, and the
+  rule knows the real person by the account they signed in with, so a second account of
+  their own is someone else's to it. A person who acts as an administrator can enable
+  that account again, or disable or delete it, as the administrator can; an application
+  that must hold this refuses the three actions by name in the kind's mask
+  (`accesstypes.RefuseAction`). Every
+  method of the identity library that takes a person is held to the rule by a test that
+  lists them (`guardedMethods` in `identity/impersonator_listing_test.go`).
 - A person who removes a role from themselves in a tenant keeps an administrator role
   nobody else would hold there. The application names the roles that administer a tenant
   when it builds the client (`identity.WithAdministratorRoles(domain)`): they are judged
@@ -4227,7 +6266,7 @@ own, outside any request, has no caller and is the application's act):
   which makes one who can sign in. A caller who came
   through another Auth (`Manages`) holds no role of this one. Only a holder changes how
   another signs in, since each such act is a way to become the person or to shut them
-  out: setting a holder's temporary password, removing their password, requiring them to
+  out: sending a holder a password reset link, removing their password, requiring them to
   change it, renaming them, setting their email address (where the code of their second
   factor is mailed) and unlinking one of their sign-in identities each take a caller who
   holds the role, whatever the role file grants; a holder acts on themselves and on
@@ -4272,8 +6311,8 @@ own, outside any request, has no caller and is the application's act):
   role there is changed by one of its administrators, or by a super administrator". The
   account of a person who holds such a role there, of their own or through a group kept
   in that tenant, in an assignment that has not ended, is held to the same judgment,
-  since each act on it is a way to become the person or to shut them out: a temporary
-  password, a required change of password, a removed password, a new sign-in name, an
+  since each act on it is a way to become the person or to shut them out: a required
+  change of password, a removed password, a new sign-in name, an
   address set, an identity unlinked, the account disabled, enabled or deleted are
   refused with a sentence that says the same of the account. A person who administers
   more than one tenant is changed by a caller every one of them admits, and the refusal
@@ -4292,19 +6331,29 @@ own, outside any request, has no caller and is the application's act):
   request. The judgment covers the acts that give the way in or take over an
   administrator's sign-in, and no others: ending a person's sessions, forgetting their
   remembered browsers, unlocking their sign-in, revoking a token, withdrawing an
-  invitation, changing the name a person is shown by and clearing a deleted tenant are
-  not judged. Nor does it look back or ahead: a person put in a tenant's group before
+  invitation, changing the name a person is shown by and deleting a tenant with what each
+  auth holds for it are not judged. Nor does it look back or ahead: a person put in a tenant's group before
   the group holds an administrator's role, an invitation that carried the role, sent
   before the tenant became directory only and accepted after, and a password or an
   address set on an account before its person was given the role all stand. The caller's
   reach is read from the tenant roster and the engine's snapshot each instance holds, as
   every request's is, so a change made on another instance decides once it has arrived.
-  The methods a list offers on a row are drawn from the role file's grants and do not
-  know this judgment: a page may offer one of these acts on such a person's row, and the
-  method then refuses with the sentence.
-- The removal of a person's last role anywhere deletes the account, with its identity
-  links and sessions, in the same transaction and whoever removed the role: an account
-  nothing admits is not kept.
+  The lists hold what they offer to the same judgment where a method names its row
+  (`@callerEnters`, section 5): a person's row leaves out the acts on their account, a
+  group's row the method that puts a person in the group, and a row of the people of
+  the groups the method that takes the person out, for a caller the method would
+  refuse. The whole application's two methods that take a role away, from a person and
+  from a group, name no row, and the rows a page runs them from answer for them
+  (`@callerEnters` naming the lists): a row of the roles people hold, or of the roles held
+  for a set time, leaves out the removal of a tenant's administrator's role held in that
+  tenant itself, and a row of the roles the groups hold the removal of such a role from a
+  group kept in that tenant, for a caller the method would refuse.
+- A removal of a person's role, of their place in a group or of the person from a tenant
+  leaves their account: the account stays, holding nothing. An account is deleted by its
+  own delete, or with the tenant it belonged to alone. An account that signs in through a
+  tenant's directory belongs to that tenant alone where it holds nothing elsewhere, and
+  goes with that tenant's delete; while the tenant stands it stays, holding nothing, in
+  the tenant's list of its people.
 
 A caller is named by the id of their account, as the permission store names anyone, and
 the first three rules take the caller for the person acted on only where the request came
@@ -4318,7 +6367,8 @@ id is no account of the one being managed: there nobody is refused as acting on 
 
 **One tenant per person.** In an application whose tenants own their people, a person
 belongs to one tenant: the tenant that created or invited them manages the account, which
-it cannot do for a person another tenant holds too. The application says so where it
+no tenant does for a person two tenants hold, unless the person signs in through one
+tenant's directory. The application says so where it
 builds the client, beside its administrator roles (`identity.WithOneTenantPerPerson()`),
 and every way a person comes to hold a role in a tenant is then held to it:
 
@@ -4349,12 +6399,11 @@ and every way a person comes to hold a role in a tenant is then held to it:
 A refusal says the person belongs to another tenant and never which.
 
 The application's own people are outside the rule. A person who holds a role for the
-whole application or in every tenant is no tenant's to manage, whatever else they hold
-(the role files grant a tenant its account methods on a person it holds alone,
-`heldElsewhere = false AND heldGlobally = false`), so they are given a role in any
-tenant: an operator who is asked into one customer's tenant after another holds a role
-in each. Such a
-role is no tenant's either, so it never counts as one and is never refused. So that
+whole application or in every tenant is no tenant's to manage unless they sign in through
+that tenant's directory (the role files grant a tenant its account methods on a person
+whose account it manages, `managedHere = true`), so they are given a role in any tenant:
+an operator who is asked into one customer's tenant after another holds a role in each.
+Such a role is no tenant's either, so it never counts as one and is never refused. So that
 nobody is left in several tenants with nothing outside them, the last role a person
 holds outside the tenants is not taken away while they hold roles in more than one
 (409): take the roles in all but one tenant away first. A place in a group of the whole
@@ -4374,12 +6423,12 @@ description (`zz_gen_api.ts`) carries an `identity` block beside its resources a
 methods: for each Auth whose management the outlet serves, the Auth's name and label,
 the tenant record's name where the application has one, and a side for each scope
 (`global`, the whole application's; `domain`, a tenant's) that names the lists by what
-each holds (`users`, `roles`, `identities`, `signInWays`, `invitations`, and for the whole application
-`sessions`, `signInAttempts`, `signInMethods`, `signUpRoles` and, for the Auth a tenant is made through, `invitedTenants`) and the methods by what each does (`create`, `invite`,
-`withdrawInvitation`, `assignRole`, `removeRole`, `disable`, `enable`, `delete`,
-`rename`, `setEmail`, `setTemporaryPassword`, `requirePasswordChange`,
+each holds (`users`, `roles`, `rolesToGive` (the list a role is picked from by the methods that give one), `identities`, `signInWays`, `invitations`, and for the whole application
+`sessions`, `signInAttempts`, `signInMethods`, `signUpRoles` and, for the Auth a tenant is made through, `invitedTenants`) and the methods by what each does (`invite`,
+`withdrawInvitation`, `resendInvitation`, `assignRole`, `removeRole`, `disable`, `enable`, `delete`,
+`rename`, `setEmail`, `sendPasswordResetLink`, `requirePasswordChange`,
 `endUserSessions`, `revokeTrustedDevices`, `unlinkIdentity`, `removePassword`, and for
-the whole application `endSession`, `unlockSignIn`, `openSignUp`, `makeInviteOnly`, `inviteTenant` and `withdrawInvitedTenant`). The names differ in every application
+the whole application `endSession`, `unlockSignIn`, `openSignUp`, `makeInviteOnly`, `setSelfServiceReset`, `inviteTenant` and `withdrawInvitedTenant`). The names differ in every application
 (`CrewSectorUsers`, `DisableCrewSectorUser`); the keys do not. A side names only
 what the outlet serves, so a method the Auth's shape leaves out, or a list the schema has
 no table for, is absent, and a side without its list of people is not listed. The Angular
@@ -4388,11 +6437,9 @@ library builds the pages from the block at run time
 `@impulseframework/resource-angular/identity-pages`): the people with a menu on each row
 holding the methods the server lists for that row, a person's row page with the roles
 held, the ways they sign in and the sign-in identities under it (and the sessions, for
-the whole application), the invitations, and for the whole application the page staff
-bring a tenant in from, named by the tenant record ("Invited sectors": the invitations
-that still stand with a column for each detail the caller may read, the method that
-sends one above the list, and Withdraw on each row, each offered only under its grant),
-the sessions, the failed sign-ins and the Sign-in page: one row for each sign-in method, Open sign-up on a
+the whole application), the invitations, the audit log, and for the whole application
+the sessions, the failed sign-ins and the Sign-in page: one row for each sign-in method,
+Open sign-up on a
 method that is invite only and Make invite only on one that is open, each only where the
 caller holds the grant and never on a method the directory or the application's own rule
 decides, the method's warning drawn by the method dialog, and a notice above the list
@@ -4400,7 +6447,9 @@ while a method is open. Above the ways a person signs in, the page offers
 Remove password for an Auth with a password method where the removal can happen: the
 server's answer for the person's row lists the method, and the list shows a password and
 an identity that counts. It asks first, naming what is left by the words of the rows, and
-the offer goes with the password once the list is read again.
+the offer goes with the password once the list is read again. The invitations that make a
+tenant are no page of these: the tenants page (All tenants), which lists the invitations
+still waiting above the tenants, shows them, with the button that sends one.
 A period is picked and shown in days. The server keeps an end as the first instant the
 assignment no longer counts, and "until 1 December" means through the end of
 1 December: the dialog of a method that gives something for a period sends the day
@@ -4418,10 +6467,10 @@ reads, in `generated_identity_invitation_test.go`), `generated_identity_lists_te
 holds a sector's lists (each sector's rows, a person of two sectors in each, the
 facts, and the grants that carry a condition on one),
 `generated_identity_tenant_methods_test.go` a sector's methods (each account method
-allowed on a person the sector holds alone, refused on one it shares and not found for
-another sector's; the roles given and taken; the create; the identities and the unlink) with
+allowed on a person whose account the sector manages, refused on one it does not manage
+and not found for another sector's; the roles given and taken; the identities and the unlink) with
 `generated_identity_tenant_invitation_test.go` for the ones that need the session manager
-(the invitation, its withdrawal, the temporary password),
+(the invitation, its withdrawal, the required password change),
 `generated_identity_remove_password_test.go` holds the removal of a person's password at a
 sector and the list of how a person signs in beside it (the password and the identities
 that count, an identity of a retired sign-in left out, the sector's people alone), and
@@ -4515,10 +6564,10 @@ which is why two plain creates of one row in one transaction are refused at comm
 `OrCreate` or `OrSkip` patch asks the transaction's record of the rows its patches wrote
 before it reads: a row an earlier patch of the transaction wrote is there, and one it
 deleted is not. So a second `OrSkip` of one row skips, and a second `OrCreate` updates.
-One limit is the update path's own: on a resource that keeps change records, under a
-grant with a row condition, and in a tenant request, an update reads the stored row, so
-an `OrCreate` of a row the same transaction created is answered not found, exactly as a
-plain update of that row is. An `OrSkip` of such a row skips.
+One limit is the update path's own: under a grant with a row condition, and in a tenant
+request, an update's check reads the stored row, so an `OrCreate` of a row the same
+transaction created is answered not found, exactly as a plain update of that row is. An
+`OrSkip` of such a row skips.
 
 **A transaction that runs again.** A transaction Spanner aborts runs its function again,
 and the row may be there on the second attempt where it was not on the first. The patch
@@ -4789,3 +6838,503 @@ one of its two bytes;
 holders. Lodestar's ship carries a transponder key
 (`lodestar/test/integration/secret_test.go`), and its migrate command retires a version
 over the emulator (`lodestar/cmd/deployment/migrate/main_test.go`).
+
+## 24. The change history
+
+A resource that tracks its changes (`TrackChanges`) writes one record to the
+`DataChangeEvents` table for each create, update and delete, in the write's own
+transaction. A change record holds the row (`TableName`, `RowId`), when (`EventTime`,
+the commit's own time, and `Sequence`, the record's place among the records one
+transaction writes for the row), what kind of write it was (`Operation`: `create`,
+`update` or `delete`), what changed (`ChangeSet`, each changed field with its old and
+its new value), the row's tenant (`TenantId`), and who made the change, in the columns
+below. `RowId` is the row's key as text: the value of a key of one part, and for a key
+of several parts each part's value joined by `|`, with a `\` before a `|` or a `\` that
+a part holds. `TenantId` holds the key of the tenant the row belongs to, and is not set
+for a row of a table that belongs to no tenant. A secret field is named as changed with
+neither value (section 23). A field set to the commit's own time
+(`resource.CommitTimestamp`) is recorded with its old value and a mark in place of the new
+one (`CommitTime`), because the moment is not known when the record is written: it is the
+record's `EventTime`, and a record's history answers that time as the field's new value.
+
+| Column | Holds | Empty when |
+|---|---|---|
+| `Auth` | the name of the auth the request came through | a process acted alone, or the request's routes bind no auth's name (`resource.BindAuth`), as outside a session outlet's generated routes in an application with one auth |
+| `ActorUserId` | the account that really made the change; in a session acting as someone else, the person doing it | a process acted alone, or the person has no account here |
+| `ActorUsername` | that person's username on the day, so it outlives the account | a process acted alone |
+| `PrincipalUserId`, `PrincipalUsername` | the account the session acted as, and its username on the day | the person acted as themselves, or as a role |
+| `PrincipalRole` | the role the session acted as | it acted as no role |
+| `SessionId` | the session, or the token's id for a request made with a token | a process with no session |
+| `Process` | the name of the process that made the change, alone or for a person | a person made it directly |
+| `Rpc` | the name of the RPC method the change was made in, as grants name the method | the change was not made in an RPC method, or a process acted alone |
+
+A record sets only the columns that hold something, and it is never updated. In code, who
+made a change is one value, `eventsource.EventSource`, of the package
+`github.com/impulseframework/impulse/eventsource`: a handler passes
+`eventsource.UserEvent(ctx)`, a job `eventsource.ProcessEvent("PruneReports")`, a job run
+for the person of a request `eventsource.UserProcessEvent(ctx, "Import")`. No text can be
+passed, and a tracked write refuses a value that names nobody. A change made in an RPC
+method names the method too, and the method's code passes nothing for it: the method's
+generated handler hands its name to the request (`resource.WithRPC`), and `UserEvent` and
+`UserProcessEvent` read it there (section 7). Where a person reads who made a change, the
+library writes it from the columns (`eventsource.Stored`, in the words of
+`EventSource.String()`): "bob", "bob, through the RPC CloseOrder", "alice, acting as
+bob", "alice, acting as the role Support", "the process PruneReports". A record's history
+serves that sentence and no id. A tenant an invitation makes is recorded as made by the
+person who accepted, through the process AcceptInvitation, and names no session: the
+write is made at the sign-in, before the person has one.
+
+The value has a package of its own, which holds no database code and imports no database
+driver, so a library that records who acted can use the same value without importing this
+package.
+
+**The names of the rows a record points at.** A changed field that points at another row
+holds that row's id, and the name behind an id is lost once the row is renamed or deleted.
+So a change record keeps, beside the old and the new value of such a field, the name of
+the row each pointed at, as it was when the change was made (`OldName` and `NewName` in the
+field's entry of `ChangeSet`). A field points at a row where its column has a foreign key,
+or the field declares what its picker lists (`@enumerate`), into a table whose resource
+says what its rows are known by (`@name`, or `@tenantName` on the tenant record), or into
+an enumeration table, whose rows are known by `Description`. The name is read in the
+write's own transaction: a write that changes such a field makes one more read, and a
+write that changes none makes none. A row that belongs to a tenant is looked up in the
+tenant of the row being written, so a pointer into another tenant keeps no name. Where the
+pointed-to resource declares no name, or no one row is found, the record keeps the id
+alone. A delete's record keeps the name of every row the deleted row pointed at.
+
+**A field that picks from a view.** A view's name is worked out by the view's query, which
+a write does not run. So where a field's picker lists a view (`@enumerate` of a `@virtual`
+resource) or a computed list, the name a change record keeps is read from the table the
+row is really in. One of a tenant's people (the generated list `<Auth><Record>Users`,
+Lodestar's `CrewSectorUsers`) is kept by the account's username, read from the auth's
+users table: the username is what every other column of a change record keeps a person
+by, where a list shows the person's name. It is read by the account's id alone, since an
+account belongs to no tenant, so a row written with the id of an account outside the
+tenant keeps that account's username. One of a tenant's groups (`<Auth><Record>Groups`) is
+kept by the group's name, read from the auth's groups table within the tenant of the row
+being written. For any other view, and for a computed list, the row is the row of the
+table the field's column has a foreign key to, and the name is that table's, as for a
+field with the foreign key and no picker. A field that picks from a view of the
+application's own and has no foreign key keeps the id alone: declare the foreign key, and
+the history keeps the name. One of the whole application's accounts or groups needs none
+of this: `<Auth>SessionUsers` and `<Auth>Groups` are tables that say what their rows are
+known by, so a field that points at one, by its foreign key or by its picker, keeps the
+username, or the group's name, as for any table. It is read by the id alone, since
+neither table belongs to a tenant.
+
+**The table.** `resource.DataChangeEventsDDL(dbType, period)` renders the table's
+statements. For Spanner the first creates the table:
+
+```sql
+CREATE TABLE DataChangeEvents (
+  TableName STRING(MAX) NOT NULL,
+  RowId STRING(MAX) NOT NULL,
+  EventTime TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp=true),
+  Sequence INT64 NOT NULL,
+  Operation STRING(MAX) NOT NULL,
+  ChangeSet JSON,
+  TenantId STRING(MAX),
+  Auth STRING(MAX),
+  ActorUserId STRING(MAX),
+  ActorUsername STRING(MAX),
+  PrincipalUserId STRING(MAX),
+  PrincipalUsername STRING(MAX),
+  PrincipalRole STRING(MAX),
+  SessionId STRING(MAX),
+  Process STRING(MAX),
+  Rpc STRING(MAX),
+) PRIMARY KEY (TableName, RowId, EventTime DESC, Sequence DESC)
+```
+
+An application copies them into its first migration, as `impulse new` writes
+them and as Lodestar does in
+[000001_Baseline.up.sql](../lodestar/schema/migrations/000001_Baseline.up.sql), pinned
+to the function by a test. The function has statements for Spanner alone: the package
+does not write to PostgreSQL yet, and the table gets its PostgreSQL statements with that.
+
+**Each record's tenant.** The generator declares each tenant resource's way to its
+tenant (`TenantBinding`, from its `@domain`; the tenant record's is its own key), and the
+patch set writes the tenant on every record, whoever writes the row. A write armed in a
+tenant's request takes the request's tenant. Any other write (a method's body, a job, a
+bootstrap, a delete that takes rows with it) resolves it from the row: the value the
+patch or the stored row holds, then one point read for each step of the way, which sees
+the rows the same transaction has buffered. An update that moves a row to another tenant
+records the new tenant. A record keeps the tenant its row had when it was written: a
+parent moved later in the same transaction does not change it.
+
+The key is `(TableName, RowId, EventTime DESC, Sequence DESC)`: a row's records lie
+together, newest first, so a page of one record's history is one short range of the
+table however long the history is. The table has no other index. A question across
+records (everything one person changed, everything changed in a tenant last week) reads
+the whole table, so it is asked of a copy in a warehouse and not of the application's
+database. `TenantId` stays on every record: it is what holds a tenant's request to that
+tenant's records, and what a copy is divided by.
+
+`impulse check` (`change-history`) says when an application's table lacks a column or is
+keyed otherwise.
+
+**More than one write of a row in one transaction.** A record's old values are the row as
+it stood just before that write, counting what the same transaction's earlier patches
+wrote: the stored row with those writes laid over it. A row created and then updated in
+one transaction has two records, numbered by `Sequence`, and the second's old values are
+the ones the create gave. A row updated twice has a record for each step, and a change put
+back is recorded as a change. A row created and deleted in one transaction has both
+records, though it is never stored. A row the transaction deleted is not there for a later
+update of it, which is answered 404; a second delete of it writes no second record. On a
+row the transaction created, a field no patch set reads as empty: a default the database
+gives the column is not known before the commit.
+
+**One record's history.** `GET <the record's read route>/changes` answers a page of the
+record's change records, newest first: `{"changes": [{"at", "sequence", "operation",
+"source", "fields": [{"field", "old", "new", "oldName", "newName"}]}], "next"}`.
+`operation` is what kind of write it was (`create`, `update` or `delete`), and `source`
+who made it, as the sentence above. `oldName` and `newName` are the names the record kept
+for a field that points at another row (above), each left out where there is none. They
+are answered to a caller who may list the pointed-to resource's names, as a list would
+show them: the `List` grant on its name field, with no condition. Anyone else is answered
+the ids alone. For a field that picks from a view, the grant is on what was kept. A
+person's username is answered to a caller granted `List` on the `username` of the tenant's
+list of its people, and a group's name to a caller granted `List` on the `name` of the
+tenant's list of its groups, each in the request's tenant and with no condition; a grant
+on the people list's `displayName` shows no username. A name read from a foreign key's
+table is answered to a caller who may list that table's name, whoever may read the view.
+A page holds 50 records; `next` is there when older ones exist, and
+`?after=<next>` reads the page after it. `?field=<name>` keeps only the records that
+changed that field, so "when was this account's email last changed" is the first record
+of `?field=email`. The generator writes the route for every table-backed resource that
+has a read route, and it answers 404 for a resource that does not track its changes.
+
+The route asks no grant of its own: whoever may read the record may read its history,
+and sees in it the fields they can see on the record as it stands now. A field the
+caller's grant leaves out, or whose cell is masked on this row, is left out of every
+change record; a record none of whose fields the caller may see is still listed, with
+when and by whom. A field the record's own read never returns is in no change record
+this route answers: a field declared `input_only`, a file's key, and a secret. `?field=`
+naming one is refused as a name the record does not have. The table records that a
+secret changed, with neither value, and this route does not say so: a write that changed
+only the secret is listed with when and by whom, and no field. A record's history
+outlives the record: once the record is deleted, its history is read by a caller from
+whom the record's read can hide no row, with the fields granted to them without a
+condition: their `Read` grant on the resource carries no condition, and their grants on
+its fields are not all under one. A condition is judged on the row, and the row is gone;
+anyone else is answered 404, as the record's own read answers, so a caller a condition
+hides a row from cannot tell it from a row that was deleted or never was. A key that is
+deleted and made again keeps the earlier row's records. A caller whose grant carries no
+condition reads them with the later row's; a caller under a condition reads the records
+of the row that is there now, which end above the earlier row's delete. In a tenant's
+request only the change records written while the record was that tenant's are read. A
+record's history holds that record's own changes, not those of the records under it.
+Questions across records (everything one person changed) are not asked here: they belong
+to a copy of the table in a warehouse.
+
+**How long records are kept.** A change record is kept until something removes it, and
+the library removes none. An application made by `impulse new` declares
+`resource.KeepChangeHistoryForever()`: it keeps every record it has ever written, and the
+table grows for as long as the application runs. That is where an application starts
+because a record that was removed cannot be brought back, and an application under a
+record-keeping law has to keep them. A period that was never declared renders no
+statement, so the choice is always written down.
+
+An application under no such law may declare a number of days,
+`resource.KeepChangeHistoryDays(n)`. The table's statements then end with a row deletion
+policy on `EventTime`:
+
+```sql
+ALTER TABLE DataChangeEvents ADD ROW DELETION POLICY (OLDER_THAN(EventTime, INTERVAL 365 DAY))
+```
+
+Spanner removes each record once it is older than the period, in the background (its
+documentation says typically within 72 hours of that moment). Know what the policy is
+before declaring one:
+
+- It removes the oldest records of rows that are still there. After the period a record
+  that is still in use no longer has the record of its own creation.
+- It cannot wait for anything: not for a row to be deleted, and not for the records under
+  a row to go first.
+- It cannot be stopped for one record. A record that has to be kept longer (a dispute, a
+  legal hold) is kept only by taking the policy off the whole table.
+- Spanner drops the policy when a database is restored from a backup. The restored
+  database keeps every record until a migration adds the policy again.
+
+A record names the person who made the change for as long as it is kept: deleting an
+account rewrites no record. To change the period later, add a migration that replaces the
+table's row deletion policy; to end it, one that takes the policy off. Lodestar declares
+365 days, in its baseline.
+
+## 25. A role held on one record
+
+A tenant's role is held across the tenant: an Editor of the tenant edits every project in
+it. Some work is shared one record at a time instead: a person outside the team, or a team
+of its own, works on one project and on nothing else of the tenant. A role held on one
+record is for that. The tenant's administrator gives a person, or a group kept in the
+tenant, a role on one project; the role's grants then count on that project, on the rows
+under it, and on the rows it names, and on nothing else. The same role held in the tenant
+reaches every project, as before.
+
+Reach for it when the record is the unit people are let in by. Where people see a slice of
+every record (a field, the rows of a state), a grant's condition says it, and nothing here
+is needed.
+
+**Marking the record.** `@holdsRoles` on the record's struct says a role can be held on its
+rows:
+
+```go
+// Project is a piece of client work.
+//
+// @resource
+// @permissionScope(domain)
+// @holdsRoles
+type Project struct {
+    ID       impulse.UUID `spanner:"Id"`
+    // @domain
+    TenantID impulse.UUID `spanner:"TenantId"`
+    ClientID impulse.UUID `spanner:"ClientId"`
+    // @name
+    Title    string       `spanner:"Title"`
+}
+```
+
+The record is a tenant's resource with a table of its own, keyed by one text column, and not
+the tenant record itself (a role held on the tenant is the role held in the tenant). The
+generator refuses each of the others in a sentence that names the struct and what to do. It
+also refuses a record that names a row by a foreign key of several columns, and one with a
+row under it by such a key, unless the key carries the record's own down (an interleaved
+table).
+
+**Naming it in a role.** A domain role of the auth's role file says which kinds of record it
+can be held on, under `heldOn`, by their resource names:
+
+```json
+{
+  "name": "ProjectViewer",
+  "description": "Reads one project and what is under it.",
+  "heldOn": ["Projects"],
+  "permissions": {
+    "List": [{"resource": "Projects", "fields": ["title", "clientId"]}, {"resource": "Tasks", "fields": ["title", "dueOn"]}],
+    "Read": [{"resource": "Projects", "fields": ["title", "clientId"]}, {"resource": "Tasks", "fields": ["title", "dueOn"]}, {"resource": "Clients", "fields": ["name"]}]
+  }
+}
+```
+
+A role without `heldOn` is held in the tenant alone, and a global role takes none. A
+`heldOn` that names a resource the program does not mark is refused at generation:
+`ProjectViewer is held on Projects, and Projects is not marked as a record that can hold a
+role. Write @holdsRoles on the Project struct, or take Projects out of the role's heldOn.`
+
+**What a role held there gives.** The role's own grants, each under one more condition:
+
+- The record itself.
+- Every row under it by foreign keys, by every way the schema gives: a task of the project,
+  a comment on the task. A row under the record by two ways is reached by either. A way never
+  passes a table twice, so a row that hangs under the record only through another row of its
+  own kind (a task under a task) is reached through its own foreign key to the record alone.
+- The one row of each kind the record names by a foreign key (the project's client), and no
+  other row of that kind. Such a row is reached by the role's other grants on its kind (a
+  Read, an Update, a Delete) and never created: a Create there gives nothing.
+- A create of a row under the record, by the record it names: a task created on the project.
+  A role held on one project creates no other project.
+- Nothing on a view of the application's or on a resource apart from the record.
+
+An update is asked of the row before and after: a row that an update would move out from
+under every record the role is held on is refused. A holder of a role on one record sets a
+column to the rows that record reaches and no others (section 26). A check reads the rows as
+they are stored, so a row created, or moved, under a row that the same request creates is
+refused to a role held on one record: it is sent in a second request.
+
+The grants are the ones the role file writes, with their fields and their conditions: the
+record says which rows a grant reaches and never what it allows. The check of a role file
+warns for each grant that gives nothing when the role is held on one record (the role keeps
+it, and it counts when the role is held in the tenant), in one of four sentences:
+
+- `ProjectViewer can be held on a project, and Invoices is neither under a project nor named by one, so its List on Invoices gives nothing when the role is held on one project. It still counts when the role is held across the tenant.`
+- `ProjectEditor can be held on a project, and a project names one client and makes none, so its Create on Clients gives nothing when the role is held on one project. It still adds clients when the role is held across the tenant.`
+- `ProjectEditor can be held on a project, and a role held on one project makes no other, so its Create on Projects gives nothing when the role is held on one project. It still adds projects when the role is held across the tenant.`
+- `ProjectEditor can be held on a project, and ArchiveTenant names no row, so its Execute on ArchiveTenant gives nothing when the role is held on one project. It still counts when the role is held across the tenant.`
+
+An Execute grant counts on one record where its method names a row by `@target` and the
+role reaches that row there. A check or a list reads the condition as it reads any
+other: an `EXISTS` over the rows that name the person, in the same statement.
+
+**The sharing the generator writes.** Where an auth's management is generated
+(`GenerateIdentity`), the application has a tenant record and the auth's role file holds a
+role on the record, each auth gets the record's sharing, named after the auth and the
+record (Staff and Project here):
+
+| | What it is |
+| --- | --- |
+| `GiveStaffRoleOnProject` | gives a person of the tenant a role on one project, for a period where the request names one |
+| `TakeStaffRoleOnProject` | takes it away |
+| `GiveStaffGroupRoleOnProject` | gives a group kept in the tenant a role on one project (where the auth keeps groups) |
+| `TakeStaffGroupRoleOnProject` | takes it away |
+| `StaffProjectHolders` | who holds what on a project: one row for each person's role and each group's, with the holder's name and the period, under the tenant's address |
+| `StaffProjectRoles` | the roles the give dialogs pick from: the roles held on projects that the caller could give with the method, on the project, asked as `recordId:eq:<key>,method:eq:GiveStaffRoleOnProject` |
+
+Each method names the project by `@target`, so a caller who cannot reach the project
+cannot give a role on it, and each carries the class `access` (section 6). A give answers
+`ProjectEditor is not a role held on a project.` (400) for a role whose `heldOn` does not
+name the kind, and refuses a person who is not one of the tenant's people, as the tenant's
+own methods do: a project is shared with somebody outside the tenant once they are invited
+into it. The role field reads as `new.role` in a grant's condition, on the gives and the
+takes alike, so a role file says who hands out which role:
+
+```json
+{
+  "name": "ProjectLead",
+  "description": "Runs one project, and shares it with viewers.",
+  "heldOn": ["Projects"],
+  "permissions": {
+    "List": [{"resource": "StaffProjectHolders", "fields": ["name", "startsAt", "endsAt"]}],
+    "Execute": [
+      {"resource": "GiveStaffRoleOnProject", "condition": "new.role IN ('ProjectViewer')"},
+      {"resource": "TakeStaffRoleOnProject", "condition": "new.role IN ('ProjectViewer')"}
+    ]
+  }
+}
+```
+
+The two lists are under their record: a grant on either held on one project lists that
+project's rows alone. A role file gives the tenant's administrator the four methods and the
+two lists with no condition, as Lodestar's does. The roles list is asked for one record and
+one method. A role filters by `method` and `recordId` where it holds them with no condition,
+or under the one condition it holds the list under: a role held on one project holds the list
+and its fields under that one condition, so the project's lead filters it.
+
+The dialogs pick the person from the tenant's list of its people and the group from its
+groups. Those are the tenant's lists, and a role held on one project lists neither: a person
+who is to share also holds, in the tenant, a role that lists them. The methods hold a request
+to the same lists (section 26): one that names a person or a group the caller's own list does
+not show is answered as a row that is not there.
+
+A person put in a group that holds a role on a record is given that role there, so the
+request needs what giving it to them on that record needs: the grant of
+`GiveStaffRoleOnProject`, read with the person, the role and the project. A request made
+for the whole application asks what giving the role across the project's tenant needs, since
+no method of the whole application gives a role on one record. Giving a group a role on a
+record gives it to everyone in the group, so that request needs the same for each of them.
+
+**A person who holds only records.** A person whose only role in a tenant is held on one of
+its records is let into the tenant, for those records alone. They are one of the tenant's
+people: the tenant's list of its people has a row for them, whose three facts say what they
+hold (`recordsHeld`, how many of the tenant's records; `recordsHeldKind`, the records'
+resource where they are of one kind; `recordHeldName`, the record's name where they hold one
+and the kind has `@name`), and the library's people page says `Project Apollo only` in the
+Roles column. The tenant is among the person's own tenants, leaving it takes the roles held
+on its records, and so does removing the person from the tenant. A role held on a record
+holds the person in the tenant for the one-tenant rule too. The tenant manages the account
+of a person who holds only its records and nothing anywhere else (`managedHere`), and removes
+them from the tenant as it removes anyone. A role on a record of another tenant is held
+elsewhere (`heldElsewhere`), so neither tenant manages that account.
+
+**Periods.** A role held on a record carries a period as a tenant's role does (section 21):
+it counts inside it alone, a give with an end already past is refused, and a group's role on
+a record counts for a member while their place in the group and the group's role both count.
+
+**Deleting.** A record's delete takes the roles held on it, a person's and a group's,
+whatever their periods: its question counts them (`3 roles held on it`) beside the rows
+under it, and the delete takes them in its rounds. A tenant's delete takes the roles held on
+its records (`roles held on records`), and a group's delete takes the roles the group holds
+on records. An account's delete takes the roles the account holds on records that have not
+ended; one that has ended stays in its table until the record or the tenant is deleted. An
+application
+that deletes such a record in code of its own hands its delete
+`<Auth>Identity().RecordKinds(accesstypes.NewRecordScope(domain, "Projects", key))`
+(`DeleteAlso`), as the generated delete does. A record that goes with the delete of a row
+above it (a client's projects) is not handed them: the roles held on it stay in their tables,
+and a person who held nothing else in the tenant stays among its people, reading
+`1 project only`, until an administrator removes them from the tenant. Where a record's key is
+text an application chooses and uses again, a record made later under the same key is held by
+whoever still holds a role on the old one.
+
+**The page.** `sharingConfig` from `@impulseframework/resource-angular/identity-pages` answers
+the Sharing list of the record's page, a related list with Share with a person, Share with a
+group and Remove on each row:
+
+```ts
+const projectSharing = sharingConfig(apiDescriptor, resourceMeta, { auth: 'Staff', record: Resources.Projects });
+
+export const projectsConfig: ResourceConfig = {
+  // ...
+  relatedConfigs: projectSharing ? [projectSharing] : [],
+};
+```
+
+It answers undefined where the auth's side shares no such record. The dialogs pick the role
+from the roles list narrowed by the method and the page's record.
+
+**PostgreSQL.** The access library stores the roles held on records and compiles their
+conditions on both databases, and the condition a role held on a record counts under renders
+for PostgreSQL and holds against its rows. This package's writes are Spanner's, and nothing
+more of it is extended for PostgreSQL by this.
+
+**An application of several sites.** A role held on a record counts in every site. Each site
+that serves the record, anything under it or a row it names declares the record's struct with
+`@holdsRoles` and the tables on the way down to what it serves, as the site that shares the
+record does; its collection then carries where the auth keeps its roles on records, whichever
+site generates the auth's management. The Sharing list and its methods are served by the site
+that generates the management. Where two sites declare one table, they place it under the
+record the same way, through the same columns: `access.UnionCollection` refuses two that
+differ, and a site that declares the table and leaves the record's mark out, naming the table
+and the record.
+
+Lodestar is the reference: a mission holds roles, `MissionObserver` and `MissionLead` are held
+on missions, and the console's missions page carries the Sharing list.
+
+## 26. A row a write names
+
+A column that names a row of another kind (a foreign key, or a column picked from a list with
+a field-scope `@enumerate`) is set only to a row its writer can list: a row the person's own
+list of that kind would show. The kind is a table, a view or a computed list. The picker of
+such a column lists its source under the person's own List grant, so it offers only those
+rows; the server holds a create and an update to the same rows, and answers any other 404,
+`A record this one refers to does not exist.`, as it answers a row that is not there. A role
+that sets such a column therefore needs the List grant on what it picks from; a grant under a
+condition lets it name the rows the condition holds for, and a role held on one record the
+rows that record reaches (section 25). The refusal comes after the grant's own (a person who
+may not create at all is told so). A create is refused before its conditions are asked. An
+update and an update-or-create are asked once the row is found in the request's tenant and
+the write's conditions hold for it, so the answer tells a writer nothing of a row they may
+not change.
+
+How each kind is asked. A table's row is read by its key, in the request's tenant where the
+table belongs to one, under the grant's condition; where the grant carries no condition and
+the table belongs to no tenant, nothing is read. A view's row is read the same way from the
+view's own query, and always, since the query says which rows the view has. A computed list
+is asked through its own function: the library runs the function for the writer as the list's
+route runs it, with no filter, judges each row it yields by the List grant's condition, and
+looks for the key. One write runs the function once for each such column it sets, and a plain
+column picked from a computed list takes no id the list does not hold.
+
+A method's picked field is held the same way. A field of an `@rpc` struct with a field-scope
+`@enumerate` names only a row the caller's list of that kind shows, each key of a field that
+takes several, and a request that names any other is answered the same 404, after the
+method's grant has refused a caller who may not run it, or whose request its condition does
+not admit, and before the method's warning, its transaction and its body. A condition the
+grant carries on the row the method acts on is judged later, in the transaction, so a
+request that fails both reads this refusal. A field left empty, or an empty item of a field
+that takes several, names no row and is not asked: what an empty field means is the body's
+to say.
+
+An update that leaves the column as it is is not asked, and neither is a row the same
+transaction created before in the request's tenant, nor a write made outside a request (a
+job, a bootstrap: a patch set that is not armed). For a column picked from a view or a
+computed list, the row made before is a row of the table the column's foreign key references;
+a column with no foreign key has none, and names a row once the request that made it has
+committed. Such a row passes on that table's facts alone, its key and, where the table
+belongs to a tenant, its tenant: the view's own query and the list's function are not asked
+of a row the request has not committed.
+
+The rule holds for a column and a field the generator declares (`NamedRows()` on the
+resource; the call of `HoldPicked` in a method's generated handler): one whose source is a
+table, a view or a computed list of the application that serves a list. The generated
+decoders are handed the views and the lists to ask (`WithNamedRowSources`); a decoder built
+by hand is handed them the same way. A method that suppresses its generated handler
+(`@suppress`) has no such call: the handler the application writes makes it. Not held: a
+column or a field picked from an enumeration table, since everyone picks from those; a
+method's field picked from a list of roles (a list whose key is marked `@roleOf`), since
+which roles a person hands out is said on the method's own grant (`new.role`) and the list
+is made from that grant, while a column picked from such a list is held as any other, no
+method's grant standing over a write; a field of a method of the whole application picked
+from a tenant's list, or from the tenant record: the tenant such a method names is the place
+it acts in, as a tenant's method takes its tenant from its address, and what the caller may
+do there is for the method's own grant and its body to say; and the column that holds the
+row's own tenant key.

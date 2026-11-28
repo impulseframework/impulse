@@ -1,23 +1,19 @@
 import { Component, computed, inject } from '@angular/core';
-import { MatCardModule } from '@angular/material/card';
 import { MatIconModule } from '@angular/material/icon';
-import { MatTableModule } from '@angular/material/table';
 import { RouterModule } from '@angular/router';
 import { Methods, Permissions, Resources } from '@app/service/zz_gen_constants';
 import { ResourceScopes } from '@app/service/zz_gen_resources';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
-import { Method, Permission, Resource } from '@impulseframework/resource';
+import { CompoundResourceComponent, ResourceListComponent } from '@impulseframework/resource-angular/resource';
+import {
+  PermissionsCardComponent,
+  PermissionsCardResource,
+} from '@impulseframework/resource-angular/ui-permissions-card';
+import { Method, Permission, PermissionDigestState, Resource } from '@impulseframework/resource';
 import { ImpersonationService } from '@components/sector/impersonation.service';
 import { SectorService } from '@components/sector/sector.service';
 import { PilotCardComponent } from '@components/shared/pilot-card/pilot-card.component';
-
-/** One row of the service card: a resource and what the session holds on it here. */
-interface CardRow {
-  target: Resource | Method;
-  label: string;
-  scope: 'global' | 'domain';
-  states: Record<string, 'granted' | 'conditional' | undefined>;
-}
+import { serviceLedgerList } from '../../../configs/serviceLedgers.config';
 
 const READ_WRITE: Permission[] = [
   Permissions.List,
@@ -27,13 +23,27 @@ const READ_WRITE: Permission[] = [
   Permissions.Delete,
 ];
 
+/** What a method's pill says after its name, by the digest's answer: nothing for a grant outright. */
+const METHOD_TERMS: Record<PermissionDigestState, string> = {
+  granted: '',
+  conditional: ' · terms apply',
+  conditionalOnTime: ' · at certain times',
+  conditionalWithResource: ' · terms apply',
+};
+
 /**
  * The dashboard is the service card: a badge listing, per resource, what you hold in
- * the open sector — granted, conditional ("terms apply"), or absent. It is the
+ * the open sector — granted, conditional ("terms apply"), conditional on time ("at
+ * certain times"), or absent. It is the
  * permission digest rendered as an object in the world; every deck consults the same
  * digest before issuing a request. Under a masked "view as" session the write column
  * carries a stripe: Masked drops those permissions from the digest itself. Above it, the
- * signed-in pilot's standing (the pilot card), and in Headquarters the service ledger.
+ * signed-in pilot's standing (the pilot card), and for a person who may list it the
+ * service ledger, a list of records the library's list draws. The badge is no list of
+ * records: the library's card for what a person may do draws it, laid out by its own
+ * width, so where its columns do not fit each resource is a block of its own, its name
+ * over its permissions, each permission named beside its answer, and nothing runs past
+ * the edge. The methods the session may fire are the page's own, drawn under the table.
  * The person's email address and the look of the console are theirs, not a place's: the
  * account page and Appearance in the person's menu, which the frame draws.
  *
@@ -41,7 +51,7 @@ const READ_WRITE: Permission[] = [
  */
 @Component({
   selector: 'app-dashboard',
-  imports: [MatCardModule, MatIconModule, MatTableModule, PilotCardComponent, RouterModule],
+  imports: [MatIconModule, PermissionsCardComponent, PilotCardComponent, ResourceListComponent, RouterModule],
   templateUrl: './dashboard.component.html',
   styleUrl: './dashboard.component.scss',
 })
@@ -50,40 +60,43 @@ export class DashboardComponent {
   sectors = inject(SectorService);
   impersonation = inject(ImpersonationService);
 
-  readonly permissions = READ_WRITE;
-  readonly columns = ['label', ...READ_WRITE.map((p) => String(p)), 'execute'];
+  /** The card's heading: the service card of the place the page is open in. */
+  heading = computed(() => `Service card — ${this.sectors.placeName()}`);
 
   // ServiceLedgers is a computed resource aggregated across every sector — the
-  // Governor's view. The list gate is the handle's own.
-  ledger = this.sectors.globalList((api) => api.serviceLedgers);
-  ledgerColumns = ['name', 'openMissions', 'feesOutstanding', 'settlements'];
+  // Governor's view. The library's list draws it and asks for its rows; the page shows
+  // the list only where the digest grants List on the ledger, so a person without the
+  // grant asks the server for nothing.
+  readonly ledgerList = serviceLedgerList;
+  /** The page a list opens a row in: the library's, which the ledger never opens (a row has no page). */
+  readonly rowPage = CompoundResourceComponent;
+  seesLedger = computed(() => this.sectors.can(Permissions.List, Resources.ServiceLedgers));
 
   // The card's rows: every resource the descriptor knows, sector-scoped ones asked in
-  // the open sector. Absent everywhere means the row still renders, greyed — the
+  // the open sector. Absent everywhere means the row still renders, grayed — the
   // badge shows what you do NOT hold as plainly as what you do.
-  rows = computed<CardRow[]>(() => {
+  rows = computed<PermissionsCardResource[]>(() => {
     const resources = Object.values(Resources) as Resource[];
     return resources
       .map((res) => ({
-        target: res,
-        label: String(res),
+        name: String(res),
         scope: (ResourceScopes[res] ?? 'global') as 'global' | 'domain',
-        states: Object.fromEntries(READ_WRITE.map((p) => [String(p), this.sectors.state(p, res)])),
+        held: Object.fromEntries(READ_WRITE.map((p) => [String(p), this.sectors.state(p, res)])),
       }))
-      .filter((row) => row.scope === 'domain' || Object.values(row.states).some((s) => s !== undefined));
+      .filter((row) => row.scope === 'domain' || Object.values(row.held).some((s) => s !== undefined));
   });
 
   // Execute grants: the methods lit in the open sector (transitions and plain
-  // targets) plus the global ones.
+  // targets) plus the global ones, each with the words its pill says after its name.
   methods = computed(() =>
-    (Object.values(Methods) as Method[])
-      .map((m) => ({ method: m, state: this.sectors.state(Permissions.Execute, m) }))
-      .filter((m) => m.state !== undefined),
+    (Object.values(Methods) as Method[]).flatMap((m) => {
+      const state = this.sectors.state(Permissions.Execute, m);
+      return state === undefined ? [] : [{ method: m, state, terms: METHOD_TERMS[state] }];
+    }),
   );
 
-  masked(permission: string): boolean {
-    return this.impersonation.masked(permission);
-  }
+  /** The permissions a masked "view as" session has lost: the card stripes their columns. */
+  masked = computed(() => READ_WRITE.map((p) => String(p)).filter((p) => this.impersonation.masked(p)));
 
   emptyMessage = computed(() => `Your posting in ${this.sectors.placeName()} lets you fire no method.`);
 }

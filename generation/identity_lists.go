@@ -15,6 +15,7 @@ import (
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/generation/parser/genlang"
+	"github.com/impulseframework/impulse/internal/words"
 	"github.com/impulseframework/impulse/session/sessionstorage"
 )
 
@@ -25,14 +26,19 @@ import (
 // application's, served under the tenant's address:
 //
 //   - the tenant's people: one row per person who holds a role in the tenant or in every
-//     tenant, with the account's columns and two facts a grant's condition reads
-//     (heldElsewhere, heldGlobally);
+//     tenant, and per person who signs in through the tenant's directory, with the
+//     account's columns and the facts a grant's condition reads (managedHere,
+//     managedByAnotherDirectory, heldElsewhere, heldGlobally, heldHere,
+//     heldInEveryTenant);
 //   - the roles held there: one row per role a person holds in the tenant, with the fact
 //     everyDomain;
+//   - the one list of the roles held there with where each comes from: those rows, and
+//     beside them a row per role that comes to a person through a group
+//     (identity_holdings.go);
 //   - the tenant's invitations: the mail links of the invitation kind that name the
 //     tenant, with the fact pending;
 //   - the identities of the tenant's people: one row per identity link of a person of
-//     the first list, with the person's two facts.
+//     the first list, with four of the person's facts.
 //
 // A view is a @virtual struct whose query the framework selects from: nothing is
 // created in the database. The role file grants each list like any resource, field by
@@ -41,8 +47,10 @@ import (
 //
 // The views are declared beside the tables they read, in the instance's declarations
 // package, and each is named for what it holds: the auth's name, the application's
-// tenant record's, and the thing listed (listName). The whole application's lists keep
-// the names of their tables.
+// tenant record's, and the thing listed (listName). The whole application's lists are
+// named after the auth alone: the declarations over its tables, and the views beside
+// them (identity_holdings.go), two of which say who manages each account as a tenant's
+// lists do.
 
 // identityTenant is the application's tenant record as the sources of the generated
 // management name it. The sources are written before the packages are loaded, so the
@@ -73,10 +81,19 @@ type identityTenant struct {
 	// tenant is opened to its directory's people with, which the generated methods
 	// judge by the role file's grants (seatsDirectory).
 	directorySeat string
+	// seated is where the directories record keeps its default seat, with its table
+	// and columns, nil where the application declares none or a column cannot be read
+	// (identity_directory.go): the generated client reads from it whether a person
+	// removed from a tenant is given its starting role again at their next sign-in.
+	seated *identityDirectorySeat
 	// directoryOutlets are the outlets the directories record is served on, nil where
 	// the application declares none: the two methods that say how a tenant admits its
 	// directory's people are served on the session outlets among them.
 	directoryOutlets []string
+	// directories is the directories record's struct name (@tenantDirectory), "" where
+	// the application declares none: a tenant's side of the API description names it,
+	// for the page of a tenant's sign-in settings (pageLists).
+	directories string
 }
 
 // identityList is one of a tenant's lists as the generated management declares it: the
@@ -90,10 +107,12 @@ type identityList struct {
 }
 
 // The suffixes of the lists, each what the list holds: a tenant's people, the roles
-// they hold there, the tenant's invitations and its people's sign-in identities.
+// they hold there, the one list of those roles with where each comes from, the tenant's
+// invitations and its people's sign-in identities.
 const (
 	listPeopleSuffix      = "User"
 	listRolesSuffix       = "UserRole"
+	listHeldRolesSuffix   = heldRoleSuffix
 	listInvitationsSuffix = "Invitation"
 	listIdentitiesSuffix  = "Identity"
 )
@@ -104,6 +123,7 @@ func identityLists() []identityList {
 	return []identityList{
 		{suffix: listPeopleSuffix, template: identityTenantUsersTemplate, needs: []identityTable{identityUsers, identityMemberships}},
 		{suffix: listRolesSuffix, template: identityTenantRolesTemplate, needs: []identityTable{identityUsers, identityMemberships}},
+		{suffix: listHeldRolesSuffix, template: identityTenantHeldRolesTemplate, needs: []identityTable{identityUsers, identityMemberships}},
 		{suffix: listInvitationsSuffix, template: identityTenantMailLinksTemplate, needs: []identityTable{identityMailLinks}},
 		{suffix: listIdentitiesSuffix, template: identityTenantIdentitiesTemplate, needs: []identityTable{identityUsers, identityMemberships, identityIdentities}},
 	}
@@ -115,6 +135,40 @@ func identityLists() []identityList {
 // are named.
 func (i *identityInstance) listName(suffix string) string {
 	return i.auth + i.tenant.name + suffix
+}
+
+// listedTable is the table a row of one of an instance's lists is really a row of
+// (tableOfList): the table, the column its key is read by, the column its name is read
+// from and the column that holds its tenant, empty where the table holds none; and field,
+// the list's own field the name's grant is on.
+type listedTable struct {
+	table        string
+	keyColumn    string
+	nameColumn   string
+	tenantColumn string
+	field        string
+}
+
+// tableOfList answers the table a row of one of the instance's lists is really a row of,
+// for the name a change record keeps of it: one of a tenant's people is an account, kept
+// by its username, and one of a tenant's groups a row of the groups table, kept by its
+// name within its tenant. A write reads that table by the row's key; it never runs the
+// list's query. It answers nothing for any other list, and for an instance with no tenant
+// record, which has neither.
+func (i *identityInstance) tableOfList(list string) (listedTable, bool) {
+	// The columns of the users and the groups tables, each the column of the list's
+	// field of the same name.
+	const key, username, name = "Id", "Username", "Name"
+	switch {
+	case i.tenant == nil:
+		return listedTable{}, false
+	case list == i.listName(listPeopleSuffix):
+		return listedTable{table: i.tableName(identityUsers), keyColumn: key, nameColumn: username, tenantColumn: "", field: username}, true
+	case i.keepsGroups() && list == i.groupListName(listGroupsSuffix, true):
+		return listedTable{table: i.tableName(identityGroups), keyColumn: key, nameColumn: name, tenantColumn: groupTenantColumn, field: name}, true
+	default:
+		return listedTable{}, false
+	}
 }
 
 // refuseListNamesTaken refuses a tenant record whose name gives one of a tenant's lists
@@ -132,9 +186,12 @@ func (i *identityInstance) refuseListNamesTaken() error {
 		declared[i.auth+decl.suffix] = true
 	}
 	// The whole application's lists over groups are named after the auth alone, as the
-	// declarations are.
+	// declarations are, and so are its lists of what is held.
 	for _, suffix := range []string{listGroupPeopleSuffix, listThroughGroupsSuffix} {
 		declared[i.groupListName(suffix, false)] = true
+	}
+	for _, name := range i.holdingNames() {
+		declared[name] = true
 	}
 	suffixes := []string{tenantRoleChoiceSuffix, directoryRoleChoiceSuffix, listGroupsSuffix, listGroupPeopleSuffix, listGroupRolesSuffix, listThroughGroupsSuffix}
 	for _, list := range identityLists() {
@@ -193,6 +250,12 @@ func (d *identitySourceData) TenantRole() string {
 	return d.listName(listRolesSuffix)
 }
 
+// TenantHeldRole is the struct of the one list of the roles held in a tenant, each with
+// where it comes from.
+func (d *identitySourceData) TenantHeldRole() string {
+	return d.listName(listHeldRolesSuffix)
+}
+
 // TenantMailLink is the struct of a tenant's invitations.
 func (d *identitySourceData) TenantMailLink() string {
 	return d.listName(listInvitationsSuffix)
@@ -222,7 +285,10 @@ func (d *identitySourceData) TenantWord() string {
 // a picker of it, for the field that says which tenant a role is given in: the record is
 // served on every outlet the instance's methods are on, since a picker lists a resource
 // of the method's own outlet. It is empty otherwise, and in an application with no
-// tenant record, and the field is then typed.
+// tenant record, and the field is then typed. The whole application's lists that carry
+// a tenant's key point it to the record under the same condition, since a declared
+// pointer names a resource of the list's own outlet: the server then reads the tenant's
+// name with each row. Where the condition fails the lists carry no name.
 func (d *identitySourceData) TenantPicker() string {
 	if d.tenant == nil {
 		return ""
@@ -317,7 +383,7 @@ func (r *resourceGenerator) readIdentityTenant() (*identityTenant, error) {
 		return nil, errors.Newf("GenerateIdentity(%q): struct %s is the tenant record (@%s) and its key %s.%s is %s; the tenant record's key is an id the create path generates, kept as its text, the domain in every tenant-scoped URL", r.identityTree.Dir(), name, tenantKeyword, table, keys[0], spannerType)
 	}
 
-	directory, seat, directoryOutlets, err := tenantDirectoryIn(r.resource.Dir(), name, r.pluralize)
+	directory, directories, err := tenantDirectoryIn(r.resource.Dir(), name, r.pluralize)
 	if err != nil {
 		return nil, errors.Wrapf(err, "GenerateIdentity(%q): reading the directory-only switch (@%s) and the directories record (@%s) from the sources of %s", r.identityTree.Dir(), directoryOnlyKeyword, tenantDirectoryKeyword, r.resource.Dir())
 	}
@@ -329,7 +395,7 @@ func (r *resourceGenerator) readIdentityTenant() (*identityTenant, error) {
 
 	return &identityTenant{
 		name: name, table: table, key: keys[0], outlets: outlets, word: sentenceWord(name, label),
-		directory: directory, directorySeat: seat, directoryOutlets: directoryOutlets,
+		directory: directory, directorySeat: directories.seat, seated: directories.seated, directoryOutlets: directories.outlets, directories: directories.record,
 		invitation: invitation, unreadable: unreadable,
 	}, nil
 }
@@ -461,20 +527,20 @@ func structCommentTenantLabel(gen *ast.GenDecl, typeSpec *ast.TypeSpec) string {
 }
 
 // sentenceWord is what the application calls one tenant as the middle of a sentence
-// says it: the record's label where it declares one, else its name in words, with the
-// first letter lowered unless the first word is an initialism ("Customer" is
-// "customer", "ServiceDistrict" is "service district", "HQ unit" stays).
+// says it: the record's label where it declares one, else its name in words
+// (words.InWords); a label has its first letter lowered unless its first word is an
+// initialism ("Customer" is "customer", "ServiceDistrict" is "service district", "HQ
+// unit" stays).
 func sentenceWord(name, label string) string {
-	word := label
-	if word == "" {
-		word = screenWords(name)
+	if label == "" {
+		return words.InWords(name)
 	}
-	first, _, _ := strings.Cut(word, " ")
-	if word == "" || isInitialism(first) {
-		return word
+	first, _, _ := strings.Cut(label, " ")
+	if isInitialism(first) {
+		return label
 	}
 
-	return strings.ToLower(word[:1]) + word[1:]
+	return strings.ToLower(label[:1]) + label[1:]
 }
 
 // structCommentOutlets reads the outlets a struct's comment names (@outlet), the default

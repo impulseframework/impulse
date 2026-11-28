@@ -3,8 +3,8 @@ import { ApiDescriptor, Client, ClientOptions, createClient, MethodHandle, Resou
 import { AcrossTenantsHandle } from '@impulseframework/resource';
 import { Point } from 'geojson';
 import { Methods, Resources } from './zz_gen_constants';
-import { ClientContacts, ClientRosters, DistressCalls, MembersRoles, MembersRoleGrants, MembersSectorIdentities, MembersSectorInvitations, MembersSectorUsers, MembersSectorUserRoles, MembersSessions, MembersSessionAuthEvents, MembersSessionIdentities, MembersSessionMailLinks, MembersSessionSignInAttempts, MembersSessionTrustedDevices, MembersSessionUsers, MembersUserRoles, Missions, MissionDocuments, BriefingTemplates, FeatureFlags } from './zz_gen_resources';
-import { DeleteMembersSectorUser, DeleteMembersUser, DisableMembersSectorUser, DisableMembersUser, EnableMembersSectorUser, EnableMembersUser, EndMembersSectorUserSessions, EndMembersSession, EndMembersUserSessions, RenameMembersSectorUser, RenameMembersUser, RevokeMembersSectorUserTrustedDevices, RevokeMembersUserTrustedDevices, SetMembersSectorUserEmail, SetMembersSectorUserName, SetMembersUserEmail, SetMembersUserName, StandDownMission, UnlinkMembersSectorSessionIdentity, UnlinkMembersSessionIdentity, UnlockMembersSignIn, SetFeature, SetFeatureResult } from './zz_gen_methods';
+import { ClientContacts, ClientRosters, DistressCalls, MembersHeldRoles, MembersListedIdentities, MembersListedMailLinks, MembersListedSessions, MembersListedSignInAttempts, MembersListedUsers, MembersRoles, MembersSectorHeldRoles, MembersSectorIdentities, MembersSectorInvitations, MembersSectorUsers, MembersSectorUserRoles, MembersSessions, MembersSessionAuthEvents, MembersSessionIdentities, MembersSessionMailLinks, MembersSessionSignInAttempts, MembersSessionTrustedDevices, MembersSessionUsers, MembersUserRoles, Missions, MissionDocuments, BriefingTemplates, MembersListedAuditRecords, MembersListedRoleGrants, MembersRememberLengths, MembersSectorAuditRecords, MembersSignInMethods, MembersSignInSettings, FeatureFlags } from './zz_gen_resources';
+import { DeleteMembersSectorUser, DeleteMembersSectorUserAnswer, DeleteMembersUser, DeleteMembersUserAnswer, DisableMembersSectorUser, DisableMembersUser, EnableMembersSectorUser, EnableMembersUser, EndMembersSectorUserSessions, EndMembersSession, EndMembersUserSessions, RenameMembersSectorUser, RenameMembersUser, RequireMembersSecondFactor, RevokeMembersSectorUserTrustedDevices, RevokeMembersUserTrustedDevices, SetMembersRememberedBrowsers, SetMembersSectorUserEmail, SetMembersSectorUserEmailResult, SetMembersSectorUserName, SetMembersUserEmail, SetMembersUserEmailResult, SetMembersUserName, StandDownMission, StopRequiringMembersSecondFactor, UnlinkMembersSectorSessionIdentity, UnlinkMembersSessionIdentity, UnlockMembersSignIn, SetFeature, SetFeatureResult } from './zz_gen_methods';
 
 /** The feature flags the application declares, by name: what a route, a field or a method is gated behind. */
 export type Feature = 'commendations';
@@ -55,11 +55,29 @@ export interface DistressCallsPatch {
 /** The primary key of DistressCalls, in route order. */
 export type DistressCallsKey = [id: string];
 
+/** The primary key of MembersHeldRoles, in route order. */
+export type MembersHeldRolesKey = [userId: string, kind: string, axis: string, domainId: string, role: string, groupId: string];
+
+/** The primary key of MembersListedIdentities, in route order. */
+export type MembersListedIdentitiesKey = [id: string];
+
+/** The primary key of MembersListedMailLinks, in route order. */
+export type MembersListedMailLinksKey = [id: string];
+
+/** The primary key of MembersListedSessions, in route order. */
+export type MembersListedSessionsKey = [id: string];
+
+/** The primary key of MembersListedSignInAttempts, in route order. */
+export type MembersListedSignInAttemptsKey = [name: string];
+
+/** The primary key of MembersListedUsers, in route order. */
+export type MembersListedUsersKey = [id: string];
+
 /** The primary key of MembersRoles, in route order. */
 export type MembersRolesKey = [kind: string, axis: string, domainId: string, role: string];
 
-/** The primary key of MembersRoleGrants, in route order. */
-export type MembersRoleGrantsKey = [kind: string, axis: string, domainId: string, role: string, permission: string, resourceName: string, field: string, condition: string];
+/** The primary key of MembersSectorHeldRoles, in route order. */
+export type MembersSectorHeldRolesKey = [userId: string, role: string, groupId: string];
 
 /** The primary key of MembersSectorIdentities, in route order. */
 export type MembersSectorIdentitiesKey = [id: string];
@@ -108,12 +126,12 @@ export interface MissionsCreate {
   brief?: string | null;
   briefingTemplateId?: string | null;
   hazard: number;
-  fee: number;
+  fee: string;
   deadline: Date;
   requiredCertId?: string | null;
   assignedSquadronId?: string | null;
   notes?: string | null;
-  settlement?: number | null;
+  settlement?: string | null;
 }
 /** The fields a client may change on Missions. Keys, server-owned, and immutable fields are absent. */
 export interface MissionsPatch {
@@ -123,12 +141,12 @@ export interface MissionsPatch {
   brief?: string | null;
   briefingTemplateId?: string | null;
   hazard?: number;
-  fee?: number;
+  fee?: string;
   deadline?: Date;
   requiredCertId?: string | null;
   assignedSquadronId?: string | null;
   notes?: string | null;
-  settlement?: number | null;
+  settlement?: string | null;
 }
 /** The primary key of Missions, in route order. */
 export type MissionsKey = [id: string];
@@ -150,6 +168,24 @@ export type MissionDocumentsKey = [id: string];
 
 /** The primary key of BriefingTemplates, in route order. */
 export type BriefingTemplatesKey = [id: string];
+
+/** The primary key of MembersListedAuditRecords, in route order. */
+export type MembersListedAuditRecordsKey = [id: string];
+
+/** The primary key of MembersListedRoleGrants, in route order. */
+export type MembersListedRoleGrantsKey = [kind: string, axis: string, domainId: string, role: string, permission: string, resourceName: string, field: string, condition: string];
+
+/** The primary key of MembersRememberLengths, in route order. */
+export type MembersRememberLengthsKey = [name: string];
+
+/** The primary key of MembersSectorAuditRecords, in route order. */
+export type MembersSectorAuditRecordsKey = [id: string];
+
+/** The primary key of MembersSignInMethods, in route order. */
+export type MembersSignInMethodsKey = [name: string];
+
+/** The primary key of MembersSignInSettings, in route order. */
+export type MembersSignInSettingsKey = [name: string];
 
 /** The primary key of FeatureFlags, in route order. */
 export type FeatureFlagsKey = [name: string];
@@ -208,6 +244,72 @@ export const apiDescriptor = defineApiDescriptor({
       order: [{ field: 'severity', direction: 'desc' }],
       patchable: ['summary', 'severity', 'callerContact', 'transcript', 'position'],
     },
+    [Resources.MembersHeldRoles]: {
+      resource: Resources.MembersHeldRoles,
+      property: 'membersHeldRoles',
+      route: 'members-held-roles',
+      scope: 'global',
+      consolidated: false,
+      keys: ['userId', 'kind', 'axis', 'domainId', 'role', 'groupId'],
+      operations: ['list'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'username', direction: 'asc' }, { field: 'role', direction: 'asc' }, { field: 'groupName', direction: 'asc' }],
+    },
+    [Resources.MembersListedIdentities]: {
+      resource: Resources.MembersListedIdentities,
+      property: 'membersListedIdentities',
+      route: 'members-listed-identities',
+      scope: 'global',
+      consolidated: false,
+      keys: ['id'],
+      operations: ['list', 'read'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'createdAt', direction: 'desc' }],
+    },
+    [Resources.MembersListedMailLinks]: {
+      resource: Resources.MembersListedMailLinks,
+      property: 'membersListedMailLinks',
+      route: 'members-listed-mail-links',
+      scope: 'global',
+      consolidated: false,
+      keys: ['id'],
+      operations: ['list', 'read'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'createdAt', direction: 'desc' }],
+    },
+    [Resources.MembersListedSessions]: {
+      resource: Resources.MembersListedSessions,
+      property: 'membersListedSessions',
+      route: 'members-listed-sessions',
+      scope: 'global',
+      consolidated: false,
+      keys: ['id'],
+      operations: ['list', 'read'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'updatedAt', direction: 'desc' }],
+    },
+    [Resources.MembersListedSignInAttempts]: {
+      resource: Resources.MembersListedSignInAttempts,
+      property: 'membersListedSignInAttempts',
+      route: 'members-listed-sign-in-attempts',
+      scope: 'global',
+      consolidated: false,
+      keys: ['name'],
+      operations: ['list'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'locked', direction: 'desc' }, { field: 'updatedAt', direction: 'desc' }],
+    },
+    [Resources.MembersListedUsers]: {
+      resource: Resources.MembersListedUsers,
+      property: 'membersListedUsers',
+      route: 'members-listed-users',
+      scope: 'global',
+      consolidated: false,
+      keys: ['id'],
+      operations: ['list', 'read'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'username', direction: 'asc' }],
+    },
     [Resources.MembersRoles]: {
       resource: Resources.MembersRoles,
       property: 'membersRoles',
@@ -219,16 +321,16 @@ export const apiDescriptor = defineApiDescriptor({
       page: { default: 25, max: 200 },
       order: [{ field: 'role', direction: 'asc' }],
     },
-    [Resources.MembersRoleGrants]: {
-      resource: Resources.MembersRoleGrants,
-      property: 'membersRoleGrants',
-      route: 'members-role-grants',
-      scope: 'global',
+    [Resources.MembersSectorHeldRoles]: {
+      resource: Resources.MembersSectorHeldRoles,
+      property: 'membersSectorHeldRoles',
+      route: 'members-sector-held-roles',
+      scope: 'domain',
       consolidated: false,
-      keys: ['kind', 'axis', 'domainId', 'role', 'permission', 'resourceName', 'field', 'condition'],
+      keys: ['userId', 'role', 'groupId'],
       operations: ['list'],
       page: { default: 25, max: 200 },
-      order: [{ field: 'role', direction: 'asc' }],
+      order: [{ field: 'username', direction: 'asc' }, { field: 'role', direction: 'asc' }, { field: 'groupName', direction: 'asc' }],
     },
     [Resources.MembersSectorIdentities]: {
       resource: Resources.MembersSectorIdentities,
@@ -398,6 +500,72 @@ export const apiDescriptor = defineApiDescriptor({
       operations: ['list'],
       page: { default: 50 },
     },
+    [Resources.MembersListedAuditRecords]: {
+      resource: Resources.MembersListedAuditRecords,
+      property: 'membersListedAuditRecords',
+      route: 'members-listed-audit-records',
+      scope: 'global',
+      consolidated: false,
+      keys: ['id'],
+      operations: ['list'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'at', direction: 'desc' }],
+    },
+    [Resources.MembersListedRoleGrants]: {
+      resource: Resources.MembersListedRoleGrants,
+      property: 'membersListedRoleGrants',
+      route: 'members-listed-role-grants',
+      scope: 'global',
+      consolidated: false,
+      keys: ['kind', 'axis', 'domainId', 'role', 'permission', 'resourceName', 'field', 'condition'],
+      operations: ['list'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'role', direction: 'asc' }],
+    },
+    [Resources.MembersRememberLengths]: {
+      resource: Resources.MembersRememberLengths,
+      property: 'membersRememberLengths',
+      route: 'members-remember-lengths',
+      scope: 'global',
+      consolidated: false,
+      keys: ['name'],
+      operations: ['list'],
+      page: { default: 50 },
+      order: [{ field: 'days', direction: 'asc' }],
+    },
+    [Resources.MembersSectorAuditRecords]: {
+      resource: Resources.MembersSectorAuditRecords,
+      property: 'membersSectorAuditRecords',
+      route: 'members-sector-audit-records',
+      scope: 'domain',
+      consolidated: false,
+      keys: ['id'],
+      operations: ['list'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'at', direction: 'desc' }],
+    },
+    [Resources.MembersSignInMethods]: {
+      resource: Resources.MembersSignInMethods,
+      property: 'membersSignInMethods',
+      route: 'members-sign-in-methods',
+      scope: 'global',
+      consolidated: false,
+      keys: ['name'],
+      operations: ['list'],
+      page: { default: 50 },
+      order: [{ field: 'label', direction: 'asc' }],
+    },
+    [Resources.MembersSignInSettings]: {
+      resource: Resources.MembersSignInSettings,
+      property: 'membersSignInSettings',
+      route: 'members-sign-in-settings',
+      scope: 'global',
+      consolidated: false,
+      keys: ['name'],
+      operations: ['list'],
+      page: { default: 50 },
+      order: [{ field: 'position', direction: 'asc' }],
+    },
     [Resources.FeatureFlags]: {
       resource: Resources.FeatureFlags,
       property: 'featureFlags',
@@ -411,8 +579,8 @@ export const apiDescriptor = defineApiDescriptor({
     },
   },
   methods: {
-    [Methods.DeleteMembersSectorUser]: { method: Methods.DeleteMembersSectorUser, property: 'deleteMembersSectorUser', route: 'delete-members-sector-user', scope: 'domain', statuses: [204] },
-    [Methods.DeleteMembersUser]: { method: Methods.DeleteMembersUser, property: 'deleteMembersUser', route: 'delete-members-user', scope: 'global', statuses: [204] },
+    [Methods.DeleteMembersSectorUser]: { method: Methods.DeleteMembersSectorUser, property: 'deleteMembersSectorUser', route: 'delete-members-sector-user', scope: 'domain', answers: true, statuses: [202, 204] },
+    [Methods.DeleteMembersUser]: { method: Methods.DeleteMembersUser, property: 'deleteMembersUser', route: 'delete-members-user', scope: 'global', answers: true, statuses: [202, 204] },
     [Methods.DisableMembersSectorUser]: { method: Methods.DisableMembersSectorUser, property: 'disableMembersSectorUser', route: 'disable-members-sector-user', scope: 'domain', statuses: [204] },
     [Methods.DisableMembersUser]: { method: Methods.DisableMembersUser, property: 'disableMembersUser', route: 'disable-members-user', scope: 'global', statuses: [204] },
     [Methods.EnableMembersSectorUser]: { method: Methods.EnableMembersSectorUser, property: 'enableMembersSectorUser', route: 'enable-members-sector-user', scope: 'domain', statuses: [204] },
@@ -422,13 +590,16 @@ export const apiDescriptor = defineApiDescriptor({
     [Methods.EndMembersUserSessions]: { method: Methods.EndMembersUserSessions, property: 'endMembersUserSessions', route: 'end-members-user-sessions', scope: 'global', statuses: [204] },
     [Methods.RenameMembersSectorUser]: { method: Methods.RenameMembersSectorUser, property: 'renameMembersSectorUser', route: 'rename-members-sector-user', scope: 'domain', statuses: [204] },
     [Methods.RenameMembersUser]: { method: Methods.RenameMembersUser, property: 'renameMembersUser', route: 'rename-members-user', scope: 'global', statuses: [204] },
+    [Methods.RequireMembersSecondFactor]: { method: Methods.RequireMembersSecondFactor, property: 'requireMembersSecondFactor', route: 'require-members-second-factor', scope: 'global', statuses: [204] },
     [Methods.RevokeMembersSectorUserTrustedDevices]: { method: Methods.RevokeMembersSectorUserTrustedDevices, property: 'revokeMembersSectorUserTrustedDevices', route: 'revoke-members-sector-user-trusted-devices', scope: 'domain', statuses: [204] },
     [Methods.RevokeMembersUserTrustedDevices]: { method: Methods.RevokeMembersUserTrustedDevices, property: 'revokeMembersUserTrustedDevices', route: 'revoke-members-user-trusted-devices', scope: 'global', statuses: [204] },
-    [Methods.SetMembersSectorUserEmail]: { method: Methods.SetMembersSectorUserEmail, property: 'setMembersSectorUserEmail', route: 'set-members-sector-user-email', scope: 'domain', statuses: [204] },
+    [Methods.SetMembersRememberedBrowsers]: { method: Methods.SetMembersRememberedBrowsers, property: 'setMembersRememberedBrowsers', route: 'set-members-remembered-browsers', scope: 'global', statuses: [204] },
+    [Methods.SetMembersSectorUserEmail]: { method: Methods.SetMembersSectorUserEmail, property: 'setMembersSectorUserEmail', route: 'set-members-sector-user-email', scope: 'domain', answers: true },
     [Methods.SetMembersSectorUserName]: { method: Methods.SetMembersSectorUserName, property: 'setMembersSectorUserName', route: 'set-members-sector-user-name', scope: 'domain', statuses: [204] },
-    [Methods.SetMembersUserEmail]: { method: Methods.SetMembersUserEmail, property: 'setMembersUserEmail', route: 'set-members-user-email', scope: 'global', statuses: [204] },
+    [Methods.SetMembersUserEmail]: { method: Methods.SetMembersUserEmail, property: 'setMembersUserEmail', route: 'set-members-user-email', scope: 'global', answers: true },
     [Methods.SetMembersUserName]: { method: Methods.SetMembersUserName, property: 'setMembersUserName', route: 'set-members-user-name', scope: 'global', statuses: [204] },
     [Methods.StandDownMission]: { method: Methods.StandDownMission, property: 'standDownMission', route: 'stand-down-mission', scope: 'domain' },
+    [Methods.StopRequiringMembersSecondFactor]: { method: Methods.StopRequiringMembersSecondFactor, property: 'stopRequiringMembersSecondFactor', route: 'stop-requiring-members-second-factor', scope: 'global', statuses: [204] },
     [Methods.UnlinkMembersSectorSessionIdentity]: { method: Methods.UnlinkMembersSectorSessionIdentity, property: 'unlinkMembersSectorSessionIdentity', route: 'unlink-members-sector-session-identity', scope: 'domain', statuses: [204] },
     [Methods.UnlinkMembersSessionIdentity]: { method: Methods.UnlinkMembersSessionIdentity, property: 'unlinkMembersSessionIdentity', route: 'unlink-members-session-identity', scope: 'global', statuses: [204] },
     [Methods.UnlockMembersSignIn]: { method: Methods.UnlockMembersSignIn, property: 'unlockMembersSignIn', route: 'unlock-members-sign-in', scope: 'global', statuses: [204] },
@@ -439,15 +610,16 @@ export const apiDescriptor = defineApiDescriptor({
       auth: 'Members',
       label: 'Members',
       tenant: 'Sector',
+      rolesFrom: 'Company directory',
       sides: [
         {
           scope: 'global',
-          lists: { users: Resources.MembersSessionUsers, roles: Resources.MembersUserRoles, identities: Resources.MembersSessionIdentities, invitations: Resources.MembersSessionMailLinks, sessions: Resources.MembersSessions, signInAttempts: Resources.MembersSessionSignInAttempts },
-          methods: { disable: Methods.DisableMembersUser, enable: Methods.EnableMembersUser, delete: Methods.DeleteMembersUser, rename: Methods.RenameMembersUser, setName: Methods.SetMembersUserName, setEmail: Methods.SetMembersUserEmail, endUserSessions: Methods.EndMembersUserSessions, revokeTrustedDevices: Methods.RevokeMembersUserTrustedDevices, unlinkIdentity: Methods.UnlinkMembersSessionIdentity, endSession: Methods.EndMembersSession, unlockSignIn: Methods.UnlockMembersSignIn },
+          lists: { users: Resources.MembersListedUsers, roles: Resources.MembersHeldRoles, identities: Resources.MembersListedIdentities, invitations: Resources.MembersListedMailLinks, sessions: Resources.MembersListedSessions, signInAttempts: Resources.MembersListedSignInAttempts, signInMethods: Resources.MembersSignInMethods, signInSettings: Resources.MembersSignInSettings, rememberLengths: Resources.MembersRememberLengths, auditLog: Resources.MembersListedAuditRecords },
+          methods: { disable: Methods.DisableMembersUser, enable: Methods.EnableMembersUser, delete: Methods.DeleteMembersUser, rename: Methods.RenameMembersUser, setName: Methods.SetMembersUserName, setEmail: Methods.SetMembersUserEmail, endUserSessions: Methods.EndMembersUserSessions, revokeTrustedDevices: Methods.RevokeMembersUserTrustedDevices, unlinkIdentity: Methods.UnlinkMembersSessionIdentity, endSession: Methods.EndMembersSession, unlockSignIn: Methods.UnlockMembersSignIn, requireSecondFactor: Methods.RequireMembersSecondFactor, stopRequiringSecondFactor: Methods.StopRequiringMembersSecondFactor, setRememberedBrowsers: Methods.SetMembersRememberedBrowsers },
         },
         {
           scope: 'domain',
-          lists: { users: Resources.MembersSectorUsers, roles: Resources.MembersSectorUserRoles, identities: Resources.MembersSectorIdentities, invitations: Resources.MembersSectorInvitations },
+          lists: { users: Resources.MembersSectorUsers, roles: Resources.MembersSectorHeldRoles, identities: Resources.MembersSectorIdentities, invitations: Resources.MembersSectorInvitations, auditLog: Resources.MembersSectorAuditRecords },
           methods: { disable: Methods.DisableMembersSectorUser, enable: Methods.EnableMembersSectorUser, delete: Methods.DeleteMembersSectorUser, rename: Methods.RenameMembersSectorUser, setName: Methods.SetMembersSectorUserName, setEmail: Methods.SetMembersSectorUserEmail, endUserSessions: Methods.EndMembersSectorUserSessions, revokeTrustedDevices: Methods.RevokeMembersSectorUserTrustedDevices, unlinkIdentity: Methods.UnlinkMembersSectorSessionIdentity },
         },
       ],
@@ -458,8 +630,13 @@ export const apiDescriptor = defineApiDescriptor({
 /** Handles for the global scope, available on the client root. */
 export interface GlobalApi {
   clientContacts: ResourceHandle<ClientContacts, ClientContactsKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch', ClientContactsCreate, ClientContactsPatch>;
+  membersHeldRoles: ResourceHandle<MembersHeldRoles, MembersHeldRolesKey, 'list'>;
+  membersListedIdentities: ResourceHandle<MembersListedIdentities, MembersListedIdentitiesKey, 'list' | 'read'>;
+  membersListedMailLinks: ResourceHandle<MembersListedMailLinks, MembersListedMailLinksKey, 'list' | 'read'>;
+  membersListedSessions: ResourceHandle<MembersListedSessions, MembersListedSessionsKey, 'list' | 'read'>;
+  membersListedSignInAttempts: ResourceHandle<MembersListedSignInAttempts, MembersListedSignInAttemptsKey, 'list'>;
+  membersListedUsers: ResourceHandle<MembersListedUsers, MembersListedUsersKey, 'list' | 'read'>;
   membersRoles: ResourceHandle<MembersRoles, MembersRolesKey, 'list'>;
-  membersRoleGrants: ResourceHandle<MembersRoleGrants, MembersRoleGrantsKey, 'list'>;
   membersSessions: ResourceHandle<MembersSessions, MembersSessionsKey, 'list' | 'read'>;
   membersSessionAuthEvents: ResourceHandle<MembersSessionAuthEvents, MembersSessionAuthEventsKey, 'list'>;
   membersSessionIdentities: ResourceHandle<MembersSessionIdentities, MembersSessionIdentitiesKey, 'list' | 'read'>;
@@ -469,16 +646,24 @@ export interface GlobalApi {
   membersSessionUsers: ResourceHandle<MembersSessionUsers, MembersSessionUsersKey, 'list' | 'read'>;
   membersUserRoles: ResourceHandle<MembersUserRoles, MembersUserRolesKey, 'list'>;
   briefingTemplates: ResourceHandle<BriefingTemplates, BriefingTemplatesKey, 'list'>;
+  membersListedAuditRecords: ResourceHandle<MembersListedAuditRecords, MembersListedAuditRecordsKey, 'list'>;
+  membersListedRoleGrants: ResourceHandle<MembersListedRoleGrants, MembersListedRoleGrantsKey, 'list'>;
+  membersRememberLengths: ResourceHandle<MembersRememberLengths, MembersRememberLengthsKey, 'list'>;
+  membersSignInMethods: ResourceHandle<MembersSignInMethods, MembersSignInMethodsKey, 'list'>;
+  membersSignInSettings: ResourceHandle<MembersSignInSettings, MembersSignInSettingsKey, 'list'>;
   featureFlags: ResourceHandle<FeatureFlags, FeatureFlagsKey, 'list' | 'read'>;
-  deleteMembersUser: MethodHandle<DeleteMembersUser>;
+  deleteMembersUser: MethodHandle<DeleteMembersUser, DeleteMembersUserAnswer>;
   disableMembersUser: MethodHandle<DisableMembersUser>;
   enableMembersUser: MethodHandle<EnableMembersUser>;
   endMembersSession: MethodHandle<EndMembersSession>;
   endMembersUserSessions: MethodHandle<EndMembersUserSessions>;
   renameMembersUser: MethodHandle<RenameMembersUser>;
+  requireMembersSecondFactor: MethodHandle<RequireMembersSecondFactor>;
   revokeMembersUserTrustedDevices: MethodHandle<RevokeMembersUserTrustedDevices>;
-  setMembersUserEmail: MethodHandle<SetMembersUserEmail>;
+  setMembersRememberedBrowsers: MethodHandle<SetMembersRememberedBrowsers>;
+  setMembersUserEmail: MethodHandle<SetMembersUserEmail, SetMembersUserEmailResult>;
   setMembersUserName: MethodHandle<SetMembersUserName>;
+  stopRequiringMembersSecondFactor: MethodHandle<StopRequiringMembersSecondFactor>;
   unlinkMembersSessionIdentity: MethodHandle<UnlinkMembersSessionIdentity>;
   unlockMembersSignIn: MethodHandle<UnlockMembersSignIn>;
   setFeature: MethodHandle<SetFeature, SetFeatureResult>;
@@ -488,19 +673,21 @@ export interface GlobalApi {
 export interface DomainApi {
   clientRosters: ResourceHandle<ClientRosters, ClientRostersKey, 'list' | 'read'>;
   distressCalls: ResourceHandle<DistressCalls, DistressCallsKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch', DistressCallsCreate, DistressCallsPatch>;
+  membersSectorHeldRoles: ResourceHandle<MembersSectorHeldRoles, MembersSectorHeldRolesKey, 'list'>;
   membersSectorIdentities: ResourceHandle<MembersSectorIdentities, MembersSectorIdentitiesKey, 'list' | 'read'>;
   membersSectorInvitations: ResourceHandle<MembersSectorInvitations, MembersSectorInvitationsKey, 'list' | 'read'>;
   membersSectorUsers: ResourceHandle<MembersSectorUsers, MembersSectorUsersKey, 'list' | 'read'>;
   membersSectorUserRoles: ResourceHandle<MembersSectorUserRoles, MembersSectorUserRolesKey, 'list' | 'read'>;
   missions: ResourceHandle<Missions, MissionsKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch', MissionsCreate, MissionsPatch>;
   missionDocuments: ResourceHandle<MissionDocuments, MissionDocumentsKey, 'list' | 'read' | 'patch' | 'remove' | 'batch', never, MissionDocumentsPatch>;
-  deleteMembersSectorUser: MethodHandle<DeleteMembersSectorUser>;
+  membersSectorAuditRecords: ResourceHandle<MembersSectorAuditRecords, MembersSectorAuditRecordsKey, 'list'>;
+  deleteMembersSectorUser: MethodHandle<DeleteMembersSectorUser, DeleteMembersSectorUserAnswer>;
   disableMembersSectorUser: MethodHandle<DisableMembersSectorUser>;
   enableMembersSectorUser: MethodHandle<EnableMembersSectorUser>;
   endMembersSectorUserSessions: MethodHandle<EndMembersSectorUserSessions>;
   renameMembersSectorUser: MethodHandle<RenameMembersSectorUser>;
   revokeMembersSectorUserTrustedDevices: MethodHandle<RevokeMembersSectorUserTrustedDevices>;
-  setMembersSectorUserEmail: MethodHandle<SetMembersSectorUserEmail>;
+  setMembersSectorUserEmail: MethodHandle<SetMembersSectorUserEmail, SetMembersSectorUserEmailResult>;
   setMembersSectorUserName: MethodHandle<SetMembersSectorUserName>;
   standDownMission: MethodHandle<StandDownMission>;
   unlinkMembersSectorSessionIdentity: MethodHandle<UnlinkMembersSectorSessionIdentity>;

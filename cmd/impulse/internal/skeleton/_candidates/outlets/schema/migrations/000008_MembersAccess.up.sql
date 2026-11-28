@@ -16,6 +16,7 @@ CREATE TABLE MembersUserRoles (
   UserId STRING(320) NOT NULL,
   StartsAt TIMESTAMP,
   EndsAt TIMESTAMP,
+  Reason STRING(MAX),
   CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   CONSTRAINT MembersUserRolesKind CHECK (Kind IN ('global', 'domain', 'every')),
 ) PRIMARY KEY (Kind, Axis, DomainId, Role, UserId);
@@ -74,3 +75,32 @@ CREATE TABLE MembersGroupRoles (
 ) PRIMARY KEY (GroupId, Kind, Axis, DomainId, Role);
 
 CREATE INDEX MembersGroupRolesByScope ON MembersGroupRoles (Kind, Axis, DomainId, Role);
+
+CREATE TABLE MembersRecordUserRoles (
+  Axis STRING(128) NOT NULL,
+  DomainId STRING(128) NOT NULL,
+  Resource STRING(128) NOT NULL,
+  RecordId STRING(MAX) NOT NULL,
+  Role STRING(128) NOT NULL,
+  UserId STRING(320) NOT NULL,
+  StartsAt TIMESTAMP,
+  EndsAt TIMESTAMP,
+  CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+) PRIMARY KEY (Axis, DomainId, Resource, RecordId, Role, UserId);
+
+CREATE INDEX MembersRecordUserRolesByUserId ON MembersRecordUserRoles (UserId, Axis, DomainId);
+
+CREATE TABLE MembersRecordGroupRoles (
+  Axis STRING(128) NOT NULL,
+  DomainId STRING(128) NOT NULL,
+  Resource STRING(128) NOT NULL,
+  RecordId STRING(MAX) NOT NULL,
+  Role STRING(128) NOT NULL,
+  GroupId STRING(36) NOT NULL,
+  StartsAt TIMESTAMP,
+  EndsAt TIMESTAMP,
+  CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+  CONSTRAINT MembersRecordGroupRolesGroup FOREIGN KEY (GroupId) REFERENCES MembersGroups (Id),
+) PRIMARY KEY (Axis, DomainId, Resource, RecordId, Role, GroupId);
+
+CREATE INDEX MembersRecordGroupRolesByGroupId ON MembersRecordGroupRoles (GroupId);

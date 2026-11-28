@@ -19,7 +19,7 @@ import (
 // words the Sign-in page's dialog shows before an administrator opens it.
 const (
 	inviteOnlySays  = "Invite only: a person signs in once they are invited."
-	openConsequence = "Anyone with an email address will be able to sign up without an invitation. Each of them gets the role FeatureAdministrator."
+	openConsequence = "Anyone with an email address will be able to sign up without an invitation. Each of them gets the role Feature administrator."
 	openConfirm     = "Open to anyone with an email address"
 )
 
@@ -51,7 +51,7 @@ func TestSignUp_whoGetsAnAccount(t *testing.T) {
 
 	// Invite only, with no row: the list says so, the sign-up routes are not found, and
 	// no account is written for the stranger.
-	if got := signInMethods(ctx, t, admin); len(got) != 1 || got[0].Name != "password" || got[0].OpenSignUp || got[0].Says != inviteOnlySays || got[0].Admits != "Anyone with an email address" {
+	if got := passwordMethod(ctx, t, admin); got.OpenSignUp || got.Says != inviteOnlySays || got.Admits != "Anyone with an email address" {
 		t.Fatalf("the sign-in methods before anyone chose = %+v, want the password method, invite only", got)
 	}
 	stranger := newBrowser(t, s)
@@ -63,7 +63,7 @@ func TestSignUp_whoGetsAnAccount(t *testing.T) {
 	}{
 		{path: "/api/user/sign-up", body: `{"email":"pat@mail.example"}`},
 		{path: "/api/user/sign-up/open", body: `{"token":"none"}`},
-		{path: "/api/user/sign-up/complete", body: `{"token":"none","password":"a-long-password","username":"pat"}`},
+		{path: "/api/user/sign-up/complete", body: `{"token":"none","password":"a-long-password-of-my-own","username":"pat"}`},
 	}
 	for _, call := range closed {
 		if status, body := stranger.do(ctx, http.MethodPost, call.path, []byte(call.body)); status != http.StatusNotFound {
@@ -96,17 +96,19 @@ func TestSignUp_whoGetsAnAccount(t *testing.T) {
 	}
 
 	// Refused at the save: no default role, the Super Administrator's role, a role the
-	// application does not have, and a method the auth does not register.
+	// application does not have, and a method the auth does not register. That one is named
+	// as no registration can be (a registration's name is letters, digits and hyphens), so
+	// the refusal holds whichever sign-in methods the application adds.
 	refused := []struct {
 		name       string
 		body       string
 		wantStatus int
 		wantBody   string
 	}{
-		{name: "no default role", body: `{"name":"password"}`, wantStatus: http.StatusBadRequest, wantBody: "choose the default role"},
-		{name: "the Super Administrator's role", body: `{"name":"password","defaultRole":"SuperAdministrator"}`, wantStatus: http.StatusBadRequest, wantBody: "is never a default role"},
-		{name: "a role the application does not have", body: `{"name":"password","defaultRole":"Nobody"}`, wantStatus: http.StatusBadRequest, wantBody: "is not a role held for the whole application"},
-		{name: "a method the auth does not register", body: `{"name":"google","defaultRole":"FeatureAdministrator"}`, wantStatus: http.StatusNotFound, wantBody: "its methods are password"},
+		{name: "no default role", body: `{"name":"password"}`, wantStatus: http.StatusBadRequest, wantBody: "Choose the default role. Each person who signs up is given one, so a sign-in method cannot be opened without it."},
+		{name: "the Super Administrator's role", body: `{"name":"password","defaultRole":"SuperAdministrator"}`, wantStatus: http.StatusBadRequest, wantBody: "The Super administrator role is never a default role, because every person who signed up would administer the application. Choose another role."},
+		{name: "a role the application does not have", body: `{"name":"password","defaultRole":"Nobody"}`, wantStatus: http.StatusBadRequest, wantBody: "Nobody is not a role held for the whole application. Choose one of the roles the picker lists."},
+		{name: "a method the auth does not register", body: `{"name":"no such method","defaultRole":"FeatureAdministrator"}`, wantStatus: http.StatusNotFound, wantBody: "This way to sign in does not exist."},
 	}
 	for _, call := range refused {
 		if status, body := admin.do(ctx, http.MethodPost, "/api/open-staff-sign-up", []byte(call.body)); status != call.wantStatus || !strings.Contains(string(body), call.wantBody) {
@@ -123,15 +125,17 @@ func TestSignUp_whoGetsAnAccount(t *testing.T) {
 	if status, body := admin.do(ctx, http.MethodPost, "/api/open-staff-sign-up", []byte(`{"name":"password","defaultRole":"FeatureAdministrator"}`)); status != http.StatusNoContent {
 		t.Fatalf("POST /api/open-staff-sign-up: status %d: %s", status, body)
 	}
-	if got := signInMethods(ctx, t, admin); len(got) != 1 || !got[0].OpenSignUp || got[0].DefaultRole != "FeatureAdministrator" || got[0].Says != "Open: "+openConsequence {
+	if got := passwordMethod(ctx, t, admin); !got.OpenSignUp || got.DefaultRole != "FeatureAdministrator" || got.Says != "Open: "+openConsequence {
 		t.Errorf("the sign-in methods once the password method is open = %+v, want it open with the role, saying what the warning said", got)
 	}
 	roles := signUpRoles(ctx, t, admin)
 	if roles["FeatureAdministrator"] == "" || roles["Administrator"] == "" || len(roles) != 2 {
 		t.Errorf("the roles the dialog's picker lists = %v, want Administrator and FeatureAdministrator, each with its description", roles)
 	}
-	if sources := changeSources(ctx, t, s, "StaffSessionSignInMethods"); len(sources) != 1 || !strings.HasPrefix(sources[0], adminUser+" ("+s.adminID+"), session ") {
-		t.Errorf("who changed the sign-in methods = %q, want the one change, by %s", sources, adminUser)
+	if sources := changeSources(ctx, t, s, "StaffSessionSignInMethods"); len(sources) != 1 {
+		t.Errorf("the changes of the sign-in methods = %+v, want the one change", sources)
+	} else if got := sources[0]; got.ActorUsername.StringVal != adminUser || got.ActorUserID.StringVal != s.adminID || !got.SessionID.Valid || got.RPC.StringVal != "OpenStaffSignUp" {
+		t.Errorf("who changed the sign-in methods = %+v, want %s by username and account id, the session, and the method OpenStaffSignUp", got, adminUser)
 	}
 
 	// A stranger signs up from the mailed link and holds the default role and nothing
@@ -166,7 +170,7 @@ func TestSignUp_whoGetsAnAccount(t *testing.T) {
 			t.Errorf("%s as a person without the grant: status %d, want 403: %s", call.name, status, body)
 		}
 	}
-	if got := signInMethods(ctx, t, admin); len(got) != 1 || !got[0].OpenSignUp || got[0].DefaultRole != "FeatureAdministrator" {
+	if got := passwordMethod(ctx, t, admin); !got.OpenSignUp || got.DefaultRole != "FeatureAdministrator" {
 		t.Errorf("the sign-in methods after the refused calls = %+v, want the method open with the role the administrator chose", got)
 	}
 
@@ -180,14 +184,14 @@ func TestSignUp_whoGetsAnAccount(t *testing.T) {
 	if status, body := admin.do(ctx, http.MethodPost, "/api/make-staff-invite-only", []byte(`{"name":"password"}`)); status != http.StatusNoContent {
 		t.Fatalf("POST /api/make-staff-invite-only: status %d: %s", status, body)
 	}
-	if got := signInMethods(ctx, t, admin); len(got) != 1 || got[0].OpenSignUp || got[0].DefaultRole != "" || got[0].Says != inviteOnlySays {
+	if got := passwordMethod(ctx, t, admin); got.OpenSignUp || got.DefaultRole != "" || got.Says != inviteOnlySays {
 		t.Errorf("the sign-in methods once made invite only = %+v, want invite only, naming no role", got)
 	}
 	if sources := changeSources(ctx, t, s, "StaffSessionSignInMethods"); len(sources) != 2 {
-		t.Errorf("changes to the sign-in methods = %q, want two: opened, then made invite only", sources)
+		t.Errorf("changes to the sign-in methods = %+v, want two: opened, then made invite only", sources)
 	}
 	accounts = countRows(ctx, t, s, "StaffSessionUsers")
-	if status, body := late.do(ctx, http.MethodPost, "/api/user/sign-up/complete", []byte(`{"token":"`+lateToken+`","password":"a-long-password","username":"sam"}`)); status != http.StatusNotFound {
+	if status, body := late.do(ctx, http.MethodPost, "/api/user/sign-up/complete", []byte(`{"token":"`+lateToken+`","password":"a-long-password-of-my-own","username":"sam"}`)); status != http.StatusNotFound {
 		t.Errorf("completing a sign-up mailed while the method was open, after it was closed: status %d, want 404: %s", status, body)
 	}
 	if status, body := late.do(ctx, http.MethodPost, "/api/user/sign-up", []byte(`{"email":"tess@mail.example"}`)); status != http.StatusNotFound {
@@ -198,7 +202,7 @@ func TestSignUp_whoGetsAnAccount(t *testing.T) {
 	}
 	again := newBrowser(t, s)
 	again.prime(ctx)
-	if status, body := again.do(ctx, http.MethodPost, "/api/user/password/login", []byte(`{"username":"pat","password":"a-long-password"}`)); status != http.StatusOK {
+	if status, body := again.do(ctx, http.MethodPost, "/api/user/password/login", []byte(`{"username":"pat","password":"a-long-password-of-my-own"}`)); status != http.StatusOK {
 		t.Errorf("the person who signed up, signing in once the method is invite only: status %d, want 200: they keep their account: %s", status, body)
 	}
 	if status, body := pat.do(ctx, http.MethodGet, "/api/feature-flags", nil); status != http.StatusOK {
@@ -216,8 +220,9 @@ type signInMethod struct {
 	Says        string `json:"says"`
 }
 
-// signInMethods reads the auth's sign-in methods as the Sign-in page lists them.
-func signInMethods(ctx context.Context, t *testing.T, b *browser) []signInMethod {
+// passwordMethod reads the password method's row of the list the Sign-in page draws,
+// whichever other sign-in methods the auth registers.
+func passwordMethod(ctx context.Context, t *testing.T, b *browser) signInMethod {
 	t.Helper()
 
 	status, body := b.do(ctx, http.MethodGet, "/api/staff-sign-in-methods", nil)
@@ -228,8 +233,14 @@ func signInMethods(ctx context.Context, t *testing.T, b *browser) []signInMethod
 	if err := json.Unmarshal(body, &methods); err != nil {
 		t.Fatalf("decoding the sign-in methods: %v: %s", err, body)
 	}
+	for i := range methods {
+		if methods[i].Name == "password" {
+			return methods[i]
+		}
+	}
+	t.Fatalf("the sign-in methods list carries no password method: %s", body)
 
-	return methods
+	return signInMethod{}
 }
 
 // signUpRoles reads the roles the Open sign-up dialog's picker lists, each with its
@@ -315,7 +326,7 @@ func signUpLink(ctx context.Context, t *testing.T, s *served, b *browser, email 
 func mailedToken(t *testing.T, s *served, before int, kind string) string {
 	t.Helper()
 
-	link := regexp.MustCompile(`http://solo\.test/login\?` + kind + `=([A-Za-z0-9_-]+)`)
+	link := regexp.MustCompile(`http://solo\.test/login#` + kind + `=([A-Za-z0-9_-]+)`)
 	for _, m := range s.mail.Messages()[before:] {
 		if match := link.FindStringSubmatch(m.Text); match != nil {
 			return match[1]
@@ -338,7 +349,7 @@ func signedUp(ctx context.Context, t *testing.T, s *served, email, username stri
 	if status, body := b.do(ctx, http.MethodPost, "/api/user/sign-up/open", []byte(`{"token":"`+token+`"}`)); status != http.StatusOK || !strings.Contains(string(body), email) {
 		t.Fatalf("POST /api/user/sign-up/open: status %d: %s, want 200 naming %s", status, body, email)
 	}
-	complete, err := json.Marshal(map[string]string{"token": token, "password": "a-long-password", "username": username})
+	complete, err := json.Marshal(map[string]string{"token": token, "password": "a-long-password-of-my-own", "username": username})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -365,8 +376,9 @@ func factorIfHeld(ctx context.Context, t *testing.T, b *browser, username string
 }
 
 // invited has the administrator invite the address with the FeatureAdministrator role
-// and the invited person create their account from the link, whatever was chosen for
-// the method: an invitation is the way in under either choice.
+// and the invited person create their account from the link and the code mailed to the
+// address, whatever was chosen for the method: an invitation is the way in under either
+// choice.
 func invited(ctx context.Context, t *testing.T, s *served, admin *browser, email, username string) {
 	t.Helper()
 
@@ -386,15 +398,15 @@ func invited(ctx context.Context, t *testing.T, s *served, admin *browser, email
 	if status, body := b.do(ctx, http.MethodPost, "/api/user/invitation", []byte(`{"token":"`+token+`"}`)); status != http.StatusOK {
 		t.Fatalf("POST /api/user/invitation as %s: status %d: %s", username, status, body)
 	}
-	accept, err := json.Marshal(map[string]string{"password": "a-long-password", "username": username})
+	accept, err := json.Marshal(map[string]string{"password": "a-long-password-of-my-own", "username": username})
 	if err != nil {
 		t.Fatal(err)
 	}
 	status, body = b.do(ctx, http.MethodPost, "/api/user/invitation/sign-up", accept)
-	if status != http.StatusOK {
-		t.Fatalf("POST /api/user/invitation/sign-up as %s: status %d: %s", username, status, body)
+	if status != http.StatusOK || !heldForFactor(t, body) {
+		t.Fatalf("POST /api/user/invitation/sign-up as %s: status %d: %s, want 200 held for the code mailed to the invited address", username, status, body)
 	}
-	factorIfHeld(ctx, t, b, username, body)
+	b.secondFactor(ctx, username, false)
 	if status, body := b.do(ctx, http.MethodGet, "/api/feature-flags", nil); status != http.StatusOK {
 		t.Fatalf("GET /api/feature-flags as the invited %s: status %d, want 200 by the invitation's role: %s", username, status, body)
 	}
@@ -418,21 +430,31 @@ func countRows(ctx context.Context, t *testing.T, s *served, table string) int64
 	return n
 }
 
+// changeSource is who made a change, as its change record keeps it: the person by
+// username and by the id of their account, the session, and the RPC method the change was
+// made in.
+type changeSource struct {
+	ActorUsername cloudspanner.NullString `spanner:"ActorUsername"`
+	ActorUserID   cloudspanner.NullString `spanner:"ActorUserId"`
+	SessionID     cloudspanner.NullString `spanner:"SessionId"`
+	RPC           cloudspanner.NullString `spanner:"Rpc"`
+}
+
 // changeSources lists who made each change the change record holds for a table, oldest
-// first: the person, the id of their account and their session.
-func changeSources(ctx context.Context, t *testing.T, s *served, table string) []string {
+// first.
+func changeSources(ctx context.Context, t *testing.T, s *served, table string) []changeSource {
 	t.Helper()
 
 	iter := s.db.Client.Single().Query(ctx, cloudspanner.Statement{
-		SQL:    "SELECT EventSource FROM DataChangeEvents WHERE TableName = @table ORDER BY EventTime",
+		SQL:    "SELECT ActorUsername, ActorUserId, SessionId, Rpc FROM DataChangeEvents WHERE TableName = @table ORDER BY EventTime, Sequence",
 		Params: map[string]any{"table": table},
 	})
 	defer iter.Stop()
-	var sources []string
+	var sources []changeSource
 	if err := iter.Do(func(row *cloudspanner.Row) error {
-		var source string
-		if err := row.Columns(&source); err != nil {
-			return errors.Wrap(err, "spanner.Row.Columns()")
+		var source changeSource
+		if err := row.ToStruct(&source); err != nil {
+			return errors.Wrap(err, "spanner.Row.ToStruct()")
 		}
 		sources = append(sources, source)
 

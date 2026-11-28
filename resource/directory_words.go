@@ -25,7 +25,9 @@ import (
 // DirectoryNamer answers what the sign-in registrations of one auth call a directory:
 // name is the name a registration that takes the directory's connection gives it, ""
 // where none names it, and label is the label of the button of the registration a
-// person signs in to it through, "" where the auth's login page offers none. The
+// person signs in to it through, "" where the auth's login page offers none. An
+// organization's own identity provider is named by that label: its connection is the
+// key the application registered it under, which is never said to a person. The
 // generated identity client of an auth supplies it (DirectoryName), from the session
 // library's own answer (session.AuthAPI.DirectoryName); an application names none.
 type DirectoryNamer func(directory signin.Directory) (name, label string)
@@ -59,6 +61,23 @@ func DirectoryName(directory signin.Directory, namers ...DirectoryNamer) string 
 	}
 
 	return directoryKind(directory.Method) + " " + name
+}
+
+// DirectoryNameOrKind says a directory as a row of the audit log keeps it, for the
+// administrators who read the log: by its kind and its name where a name is known, as
+// DirectoryName says it ("Microsoft Entra tenant Lakeside"), and by its kind alone where
+// none is ("Microsoft Entra tenant"), never in the words written for the person who
+// signs in through it. A directory of a method the library does not know is said by
+// the method's own name.
+func DirectoryNameOrKind(directory signin.Directory, namers ...DirectoryNamer) string {
+	if name, _ := directorySaid(directory, namers); name != "" {
+		return directoryKind(directory.Method) + " " + name
+	}
+	if kind, known := directoryKinds[directory.Method]; known {
+		return kind
+	}
+
+	return string(directory.Method)
 }
 
 // directorySaid answers the name the namers give the directory, or, where they give
@@ -121,21 +140,23 @@ func directoryByLabel(label string) string {
 	}
 }
 
+// directoryKinds are the kinds of directory the sign-in methods the library knows reach.
+var directoryKinds = map[sessioninfo.AuthMethod]string{
+	sessioninfo.MethodGoogle: "Google Workspace",
+	sessioninfo.MethodAzure:  "Microsoft Entra tenant",
+	sessioninfo.MethodWorkOS: "WorkOS connection",
+	sessioninfo.MethodOIDC:   "OpenID Connect provider",
+}
+
 // directoryKind is the kind of directory a sign-in method reaches, as a sentence says
-// it before the directory's name.
+// it before the directory's name (directoryKinds), "Directory" for a method the library
+// does not know.
 func directoryKind(method sessioninfo.AuthMethod) string {
-	switch method {
-	case sessioninfo.MethodGoogle:
-		return "Google Workspace"
-	case sessioninfo.MethodAzure:
-		return "Microsoft Entra tenant"
-	case sessioninfo.MethodWorkOS:
-		return "WorkOS connection"
-	case sessioninfo.MethodOIDC:
-		return "OpenID Connect provider"
-	default:
-		return "Directory"
+	if kind, known := directoryKinds[method]; known {
+		return kind
 	}
+
+	return "Directory"
 }
 
 // hostOf is the host of an absolute URL, and the text itself where it is no such URL:

@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -19,30 +20,40 @@ import (
 //
 // It is a computed resource. The role file's roles are held by the permission engine
 // and only a custom role is a row of a table, so the engine is asked and no query
-// selects the list. A person is listed the roles they could give. A role file
-// says which roles a person hands out on the grants of the methods that give one, whose
-// role field picks from this list:
+// selects the list. A person is listed the roles they could give with one
+// method. A role file says which roles a person hands out on the grant of each method
+// that gives one, whose role field picks from this list, each for itself:
 //
-//	AssignStaffTenantRole, CreateStaffTenantUser, InviteStaffTenantUser, GiveStaffTenantGroupRole
+//	AssignStaffTenantRole, InviteStaffTenantUser, GiveStaffTenantGroupRole
 //
-// A condition there reads the role (new.role != 'TenantAdmin'), and the list leaves out
-// a role every one of them refuses the caller (identity.Manager.RolesToGive), so the
-// limit is said once and a page offers what the caller may do. One list serves all of
-// them, so it holds a role that one of them takes and another refuses, which the method
-// then says. The role file grants the list like any resource, and a condition on the
-// role's name there (name != 'TenantAdmin') narrows it further: the library judges each
-// role the list answers.
+// A condition there reads the role (new.role != 'TenantAdmin'). The list is asked for
+// one method at a time, by a filter that names it
+// (method:eq:AssignStaffTenantRole), and leaves out a role that method
+// refuses the caller (identity.Manager.RolesToGive): the limit is said once, on the
+// method's grant, and a dialog offers what its own method takes. A role one method
+// takes and another refuses is in the first one's list alone, and a request that names
+// no method is listed no role. The role file grants the list like any resource, and a
+// condition on the role's name there (name != 'TenantAdmin') narrows it further: the
+// library judges each role the list answers. A caller filters by the fields they may
+// read, and a computed list filters only by a field granted with no condition: the role
+// is granted method among the fields of a grant with no condition, or, beside a grant
+// that carries one, as a grant of the field alone (StaffTenantRoles.method).
 //
 // @computed
 // @permissionScope(domain)
 // @suppress(readHandler)
 // @outlet(default)
 // @order(Name asc)
+// @rowWord(role)
 type StaffTenantRole struct {
 	// @primarykey
 	// @attribute(name)
+	// @roleOf(Staff)
 	Name        string `spanner:"Name"`
 	Description string `spanner:"Description"`
+	// Method is the method the role is listed for, the one the request's filter
+	// names: the caller could give the role with it.
+	Method string `spanner:"Method" allow_filter:"true"`
 }
 
 // Resource implements resource.Resourcer.
@@ -51,8 +62,9 @@ func (StaffTenantRole) Resource() accesstypes.Resource {
 }
 
 // ListStaffTenantRole yields the roles that exist in the tenant the request was
-// checked in that the caller could give there; the generated handler applies the request's filter, sort and page over
-// them.
+// checked in that the caller could give there with the method the request's filter
+// names, and none for a request that names no method; the generated handler applies
+// the rest of the filter, the sort and the page over them.
 func ListStaffTenantRole(ctx context.Context, qSet *resource.QuerySet[StaffTenantRole], _ resource.Client, client *Client) iter.Seq2[*StaffTenantRole, error] {
 	return func(yield func(*StaffTenantRole, error) bool) {
 		domain, ok := qSet.Scope().Domain()
@@ -61,14 +73,27 @@ func ListStaffTenantRole(ctx context.Context, qSet *resource.QuerySet[StaffTenan
 
 			return
 		}
-		roles, err := client.manager.RolesToGive(ctx, domain)
+		method, named, err := identity.GivingMethod(qSet.Resource(), []accesstypes.Resource{
+			AssignStaffTenantRole{}.Method(),
+			InviteStaffTenantUser{}.Method(),
+			GiveStaffTenantGroupRole{}.Method(),
+		}, qSet.Filter().Take("Method"))
+		if err != nil {
+			yield(nil, errors.Wrap(err, "identity.GivingMethod()"))
+
+			return
+		}
+		if !named {
+			return
+		}
+		roles, err := client.manager.RolesToGive(ctx, method, domain)
 		if err != nil {
 			yield(nil, errors.Wrap(err, "identity.Manager.RolesToGive()"))
 
 			return
 		}
 		for _, role := range roles {
-			if !yield(&StaffTenantRole{Name: string(role.Name), Description: role.Description}, nil) {
+			if !yield(&StaffTenantRole{Name: string(role.Name), Description: role.Description, Method: string(method)}, nil) {
 				return
 			}
 		}

@@ -8,14 +8,15 @@ import (
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
-	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/auditlog"
+	"github.com/impulseframework/impulse/internal/spannertxn"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/tracer"
 	"google.golang.org/api/iterator"
 )
 
 // mailLinkColumns are the mail links table's columns.
-const mailLinkColumns = `Id, TokenHash, Kind, Email, UserId, TenantId, RoleNames, InvitedByUserId, CreatedAt, ExpiresAt, ConsumedAt, Name, NewTenant`
+const mailLinkColumns = `Id, TokenHash, Kind, Email, UserId, TenantId, RoleNames, InvitedByUserId, CreatedAt, ExpiresAt, ConsumedAt, Name, NewTenant, EveryTenant`
 
 // mailLinkRow is a mail link as the table holds it.
 type mailLinkRow struct {
@@ -32,6 +33,7 @@ type mailLinkRow struct {
 	ConsumedAt      spanner.NullTime   `spanner:"ConsumedAt"`
 	Name            spanner.NullString `spanner:"Name"`
 	NewTenant       spanner.NullString `spanner:"NewTenant"`
+	EveryTenant     bool               `spanner:"EveryTenant"`
 }
 
 // newMailLinkRow renders l as the table holds it: created at the commit time and not
@@ -39,7 +41,7 @@ type mailLinkRow struct {
 func newMailLinkRow(l *dbtype.MailLink) (*mailLinkRow, error) {
 	r := &mailLinkRow{
 		ID: l.ID.String(), TokenHash: l.TokenHash, Kind: string(l.Kind), Email: l.Email, RoleNames: l.RoleNames,
-		CreatedAt: spanner.CommitTimestamp, ExpiresAt: l.ExpiresAt,
+		CreatedAt: spanner.CommitTimestamp, ExpiresAt: l.ExpiresAt, EveryTenant: l.EveryTenant,
 	}
 	if l.UserID.Valid {
 		r.UserID = spanner.NullString{StringVal: l.UserID.String(), Valid: true}
@@ -71,7 +73,7 @@ func (r *mailLinkRow) link() (*dbtype.MailLink, error) {
 	}
 	l := &dbtype.MailLink{
 		ID: id, TokenHash: r.TokenHash, Kind: dbtype.MailLinkKind(r.Kind), Email: r.Email, RoleNames: r.RoleNames,
-		CreatedAt: r.CreatedAt, ExpiresAt: r.ExpiresAt,
+		CreatedAt: r.CreatedAt, ExpiresAt: r.ExpiresAt, EveryTenant: r.EveryTenant,
 	}
 	if r.UserID.Valid {
 		userID, err := impulse.UUIDFromString(r.UserID.StringVal)
@@ -109,7 +111,7 @@ func (r *mailLinkRow) link() (*dbtype.MailLink, error) {
 }
 
 // InsertMailLink inserts l.
-func (s *SessionStorageDriver) InsertMailLink(ctx context.Context, l *dbtype.MailLink) error {
+func (s *SessionStorageDriver) InsertMailLink(ctx context.Context, l *dbtype.MailLink, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -124,7 +126,11 @@ func (s *SessionStorageDriver) InsertMailLink(ctx context.Context, l *dbtype.Mai
 	if err != nil {
 		return errors.Wrap(err, "spanner.InsertStruct()")
 	}
-	if _, err := s.spanner.Apply(ctx, []*spanner.Mutation{m}); err != nil {
+	audit, err := s.auditRecordMutations(record)
+	if err != nil {
+		return err
+	}
+	if _, err := s.spanner.Apply(ctx, append([]*spanner.Mutation{m}, audit...)); err != nil {
 		return errors.Wrap(err, "spanner.Client.Apply()")
 	}
 
@@ -172,7 +178,7 @@ func (s *SessionStorageDriver) MailLinkByToken(ctx context.Context, tokenHash []
 		return nil, err
 	}
 	if len(links) == 0 {
-		return nil, httpio.NewNotFoundMessage("no live mail link")
+		return nil, dbtype.MailLinkNotLive()
 	}
 
 	return links[0], nil
@@ -205,26 +211,61 @@ func (s *SessionStorageDriver) ConsumeMailLink(ctx context.Context, tokenHash []
 	return s.consumeMailLink(ctx, "TokenHash", tokenHash, now)
 }
 
-// RevokeMailLink marks the live mail link id consumed, as ConsumeMailLink does by the
-// token: an invitation withdrawn by hand. A link that is not live is NotFound.
-func (s *SessionStorageDriver) RevokeMailLink(ctx context.Context, id impulse.UUID, now time.Time) error {
+// RevokeMailLink marks the live mail link id consumed and withdrawn, both at the
+// database's time: a link taken back before anyone followed it. A link that is not live
+// is NotFound.
+func (s *SessionStorageDriver) RevokeMailLink(ctx context.Context, id impulse.UUID, now time.Time, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	return s.consumeMailLink(ctx, idColumn, id.String(), now)
+	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		if err := s.endMailLinkIn(ctx, txn, mailLinkWithdrawn, idColumn, id.String(), now); err != nil {
+			return err
+		}
+
+		return s.bufferAuditRecord(txn, record)
+	})
+	if errors.Is(err, errMailLinkNotLive) {
+		return dbtype.MailLinkNotLive()
+	}
+	if err != nil {
+		return errors.Wrap(err, "spannertxn.Serializable()")
+	}
+
+	return nil
+}
+
+// FailMailLink marks the live mail link id consumed and as one whose message could not
+// be mailed, both at the commit time: the link ends where its mail failed, and its row
+// says why. A link that is not live is NotFound.
+func (s *SessionStorageDriver) FailMailLink(ctx context.Context, id impulse.UUID, now time.Time) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		return s.endMailLinkIn(ctx, txn, mailLinkMailFailed, idColumn, id.String(), now)
+	})
+	if errors.Is(err, errMailLinkNotLive) {
+		return dbtype.MailLinkNotLive()
+	}
+	if err != nil {
+		return errors.Wrap(err, "spannertxn.Serializable()")
+	}
+
+	return nil
 }
 
 // consumeMailLink consumes the live link whose column holds value, in a transaction of
 // its own.
 func (s *SessionStorageDriver) consumeMailLink(ctx context.Context, column string, value any, now time.Time) error {
-	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		return s.consumeMailLinkIn(ctx, txn, column, value, now)
 	})
 	if errors.Is(err, errMailLinkNotLive) {
-		return httpio.NewNotFoundMessage("no live mail link")
+		return dbtype.MailLinkNotLive()
 	}
 	if err != nil {
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return nil
@@ -235,7 +276,7 @@ func (s *SessionStorageDriver) consumeMailLink(ctx context.Context, column strin
 func (s *SessionStorageDriver) ConsumeMailLinkIn(ctx context.Context, tx *spanner.ReadWriteTransaction, id impulse.UUID, now time.Time) error {
 	if err := s.consumeMailLinkIn(ctx, tx, idColumn, id.String(), now); err != nil {
 		if errors.Is(err, errMailLinkNotLive) {
-			return httpio.NewNotFoundMessage("no live mail link")
+			return dbtype.MailLinkNotLive()
 		}
 
 		return err
@@ -244,8 +285,24 @@ func (s *SessionStorageDriver) ConsumeMailLinkIn(ctx context.Context, tx *spanne
 	return nil
 }
 
+// The columns the end of a mail link sets, each to the commit time: a link that was
+// followed is consumed, one that was withdrawn is consumed and says it was taken back,
+// and one whose message could not be mailed is consumed and says the mail failed.
+const (
+	mailLinkConsumed   = "ConsumedAt = PENDING_COMMIT_TIMESTAMP()"
+	mailLinkWithdrawn  = "ConsumedAt = PENDING_COMMIT_TIMESTAMP(), WithdrawnAt = PENDING_COMMIT_TIMESTAMP()"
+	mailLinkMailFailed = "ConsumedAt = PENDING_COMMIT_TIMESTAMP(), MailFailedAt = PENDING_COMMIT_TIMESTAMP()"
+)
+
 func (s *SessionStorageDriver) consumeMailLinkIn(ctx context.Context, txn *spanner.ReadWriteTransaction, column string, value any, now time.Time) error {
-	stmt := spanner.NewStatement(fmt.Sprintf(`UPDATE %s SET ConsumedAt = PENDING_COMMIT_TIMESTAMP() WHERE %s = @value AND ConsumedAt IS NULL AND ExpiresAt > @now`, s.mailLinksTableName, column))
+	return s.endMailLinkIn(ctx, txn, mailLinkConsumed, column, value, now)
+}
+
+// endMailLinkIn ends the live mail link whose column holds value inside txn, by a
+// conditional update that sets the columns set names; errMailLinkNotLive when no link
+// is live there.
+func (s *SessionStorageDriver) endMailLinkIn(ctx context.Context, txn *spanner.ReadWriteTransaction, set, column string, value any, now time.Time) error {
+	stmt := spanner.NewStatement(fmt.Sprintf(`UPDATE %s SET %s WHERE %s = @value AND ConsumedAt IS NULL AND ExpiresAt > @now`, s.mailLinksTableName, set, column))
 	stmt.Params["value"] = value
 	stmt.Params["now"] = now
 

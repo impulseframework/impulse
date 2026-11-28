@@ -62,6 +62,22 @@ func (concealingCollection) SubjectSetComparisonType(string) (accesstypes.Attrib
 	return "", false
 }
 
+func (concealingCollection) SubjectSets(string) map[string][]string {
+	return nil
+}
+
+func (concealingCollection) SubjectSetAuth(string) string {
+	return ""
+}
+
+func (concealingCollection) SubjectSetDefinition(string) []string {
+	return nil
+}
+
+func (concealingCollection) Auths() []string {
+	return nil
+}
+
 func (concealingCollection) SubjectValueComparisonType(string) (accesstypes.AttributeType, bool) {
 	return "", false
 }
@@ -243,7 +259,7 @@ func TestValidateRoles_concealingKeyWarnings(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := ValidateRoles(tt.store, &RoleConfig{Roles: tt.roles})
+			got, err := ValidateRoles(tt.store, &RoleConfig{Auth: fixtureAuth, Roles: tt.roles}, fixtureAuth)
 			if err != nil {
 				t.Fatalf("ValidateRoles() error = %v", err)
 			}

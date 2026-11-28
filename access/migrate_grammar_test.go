@@ -89,6 +89,33 @@ func (grammarCollection) SubjectSetComparisonType(name string) (accesstypes.Attr
 	}
 }
 
+// SubjectSets declares none: the fixture's sets are a vocabulary for conditions, and
+// the tests of the unread-set warning declare their own (setsCollection).
+func (grammarCollection) SubjectSets(string) map[string][]string {
+	return nil
+}
+
+// SubjectSetAuth names no auth: the fixture's sets say none (setsCollection labels
+// its own).
+func (grammarCollection) SubjectSetAuth(string) string {
+	return ""
+}
+
+// SubjectSetDefinition says nothing of how a set is declared: the fixture is one
+// collection, never a member of a union.
+func (grammarCollection) SubjectSetDefinition(string) []string {
+	return nil
+}
+
+// Auths lists none: the fixture knows no auth, so a role file is accepted under any
+// name (setsCollection lists its own).
+func (grammarCollection) Auths() []string {
+	return nil
+}
+
+// fixtureAuth is the name of the auth the fixtures' role files are of.
+const fixtureAuth = "crew"
+
 func (grammarCollection) SubjectValueComparisonType(name string) (accesstypes.AttributeType, bool) {
 	switch name {
 	case "approvalLimit":

@@ -4,10 +4,10 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
-	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
@@ -35,13 +35,18 @@ func TestBaseSession_EnforceReadOnlyMask(t *testing.T) {
 		method      string
 		wantBlocked bool
 	}
-	tests := append(make([]test, 0, 13), []test{
+	tests := append(make([]test, 0, 16), []test{
 		{name: "no session in context passes", ctx: context.Background(), method: http.MethodPost},
 		{name: "an ordinary session writes", ctx: withSession(nil), method: http.MethodPost},
 		{name: "an unmasked impersonation writes", ctx: withSession(impersonated(accesstypes.PermissionMask{})), method: http.MethodDelete},
 		{name: "a mask including Execute is not read-only", ctx: withSession(impersonated(accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read, accesstypes.Execute))), method: http.MethodPost},
 		{name: "a mask including Update is not read-only", ctx: withSession(impersonated(accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.Read, accesstypes.Update))), method: http.MethodPatch},
 		{name: "the mask that allows nothing blocks writes", ctx: withSession(impersonated(accesstypes.DenyAll())), method: http.MethodPost, wantBlocked: true},
+		// A mask that keeps every kind and refuses something inside them is the
+		// permission check's to enforce: the guard is the read-only mask's alone.
+		{name: "every kind kept, a class refused, is not read-only", ctx: withSession(impersonated(accesstypes.AllowAll().Refusing(accesstypes.RefuseClass(accesstypes.ClassCredential)))), method: http.MethodPost},
+		{name: "every kind kept, an action refused, is not read-only", ctx: withSession(impersonated(accesstypes.AllowAll().Refusing(accesstypes.RefuseAction("LaunchMission")))), method: http.MethodPost},
+		{name: "a read-only mask that also refuses a class blocks writes", ctx: withSession(impersonated(readOnly.Refusing(accesstypes.RefuseClass(accesstypes.ClassCredential)))), method: http.MethodPost, wantBlocked: true},
 	}...)
 	for _, method := range []string{http.MethodGet, http.MethodHead, http.MethodOptions} {
 		tests = append(tests, test{name: "read-only reads with " + method, ctx: withSession(impersonated(readOnly)), method: method})
@@ -88,36 +93,11 @@ func TestBaseSession_EnforceReadOnlyMask(t *testing.T) {
 
 				return
 			}
-			if rr.Code != http.StatusForbidden {
-				t.Errorf("status = %d, want %d", rr.Code, http.StatusForbidden)
+			if want := "You are acting as someone else, and this session cannot change anything."; rr.Code != http.StatusForbidden || !strings.Contains(rr.Body.String(), want) {
+				t.Errorf("answer = %d %s, want %d saying %q", rr.Code, rr.Body.String(), http.StatusForbidden, want)
 			}
 			if len(events) != 1 || events[0].Kind != sessioninfo.ImpersonationWriteBlocked || events[0].Operation != tt.method+" /api/partners/1" {
 				t.Errorf("events = %+v, want one WriteBlocked for %s /api/partners/1", events, tt.method)
-			}
-		})
-	}
-}
-
-func Test_readOnlyMask(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name string
-		mask accesstypes.PermissionMask
-		want bool
-	}{
-		{name: "unrestricted", mask: accesstypes.PermissionMask{}},
-		{name: "allows nothing", mask: accesstypes.DenyAll(), want: true},
-		{name: "Read only", mask: accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.Read), want: true},
-		{name: "List and Read", mask: accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read), want: true},
-		{name: "List, Read and Execute", mask: accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read, accesstypes.Execute)},
-		{name: "Create", mask: accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.Create)},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			if diff := cmp.Diff(tt.want, readOnlyMask(tt.mask)); diff != "" {
-				t.Errorf("readOnlyMask() mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

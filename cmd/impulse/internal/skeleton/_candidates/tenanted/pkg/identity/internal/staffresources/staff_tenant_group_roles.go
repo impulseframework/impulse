@@ -21,11 +21,17 @@ type (
 	// none. A role that has ended is not listed: it is nobody's through the group. One
 	// that has not begun is listed, where it is given another period or taken away.
 	//
+	// Losing is how many people lose the role when the group stops holding it: the
+	// people in the group now who hold the role in the tenant in no other way, neither by
+	// a membership of their own, in the tenant or in every tenant, nor through another
+	// group they are in. Nobody loses a role whose period has not begun.
+	//
 	// @virtual
 	// @permissionScope(domain)
 	// @outlet(default)
 	// @order(GroupName asc, Role asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(group role)
 	StaffTenantGroupRole struct {
 		// @domain
 		DomainID string `spanner:"DomainId" index:"true"`
@@ -35,10 +41,12 @@ type (
 		GroupName string       `spanner:"GroupName" index:"true"`
 		// @primarykey
 		// @attribute(role)
+		// @roleOf(Staff)
 		Role      string     `spanner:"Role"      index:"true"`
 		CreatedAt time.Time  `spanner:"CreatedAt"`
 		StartsAt  *time.Time `spanner:"StartsAt"`
 		EndsAt    *time.Time `spanner:"EndsAt"`
+		Losing    int64      `spanner:"Losing"`
 	}
 )
 
@@ -53,7 +61,30 @@ SELECT
   r.Role AS Role,
   r.CreatedAt AS CreatedAt,
   r.StartsAt AS StartsAt,
-  r.EndsAt AS EndsAt
+  r.EndsAt AS EndsAt,
+  (SELECT COUNT(*) FROM StaffGroupMembers lm
+   WHERE lm.GroupId = r.GroupId
+     AND (lm.StartsAt IS NULL OR lm.StartsAt <= CURRENT_TIMESTAMP()) AND (lm.EndsAt IS NULL OR lm.EndsAt > CURRENT_TIMESTAMP())
+     AND (r.StartsAt IS NULL OR r.StartsAt <= CURRENT_TIMESTAMP()) AND (r.EndsAt IS NULL OR r.EndsAt > CURRENT_TIMESTAMP())
+     AND r.Role != 'SuperAdministrator' AND (g.Kind = 'global' OR (r.Kind = g.Kind AND r.Axis = g.Axis AND r.DomainId = g.DomainId))
+     AND NOT EXISTS (
+       SELECT 1 FROM StaffUserRoles@{FORCE_INDEX=StaffUserRolesByUserId} lo
+       WHERE lo.UserId = lm.UserId AND lo.Role = r.Role
+         AND (lo.StartsAt IS NULL OR lo.StartsAt <= CURRENT_TIMESTAMP()) AND (lo.EndsAt IS NULL OR lo.EndsAt > CURRENT_TIMESTAMP())
+         AND lo.Axis = r.Axis AND ((lo.Kind = r.Kind AND lo.DomainId = r.DomainId) OR (r.Kind = 'domain' AND lo.Kind = 'every'))
+     )
+     AND NOT EXISTS (
+       SELECT 1 FROM StaffGroupMembers@{FORCE_INDEX=StaffGroupMembersByUserId} lp
+       JOIN StaffGroupRoles lr ON lr.GroupId = lp.GroupId
+       JOIN StaffGroups lg ON lg.Id = lp.GroupId
+       WHERE lp.UserId = lm.UserId AND lr.Role = r.Role
+         AND (lp.StartsAt IS NULL OR lp.StartsAt <= CURRENT_TIMESTAMP()) AND (lp.EndsAt IS NULL OR lp.EndsAt > CURRENT_TIMESTAMP())
+         AND (lr.StartsAt IS NULL OR lr.StartsAt <= CURRENT_TIMESTAMP()) AND (lr.EndsAt IS NULL OR lr.EndsAt > CURRENT_TIMESTAMP())
+         AND lr.Axis = r.Axis AND ((lr.Kind = r.Kind AND lr.DomainId = r.DomainId) OR (r.Kind = 'domain' AND lr.Kind = 'every'))
+         AND lr.Role != 'SuperAdministrator' AND (lg.Kind = 'global' OR (lr.Kind = lg.Kind AND lr.Axis = lg.Axis AND lr.DomainId = lg.DomainId))
+         AND NOT (lr.GroupId = r.GroupId AND lr.Kind = r.Kind AND lr.Axis = r.Axis AND lr.DomainId = r.DomainId)
+     )
+  ) AS Losing
 FROM StaffGroups g
 JOIN StaffGroupRoles r ON r.GroupId = g.Id
 WHERE g.Kind = 'domain' AND g.Axis = ''

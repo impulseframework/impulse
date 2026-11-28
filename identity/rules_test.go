@@ -1,14 +1,19 @@
 package identity
 
 import (
+	"bytes"
 	"context"
+	"log"
 	"strings"
+	"sync"
 	"testing"
 
+	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session/sessioninfo"
@@ -91,14 +96,17 @@ func TestManager_DisableUser_ownAccount(t *testing.T) {
 			if diff := cmp.Diff(tt.wantWrites, store.writes); diff != "" {
 				t.Errorf("buffered writes (-want +got):\n%s", diff)
 			}
+			wantAccountRow(t, store, err, auditlog.ActAccountDisabled, userID)
 		})
 	}
 }
 
 // TestManager_ownAccount_judgesThePersonActing pins whose account "your own" is to the
 // rule that nobody disables or deletes themselves: the account of the real person behind
-// the session. A person who views as someone else is refused their own account, which
-// they could not get back, where the session's grants are the other person's; they are
+// the session. A person in a session of their own is refused their own account in the
+// plain sentence. A person who views as someone else is refused their own account, which
+// they could not get back, where the session's grants are the other person's, in the
+// sentence of the rule for whoever acts as someone else; they are
 // refused the account they view as too, and told that it is the one they view as, since
 // a view does no more than the person viewed as may; a view started by a person of
 // another application, who has no account here, is refused the account it views as and
@@ -108,9 +116,13 @@ func TestManager_ownAccount_judgesThePersonActing(t *testing.T) {
 
 	reader := access.NewMembershipKey(globalScope, dana, "Reader")
 	acts := []struct {
-		name       string
-		act        func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error
+		name string
+		act  func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error
+		// wantOwn is the refusal in a session of the person's own, wantActing the one in
+		// a session that acts as someone else, and wantViewed the one for the account
+		// viewed as.
 		wantOwn    string
+		wantActing string
 		wantViewed string
 		wantWrites []string
 	}{
@@ -119,24 +131,30 @@ func TestManager_ownAccount_judgesThePersonActing(t *testing.T) {
 			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
 				return m.DisableUser(ctx, txn, userID)
 			},
-			wantOwn:    "you cannot disable your own account",
-			wantViewed: "you cannot disable the account you are viewing as",
+			wantOwn:    "You cannot disable your own account.",
+			wantActing: actingAsSomeoneElse + "disable your own account.",
+			wantViewed: "You cannot disable the account you are viewing as.",
 			wantWrites: []string{"update user " + userID.String() + " disabled=true"},
 		},
 		{
 			name: "delete",
 			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
-				return m.DeleteUser(ctx, txn, userID)
+				_, err := m.DeleteUser(ctx, txn, userID, false)
+
+				return err
 			},
-			wantOwn:    "you cannot delete your own account",
-			wantViewed: "you cannot delete the account you are viewing as",
+			wantOwn:    "You cannot delete your own account.",
+			wantActing: actingAsSomeoneElse + "delete your own account.",
+			wantViewed: "You cannot delete the account you are viewing as.",
 			wantWrites: []string{"delete user " + userID.String(), "delete membership " + membershipText(&reader)},
 		},
 	}
-	// Each session acts on dana's account. own and viewed say which refusal it meets.
+	// Each session acts on dana's account. own, acting and viewed say which refusal it
+	// meets.
 	const (
 		through = iota
 		own
+		acting
 		viewed
 	)
 	sessions := []struct {
@@ -145,11 +163,18 @@ func TestManager_ownAccount_judgesThePersonActing(t *testing.T) {
 		want int
 	}{
 		{
+			name: "dana, in a session of her own, acts on her own account",
+			ctx: func(ctx context.Context) context.Context {
+				return asCallerThrough(ctx, managedAuth, dana)
+			},
+			want: own,
+		},
+		{
 			name: "dana, viewing as erin, acts on her own account",
 			ctx: func(ctx context.Context) context.Context {
 				return viewedBy(asCallerThrough(ctx, managedAuth, erin), userID)
 			},
-			want: own,
+			want: acting,
 		},
 		{
 			name: "erin, viewing as dana, acts on the account she views as",
@@ -161,7 +186,7 @@ func TestManager_ownAccount_judgesThePersonActing(t *testing.T) {
 		{
 			name: "a person of another application, viewing as dana, acts on the account they view as",
 			ctx: func(ctx context.Context) context.Context {
-				foreign := &sessioninfo.SessionData{Impersonation: &sessioninfo.Impersonation{Actor: "dana", ActorRealm: "admin-portal"}}
+				foreign := &sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{}, Impersonation: &sessioninfo.Impersonation{Actor: "dana", ActorRealm: "admin-portal"}}
 
 				return context.WithValue(asCallerThrough(ctx, managedAuth, dana), sessioninfo.CtxSessionInfo, foreign)
 			},
@@ -197,11 +222,8 @@ func TestManager_ownAccount_judgesThePersonActing(t *testing.T) {
 					return act.act(session.ctx(ctx), txn, m)
 				})
 				if session.want != through {
-					wantSays := act.wantOwn
-					if session.want == viewed {
-						wantSays = act.wantViewed
-					}
-					if err == nil || !httpio.HasForbidden(err) || !strings.Contains(err.Error(), wantSays) {
+					wantSays := map[int]string{own: act.wantOwn, acting: act.wantActing, viewed: act.wantViewed}[session.want]
+					if err == nil || !httpio.HasForbidden(err) || httpio.Message(err) != wantSays {
 						t.Fatalf("error = %v, want the refusal %q", err, wantSays)
 					}
 					if len(store.writes) != 0 {
@@ -217,6 +239,98 @@ func TestManager_ownAccount_judgesThePersonActing(t *testing.T) {
 					t.Errorf("buffered writes (-want +got):\n%s", diff)
 				}
 			})
+		}
+	}
+}
+
+// switchLog is the output of the standard logger while a test reads it, written to by
+// every test of the package that logs.
+type switchLog struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+// Write appends to the log.
+func (l *switchLog) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	n, err := l.buf.Write(p)
+	if err != nil {
+		return n, errors.Wrap(err, "bytes.Buffer.Write()")
+	}
+
+	return n, nil
+}
+
+// String is the log so far.
+func (l *switchLog) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	return l.buf.String()
+}
+
+// TestManager_accountSwitches_refuseTheImpersonatorAlike pins the three switches of an
+// account, disabling, enabling and deleting, in a session that acts as someone else:
+// each refuses the account of the real person behind the session by the one rule, in
+// one sentence form and with one log line, and buffers nothing. The person acting is an
+// account no other test names, so the lines the test finds in the standard logger's
+// output, which is the process's, are its own.
+func TestManager_accountSwitches_refuseTheImpersonatorAlike(t *testing.T) {
+	t.Parallel()
+
+	var output switchLog
+	previous := log.Writer()
+	log.SetOutput(&output)
+	t.Cleanup(func() { log.SetOutput(previous) })
+
+	sal := mustUUID("0190b000-0000-7000-8000-0000000005a1")
+	switches := []struct {
+		name string
+		act  func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error
+	}{
+		{
+			name: "disable",
+			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
+				return m.DisableUser(ctx, txn, sal)
+			},
+		},
+		{
+			name: "enable",
+			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
+				return m.EnableUser(ctx, txn, sal)
+			},
+		},
+		{
+			name: "delete",
+			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
+				_, err := m.DeleteUser(ctx, txn, sal, false)
+
+				return err
+			},
+		},
+	}
+	for _, tt := range switches {
+		store := impersonatorStore()
+		store.usernames[sal] = "sal"
+		store.disabled[sal] = tt.name == "enable"
+		m, _ := impersonatorManager(t, store)
+
+		err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+			return tt.act(viewedBy(asErin(ctx, managedAuth, false), sal), txn, m)
+		})
+		wantSays := "You are acting as someone else, so you cannot " + tt.name + " your own account."
+		if err == nil || !httpio.HasForbidden(err) || httpio.Message(err) != wantSays {
+			t.Errorf("%s her own account while she acts as erin: error = %v, want the refusal %q", tt.name, err, wantSays)
+		}
+		if len(store.writes) != 0 {
+			t.Errorf("%s her own account while she acts as erin: buffered writes = %v, want none", tt.name, store.writes)
+		}
+		wantLine := "impersonation: the person who started this impersonated session (" + sal.String() + ") asked to " + tt.name +
+			" their own account: refused, since nobody is the subject of what they do while they act as someone else"
+		if got := strings.Count(output.String(), wantLine); got != 1 {
+			t.Errorf("%s her own account while she acts as erin: the log holds the line %q %d times, want once:\n%s", tt.name, wantLine, got, output.String())
 		}
 	}
 }
@@ -246,7 +360,7 @@ func TestManager_RemoveRole_lastAdministrator(t *testing.T) {
 		{
 			name: "a role of the global scope goes from its last holder: the application's last administrator is its last super administrator",
 			opts: []Option{administrators}, caller: dana, scope: globalScope, role: "Steward",
-			held:        []access.MembershipKey{membership(globalScope, dana, "Steward"), membership(globalScope, erin, "Reader")},
+			held:        []access.MembershipKey{membership(globalScope, dana, "Steward"), membership(globalScope, dana, "Reader"), membership(globalScope, erin, "Reader")},
 			wantRemoved: true,
 		},
 		{
@@ -270,20 +384,20 @@ func TestManager_RemoveRole_lastAdministrator(t *testing.T) {
 		{
 			name: "a tenant's administrator leaves once another holds the role there",
 			opts: []Option{administrators}, caller: dana, scope: alphaScope, role: "Warden",
-			held:        []access.MembershipKey{membership(alphaScope, dana, "Warden"), membership(alphaScope, erin, "Warden")},
+			held:        []access.MembershipKey{membership(alphaScope, dana, "Warden"), membership(globalScope, dana, "Reader"), membership(alphaScope, erin, "Warden")},
 			wantRemoved: true,
 		},
 		{
-			name: "a person who holds the role in every tenant is the tenant's administrator too",
+			name: "a person who holds the role in every tenant is no administrator of the tenant's own: its last one keeps the role",
 			opts: []Option{administrators}, caller: dana, scope: alphaScope, role: "Warden",
-			held:        []access.MembershipKey{membership(alphaScope, dana, "Warden"), membership(everyScope, erin, "Warden")},
-			wantRemoved: true,
+			held:    []access.MembershipKey{membership(alphaScope, dana, "Warden"), membership(everyScope, erin, "Warden")},
+			wantErr: httpio.HasForbidden,
 		},
 		{
-			name: "the caller's own membership in every tenant keeps them the tenant's administrator",
+			name: "the caller's own membership in every tenant does not stand in for the one they hold in the tenant",
 			opts: []Option{administrators}, caller: dana, scope: alphaScope, role: "Warden",
-			held:        []access.MembershipKey{membership(alphaScope, dana, "Warden"), membership(everyScope, dana, "Warden")},
-			wantRemoved: true,
+			held:    []access.MembershipKey{membership(alphaScope, dana, "Warden"), membership(everyScope, dana, "Warden")},
+			wantErr: httpio.HasForbidden,
 		},
 		{
 			name: "a role held in every tenant is no administrator role of the application",
@@ -320,7 +434,12 @@ func TestManager_RemoveRole_lastAdministrator(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			store := &fakeStore{memberships: map[access.MembershipKey]bool{}}
+			// Both people have accounts that can sign in: the rule counts no other
+			// holder as a tenant's administrator.
+			store := &fakeStore{
+				usernames:   map[impulse.UUID]string{userID: "dana", otherUser: "erin"},
+				memberships: map[access.MembershipKey]bool{},
+			}
 			for _, key := range tt.held {
 				store.memberships[key] = true
 			}
@@ -366,17 +485,17 @@ func TestManager_RemoveRole_lastAdministrator_sentence(t *testing.T) {
 		{
 			name: "an application that names no word says tenant",
 			opts: []Option{administrators},
-			want: "you are the last administrator of this tenant: give another person the role before you remove your own",
+			want: "You are the last administrator of this tenant. Give another person the role before you remove your own.",
 		},
 		{
 			name: "an application whose tenants are customers says customer",
 			opts: []Option{administrators, WithTenantWord("customer")},
-			want: "you are the last administrator of this customer: give another person the role before you remove your own",
+			want: "You are the last administrator of this customer. Give another person the role before you remove your own.",
 		},
 		{
 			name: "an empty word leaves tenant",
 			opts: []Option{administrators, WithTenantWord("")},
-			want: "you are the last administrator of this tenant: give another person the role before you remove your own",
+			want: "You are the last administrator of this tenant. Give another person the role before you remove your own.",
 		},
 	}
 	for _, tt := range tests {
@@ -385,7 +504,10 @@ func TestManager_RemoveRole_lastAdministrator_sentence(t *testing.T) {
 
 			const tenant = "0190a000-0000-7000-8000-000000000001"
 			scope := accesstypes.DomainPolicyScope(tenant)
-			store := &fakeStore{memberships: map[access.MembershipKey]bool{access.NewMembershipKey(scope, dana, "Warden"): true}}
+			store := &fakeStore{
+				usernames:   map[impulse.UUID]string{userID: "dana"},
+				memberships: map[access.MembershipKey]bool{access.NewMembershipKey(scope, dana, "Warden"): true},
+			}
 			m, _ := newManager(t, store, engineRoles, tt.opts...)
 
 			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
@@ -396,88 +518,6 @@ func TestManager_RemoveRole_lastAdministrator_sentence(t *testing.T) {
 			}
 			if got := httpio.Message(err); got != tt.want {
 				t.Errorf("the refusal reads %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
-// TestManager_RemoveRole_lastRole pins the rule on an account nothing admits: the
-// removal of a person's last role anywhere deletes the account in the same transaction,
-// its sessions ended and its identity links removed first, whoever removed the role; a
-// person who holds a role somewhere else stays, and an id no user holds has no account
-// to delete.
-func TestManager_RemoveRole_lastRole(t *testing.T) {
-	t.Parallel()
-
-	steward := access.NewMembershipKey(globalScope, dana, "Steward")
-	reader := access.NewMembershipKey(alphaScope, dana, "Reader")
-	removed := "delete membership global/ " + userID.String() + " Steward"
-	deleted := []string{
-		"end session " + sessionA.String(),
-		"delete identity " + identityA.String(),
-		"delete user " + userID.String(),
-		removed,
-	}
-
-	tests := []struct {
-		name       string
-		held       []access.MembershipKey
-		account    bool
-		caller     accesstypes.User
-		failOn     string
-		wantErr    bool
-		wantWrites []string
-	}{
-		{
-			name: "the last role anywhere takes the account with it",
-			held: []access.MembershipKey{steward}, account: true, caller: erin,
-			wantWrites: deleted,
-		},
-		{
-			name: "a call outside any request deletes the account the same",
-			held: []access.MembershipKey{steward}, account: true,
-			wantWrites: deleted,
-		},
-		{
-			name: "a person who holds a role in a tenant stays",
-			held: []access.MembershipKey{steward, reader}, account: true, caller: erin,
-			wantWrites: []string{removed},
-		},
-		{
-			name:       "an id no user holds has no account to delete",
-			held:       []access.MembershipKey{steward},
-			wantWrites: []string{removed},
-		},
-		{
-			name: "a failed delete fails the call",
-			held: []access.MembershipKey{steward}, account: true, caller: erin,
-			failOn: "DeleteUser", wantErr: true,
-			wantWrites: deleted[:2],
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			store := &fakeStore{memberships: map[access.MembershipKey]bool{}, failOn: tt.failOn}
-			for _, key := range tt.held {
-				store.memberships[key] = true
-			}
-			if tt.account {
-				store.usernames = map[impulse.UUID]string{userID: "dana"}
-				store.sessions = map[impulse.UUID][]impulse.UUID{userID: {sessionA}}
-				store.identities = map[impulse.UUID]impulse.UUID{identityA: userID}
-			}
-			m, _ := newManager(t, store, engineRoles, administrators)
-
-			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-				return m.RemoveRole(asCaller(ctx, tt.caller), txn, globalScope, userID, "Steward")
-			})
-			if (err != nil) != tt.wantErr {
-				t.Fatalf("RemoveRole() error = %v, wantErr %t", err, tt.wantErr)
-			}
-			if diff := cmp.Diff(tt.wantWrites, store.writes); diff != "" {
-				t.Errorf("buffered writes (-want +got):\n%s", diff)
 			}
 		})
 	}
@@ -515,7 +555,9 @@ func TestManager_callerOfAnotherAuth(t *testing.T) {
 		{
 			name: "delete",
 			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
-				return m.DeleteUser(ctx, txn, userID)
+				_, err := m.DeleteUser(ctx, txn, userID, false)
+
+				return err
 			},
 			wantWrites: []string{"delete user " + userID.String(), "delete membership " + membershipText(&warden), "delete membership " + membershipText(&reader)},
 		},

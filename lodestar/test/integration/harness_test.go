@@ -74,7 +74,7 @@ const (
 	droidsAPIKey = "integration-droids-key"
 
 	// Every persona's password.
-	personaPassword = "lodestar"
+	personaPassword = "follow-the-lodestar-home"
 
 	// The portal's client: a member of the members auth who signs in through the
 	// simulated directory; its roles are the groups the directory names (APP_ROLES).
@@ -222,6 +222,18 @@ type grants map[accesstypes.Permission][]accesstypes.Resource
 type staticAccess struct {
 	access.Controller
 	g grants
+	// auth is the auth whose requests the stand-in answers for (Auth); empty, the crew's.
+	auth string
+}
+
+// Auth names the auth the stand-in answers for, as a real engine names the auth it was
+// opened for: the crew's, or the members' for the stand-in membersEngineFor pairs with it.
+func (s *staticAccess) Auth() string {
+	if s.auth == "" {
+		return crew.Name
+	}
+
+	return s.auth
 }
 
 func (s *staticAccess) ForUser(user accesstypes.User) *access.UserChecker {
@@ -296,19 +308,60 @@ type testConfigurer struct {
 	// jobs is the job process's starter, a fake the served stack's suites read the
 	// starts from; nil gets a fake of its own.
 	jobs jobs.Starter
+	// crewIdentity is the crew's identity client the App runs where the served stack
+	// builds one of its own (servedOptions.oneTenantPerPerson); nil runs the one the
+	// crew auth built.
+	crewIdentity *crewidentity.Client
+	// deleteSaveTime is the time limit of a save of a delete that takes rows
+	// (resource.WithDeleteSaveTime), for a suite that has a delete take its rows over
+	// several saves; zero leaves the library's.
+	deleteSaveTime time.Duration
 }
+
+// invitationLog holds the invitations the suites without a session manager handed
+// their stand-in to prepare (noSessionAPI.PrepareInvitation), by the address invited.
+// The stand-in makes no link and fails every one, so a failed request alone does not
+// say how far it came: a test that sent one reads here whether it reached that step,
+// and with what. The suites share the stand-in and run in parallel, so a test invites
+// an address no other does and takes what was kept for it.
+type invitationLog struct {
+	mu      sync.Mutex
+	byEmail map[string][]session.InvitationRequest
+}
+
+// keep records one invitation the stand-in was handed.
+func (l *invitationLog) keep(req *session.InvitationRequest) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.byEmail[req.Email] = append(l.byEmail[req.Email], *req)
+}
+
+// take answers the invitations the stand-in was handed for the address, in the order
+// they came, and forgets them: a second run of the test in one process starts from none.
+func (l *invitationLog) take(email string) []session.InvitationRequest {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	taken := l.byEmail[email]
+	delete(l.byEmail, email)
+
+	return taken
+}
+
+// preparedInvitations is the log of every stand-in of this package.
+var preparedInvitations = &invitationLog{byEmail: make(map[string][]session.InvitationRequest)}
 
 // noSessionAPI stands where a suite serves no session manager: the methods that need
-// one (a temporary password's hash) are driven on the served stack, which has the
-// real one. It still says which identities sign a person in, since the removal of a
-// password and the list of how a person signs in are judged by it.
+// one (an invitation's link) are driven on the served stack, which has the real one. It
+// still says which identities sign a person in, since the removal of a password and the
+// list of how a person signs in are judged by it.
 type noSessionAPI struct{}
 
-func (noSessionAPI) HashPassword(string) (string, error) {
-	return "", fmt.Errorf("this suite serves no session manager: drive the method on the served stack")
-}
+// PrepareInvitation makes no link and fails, after it has kept what it was handed
+// (preparedInvitations): a request that reaches it passed every check before the link
+// is made.
+func (noSessionAPI) PrepareInvitation(_ context.Context, req *session.InvitationRequest) (session.PreparedInvitation, error) {
+	preparedInvitations.keep(req)
 
-func (noSessionAPI) PrepareInvitation(context.Context, *session.InvitationRequest) (session.PreparedInvitation, error) {
 	return nil, fmt.Errorf("this suite serves no session manager: drive the method on the served stack")
 }
 
@@ -322,13 +375,19 @@ func (noSessionAPI) SignInMethods() []session.RegisteredMethod {
 	}
 }
 
-// SignsInThrough judges an identity as an Auth that offers the fleet's Google sign-in
-// alone would, under the name the crew registers it ("google"): an identity of any other
-// method signs nobody in. The crew auth's own judgment, over its registrations and the
-// connections each takes, is driven on the served stack.
-func (noSessionAPI) SignsInThrough(method sessioninfo.AuthMethod, _ string) []string {
+// SignsInThrough judges an identity as the crew auth's two Google registrations would:
+// a personal Google account, under the connection of any Google account, signs in
+// through the sign-up registration (crew.SignUpRegistration), and any other Google
+// identity through the fleet's Google sign-in, under the name the crew registers it
+// ("google"); an identity of any other method signs nobody in. The crew auth's own
+// judgment, over its registrations and the connections each takes, is driven on the
+// served stack.
+func (noSessionAPI) SignsInThrough(method sessioninfo.AuthMethod, connection string) []string {
 	if method != sessioninfo.MethodGoogle {
 		return nil
+	}
+	if connection == signin.GoogleAnyAccountConnection {
+		return []string{crew.SignUpRegistration}
 	}
 
 	return []string{"google"}
@@ -342,10 +401,58 @@ func (noSessionAPI) DirectoryName(sessioninfo.AuthMethod, string) (name, label s
 	return "", ""
 }
 
+// TenantName names no tenant, so a sentence that speaks of one says it by the
+// application's word for a tenant alone. The names the crew auth is given are driven on
+// the served stack.
+func (noSessionAPI) TenantName(accesstypes.Domain) string {
+	return ""
+}
+
+// SessionTimeout answers the served stack's timeout. The generated list of an auth's
+// sessions holds one timeout for the process, the one the identity client built last was
+// given, and the suites that serve a session manager run beside this one: answering their
+// length keeps what that list says on the served stack from turning on which client was
+// built last.
+func (noSessionAPI) SessionTimeout() time.Duration {
+	return servedSessionTimeout
+}
+
+// SignInFailureLimit answers five failed sign-ins, the session library's own default,
+// which the served stack's crew auth counts by too: the generated list of the failed
+// sign-ins asks the client built last, and answering the stack's limit keeps what that
+// list says from turning on which one it was.
+func (noSessionAPI) SignInFailureLimit() int {
+	return 5
+}
+
+// RequestAddressChange and SendPasswordReset mail nobody: there is no session manager
+// here to mail through, and each says so.
+func (noSessionAPI) RequestAddressChange(context.Context, impulse.UUID, string, session.AskedBy) error {
+	return fmt.Errorf("this suite serves no session manager: drive the method on the served stack")
+}
+
+func (noSessionAPI) SendPasswordReset(context.Context, impulse.UUID, session.AskedBy) error {
+	return fmt.Errorf("this suite serves no session manager: drive the method on the served stack")
+}
+
+// EndPasswordResetLinks withdraws nothing, and the two notices tell nobody: no link was
+// mailed here and no mail is sent.
+func (noSessionAPI) EndPasswordResetLinks(context.Context, impulse.UUID) error {
+	return nil
+}
+
+func (noSessionAPI) NoticeFactorReset(context.Context, impulse.UUID) error {
+	return nil
+}
+
 // CrewIdentity is the crew auth's identity client: on the served stack the one the crew
-// auth built when it opened, as production's is; in a suite that serves no session
-// manager, one over the suite's crew engine.
+// auth built when it opened, as production's is, or the one the stack built where it
+// holds a person to one sector (servedOptions.oneTenantPerPerson); in a suite that
+// serves no session manager, one over the suite's crew engine.
 func (c *testConfigurer) CrewIdentity() *crewidentity.Client {
+	if c.crewIdentity != nil {
+		return c.crewIdentity
+	}
 	if c.crewAuth != nil {
 		return c.crewAuth.Identity()
 	}
@@ -358,10 +465,16 @@ func (c *testConfigurer) CrewIdentity() *crewidentity.Client {
 	return client
 }
 
-// MembersIdentity is the members auth's identity client over the suite's members engine.
-// A suite that serves no members population answers its members checks from the crew
-// engine (App.engine), and the client stands over the same one.
+// MembersIdentity is the members auth's identity client: on the served stack the one the
+// members auth built when it opened, as production's is, so the client the generated
+// handlers hand the live service to is the one whose hook a portal sign-in calls; in a
+// suite that serves no session manager, one over the suite's members engine. A suite that
+// serves no members population answers its members checks from the crew engine
+// (App.engine), and the client stands over the same one.
 func (c *testConfigurer) MembersIdentity() *membersidentity.Client {
+	if c.membersAuth != nil {
+		return c.membersAuth.Identity()
+	}
 	engine := c.membersAccess
 	if engine == nil {
 		engine = c.access
@@ -436,7 +549,12 @@ func (c *testConfigurer) CursorKey() *resource.CursorKey { return testCursorKey 
 // transaction's released objects are deleted from their store, and a write of a secret
 // field is sealed with the keys.
 func (c *testConfigurer) ResourceClient() resource.Client {
-	return resource.NewSpannerClient(c.db.Client, append(c.Stores().options(), resource.WithSecretKeys(testSecretKeys))...)
+	options := append(c.Stores().options(), resource.WithSecretKeys(testSecretKeys))
+	if c.deleteSaveTime != 0 {
+		options = append(options, resource.WithDeleteSaveTime(c.deleteSaveTime))
+	}
+
+	return resource.NewSpannerClient(c.db.Client, options...)
 }
 
 func (c *testConfigurer) Access() access.Controller { return c.access }
@@ -460,6 +578,11 @@ func (c *testConfigurer) AppVersion() string {
 	}
 
 	return c.version
+}
+
+// Environment is none: the suites run as production does, which names no environment.
+func (c *testConfigurer) Environment() string {
+	return ""
 }
 
 func (c *testConfigurer) ConsoleDist() string { return "" }
@@ -526,15 +649,14 @@ func newTestAppWithEngines(db *initiator.SpannerDB, crewEngine, membersEngine ac
 	return withHandWrittenRoutes(app.New(&testConfigurer{db: db, access: crewEngine, membersAccess: membersEngine}))
 }
 
-// withHandWrittenRoutes mounts the application's hand-written routes beside the generated
-// test router, where production's router.New mounts them: the ship's log and the portal's
-// client statement. The mission document download is generated, so it rides the test
-// router with every other generated route.
+// withHandWrittenRoutes mounts the generated test router behind the request's parameters,
+// where a suite would mount a hand-written route beside it as production's router.New
+// does. No suite that uses it needs one: the impersonation routes have their own served
+// suite, and the mission document download is generated, so it rides the test router with
+// every other generated route.
 func withHandWrittenRoutes(a *app.App) http.Handler {
 	r := chi.NewRouter()
 	r.Use(httpio.WithParams)
-	r.Get(router.ShipsLogEntriesRoute, a.DomainGuard()(a.ShipsLogEntries()))
-	r.Get(router.ClientStatementsRoute, a.DomainGuard()(a.ClientStatements()))
 	r.Mount("/", router.NewTestRouter(a))
 
 	return r
@@ -548,8 +670,14 @@ func newApp(db *initiator.SpannerDB, controller access.Controller, stores *testS
 
 // membersEngineFor pairs the shared crew engine with the shared members engine, so a
 // portal user's request under an app built over the parity engines answers from the
-// members store; a scripted engine pairs with nothing.
+// members store, and a scripted engine with a stand-in of the members' over the same
+// table, so a portal user's request, which the library answers only from the members'
+// engine, is answered by the script; any other engine pairs with nothing.
 func membersEngineFor(controller access.Controller) access.Controller {
+	if scripted, ok := controller.(*staticAccess); ok {
+		return &staticAccess{g: scripted.g, auth: members.Name}
+	}
+
 	sharedMu.RLock()
 	defer sharedMu.RUnlock()
 
@@ -594,8 +722,11 @@ var portalUsers = map[accesstypes.User]bool{clientUser: true}
 func doRequest(t *testing.T, h http.Handler, method, target, body string) (statusCode int, respBody []byte) {
 	t.Helper()
 
-	return doRequestAs(t, h, "integration-test-user", method, target, body)
+	return doRequestAs(t, h, defaultUser, method, target, body)
 }
+
+// defaultUser is the username doRequest sends a request as.
+const defaultUser accesstypes.User = "integration-test-user"
 
 // doRequestAs performs a request against the app as the given user, named by username.
 // The bootstrap-parity suites run against the real engines, where the acting user
@@ -617,7 +748,7 @@ func doRequestAs(t *testing.T, h http.Handler, user accesstypes.User, method, ta
 func doRequestRecorded(t *testing.T, h http.Handler, target string) *httptest.ResponseRecorder {
 	t.Helper()
 
-	return doRequestRecordedAs(t, h, "integration-test-user", http.MethodGet, target, "")
+	return doRequestRecordedAs(t, h, defaultUser, http.MethodGet, target, "")
 }
 
 // doRequestRecordedAs performs a request as the given user and returns the recorded
@@ -638,7 +769,7 @@ func doRequestRecordedWithHeaders(t *testing.T, h http.Handler, user accesstypes
 	// synthetic one (sessionContext).
 	ctx := sessionContext(t, user)
 	if portalUsers[user] {
-		ctx = auth.Bind(ctx, members.Name)
+		h = resource.BindAuth(members.Name)(h)
 	}
 
 	req := httptest.NewRequestWithContext(ctx, method, target, strings.NewReader(body))
@@ -661,13 +792,18 @@ func doRequestRecordedWithHeaders(t *testing.T, h http.Handler, user accesstypes
 // which the permission checks, the row conditions' subject and the columns that record
 // who take. An account a test made is carried the same way once the test has said whose
 // it is (knownAs). Any other name is a person with no account, named by the username
-// alone.
+// alone. The session records no sign-in event unless the test has said how the person
+// signed in (signedInThrough): a route that reads the way the session came in (the
+// create-your-sector route's sign-up check) is then answered for that way.
 func sessionContext(t *testing.T, user accesstypes.User) context.Context {
 	t.Helper()
 
-	sessionID, err := impulse.NewUUID()
-	if err != nil {
-		t.Fatalf("impulse.NewUUID: %v", err)
+	sessionID, kept := keptSessionID(t, user)
+	if !kept {
+		var err error
+		if sessionID, err = impulse.NewUUID(); err != nil {
+			t.Fatalf("impulse.NewUUID: %v", err)
+		}
 	}
 	data := &sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{ID: sessionID, Username: string(user)}}
 	if id, ok := accountID(user); ok {
@@ -675,8 +811,108 @@ func sessionContext(t *testing.T, user accesstypes.User) context.Context {
 	} else if id, ok := madeAccountID(t, user); ok {
 		data.UserID = impulse.NullUUIDFromUUID(id)
 	}
+	if event, ok := signedInEvent(t, user); ok {
+		data.AuthEvents = []sessioninfo.AuthEvent{event}
+	}
 
 	return context.WithValue(t.Context(), sessioninfo.CtxSessionInfo, data)
+}
+
+// keptSessions holds the session a person's synthetic requests share in a test that said
+// so (keepSession), by the test's name and the person's username.
+var keptSessions sync.Map
+
+// keptSession is the key of keptSessions.
+type keptSession struct {
+	test     string
+	username accesstypes.User
+}
+
+// keepSession tells the harness that the person's synthetic requests in this test, and in
+// the tests it runs, are made in one session from here on, and forgets it when the test
+// ends. A delete's token holds only in the session its question was asked in, so a test
+// that sends the question and then the delete on its token keeps the one session for
+// both; every other request is made in a session of its own.
+func keepSession(t *testing.T, user accesstypes.User) {
+	t.Helper()
+
+	id, err := impulse.NewUUID()
+	if err != nil {
+		t.Fatalf("impulse.NewUUID: %v", err)
+	}
+	key := keptSession{test: t.Name(), username: user}
+	keptSessions.Store(key, id)
+	t.Cleanup(func() { keptSessions.CompareAndDelete(key, id) })
+}
+
+// keptSessionID is the session this test, or a test it runs under, keeps for the person
+// (keepSession).
+func keptSessionID(t *testing.T, user accesstypes.User) (impulse.UUID, bool) {
+	t.Helper()
+
+	name := t.Name()
+	for {
+		if held, ok := keptSessions.Load(keptSession{test: name, username: user}); ok {
+			id, isID := held.(impulse.UUID)
+
+			return id, isID
+		}
+		i := strings.LastIndex(name, "/")
+		if i < 0 {
+			return impulse.UUID{}, false
+		}
+		name = name[:i]
+	}
+}
+
+// deleteToken reads the token a delete's question gave off the 428's body ("token"): the
+// delete that goes ahead brings it back, in the same session (keepSession).
+func deleteToken(t *testing.T, body []byte) string {
+	t.Helper()
+
+	var asked struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal(body, &asked); err != nil || asked.Token == "" {
+		t.Fatalf("the question's answer carries no token (%v): %s", err, body)
+	}
+
+	return asked.Token
+}
+
+// signedInEvents holds how the people of the tests signed in: a test that says how a
+// person's synthetic session came in (signedInThrough) has it carry that sign-in event
+// from then on. A pair belongs to the top-level test that named it, as madeAccounts'
+// do. Each event is held by the address of a copy of its own: an event carries a list
+// (IDPAMR), so it is no value a map compares, and two tests that name one event each
+// hold their own copy.
+var signedInEvents sync.Map
+
+// signedInThrough tells the harness that the person's synthetic sessions signed in by the
+// event from here on, as the session's first auth event records the way a person came in
+// (sessioninfo.SessionData.EstablishedBy), and forgets it when the test ends.
+func signedInThrough(t *testing.T, username accesstypes.User, event *sessioninfo.AuthEvent) {
+	t.Helper()
+
+	key := madeAccount{test: topLevelTest(t), username: username}
+	held := new(sessioninfo.AuthEvent)
+	*held = *event
+	signedInEvents.Store(key, held)
+	t.Cleanup(func() { signedInEvents.CompareAndDelete(key, held) })
+}
+
+// signedInEvent is the sign-in event this test said the person's sessions carry, if it
+// said one (signedInThrough).
+func signedInEvent(t *testing.T, username accesstypes.User) (sessioninfo.AuthEvent, bool) {
+	t.Helper()
+
+	stored, _ := signedInEvents.Load(madeAccount{test: topLevelTest(t), username: username})
+	event, ok := stored.(*sessioninfo.AuthEvent)
+	if !ok {
+		return sessioninfo.AuthEvent{}, false
+	}
+
+	return *event, true
 }
 
 // madeAccounts holds the accounts the tests made: a test that creates a person and then
@@ -733,12 +969,48 @@ func knownAs(t *testing.T, username accesstypes.User, id impulse.UUID) accesstyp
 func makeCrewAccount(ctx context.Context, t *testing.T, db *initiator.SpannerDB, username accesstypes.User) accesstypes.User {
 	t.Helper()
 
+	return writeCrewAccount(ctx, t, db, username, nil)
+}
+
+// seatInSector gives the account the role in the sector through the crew's engine over the
+// database, as the bootstrap seats the cast, for a suite whose requests are answered from a
+// static grant table: a person a write names from the sector's people (CrewSectorUsers) is
+// one of them once they hold a role there.
+func seatInSector(ctx context.Context, t *testing.T, db *initiator.SpannerDB, user accesstypes.User, role accesstypes.Role, sector string) {
+	t.Helper()
+
+	engine, err := openEngine(db, crew.TablePrefix, crew.Roles())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = engine.Close() })
+	if err := engine.UserManager().AddUserRoles(ctx, accesstypes.DomainPolicyScope(accesstypes.Domain(sector)), user, role); err != nil {
+		t.Fatalf("access.UserManager.AddUserRoles(%s, %s, %s) error = %v", user, role, sector, err)
+	}
+}
+
+// makeCrewAccountAt is makeCrewAccount for a person with an address, held as the person
+// typed it at a registration: nobody has confirmed it.
+func makeCrewAccountAt(ctx context.Context, t *testing.T, db *initiator.SpannerDB, username accesstypes.User, email string) accesstypes.User {
+	t.Helper()
+
+	return writeCrewAccount(ctx, t, db, username, &email)
+}
+
+// writeCrewAccount writes the row of makeCrewAccount and makeCrewAccountAt, with the
+// address when there is one.
+func writeCrewAccount(ctx context.Context, t *testing.T, db *initiator.SpannerDB, username accesstypes.User, email *string) accesstypes.User {
+	t.Helper()
+
 	id, err := impulse.NewUUID()
 	if err != nil {
 		t.Fatalf("impulse.NewUUID: %v", err)
 	}
-	row := spanner.InsertMap("CrewSessionUsers", map[string]any{"Id": id.String(), "Username": string(username), "CreatedAt": spanner.CommitTimestamp})
-	if _, err := db.Apply(ctx, []*spanner.Mutation{row}); err != nil {
+	columns := map[string]any{"Id": id.String(), "Username": string(username), "CreatedAt": spanner.CommitTimestamp}
+	if email != nil {
+		columns["Email"] = *email
+	}
+	if _, err := db.Apply(ctx, []*spanner.Mutation{spanner.InsertMap("CrewSessionUsers", columns)}); err != nil {
 		t.Fatalf("writing %s's crew account: %v", username, err)
 	}
 
@@ -948,6 +1220,32 @@ func newServedAt(ctx context.Context, t *testing.T, version string) *served {
 type servedOptions struct {
 	version string
 	persona *auth.Persona
+	// namesTenants hands the crew auth the stack's roster as what names a sector, as
+	// production's data level does, for a suite that reads the sector's name in a
+	// message the auth mails.
+	namesTenants bool
+	// crewMailThrough answers the sender the crew auth mails through, given the
+	// stack's recorder, for a suite that holds a message on its way to the mailbox; nil
+	// sends straight to the recorder.
+	crewMailThrough func(to mail.Sender) mail.Sender
+	// crewEngineAsMembers hands the App the crew's permission engine as the members', for
+	// the suite that proves the library refuses a portal request asked of another auth's
+	// engine.
+	crewEngineAsMembers bool
+	// deleteSaveTime is the time limit of a save of a delete that takes rows
+	// (testConfigurer.deleteSaveTime), zero for the library's.
+	deleteSaveTime time.Duration
+	// crewNotAdministered configures the crew auth's Workspace as one the fleet does not
+	// administer (auth.Directory.Administered false), so a sign-in through it carries no
+	// second factor of its own, for the suite that proves a sector's word for its
+	// directory's second factor.
+	crewNotAdministered bool
+	// oneTenantPerPerson has the App run a crew identity client that holds a person to
+	// one sector (identity.WithOneTenantPerPerson), over the crew auth's engine and
+	// session manager, for the suites that prove what the create-your-sector route and the
+	// warning of opening a sector to its directory do in such an application. The crew
+	// auth's own client, which its sign-in hooks run, is as Lodestar builds it.
+	oneTenantPerPerson bool
 }
 
 // newServedWith is the served stack under the options.
@@ -982,6 +1280,10 @@ func newServedWith(ctx context.Context, t *testing.T, opts servedOptions) *serve
 	t.Cleanup(server.Close)
 	origin := "http://" + server.Listener.Addr().String()
 	sent := &mail.Recorder{}
+	var crewSender mail.Sender = sent
+	if opts.crewMailThrough != nil {
+		crewSender = opts.crewMailThrough(sent)
+	}
 
 	crewAuth, err := crew.New(ctx, db.Client, &crew.Settings{
 		CookieKey:      testCookieKey,
@@ -993,7 +1295,7 @@ func newServedWith(ctx context.Context, t *testing.T, opts servedOptions) *serve
 			RedirectURL:  "http://" + server.Listener.Addr().String() + consoleAPI + "/user/google/callback",
 			Connection:   "example",
 			HostedDomain: "example.com",
-			Administered: true,
+			Administered: !opts.crewNotAdministered,
 			GroupPrefix:  "crew-",
 		},
 		SignUpRedirectURL:  "http://" + server.Listener.Addr().String() + consoleAPI + "/user/" + crew.SignUpRegistration + "/callback",
@@ -1002,7 +1304,7 @@ func newServedWith(ctx context.Context, t *testing.T, opts servedOptions) *serve
 		TenantDeclarations: app.NewSectorDeclarationReader(),
 		TenantDirectories:  app.NewSectorDirectoryReader(),
 		TenantMaker:        app.NewSectorMaker(roster, fake),
-		Mail:               auth.Mail{Sender: sent, LoginURL: origin + consoleLogin},
+		Mail:               auth.Mail{Sender: crewSender, LoginURL: origin + consoleLogin},
 	})
 	if err != nil {
 		t.Fatalf("crew.New() error = %v", err)
@@ -1012,6 +1314,9 @@ func newServedWith(ctx context.Context, t *testing.T, opts servedOptions) *serve
 			t.Errorf("crew.Auth.Close() error = %v", err)
 		}
 	})
+	if opts.namesTenants {
+		crewAuth.Session().SetTenantNames(roster)
+	}
 
 	membersAuth, err := members.New(ctx, db.Client, &members.Settings{
 		CookieKey:      testCookieKey,
@@ -1066,6 +1371,9 @@ func newServedWith(ctx context.Context, t *testing.T, opts servedOptions) *serve
 	if err := provisionDemoAccess(ctx, crewAuth.Access(), membersAuth.Access()); err != nil {
 		t.Fatal(err)
 	}
+	if err := seedDemoGroupPasses(ctx, db); err != nil {
+		t.Fatal(err)
+	}
 	// The droid service account's key, seeded as its token the way the App's Start
 	// seeds the configured one: the account is found by its username.
 	if err := crewAuth.Handlers().SeedToken(ctx, droidUser, crew.DroidsOutlet, droidsAPIKey); err != nil {
@@ -1075,24 +1383,58 @@ func newServedWith(ctx context.Context, t *testing.T, opts servedOptions) *serve
 	stores := newTestStores()
 	keys := scheduled.NewFake()
 	starter := jobs.NewFake()
+	var membersEngine access.Controller = membersAuth.Access()
+	if opts.crewEngineAsMembers {
+		membersEngine = crewAuth.Access()
+	}
+	// Where the stack holds a person to one sector, the App runs a crew identity client
+	// built as the crew auth builds its own, with the rule beside it.
+	var crewIdentity *crewidentity.Client
+	if opts.oneTenantPerPerson {
+		_, sectorAdministrators := crew.AdministratorRoles()
+		crewIdentity, err = crewidentity.NewClient(crewAuth.Access(), crewAuth.Session().API(), app.NewSectorMaker(roster, fake), identity.WithAdministratorRoles(sectorAdministrators), identity.WithOneTenantPerPerson())
+		if err != nil {
+			t.Fatalf("crewidentity.NewClient() with one tenant per person: %v", err)
+		}
+	}
 	a := app.New(&testConfigurer{
-		db:            db,
-		access:        crewAuth.Access(),
-		membersAccess: membersAuth.Access(),
-		crewAuth:      crewAuth,
-		membersAuth:   membersAuth,
-		stores:        stores,
-		live:          fake,
-		version:       version,
-		scheduler:     scheduled.NewGuard(schedulerInvoker, keys),
-		jobs:          starter,
-		tenants:       roster,
-		declarations:  roster.Declarations,
+		db:             db,
+		access:         crewAuth.Access(),
+		membersAccess:  membersEngine,
+		crewAuth:       crewAuth,
+		membersAuth:    membersAuth,
+		stores:         stores,
+		live:           fake,
+		version:        version,
+		scheduler:      scheduled.NewGuard(schedulerInvoker, keys),
+		jobs:           starter,
+		tenants:        roster,
+		declarations:   roster.Declarations,
+		crewIdentity:   crewIdentity,
+		deleteSaveTime: opts.deleteSaveTime,
 	})
 	server.Config.Handler = router.New(a, router.AppHooks(a))
 	server.Start()
 
 	return &served{server: server, crew: crewAuth, access: crewAuth.Access(), members: membersAuth.Access(), stores: stores, db: db, scheduler: keys, jobs: starter, live: fake, tenants: roster, mail: sent, trusted: map[string]*http.Cookie{}}
+}
+
+// seedCrewAccount makes an account of the crew's on the served stack through the session
+// library's API, as the bootstrap makes the cast's: with no password and no role, for a
+// person who has not signed in, and with the address given when there is one, which
+// nobody has confirmed. Nobody creates an account for someone else through the
+// application, where a person comes in by an invitation; a suite that needs an account
+// nobody has signed in to makes one here, and gives it its roles through the generated
+// methods. It answers the account's id.
+func (s *served) seedCrewAccount(ctx context.Context, t *testing.T, username string, email *string) impulse.UUID {
+	t.Helper()
+
+	id, err := s.crew.Session().API().CreateSessionUser(ctx, &session.CreateUserRequest{Username: username, Email: email})
+	if err != nil {
+		t.Fatalf("CreateSessionUser(%s) error = %v", username, err)
+	}
+
+	return id
 }
 
 // personaSettings is the crew auth's persona settings for the stack: none when no
@@ -1167,11 +1509,11 @@ func (b *browser) login(ctx context.Context, user, password string) (status int,
 }
 
 // signIn primes the XSRF handshake and signs a persona in on the console the way a
-// person does, failing the test on refusal: the password, then the second factor every
-// session carries. The persona's first sign-in on the stack enters the sign-in code
-// read from the mail the auth sent and asks for the browser to be remembered; every
-// later sign-in of theirs carries that browser's token (served.trusted), so it is the
-// remembered browser and is not asked.
+// person does, failing the test on refusal: the password, then the second factor the
+// auth's sign-in setting requires. The persona's first sign-in on the stack enters the
+// sign-in code read from the mail the auth sent and asks for the browser to be
+// remembered; every later sign-in of theirs carries that browser's token
+// (served.trusted), so it is the remembered browser and is not asked.
 func (b *browser) signIn(ctx context.Context, user string) {
 	b.t.Helper()
 
@@ -1301,6 +1643,27 @@ func (b *browser) secondFactor(ctx context.Context, user string) {
 func (b *browser) secondFactorLocked(ctx context.Context, user string, remember bool) {
 	b.t.Helper()
 
+	if status, body := b.enterCodeLocked(ctx, user, remember); status != http.StatusOK {
+		b.t.Fatalf("verifying the sign-in code of %s: status %d: %s", user, status, body)
+	}
+}
+
+// enterCode is secondFactor for a sign-in the code does not finish: it asks for the
+// code, reads it from the mail and enters it, and answers what entering it was answered,
+// for the caller to judge. The code itself is right; what it would complete is refused.
+func (b *browser) enterCode(ctx context.Context, user string) (status int, body []byte) {
+	b.t.Helper()
+
+	b.served.codeMu.Lock()
+	defer b.served.codeMu.Unlock()
+
+	return b.enterCodeLocked(ctx, user, false)
+}
+
+// enterCodeLocked is enterCode for a caller holding the stack's factor lock.
+func (b *browser) enterCodeLocked(ctx context.Context, user string, remember bool) (status int, body []byte) {
+	b.t.Helper()
+
 	pending := b.pending(ctx)
 	if pending.Reason != string(sessioninfo.PendingMFA) || pending.EmailCode == nil {
 		b.t.Fatalf("the sign-in of %s waits for %+v, want the second factor with the sign-in code offered", user, pending)
@@ -1310,9 +1673,8 @@ func (b *browser) secondFactorLocked(ctx context.Context, user string, remember 
 	if err != nil {
 		b.t.Fatal(err)
 	}
-	if status, body := b.do(ctx, http.MethodPost, b.prefix+"/user/pending/code/verify", verify); status != http.StatusOK {
-		b.t.Fatalf("verifying the sign-in code of %s: status %d: %s", user, status, body)
-	}
+
+	return b.do(ctx, http.MethodPost, b.prefix+"/user/pending/code/verify", verify)
 }
 
 // sentCode asks for the sign-in code, giving the address first where the person holds

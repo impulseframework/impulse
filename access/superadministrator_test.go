@@ -2,6 +2,7 @@ package access
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -19,8 +20,8 @@ import (
 func superClient(t *testing.T, opts ...Option) (*Client, *fakeStore) {
 	t.Helper()
 	store := newFakeStore()
-	opts = append([]Option{WithDefaultRoles(grammarCollection{}, grammarRoleFile), WithHeartbeatInterval(time.Hour)}, opts...)
-	client := newPolicyClient(t, store, opts...)
+	opts = append([]Option{WithDefaultRoles(grammarRoleFile, fixtureAuth), WithHeartbeatInterval(time.Hour)}, opts...)
+	client := newPolicyClient(t, store, grammarCollection{}, opts...)
 	if err := client.WaitReady(context.Background()); err != nil {
 		t.Fatalf("Client.WaitReady() error = %v", err)
 	}
@@ -40,7 +41,7 @@ func TestSuperAdministrator_reservedInTheRoleFile(t *testing.T) {
 			other = "global"
 		}
 
-		return RoleFile(`{"roles": {"` + scope + `": [{"name": "` + name + `", "description": "Takes the name.", "permissions": {}}], "` + other + `": []}}`)
+		return RoleFile(`{"auth": "crew", "roles": {"` + scope + `": [{"name": "` + name + `", "description": "Takes the name.", "permissions": {}}], "` + other + `": []}}`)
 	}
 	tests := []struct {
 		name string
@@ -58,14 +59,14 @@ func TestSuperAdministrator_reservedInTheRoleFile(t *testing.T) {
 			if _, err := tt.file.Parse(); err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Errorf("RoleFile.Parse() error = %v, want one containing %q", err, tt.want)
 			}
-			if _, err := New(newFakeStore(), WithDefaultRoles(grammarCollection{}, tt.file)); err == nil || !strings.Contains(err.Error(), tt.want) {
+			if _, err := New(newFakeStore(), grammarCollection{}, WithDefaultRoles(tt.file, fixtureAuth)); err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Errorf("New() error = %v, want one containing %q", err, tt.want)
 			}
 		})
 	}
 
-	config := &RoleConfig{Roles: ScopedRoles{Global: []*Role{{Name: accesstypes.SuperAdministrator, Description: "Takes the name."}}}}
-	if _, err := ValidateRoles(grammarCollection{}, config); err == nil || !strings.Contains(err.Error(), "the name is reserved") {
+	config := &RoleConfig{Auth: fixtureAuth, Roles: ScopedRoles{Global: []*Role{{Name: accesstypes.SuperAdministrator, Description: "Takes the name."}}}}
+	if _, err := ValidateRoles(grammarCollection{}, config, fixtureAuth); err == nil || !strings.Contains(err.Error(), "the name is reserved") {
 		t.Errorf("ValidateRoles() error = %v, want the reserved name refused", err)
 	}
 }
@@ -77,7 +78,7 @@ func TestSuperAdministrator_definedInEveryClient(t *testing.T) {
 	t.Parallel()
 
 	withFile, _ := superClient(t)
-	withoutFile := newPolicyClient(t, newFakeStore(), WithHeartbeatInterval(time.Hour))
+	withoutFile := newPolicyClient(t, newFakeStore(), grammarCollection{}, WithHeartbeatInterval(time.Hour))
 	for name, client := range map[string]*Client{"with a role file": withFile, "without a role file": withoutFile} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -116,7 +117,7 @@ func TestSuperAdministrator_definedInEveryClient(t *testing.T) {
 func TestSuperAdministrator_heldInTheGlobalPartitionAlone(t *testing.T) {
 	t.Parallel()
 
-	const rule = "is held for the whole application alone, never in a tenant or in every tenant"
+	const rule = "The Super administrator role is held for the whole application alone, never in a tenant or in every tenant. Give it with no tenant named."
 	writes := map[string]func(ctx context.Context, m UserManager, store *fakeStore, scope accesstypes.PolicyScope) error{
 		"AddUserRoles": func(ctx context.Context, m UserManager, _ *fakeStore, scope accesstypes.PolicyScope) error {
 			return m.AddUserRoles(ctx, scope, "dana", accesstypes.SuperAdministrator)
@@ -140,8 +141,8 @@ func TestSuperAdministrator_heldInTheGlobalPartitionAlone(t *testing.T) {
 
 			for _, scope := range []accesstypes.PolicyScope{tenant1Policy, everyDomainPolicy} {
 				err := write(ctx, client.UserManager(), store, scope)
-				if err == nil || !httpio.HasBadRequest(err) || !strings.Contains(httpio.Message(err), rule) {
-					t.Errorf("%s(%s) error = %v, want a bad request saying the role %s", name, scope, err, rule)
+				if err == nil || !httpio.HasBadRequest(err) || httpio.Message(err) != rule {
+					t.Errorf("%s(%s) error = %v, want a bad request saying %q", name, scope, err, rule)
 				}
 			}
 			if held, err := client.UserManager().UserRoles(ctx, "dana"); err != nil || len(held) != 0 {
@@ -225,7 +226,7 @@ func TestSuperAdministrator_noCustomRoleTakesTheName(t *testing.T) {
 				client, store := superClient(t)
 
 				err := client.UserManager().AddRole(t.Context(), scope, name, aDescription)
-				if err == nil || !httpio.HasConflict(err) || !strings.Contains(httpio.Message(err), "the name is reserved") {
+				if want := fmt.Sprintf("The name %q is reserved for the Super administrator role, which every application has. Choose another name.", name); err == nil || !httpio.HasConflict(err) || httpio.Message(err) != want {
 					t.Errorf("AddRole(%s, %s) error = %v, want a conflict saying the name is reserved", scope, name, err)
 				}
 				if len(store.roles) != 0 {
@@ -300,7 +301,7 @@ func TestSuperAdministrator_methods(t *testing.T) {
 	t.Run("a method the release does not declare for the global scope is refused", func(t *testing.T) {
 		t.Parallel()
 		for _, method := range []accesstypes.Resource{"NoSuchMethod", "Widgets", ""} {
-			_, err := New(newFakeStore(), WithDefaultRoles(grammarCollection{}, grammarRoleFile), WithSuperAdministratorMethods(method))
+			_, err := New(newFakeStore(), grammarCollection{}, WithDefaultRoles(grammarRoleFile, fixtureAuth), WithSuperAdministratorMethods(method))
 			if err == nil || !strings.Contains(err.Error(), "WithSuperAdministratorMethods names") {
 				t.Errorf("New(WithSuperAdministratorMethods(%q)) error = %v, want the method refused", method, err)
 			}

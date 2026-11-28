@@ -6,6 +6,7 @@ package app
 import (
 	"net/http"
 	"slices"
+	"time"
 
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
@@ -21,7 +22,9 @@ func (a *App) Tenants() http.HandlerFunc {
 	type tenant struct {
 		ID            impulse.UUID `json:"id"            index:"true" perm:"-"`
 		Name          string       `json:"name"          index:"true"`
+		CreatedAt     time.Time    `json:"createdAt"`
 		DirectoryOnly bool         `json:"directoryOnly"`
+		Disabled      bool         `json:"disabled"`
 	}
 
 	type response []map[string]any
@@ -39,8 +42,9 @@ func (a *App) Tenants() http.HandlerFunc {
 		}
 
 		// A live list registers before the query runs, so a commit that lands during
-		// the query is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, a.LiveService(), querySet, live.ListSubscription(querySet.Resource(), ""))
+		// the query is not missed; a refused request registers nothing. With it the
+		// request registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, a.LiveService(), querySet, live.ListSubscription(querySet.Resource(), ""))
 
 		res := resources.NewTenantQueryFromQuerySet(querySet)
 
@@ -71,9 +75,17 @@ func (a *App) Tenants() http.HandlerFunc {
 					if !row.Masked("name") {
 						rmap["name"] = rec.Name
 					}
+				case "CreatedAt":
+					if !row.Masked("createdAt") {
+						rmap["createdAt"] = rec.CreatedAt
+					}
 				case "DirectoryOnly":
 					if !row.Masked("directoryOnly") {
 						rmap["directoryOnly"] = rec.DirectoryOnly
+					}
+				case "Disabled":
+					if !row.Masked("disabled") {
+						rmap["disabled"] = rec.Disabled
 					}
 				}
 			}
@@ -100,7 +112,9 @@ func (a *App) Tenant() http.HandlerFunc {
 	type response struct {
 		ID            impulse.UUID `json:"id"            index:"true" perm:"-"`
 		Name          string       `json:"name"          index:"true"`
+		CreatedAt     time.Time    `json:"createdAt"`
 		DirectoryOnly bool         `json:"directoryOnly"`
+		Disabled      bool         `json:"disabled"`
 	}
 
 	decoder := NewQueryDecoder[resources.Tenant, response](a, accesstypes.Read)
@@ -117,8 +131,9 @@ func (a *App) Tenant() http.HandlerFunc {
 		}
 
 		// A live row registers before the read runs, so a commit that lands during the
-		// read is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, a.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(id)))
+		// read is not missed; a refused request registers nothing. With it the request
+		// registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, a.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(id)))
 
 		res := resources.NewTenantQueryFromQuerySet(querySet).SetID(id)
 
@@ -138,9 +153,17 @@ func (a *App) Tenant() http.HandlerFunc {
 				if !row.Masked("name") {
 					rmap["name"] = rec.Name
 				}
+			case "CreatedAt":
+				if !row.Masked("createdAt") {
+					rmap["createdAt"] = rec.CreatedAt
+				}
 			case "DirectoryOnly":
 				if !row.Masked("directoryOnly") {
 					rmap["directoryOnly"] = rec.DirectoryOnly
+				}
+			case "Disabled":
+				if !row.Masked("disabled") {
+					rmap["disabled"] = rec.Disabled
 				}
 			}
 		}
@@ -150,5 +173,39 @@ func (a *App) Tenant() http.HandlerFunc {
 		live.SetCacheControl(w, r)
 
 		return httpio.NewEncoder(w).Ok(rmap)
+	})
+}
+
+// TenantChangeHistory answers a page of one tenant's change records, newest first, to whoever may read the record, with the fields they may see on it. It answers 404 while the resource does not track its changes.
+func (a *App) TenantChangeHistory() http.HandlerFunc {
+	type response struct {
+		ID            impulse.UUID `json:"id"            index:"true" perm:"-"`
+		Name          string       `json:"name"          index:"true"`
+		CreatedAt     time.Time    `json:"createdAt"`
+		DirectoryOnly bool         `json:"directoryOnly"`
+		Disabled      bool         `json:"disabled"`
+	}
+
+	decoder := NewQueryDecoder[resources.Tenant, response](a, accesstypes.Read)
+
+	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := tracer.Start(r.Context())
+		defer span.End()
+
+		id := httpio.Param[impulse.UUID](r, router.TenantID)
+
+		history, err := decoder.DecodeChangeHistory(r, a.UserPermissions(r), accesstypes.GlobalScope())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		resources.NewTenantQueryFromQuerySet(history.QuerySet()).SetID(id)
+
+		page, err := history.Read(ctx, a.ResourceClient())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok(page)
 	})
 }

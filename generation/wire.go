@@ -159,6 +159,12 @@ func (f *wireField) TypescriptDisplayType() string {
 	return base
 }
 
+// IsDecimal reports whether the field is the table's decimal row, or a list of it: a
+// string in the interface under the number display type, which the metadata marks.
+func (f *wireField) IsDecimal() bool {
+	return f.IsLeaf() && f.tsImport == nil && f.tsLeaf == decimalTSType
+}
+
 // sliceSuffix marks a TypeScript array type.
 const sliceSuffix = "[]"
 
@@ -174,11 +180,12 @@ func leafDataType(leaf string) string {
 	return base
 }
 
-// tsDataType maps a metadata display type to the TypeScript type an interface
-// declares for it: a uuid and a byte slice (base64) are strings, a civil date a Date.
+// tsDataType maps a leaf, as the built-in table names it, to the TypeScript type an
+// interface declares for it: a uuid, a byte slice (base64) and a decimal (a quoted
+// string in JSON, every digit kept) are strings, a civil date a Date.
 func tsDataType(displayType string) string {
 	switch displayType {
-	case uuidTSType, bytesTSType:
+	case uuidTSType, bytesTSType, decimalTSType:
 		return stringTSType
 	case civilDateTSType:
 		return dateTSType

@@ -1,43 +1,25 @@
-// Package auth holds what the auths share: the request-scoped record of which auth a
-// request came through, and the policy signal both permission engines take (PolicySignal,
-// over the live service). Each auth is its own package beneath this one (crew, members),
-// owning its session manager, its permission store, and its roles file. A surface binds a
-// request to an auth in the session group that authenticated it, and everything that
-// answers for that request (permission checks, tenant visibility) answers from that
-// auth's store.
+// Package auth holds what the auths share: the policy signal both permission engines take
+// (PolicySignal, over the live service) and how an auth sends mail (Mail). Each auth is its
+// own package beneath this one (crew, members), owning its session manager, its permission
+// store, and its roles file. The generated router binds a request to an auth in the session
+// group that authenticated it (resource.BindAuth), and everything that answers for that
+// request (permission checks, tenant visibility) answers from that auth's store: the library
+// refuses a request asked of another auth's permission engine.
 //
 // Demonstrates: auth.two-populations.
 package auth
 
 import (
-	"context"
-
 	"github.com/impulseframework/impulse/session/google"
 	"github.com/impulseframework/impulse/session/mail"
 )
-
-type ctxKey struct{}
-
-// Bind records the auth a request came through: the name of the auth package whose
-// session group authenticated it.
-func Bind(ctx context.Context, name string) context.Context {
-	return context.WithValue(ctx, ctxKey{}, name)
-}
-
-// Name returns the auth the request came through, or "" when no session group bound it,
-// which every surface treats as its default auth.
-func Name(ctx context.Context) string {
-	name, _ := ctx.Value(ctxKey{}).(string)
-
-	return name
-}
 
 // Mail is how an auth sends mail: the invitations its administrators send, the link
 // that verifies an address a person adds, and the link a password sign-up starts from.
 // The sender is the configuration's one driver, shared by both auths (the Google
 // Workspace relay as the configured mailbox, or the library's logging stand-in in
 // development); LoginURL is the absolute URL of the login page of the surface that
-// binds to the auth, where every mailed link leads with its token in the query.
+// binds to the auth, where every mailed link leads with its token in the URL's fragment.
 type Mail struct {
 	Sender   mail.Sender
 	LoginURL string

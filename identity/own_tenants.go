@@ -1,0 +1,455 @@
+package identity
+
+import (
+	"context"
+	"fmt"
+	"maps"
+	"slices"
+	"time"
+
+	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/access"
+	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
+	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/logger"
+	"github.com/impulseframework/impulse/resource"
+	"github.com/impulseframework/impulse/session"
+	"github.com/impulseframework/impulse/tracer"
+)
+
+// A person's own tenants. A signed-in person reads the tenants they hold something in,
+// with the roles they hold in each, and leaves one at their own word: everything they
+// hold in the tenant goes, and the tenant's last administrator stays. Where that was the
+// last thing the person held, the account stays, holding nothing.
+
+// The sentences a person is told about leaving a tenant themselves. Each %s is the
+// application's word for a tenant (WithTenantWord); none names the tenant's key or who
+// administers it.
+const (
+	// lastAdministratorLeavingMessage is said to a person who administers the tenant
+	// when nobody else who can sign in does.
+	lastAdministratorLeavingMessage = "You are the last administrator of this %s. Give another person the role before you leave."
+
+	// leavingUnnamedMessage is said where the application named no administrator roles
+	// (WithAdministratorRoles): nobody gives up their own roles in a tenant then.
+	leavingUnnamedMessage = "You cannot leave this %s yourself. Ask one of its administrators to remove you."
+
+	// notInTenantMessage is said of a tenant the person holds nothing in now, and of one
+	// that does not exist, the two alike.
+	notInTenantMessage = "You hold no role in that %s."
+
+	// noTenantNamedMessage is said of a request that names no tenant.
+	noTenantNamedMessage = "Name the %s to leave."
+
+	// leavingAsSomeoneElseMessage is said in a session that acts as someone else, in the
+	// words the rule on the person who impersonates gives the same act
+	// (sessioninfo.ImpersonatorRefusal).
+	leavingAsSomeoneElseMessage = "You are acting as someone else, so you cannot leave %s."
+)
+
+// PersonTenant is one tenant a person holds something in, as their own account page
+// lists it: the tenant's key, the roles they hold there in words (words.RoleInWords),
+// sorted and each once, and why they cannot leave it where they cannot (empty where they
+// can).
+type PersonTenant struct {
+	Domain  accesstypes.Domain
+	Roles   []string
+	Refusal string
+}
+
+// leaving is the judgment of a person's leaving one tenant, which the list and the act
+// both read, so the two cannot disagree: the rows that go, memberships, places and roles
+// on the tenant's records, which are the person's rows in the tenant, and why the person
+// may not leave (empty where they may).
+type leaving struct {
+	memberships []access.MembershipKey
+	places      []access.GroupMemberKey
+	records     []access.RecordMembershipKey
+	refusal     string
+}
+
+// tenantHolds is what a person's own tenants are judged by, read once a request: every
+// row their account holds, whatever its period (heldRows), and of those the memberships
+// and places that have not ended at now (standingAt), which place the person in a
+// tenant. No tenant's judgment reads what the person holds again.
+type tenantHolds struct {
+	rows   *heldRows
+	own    []access.MembershipKey
+	places []GroupPlace
+	now    time.Time
+}
+
+// PersonTenants answers the tenants the person holds something in, in the tenant
+// itself, sorted by their keys and never nil: a role of their own held in the tenant,
+// or a place in a group kept in the tenant, that has not ended (one whose period has not
+// begun counts, as standing counts it). A role held in every tenant, a role for the
+// whole application and a place in a group kept for the whole application list no
+// tenant: they are not the tenant's to give, and leaving it cannot take them.
+//
+// Each tenant carries the roles the person holds there: their own memberships in it, and
+// the roles each group of the tenant they are in holds there whose period has not ended.
+// It carries the judgment of leaving it too (LeaveTenant), so the page says before the
+// person acts whether they may. What the person holds is read as committed.
+func (m *Manager) PersonTenants(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]PersonTenant, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	holds, err := m.readTenantHolds(ctx, txn, userID)
+	if err != nil {
+		return nil, err
+	}
+	held, err := m.tenantsHeld(ctx, txn, holds)
+	if err != nil {
+		return nil, err
+	}
+	tenants := make([]PersonTenant, 0, len(held))
+	for _, domain := range slices.Sorted(maps.Keys(held)) {
+		judged, err := m.judgeLeaving(ctx, txn, holds, domain)
+		if err != nil {
+			return nil, err
+		}
+		tenants = append(tenants, PersonTenant{Domain: domain, Roles: held[domain], Refusal: judged.refusal})
+	}
+
+	return tenants, nil
+}
+
+// LeaveTenant buffers the person's leaving of one of their tenants, at their own word, in
+// the caller's transaction, and has the permission engine told once the transaction has
+// committed: the person's next request is served without anything the tenant gave them.
+//
+// Every row the person has in the tenant goes, ended or not: each membership of their
+// own held in it and each place in a group kept in it. What reaches the tenant another
+// way stays: a role held in every tenant, a role for the whole application and a place
+// in a group kept for the whole application. The person is refused, and nothing is
+// written, where:
+//
+//   - the request runs in a session that acts as someone else, whoever it names
+//     (Forbidden): a person leaves at their own word alone, and what a leaving takes
+//     outlives the session. The real person behind the session naming themselves is
+//     refused by the rule for that, with its line (refuseImpersonatorAsSubject);
+//   - the request names no tenant (Bad Request);
+//   - they hold nothing in the tenant now, which is also the answer for a tenant that
+//     does not exist (Not Found);
+//   - they administer the tenant and nobody else who can sign in does, judged for the
+//     whole leaving, or the application named no administrator roles (Forbidden).
+//
+// Where the leaving takes the last thing the person holds, the account stays, holding
+// nothing, and no session of theirs ends. The rule that keeps a directory-only tenant's
+// administrators to callers who enter it is not asked: giving up one's own roles makes
+// nobody an administrator.
+//
+// What the person holds is read as committed: a second leaving in one transaction does
+// not see the first. Leave one tenant per transaction.
+func (m *Manager) LeaveTenant(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, domain accesstypes.Domain) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := m.refuseImpersonatorAsSubject(ctx, userID, "leave "+withArticle(m.tenantWord)); err != nil {
+		return err
+	}
+	if actsAsSomeoneElse(ctx) {
+		logger.FromCtx(ctx).Infof("impersonation: a session that acts as someone else asked for %s to leave %s: refused, since a person leaves only at their own word",
+			User(userID), withArticle(m.tenantWord))
+
+		return httpio.NewForbiddenMessagef(leavingAsSomeoneElseMessage, withArticle(m.tenantWord))
+	}
+	if domain == "" {
+		return httpio.NewBadRequestMessagef(noTenantNamedMessage, m.tenantWord)
+	}
+	holds, err := m.readTenantHolds(ctx, txn, userID)
+	if err != nil {
+		return err
+	}
+	held, err := m.tenantsHeld(ctx, txn, holds)
+	if err != nil {
+		return err
+	}
+	if _, in := held[domain]; !in {
+		return httpio.NewNotFoundMessagef(notInTenantMessage, m.tenantWord)
+	}
+	judged, err := m.judgeLeaving(ctx, txn, holds, domain)
+	if err != nil {
+		return err
+	}
+	if judged.refusal != "" {
+		return httpio.NewForbiddenMessage(judged.refusal)
+	}
+	if err := m.applyLeaving(ctx, txn, userID, domain, judged); err != nil {
+		return err
+	}
+	logger.FromCtx(ctx).Infof("identity: %s left the %s %s themselves: %d role(s) of their own, %d on its records and %d place(s) in its groups are removed",
+		User(userID), m.tenantWord, domain, len(judged.memberships), len(judged.records), len(judged.places))
+
+	return m.policyChangesAtCommit(txn)
+}
+
+// OwnTenants answers the session library's own-tenants hook (session.Auth.SetOwnTenants)
+// over auth's tables: List runs PersonTenants and Leave runs LeaveTenant, each in a
+// transaction of the hook's own on client, the application's database, and answers what
+// it answered, field for field. An error is wrapped with auth's name, as SignedIn wraps
+// its own; a refusal stays the refusal it is, so the person's page is answered its status
+// and words.
+func (m *Manager) OwnTenants(auth string, client resource.Client) session.OwnTenantsHook {
+	return session.OwnTenantsHook{
+		List: func(ctx context.Context, userID impulse.UUID) ([]session.OwnTenant, error) {
+			var held []PersonTenant
+			err := client.ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+				var err error
+				held, err = m.PersonTenants(ctx, txn, userID)
+
+				return err
+			})
+			if err != nil {
+				return nil, errors.Wrapf(err, "%s: reading what %s holds in each %s", auth, User(userID), m.tenantWord)
+			}
+			tenants := make([]session.OwnTenant, 0, len(held))
+			for _, t := range held {
+				tenants = append(tenants, session.OwnTenant{Domain: t.Domain, Roles: t.Roles, Refusal: t.Refusal})
+			}
+
+			return tenants, nil
+		},
+		Leave: func(ctx context.Context, userID impulse.UUID, domain accesstypes.Domain) error {
+			// The session library's route stamps no caller: the person of the request's
+			// session is carried as who acts, so the rows of the leaving name them.
+			ctx, announcement := m.announcing(actingInOwnSession(ctx))
+			err := client.ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+				return m.LeaveTenant(ctx, txn, userID, domain)
+			})
+			if err != nil {
+				return errors.Wrapf(err, "%s: %s leaving the %s %q", auth, User(userID), m.tenantWord, domain)
+			}
+			announcement.announce(ctx)
+
+			return nil
+		},
+	}
+}
+
+// applyLeaving buffers what a judged leaving takes, a person's own leaving
+// (LeaveTenant) or their removal (RemoveFromTenant): each membership, each role on one of
+// its records and each place in the tenant, each membership and place with its row of the
+// audit log in the tenant.
+func (m *Manager) applyLeaving(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, domain accesstypes.Domain, judged *leaving) error {
+	// What the rows name is read before anything is buffered: the person, and each group
+	// by its name, the id where the store answers none.
+	person, err := m.accountSubject(ctx, txn, userID)
+	if err != nil {
+		return err
+	}
+	groups := make([]string, len(judged.places))
+	for i := range judged.places {
+		if groups[i], _, err = m.groupWhere(ctx, txn, judged.places[i].Group); err != nil {
+			return err
+		}
+	}
+	for i := range judged.memberships {
+		if err := m.store.DeleteMembership(ctx, txn, &judged.memberships[i]); err != nil {
+			return errors.Wrap(err, "identity.Store.DeleteMembership()")
+		}
+		took := *person
+		took.Act, took.RoleNames = auditlog.ActRoleTaken, []string{string(judged.memberships[i].Role)}
+		took.RoleScope, took.TenantID = auditlog.RoleScopeTenant, string(domain)
+		if err := m.record(ctx, txn, &took); err != nil {
+			return err
+		}
+	}
+	for i := range judged.records {
+		if err := m.store.DeleteRecordMembership(ctx, txn, &judged.records[i]); err != nil {
+			return errors.Wrap(err, "identity.Store.DeleteRecordMembership()")
+		}
+	}
+	for i := range judged.places {
+		if err := m.store.DeleteGroupMember(ctx, txn, &judged.places[i]); err != nil {
+			return errors.Wrap(err, "identity.Store.DeleteGroupMember()")
+		}
+		out := *person
+		out.Act, out.GroupID, out.GroupName, out.TenantID = auditlog.ActGroupMemberRemoved, string(judged.places[i].Group), groups[i], string(domain)
+		if err := m.record(ctx, txn, &out); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// readTenantHolds reads what the person's own tenants are judged by (tenantHolds): one
+// read of their memberships, one of the groups they are in and one of the periods of
+// both (readHeld).
+func (m *Manager) readTenantHolds(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) (*tenantHolds, error) {
+	rows, err := m.readHeld(ctx, txn, userID)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now()
+	own, places := rows.standingAt(now)
+
+	return &tenantHolds{rows: rows, own: own, places: places, now: now}, nil
+}
+
+// tenantsHeld answers the tenants the person holds something in now, in the tenant
+// itself, each with the roles held there in words, sorted and each once, never nil: the
+// tenants PersonTenants lists and LeaveTenant lets a person leave. A role held on one of
+// the tenant's records is held there. A row whose period has ended gives nothing; a place
+// in a group of the tenant lists the tenant though the group holds no role there now. A
+// group's roles are read once for each place.
+func (m *Manager) tenantsHeld(ctx context.Context, txn resource.ReadWriteTransaction, holds *tenantHolds) (map[accesstypes.Domain][]string, error) {
+	roles := map[accesstypes.Domain]map[string]struct{}{}
+	hold := func(domain accesstypes.Domain) map[string]struct{} {
+		if roles[domain] == nil {
+			roles[domain] = map[string]struct{}{}
+		}
+
+		return roles[domain]
+	}
+	for _, key := range holds.own {
+		if domain, ok := tenantOf(key.Kind, key.Axis, key.Domain); ok {
+			hold(domain)[roleInWords(key.Role)] = struct{}{}
+		}
+	}
+	for _, key := range holds.rows.records {
+		if key.Axis == "" && key.Domain != "" {
+			hold(accesstypes.Domain(key.Domain))[roleInWords(key.Role)] = struct{}{}
+		}
+	}
+	for _, place := range holds.places {
+		domain, ok := tenantOf(place.Kind, place.Axis, place.Domain)
+		if !ok {
+			continue
+		}
+		named := hold(domain)
+		holding, err := m.groupHolding(ctx, txn, place.ID, holds.now)
+		if err != nil {
+			return nil, err
+		}
+		for _, key := range holding.roles {
+			if where, ok := tenantOf(key.Kind, key.Axis, key.Domain); ok && where == domain {
+				named[roleInWords(key.Role)] = struct{}{}
+			}
+		}
+	}
+
+	held := make(map[accesstypes.Domain][]string, len(roles))
+	for domain, named := range roles {
+		said := make([]string, 0, len(named))
+		for word := range named {
+			said = append(said, word)
+		}
+		slices.Sort(said)
+		held[domain] = said
+	}
+
+	return held, nil
+}
+
+// judgeLeaving judges the person's leaving of the tenant from what they hold: the rows
+// that go, every membership of their own held in the tenant and every place of theirs in
+// a group kept in it, whatever their periods, and every role of theirs on one of its
+// records that has not ended; and why they may not leave (leavingRefusal). A role on a
+// record whose period has ended stays in its table, giving nothing.
+func (m *Manager) judgeLeaving(ctx context.Context, txn resource.ReadWriteTransaction, holds *tenantHolds, domain accesstypes.Domain) (*leaving, error) {
+	person := User(holds.rows.userID)
+	var memberships []access.MembershipKey
+	for _, key := range holds.rows.own {
+		if heldIn(key.Kind, key.Axis, key.Domain, domain) {
+			memberships = append(memberships, key)
+		}
+	}
+	var gone []access.GroupMemberKey
+	for _, place := range holds.rows.places {
+		if heldIn(place.Kind, place.Axis, place.Domain, domain) {
+			gone = append(gone, access.GroupMemberKey{Group: GroupID(place.ID), User: person})
+		}
+	}
+	var records []access.RecordMembershipKey
+	for i := range holds.rows.records {
+		if recordHeldIn(&holds.rows.records[i], domain) {
+			records = append(records, holds.rows.records[i])
+		}
+	}
+	refusal, err := m.leavingRefusal(ctx, txn, holds, domain)
+	if err != nil {
+		return nil, err
+	}
+
+	return &leaving{memberships: memberships, places: gone, records: records, refusal: refusal}, nil
+}
+
+// leavingRefusal answers why the person may not leave the tenant, empty where they may.
+// The rule is the one that keeps a tenant's last administrator (refuseLastAdministrator),
+// judged for the whole leaving: a person who administers the tenant now
+// (administratorHoldings), by a membership of their own or through a group of the
+// tenant, leaves only where somebody else who can sign in does too. Every holding of the
+// person's in the tenant goes with them, so none of theirs stands in for another. A
+// person who holds an administrator role in every tenant, or through a group kept for
+// the whole application, is nobody the tenant counts. Without the administrator roles
+// (WithAdministratorRoles) nobody leaves a tenant themselves, as nobody removes their own
+// role in one.
+//
+// Who administers the tenant is read only for a person who may be one of them
+// (mayAdminister); anyone else leaves it with nothing more read.
+func (m *Manager) leavingRefusal(ctx context.Context, txn resource.ReadWriteTransaction, holds *tenantHolds, domain accesstypes.Domain) (string, error) {
+	if m.administrators == nil {
+		return fmt.Sprintf(leavingUnnamedMessage, m.tenantWord), nil
+	}
+	if !m.mayAdminister(holds, domain) {
+		return "", nil
+	}
+	holdings, err := m.administratorHoldings(ctx, txn, accesstypes.DomainPolicyScope(domain))
+	if err != nil {
+		return "", err
+	}
+	person := User(holds.rows.userID)
+	if !slices.ContainsFunc(holdings, func(h administratorHolding) bool { return h.user == person }) {
+		return "", nil
+	}
+	if slices.ContainsFunc(holdings, func(h administratorHolding) bool { return h.user != person }) {
+		return "", nil
+	}
+
+	return fmt.Sprintf(lastAdministratorLeavingMessage, m.tenantWord), nil
+}
+
+// mayAdminister reports whether the person may be among the tenant's administrators
+// (administratorHoldings), which list a person by one of two rows and no other way: a
+// membership of their own in the tenant whose role administers a tenant, or a place in a
+// group kept in the tenant. Both are judged among what has not ended. A person who holds
+// neither administers the tenant by nothing.
+func (m *Manager) mayAdminister(holds *tenantHolds, domain accesstypes.Domain) bool {
+	if slices.ContainsFunc(holds.own, func(key access.MembershipKey) bool {
+		return heldIn(key.Kind, key.Axis, key.Domain, domain) && slices.Contains(m.administrators.domain, key.Role)
+	}) {
+		return true
+	}
+
+	return slices.ContainsFunc(holds.places, func(place GroupPlace) bool {
+		return heldIn(place.Kind, place.Axis, place.Domain, domain)
+	})
+}
+
+// tenantOf answers the tenant a row is held in, from the row's kind, axis and domain: a
+// domain on the default axis, as a tenant is read where its administrators are
+// (access.AdministersTenant). ok is false for a row held anywhere else: for the whole
+// application, in every tenant, or on another axis.
+func tenantOf(kind, axis, domain string) (tenant accesstypes.Domain, ok bool) {
+	if axis != "" || domain == "" {
+		return "", false
+	}
+	tenant = accesstypes.Domain(domain)
+	if kind != access.NewMembershipKey(accesstypes.DomainPolicyScope(tenant), "", "").Kind {
+		return "", false
+	}
+
+	return tenant, true
+}
+
+// heldIn reports whether a row's kind, axis and domain say it is held in the tenant
+// (tenantOf).
+func heldIn(kind, axis, domain string, tenant accesstypes.Domain) bool {
+	held, ok := tenantOf(kind, axis, domain)
+
+	return ok && held == tenant
+}

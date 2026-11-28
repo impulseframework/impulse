@@ -20,7 +20,7 @@ import (
 
 func (h *Handlers) StaffSessionTokens() http.HandlerFunc {
 	type staffSessionToken struct {
-		ID            impulse.UUID  `json:"id"            index:"true" perm:"-"`
+		ID            impulse.UUID  `json:"id"            index:"true"    perm:"-"`
 		Kind          string        `json:"kind"`
 		UserID        impulse.UUID  `json:"userId"        index:"true"`
 		Outlet        string        `json:"outlet"`
@@ -32,6 +32,7 @@ func (h *Handlers) StaffSessionTokens() http.HandlerFunc {
 		LastUsedAt    *time.Time    `json:"lastUsedAt"`
 		RevokedAt     *time.Time    `json:"revokedAt"`
 		RevokedReason *string       `json:"revokedReason"`
+		UserName      *string       `json:"userName"      nameof:"UserID" index:"true"`
 	}
 
 	type response []map[string]any
@@ -49,8 +50,9 @@ func (h *Handlers) StaffSessionTokens() http.HandlerFunc {
 		}
 
 		// A live list registers before the query runs, so a commit that lands during
-		// the query is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, h.LiveService(), querySet, live.ListSubscription(querySet.Resource(), ""))
+		// the query is not missed; a refused request registers nothing. With it the
+		// request registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, h.LiveService(), querySet, live.ListSubscription(querySet.Resource(), ""))
 
 		res := staffresources.NewStaffSessionTokenQueryFromQuerySet(querySet)
 
@@ -69,7 +71,7 @@ func (h *Handlers) StaffSessionTokens() http.HandlerFunc {
 			if !page.Add(row) {
 				break
 			}
-			rec := (*staffSessionToken)(&row.Data)
+			rec := &row.Data
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
@@ -123,6 +125,11 @@ func (h *Handlers) StaffSessionTokens() http.HandlerFunc {
 					}
 				}
 			}
+			for _, name := range querySet.Names() {
+				if looked := row.Name(name.Field); looked != nil {
+					rmap[name.JSONName] = *looked
+				}
+			}
 			if capabilities := row.Capabilities(); capabilities != nil {
 				rmap[resource.CapabilitiesProperty] = capabilities
 			}
@@ -144,7 +151,7 @@ func (h *Handlers) StaffSessionTokens() http.HandlerFunc {
 
 func (h *Handlers) StaffSessionToken() http.HandlerFunc {
 	type response struct {
-		ID            impulse.UUID  `json:"id"            index:"true" perm:"-"`
+		ID            impulse.UUID  `json:"id"            index:"true"    perm:"-"`
 		Kind          string        `json:"kind"`
 		UserID        impulse.UUID  `json:"userId"`
 		Outlet        string        `json:"outlet"`
@@ -156,6 +163,7 @@ func (h *Handlers) StaffSessionToken() http.HandlerFunc {
 		LastUsedAt    *time.Time    `json:"lastUsedAt"`
 		RevokedAt     *time.Time    `json:"revokedAt"`
 		RevokedReason *string       `json:"revokedReason"`
+		UserName      *string       `json:"userName"      nameof:"UserID"`
 	}
 
 	decoder := NewQueryDecoder[staffresources.StaffSessionToken, response](h, accesstypes.Read)
@@ -172,8 +180,9 @@ func (h *Handlers) StaffSessionToken() http.HandlerFunc {
 		}
 
 		// A live row registers before the read runs, so a commit that lands during the
-		// read is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, h.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(id)))
+		// read is not missed; a refused request registers nothing. With it the request
+		// registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, h.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(id)))
 
 		res := staffresources.NewStaffSessionTokenQueryFromQuerySet(querySet).SetID(id)
 
@@ -181,7 +190,7 @@ func (h *Handlers) StaffSessionToken() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		rec := (*response)(&row.Data)
+		rec := &row.Data
 		rmap := make(map[string]any)
 		for _, field := range querySet.Fields() {
 			switch string(field) {
@@ -235,11 +244,58 @@ func (h *Handlers) StaffSessionToken() http.HandlerFunc {
 				}
 			}
 		}
+		for _, name := range querySet.Names() {
+			if looked := row.Name(name.Field); looked != nil {
+				rmap[name.JSONName] = *looked
+			}
+		}
 		if capabilities := row.Capabilities(); capabilities != nil {
 			rmap[resource.CapabilitiesProperty] = capabilities
 		}
 		live.SetCacheControl(w, r)
 
 		return httpio.NewEncoder(w).Ok(rmap)
+	})
+}
+
+// StaffSessionTokenChangeHistory answers a page of one staff session token's change records, newest first, to whoever may read the record, with the fields they may see on it. It answers 404 while the resource does not track its changes.
+func (h *Handlers) StaffSessionTokenChangeHistory() http.HandlerFunc {
+	type response struct {
+		ID            impulse.UUID  `json:"id"            index:"true"    perm:"-"`
+		Kind          string        `json:"kind"`
+		UserID        impulse.UUID  `json:"userId"`
+		Outlet        string        `json:"outlet"`
+		Name          *string       `json:"name"`
+		FamilyID      *impulse.UUID `json:"familyId"`
+		ClientID      *string       `json:"clientId"`
+		CreatedAt     time.Time     `json:"createdAt"`
+		ExpiresAt     time.Time     `json:"expiresAt"`
+		LastUsedAt    *time.Time    `json:"lastUsedAt"`
+		RevokedAt     *time.Time    `json:"revokedAt"`
+		RevokedReason *string       `json:"revokedReason"`
+		UserName      *string       `json:"userName"      nameof:"UserID"`
+	}
+
+	decoder := NewQueryDecoder[staffresources.StaffSessionToken, response](h, accesstypes.Read)
+
+	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := tracer.Start(r.Context())
+		defer span.End()
+
+		id := httpio.Param[impulse.UUID](r, router.StaffSessionTokenID)
+
+		history, err := decoder.DecodeChangeHistory(r, h.UserPermissions(r), accesstypes.GlobalScope())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		staffresources.NewStaffSessionTokenQueryFromQuerySet(history.QuerySet()).SetID(id)
+
+		page, err := history.Read(ctx, h.ResourceClient())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok(page)
 	})
 }

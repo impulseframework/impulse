@@ -71,12 +71,12 @@ func newIdentityWorldWithLive(t *testing.T, svc live.Service) *identityWorld {
 }
 
 // TestGeneratedIdentityPublishesDerived follows three commits of the crew's generated
-// methods to the tabs that are told of them. A person created through the application's
-// own route writes an account and a membership, and the sector's lists that read those
-// tables are told in every sector, since neither table names a sector whose rows it
-// moved. A role given through handlers constructed with the fixture's derivations tells
-// the fixture's board and nothing else: the handlers publish with what they were handed.
-// And a role given through the application's route tells the sector's lists again.
+// methods to the tabs that are told of them. A person's name written through the
+// application's own route writes the account, and the lists that read the users table
+// are told in every sector, since the table names no sector whose rows it moved. A role
+// given through handlers constructed with the fixture's derivations tells the fixture's
+// board and nothing else: the handlers publish with what they were handed. And a role
+// given through the application's route tells the lists that read the memberships.
 func TestGeneratedIdentityPublishesDerived(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -96,35 +96,74 @@ func TestGeneratedIdentityPublishesDerived(t *testing.T) {
 	told := func(user accesstypes.User, res accesstypes.Resource) bool {
 		return slices.Contains(changeNames(fake.Changes(principalID(user))), "resource|"+string(res)+"|||false")
 	}
-	lists := []live.WholeChange{{Resource: crewSectorIdentities, AllDomains: true}, {Resource: crewSectorRoles, AllDomains: true}, {Resource: crewSectorPeople, AllDomains: true}}
-	// The lists over the crew's groups name each person from the users table, so a
-	// commit that writes an account tells them too; one that writes a membership alone
-	// does not.
-	created := []live.WholeChange{
-		{Resource: "CrewGroupUsers", AllDomains: true},
-		{Resource: "CrewSectorGroupUsers", AllDomains: true},
+	// The lists that read the memberships: the sector's people, their roles, their
+	// identities and their ways to sign in, the one list of the roles a person holds, for
+	// the whole application and for a sector, the accounts with what each holds, the
+	// whole application's sign-in identities, which say who manages each account, the
+	// roles held for a set time with a reason, the roles of a group, which count the
+	// people who would lose each one, and the list of sectors, which counts each sector's
+	// people and names its administrators.
+	lists := []live.WholeChange{
+		{Resource: "CrewHeldRoles", AllDomains: true},
+		{Resource: "CrewListedGroupRoles", AllDomains: true},
+		{Resource: "CrewListedIdentities", AllDomains: true},
+		{Resource: "CrewListedSectors", AllDomains: true},
+		{Resource: "CrewListedUsers", AllDomains: true},
+		{Resource: "CrewSectorGroupRoles", AllDomains: true},
+		{Resource: "CrewSectorHeldRoles", AllDomains: true},
 		{Resource: crewSectorIdentities, AllDomains: true},
+		{Resource: "CrewSectorSignInWays", AllDomains: true},
+		{Resource: crewSectorRoles, AllDomains: true},
+		{Resource: crewSectorPeople, AllDomains: true},
+		{Resource: "CrewTakenRoles", AllDomains: true},
+	}
+	// The lists over the crew's groups name each person from the users table, so a
+	// commit that writes an account tells them too, where one that writes a membership
+	// alone does not; and the two lists of a group's roles count from the memberships
+	// and name nobody, so a commit that writes an account alone does not tell them.
+	// Both lists of how a person signs in declare the accounts, and the sector's alone
+	// the memberships. The list of sectors names each sector's administrators from the
+	// users table. The list of the mailed links and a sector's list of its
+	// invitations name an invitation's sender from the users table, the list of the
+	// failed sign-ins the account that holds a name or that a count is kept for, the list
+	// of the sessions the person under their present username and name, and the list of
+	// a mission's holders each person who holds a role on it.
+	named := []live.WholeChange{
+		{Resource: "CrewGroupUsers", AllDomains: true},
+		{Resource: "CrewHeldRoles", AllDomains: true},
+		{Resource: "CrewListedIdentities", AllDomains: true},
+		{Resource: "CrewListedMailLinks", AllDomains: true},
+		{Resource: "CrewListedSectors", AllDomains: true},
+		{Resource: "CrewListedSessions", AllDomains: true},
+		{Resource: "CrewListedSignInAttempts", AllDomains: true},
+		{Resource: "CrewListedUsers", AllDomains: true},
+		{Resource: "CrewMissionHolders", AllDomains: true},
+		{Resource: "CrewSectorGroupUsers", AllDomains: true},
+		{Resource: "CrewSectorHeldRoles", AllDomains: true},
+		{Resource: crewSectorIdentities, AllDomains: true},
+		{Resource: "CrewSectorInvitations", AllDomains: true},
+		{Resource: "CrewSectorSignInWays", AllDomains: true},
 		{Resource: "CrewSectorUserGroupRoles", AllDomains: true},
 		{Resource: crewSectorRoles, AllDomains: true},
 		{Resource: crewSectorPeople, AllDomains: true},
+		{Resource: "CrewSignInWays", AllDomains: true},
+		{Resource: "CrewTakenRoles", AllDomains: true},
 		{Resource: "CrewUserGroupRoles", AllDomains: true},
 	}
 
-	// The application's own route, with Lodestar's derivations. A person is created
-	// holding a role, so the commit writes the users table and the memberships table:
-	// the sector's people, the sector's roles and the identities of the sector's people
-	// all read them, and the lists over groups read the first.
-	username := "dana-" + identitySuffix()
-	status, body := doRequestAs(t, w.h, "governor", http.MethodPost, consoleAPI+"/create-crew-user", `{"username":"`+username+`","roles":["CrewCommon"]}`)
-	assertStatus(t, status, http.StatusOK, body)
-	// The methods that give a role name the person by the id of the account the create made.
-	danaID := cell[string](t, decodeRow(t, body), "id")
-	if got := wholeChanges(fake.Publishes()); !slices.Equal(got, created) {
-		t.Fatalf("derived changes after the create = %v, want %v", got, created)
+	// The application's own route, with Lodestar's derivations. Dana has an account
+	// already, written beside the seed, which publishes nothing. Her name is written,
+	// so the commit writes the users table: the sector's people, the sector's roles and
+	// the identities of the sector's people all read it, and so do the lists over groups.
+	danaID := w.seedCrewUser(ctx, t, "dana-"+identitySuffix(), "CrewCommon").String()
+	status, body := doRequestAs(t, w.h, "governor", http.MethodPost, consoleAPI+"/set-crew-user-name", `{"userId":"`+danaID+`","name":"Dana of the fleet"}`)
+	assertStatus(t, status, http.StatusNoContent, body)
+	if got := wholeChanges(fake.Publishes()); !slices.Equal(got, named) {
+		t.Fatalf("derived changes after the name was written = %v, want %v", got, named)
 	}
 	for _, user := range []accesstypes.User{liveHarbormaster, liveBastionPilot} {
 		if !told(user, crewSectorRoles) {
-			t.Errorf("%s's change set = %v: the tab holding the sector's roles was not told of the new person", user, changeNames(fake.Changes(principalID(user))))
+			t.Errorf("%s's change set = %v: the tab holding the sector's roles was not told of the person's name", user, changeNames(fake.Changes(principalID(user))))
 		}
 		if told(user, crewSeatBoard) {
 			t.Errorf("%s's change set = %v: the board is in the fixture's derivations, not in Lodestar's", user, changeNames(fake.Changes(principalID(user))))

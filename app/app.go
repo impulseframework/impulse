@@ -53,6 +53,16 @@ type App struct {
 	// TenantRecords are the structs the application's own code annotates @tenant: each
 	// resource package's tenant record, the global resource whose rows are the tenants.
 	TenantRecords []TenantRecord
+	// ConstantAnnotations are the package-level constants of the application's own code
+	// whose comment starts a line with @manualAddResource or @manualAddPermission, one for
+	// each constant and keyword: generation reads the two on the resources package's
+	// constants alone, so one anywhere else is read by nothing.
+	ConstantAnnotations []ConstantAnnotation
+	// LooseAnnotations are the lines that start with @manualAddResource or
+	// @manualAddPermission in a comment of the application's own code that belongs to no
+	// declaration (gocomments.Loose), one for each line: an annotation is read from the
+	// comment of what it stands above, so one there is read by nothing.
+	LooseAnnotations []LooseAnnotation
 	// TenantDirectories are the structs the application's own code annotates
 	// @tenantDirectory: each resource package's directories record, the tenant-scoped
 	// resource whose rows are the directories a tenant admits its people through.
@@ -112,6 +122,15 @@ type App struct {
 
 	// goFiles are the non-test Go files scanned, for the passes that follow the walk.
 	goFiles []string
+	// goRead are the Go files scanned, tests among them: what a pass that follows every
+	// Go file the application's builds compile reads (the imports, a flag's uses).
+	goRead []string
+	// walked are the directories whose Go files were read, root-relative, and leftAlone
+	// says the walk left at least one directory alone, so an import may lead into one.
+	walked    map[string]bool
+	leftAlone bool
+	// nestedModules are the directories under the root that hold a go.mod of their own.
+	nestedModules []string
 	// unattached are the methods the per-file scan could not attach, resolved per package
 	// after the walk.
 	unattached []Method
@@ -149,18 +168,23 @@ type Auth struct {
 	// sign-in method, open to sign-up or invite only, which every sign-in reads:
 	// WithSignInMethodsTableName or the library default.
 	SignInMethodsTable string
+	// SignInSettingsTable is the table that keeps what an administrator chose for the
+	// whole Auth, whether everyone is asked for a second factor and how long a browser is
+	// remembered, which every sign-in reads: WithSignInSettingsTableName or the library
+	// default.
+	SignInSettingsTable string
+	// AuditRecordsTable is the table the Auth keeps its audit log in, one row for each act
+	// that changes an account, who holds what, or how people sign in:
+	// WithAuditRecordsTableName or the library default.
+	AuditRecordsTable string
 	// MailLinksTable is the mail links table the Auth's invitations, address
 	// verifications and sign-ups are kept in: WithMailLinksTableName or the library
-	// default. Read when the Auth sends mail (Mail).
+	// default.
 	MailLinksTable string
-	// Mail reports an Auth constructed with session.WithMail: it mails invitations,
-	// address verifications, sign-up links and sign-in codes, and reads the mail links,
-	// sign-in codes and trusted devices tables.
-	Mail bool
 	// FactorCodesTable is the sign-in codes table the second factor's mailed codes are
 	// kept in, and TrustedDevicesTable the browsers people asked to be remembered after
 	// a code: WithFactorCodesTableName and WithTrustedDevicesTableName or the library
-	// defaults. Read when the Auth sends mail (Mail), since the code is mailed.
+	// defaults.
 	FactorCodesTable    string
 	TrustedDevicesTable string
 	// TokensTable is the tokens table the bearer tokens the Auth issues are kept in,
@@ -278,14 +302,6 @@ type Method struct {
 	// (google.AnyGoogleAccount), alone (WorkspacesAccounts) or beside the Workspaces
 	// Workspaces describes.
 	GoogleAccounts bool
-	// SeveralDomains reports a Google registration that names a Workspace with more
-	// than one domain, or with a spread of them (google.Workspace(name, domains...)).
-	// It changes nothing of Workspaces, which counts Workspaces: such a registration
-	// may still read WorkspacesOne. It is for a rule that counts organizations as the
-	// sign-in does, which lists a Workspace by each of its domains
-	// (signin.Audience.OneOrganization), so one Workspace of two domains is not one
-	// organization to it.
-	SeveralDomains bool
 	// AuthVar is the identifier the registration's first argument names: the Auth it is
 	// registered on. The scan attaches the method to that construction, or to the only
 	// Auth of its package when the identifier does not resolve.
@@ -350,6 +366,23 @@ type DomainResource struct {
 	File string
 	Line int
 	Name string
+	// Table reports a struct annotated @resource: its rows are a table's. A virtual or
+	// computed resource and a method are tenant-scoped with no table of their own.
+	Table bool
+	// DomainColumn is the column that holds the tenant's key on the row itself: the
+	// spanner tag of the field annotated with the bare @domain. Empty where the struct
+	// reaches its tenant through another row (DomainVia), and where it declares no
+	// binding of its own, as a computed resource or a method does.
+	DomainColumn string
+	// DomainVia is the join path of a field annotated @domain(via: ...), by which a
+	// table that carries no tenant key reaches its tenant through the row the field
+	// names; empty for any other struct. The path names a Go field on each row it
+	// passes, the last one the field that holds the tenant's key.
+	DomainVia string
+	// ViaColumn is the column of the field annotated @domain(via: ...): the column the
+	// row leaves by, toward the row it reaches its tenant through. Empty where DomainVia
+	// is.
+	ViaColumn string
 }
 
 // TenantRecord is one struct annotated @tenant: the tenant record, the global resource
@@ -359,6 +392,29 @@ type TenantRecord struct {
 	File string
 	Line int
 	Name string
+}
+
+// ConstantAnnotation is one package-level constant whose comment (the one above it, the
+// one at the end of its line, or the one above its const declaration) starts a line with
+// one of the annotations generation reads off a resources package's constants: the
+// file, the line of the constant's name, the constant, and the keyword,
+// manualAddResource or manualAddPermission.
+type ConstantAnnotation struct {
+	File     string
+	Line     int
+	Constant string
+	Keyword  string
+}
+
+// LooseAnnotation is one line that starts with @manualAddResource or @manualAddPermission
+// in a comment that belongs to no declaration (one a blank line parts from the constant
+// below it, or one no declaration follows): the file, the line the comment starts on, the
+// keyword, manualAddResource or manualAddPermission, and the line, trimmed.
+type LooseAnnotation struct {
+	File    string
+	Line    int
+	Keyword string
+	Text    string
 }
 
 // DirectoryRecord is one struct annotated @tenantDirectory: the directories record, the
@@ -405,8 +461,22 @@ type DefaultRoles struct {
 	Line int
 	// RolesPackage is the import path of the package whose Roles() the call hands over:
 	// the file's own package when the argument is Roles() unqualified, the imported
-	// package when it is <auth>.Roles(), or empty when the argument reads some other way.
+	// package when it is <auth>.Roles(), or empty when the argument reads some other way
+	// (a Roles the function declares for itself among them).
 	RolesPackage string
+	// NamePackage is the import path of the package whose Name the call hands the file
+	// over under, the auth's name: the file's own package when the second argument is
+	// Name unqualified, the imported package when it is <auth>.Name, or empty when the
+	// argument reads some other way (a literal, a variable, a Name the function declares
+	// for itself) or is not there.
+	NamePackage string
+	// NameText is the call's second argument as the source writes it, for a finding that
+	// has to quote it.
+	NameText string
+	// InEngine reports the call written among the arguments of an access.New call: the
+	// option goes to the engine that call opens, where an option held in a variable,
+	// appended to a slice or returned from a function goes wherever it is passed on.
+	InEngine bool
 }
 
 // PolicyCheck is one call to CheckPolicy outside tests: the deploy step printing what

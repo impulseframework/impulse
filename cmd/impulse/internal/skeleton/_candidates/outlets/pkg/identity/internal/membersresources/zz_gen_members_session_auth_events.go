@@ -11,6 +11,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -20,6 +21,15 @@ func (MembersSessionAuthEvent) Resource() accesstypes.Resource {
 
 func (MembersSessionAuthEvent) DefaultConfig() resource.Config {
 	return defaultConfig()
+}
+
+// NamedRows names the columns that name a row of another resource the application lists
+// (SessionID): a create or an update sets one only to a row its caller can list, so the
+// library answers any other as a row that is not there.
+func (MembersSessionAuthEvent) NamedRows() []resource.NamedRow {
+	return []resource.NamedRow{
+		{Field: "SessionID", Resource: "MembersSessions", Table: "MembersSessions", KeyColumn: "Id"},
+	}
 }
 
 // membersSessionAuthEventRead mirrors the wire shape the resource routes list
@@ -369,11 +379,11 @@ func (p *MembersSessionAuthEventCreatePatch) ToStruct() *MembersSessionAuthEvent
 	return p.patchSet.ToStruct()
 }
 
-func (p *MembersSessionAuthEventCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *MembersSessionAuthEventCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *MembersSessionAuthEventCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *MembersSessionAuthEventCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -533,11 +543,11 @@ func (p *MembersSessionAuthEventUpdatePatch) ToStruct() *MembersSessionAuthEvent
 	return p.patchSet.ToStruct()
 }
 
-func (p *MembersSessionAuthEventUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *MembersSessionAuthEventUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *MembersSessionAuthEventUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *MembersSessionAuthEventUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -687,11 +697,11 @@ func NewMembersSessionAuthEventDeletePatch(sessionID impulse.UUID, seq int64) *M
 	return &MembersSessionAuthEventDeletePatch{patchSet: patchSet}
 }
 
-func (p *MembersSessionAuthEventDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *MembersSessionAuthEventDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *MembersSessionAuthEventDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *MembersSessionAuthEventDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

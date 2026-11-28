@@ -9,6 +9,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -87,8 +88,12 @@ func (o Outlet) Validate(a *app.App) error {
 		return errors.Newf("%s: a session outlet's browser project is copied from the default outlet's, but no GenerateTypescript target without ForOutlet names one", g.File)
 	}
 	if o.Sessions || o.Auth != "" || site.GeneratedRouter {
-		if _, _, err := o.binding(a, site); err != nil {
+		_, auth, err := o.binding(a, site)
+		if err != nil {
 			return err
+		}
+		if site.GeneratedRouter && !o.Sessions {
+			return o.holderFree(a, auth)
 		}
 	}
 
@@ -205,9 +210,13 @@ func authNames(a *app.App) string {
 // outlet and, for a session outlet, a generated client; the browser project is copied
 // from the console's with its prefix, base path, and ports rewritten and registered in
 // the workspace and the Procfile; a console that was alone at the root moves under its
-// own path, since no browser application is mounted at / beside another; and go generate
-// emits the outlet's routes, handlers, and client. The router, the served assets, the
-// configuration, the members, and the tests are the agent's.
+// own path, since no browser application is mounted at / beside another, and the
+// application's own sources follow it; go generate emits the outlet's routes, handlers,
+// and client; and, under the generated router, the App answers what the regenerated
+// Handlers asks of it for the outlet, so the application builds and passes its own checks
+// as the command leaves it. That last half is written after go generate, since it names
+// the types the regenerated router declares. The outlet's members and what the tests
+// prove of it are the agent's.
 func (o Outlet) Apply(ctx context.Context, a *app.App, exec check.Execer) (*Change, error) {
 	if err := o.Validate(a); err != nil {
 		return nil, err
@@ -230,6 +239,7 @@ func (o Outlet) Apply(ctx context.Context, a *app.App, exec check.Execer) (*Chan
 	if err := o.editProgram(a, site, auth, ch); err != nil {
 		return nil, err
 	}
+	var moved *consoleLines
 	if o.Sessions {
 		consoleAuth := ""
 		if site.Default.Auth != nil {
@@ -238,12 +248,21 @@ func (o Outlet) Apply(ctx context.Context, a *app.App, exec check.Execer) (*Chan
 		if err := o.cloneProject(a, g, consoleMount(site), consoleAuth, ch); err != nil {
 			return nil, err
 		}
-		if err := o.moveConsole(a, site, ch); err != nil {
+		var err error
+		if moved, err = o.moveConsole(a, site, ch); err != nil {
 			return nil, err
 		}
 	}
 
 	if err := generate(ctx, a, exec, ch, "go generate ./... failed, so the outlet's routes, handlers, and client are not generated yet; fix the cause and run it:", fmt.Sprintf("ran go generate ./..., which emitted the %s outlet's routes and handlers%s", o.Name, o.clientNote())); err != nil {
+		return nil, err
+	}
+	if err := o.serve(a, site, auth, ch); err != nil {
+		return nil, err
+	}
+	// Nothing edits the application after this: the lines the move noted are named where
+	// they are now.
+	if err := moved.report(a, ch); err != nil {
 		return nil, err
 	}
 
@@ -715,17 +734,20 @@ func consoleMount(site *app.Site) string {
 // (GenerateRoutes and its WebApp), the workspace (the project's baseHref and servePath),
 // and the project's files (the proxy, the environments, the base element). The
 // regenerated router then answers the root alone with a redirect to the application. The
-// Go side and the prose that still name the old prefix are listed for the agent, each by
-// file and line.
-func (o Outlet) moveConsole(a *app.App, site *app.Site, ch *Change) error {
+// application's own sources follow: the App's served browser app, the login pages the
+// console's auth is told, and the old prefix where hand-written Go and the prose name it
+// as a path are rewritten, and what still names the old place after that is listed for
+// the agent, each by file and line. Those lines are returned, not reported: the command
+// has edits to make after the move, and reports each line where it leaves it.
+func (o Outlet) moveConsole(a *app.App, site *app.Site, ch *Change) (*consoleLines, error) {
 	if !site.GeneratedRouter || site.Default.WebApp != "/" {
-		return nil
+		return nil, nil
 	}
 	g := site.Generator
 	oldPrefix := site.Default.Prefix
 	project, w, found, err := consoleProject(a, g)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	name := consoleName
 	if found {
@@ -735,24 +757,63 @@ func (o Outlet) moveConsole(a *app.App, site *app.Site, ch *Change) error {
 
 	src, mode, err := readFile(a, g.File)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	edited, err := app.MoveDefaultOutlet(g.File, src, prefix, mount)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if err := os.WriteFile(a.Abs(g.File), edited, mode); err != nil {
-		return errors.Wrap(err, "os.WriteFile()")
+		return nil, errors.Wrap(err, "os.WriteFile()")
 	}
 	ch.didf("%s: with two browser applications none is mounted at /, so the default outlet's application moves to %s and its API to /%s: GenerateRoutes(%q, %q, ..., WebApp(%q)) in place of %q and WebApp(\"/\"); the regenerated router answers the root alone with a redirect to %s/", g.File, mount, prefix, g.RoutesDir(), prefix, mount, oldPrefix, mount)
 
 	if !found {
 		ch.skipf("no browser project holds the default outlet's client, so nothing on the browser side moved; serve the application under %s/ with its API at /%s", mount, prefix)
 	} else if err := o.mountProject(a, w.Dir, &project, oldPrefix, prefix, mount, ch); err != nil {
-		return err
+		return nil, err
 	}
 
-	return listOldPrefix(a, oldPrefix, prefix, mount, ch)
+	lines := &consoleLines{did: len(ch.Did), skipped: len(ch.Skipped)}
+	if lines.rewrite, err = followConsole(a, site, oldPrefix, prefix, mount, ch); err != nil {
+		return nil, err
+	}
+	if lines.scan, err = listOldPrefix(a, oldPrefix, prefix, mount); err != nil {
+		return nil, err
+	}
+
+	return lines, nil
+}
+
+// consoleLines is what the console's move noted of the application's own sources by line:
+// what it rewrote, and what still names the old place for the agent. The command reports
+// them after its last edit, since the steps after the move add lines above some of them,
+// and at the move's place in the change's lists, which keep the order of the command's
+// steps.
+type consoleLines struct {
+	rewrite *consoleMove
+	scan    *oldPrefixScan
+	// did and skipped are where the lines go in the change's lists.
+	did, skipped int
+}
+
+// report writes the lines into the change, each named where it is in the application
+// now. A command whose console did not move noted none.
+func (l *consoleLines) report(a *app.App, ch *Change) error {
+	if l == nil {
+		return nil
+	}
+	var noted Change
+	if err := l.rewrite.report(a, &noted); err != nil {
+		return err
+	}
+	if err := l.scan.report(a, &noted); err != nil {
+		return err
+	}
+	ch.Did = slices.Insert(ch.Did, l.did, noted.Did...)
+	ch.Skipped = slices.Insert(ch.Skipped, l.skipped, noted.Skipped...)
+
+	return nil
 }
 
 // consoleProject finds the browser project holding the default outlet's generated client:
@@ -851,32 +912,40 @@ var (
 )
 
 // oldPrefixScan collects what still names the console's old API prefix or its old place
-// after the move, for the brief: the App serving the console's bundle at the root (the
-// served browser app's mount path, which its DeepLink and Assets pair delegate to), a
-// LoginURL naming a page outside the mount path,
-// the hand-written Go naming the old prefix as a string literal (routes, hooks, tests),
-// and the README, process files, and environment template naming it.
+// after the move and its rewrites, for the brief: the App serving the console's bundle at
+// the root (the served browser app's mount path, which its DeepLink and Assets pair
+// delegate to), a LoginURL naming a page outside the mount path, the hand-written Go
+// naming the old prefix as a string literal (routes, hooks, tests), and the README,
+// process files, and environment template naming it.
 type oldPrefixScan struct {
+	oldPrefix, prefix string
 	// literal is the old prefix as a Go string literal opens it.
 	literal string
 	// proseRE matches the old prefix as a path in prose, not inside a longer path.
 	proseRE *regexp.Regexp
 	mount   string
 
-	literals, deepLinks, prose mentions
-	// loginURLs maps file:line to the login page it names.
-	loginURLs map[string]string
+	literals, deepLinks, prose, loginURLs mentions
+	// loginPages are the login pages a file's loginURLs lines name, in the lines' order.
+	loginPages map[string][]string
+	// read is each file the scan noted a line of, as it read it: the text the lines'
+	// numbers are of, which the report places them from.
+	read map[string][]byte
 }
 
-func newOldPrefixScan(oldPrefix, mount string) *oldPrefixScan {
+func newOldPrefixScan(oldPrefix, prefix, mount string) *oldPrefixScan {
 	return &oldPrefixScan{
-		literal:   `"/` + oldPrefix,
-		proseRE:   regexp.MustCompile(`(^|[^A-Za-z0-9./_-])/` + regexp.QuoteMeta(oldPrefix) + `([^A-Za-z0-9_-]|$)`),
-		mount:     mount,
-		literals:  mentions{},
-		deepLinks: mentions{},
-		prose:     mentions{},
-		loginURLs: map[string]string{},
+		oldPrefix:  oldPrefix,
+		prefix:     prefix,
+		literal:    `"/` + oldPrefix,
+		proseRE:    regexp.MustCompile(`(^|[^A-Za-z0-9./_-])/` + regexp.QuoteMeta(oldPrefix) + `([^A-Za-z0-9_-]|$)`),
+		mount:      mount,
+		literals:   mentions{},
+		deepLinks:  mentions{},
+		prose:      mentions{},
+		loginURLs:  mentions{},
+		loginPages: map[string][]string{},
+		read:       map[string][]byte{},
 	}
 }
 
@@ -895,83 +964,68 @@ func (sc *oldPrefixScan) file(rel string, data []byte, isGo, isProse bool) {
 			sc.prose.add(rel, n)
 		}
 		if m := loginURLRE.FindStringSubmatch(line); isGo && m != nil && !strings.HasPrefix(m[1], sc.mount+"/") {
-			sc.loginURLs[rel+":"+strconv.Itoa(n)] = m[1]
+			sc.loginURLs.add(rel, n)
+			sc.loginPages[rel] = append(sc.loginPages[rel], m[1])
 		}
+	}
+	if len(sc.deepLinks[rel])+len(sc.literals[rel])+len(sc.prose[rel])+len(sc.loginURLs[rel]) > 0 {
+		sc.read[rel] = data
 	}
 }
 
 // report records every mention as the agent's, deep links first, then login pages, Go
-// literals, and prose, each file on one line.
-func (sc *oldPrefixScan) report(ch *Change, oldPrefix, prefix string) {
+// literals, and prose, each file on one line. Each line is named where it is in the
+// application now.
+func (sc *oldPrefixScan) report(a *app.App, ch *Change) error {
+	if err := placeLines(a, sc.read, sc.deepLinks, sc.loginURLs, sc.literals, sc.prose); err != nil {
+		return err
+	}
 	for _, m := range sc.deepLinks.sorted() {
 		ch.skipf("%s:%s: serves the console's bundle at \"/\"; it moves to %q: resource.NewBrowserApp(cfg.ConsoleDist(), %q) serves it under the mount path, as a second browser application's does (a spaassets.DeepLink and Assets pair becomes that one type)", m.file, lineList(m.lines), sc.mount+"/", sc.mount)
 	}
-	keys := make([]string, 0, len(sc.loginURLs))
-	for k := range sc.loginURLs {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		ch.skipf("%s: LoginURL %q is the console's login page, which is now under %s/: %q", k, sc.loginURLs[k], sc.mount, sc.mount+sc.loginURLs[k])
+	for _, m := range sc.loginURLs.sorted() {
+		for i, line := range m.lines {
+			page := sc.loginPages[m.file][i]
+			ch.skipf("%s:%d: LoginURL %q is the console's login page, which is now under %s/: %q", m.file, line, page, sc.mount, sc.mount+page)
+		}
 	}
 	for _, m := range sc.literals.sorted() {
-		ch.skipf("%s:%s: names %q, the console's old prefix, in a string literal; the console's API is now /%s", m.file, lineList(m.lines), "/"+oldPrefix, prefix)
+		ch.skipf("%s:%s: names %q, the console's old prefix, in a string literal; the console's API is now /%s", m.file, lineList(m.lines), "/"+sc.oldPrefix, sc.prefix)
 	}
 	for _, m := range sc.prose.sorted() {
-		ch.skipf("%s:%s: names /%s, the console's old prefix; the console's API is now /%s and its pages are under %s/", m.file, lineList(m.lines), oldPrefix, prefix, sc.mount)
+		ch.skipf("%s:%s: names /%s, the console's old prefix; the console's API is now /%s and its pages are under %s/", m.file, lineList(m.lines), sc.oldPrefix, sc.prefix, sc.mount)
 	}
+
+	return nil
 }
 
 // listOldPrefix walks the application for what still names the console's old prefix or
-// its old place after the move and records each as the agent's. Generated files, build
-// products, and the repository's own directory are not read; the tree is opened as a
-// root, so the walk stays inside it.
-func listOldPrefix(a *app.App, oldPrefix, prefix, mount string, ch *Change) error {
-	root, err := os.OpenRoot(a.Root)
-	if err != nil {
-		return errors.Wrap(err, "os.OpenRoot()")
-	}
-	defer root.Close()
-
-	scan := newOldPrefixScan(oldPrefix, mount)
-	err = fs.WalkDir(root.FS(), ".", func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return errors.Wrap(err, "fs.WalkDir()")
-		}
-		if d.IsDir() {
-			if p != "." && (skippedNames[d.Name()] || d.Name() == ".git") {
-				return fs.SkipDir
-			}
-
-			return nil
-		}
-		name := d.Name()
-		isGo := strings.HasSuffix(name, ".go") && !strings.HasPrefix(name, "zz_gen_")
-		isProse := name == readmeFile || processFileRE.MatchString(name) || (a.EnvTemplate != "" && p == a.EnvTemplate)
-		if !isGo && !isProse {
-			return nil
-		}
-		data, err := root.ReadFile(filepath.FromSlash(p))
+// its old place after the move and its rewrites, and returns each for the command to
+// record as the agent's.
+func listOldPrefix(a *app.App, oldPrefix, prefix, mount string) (*oldPrefixScan, error) {
+	scan := newOldPrefixScan(oldPrefix, prefix, mount)
+	err := walkOwnSources(a, func(root *os.Root, rel string, _ fs.FileMode, isGo, isProse bool) error {
+		data, err := root.ReadFile(filepath.FromSlash(rel))
 		if err != nil {
 			return errors.Wrap(err, "os.Root.ReadFile()")
 		}
-		scan.file(p, data, isGo, isProse)
+		scan.file(rel, data, isGo, isProse)
 
 		return nil
 	})
 	if err != nil {
-		return errors.Wrap(err, "fs.WalkDir()")
+		return nil, err
 	}
-	scan.report(ch, oldPrefix, prefix)
 
-	return nil
+	return scan, nil
 }
 
 // processFileRE matches the development process files, whose comments name the proxied
 // prefix.
 var processFileRE = regexp.MustCompile(`^(Procfile.*|process-compose.*\.ya?ml)$`)
 
-// Meaning explains the outlet in this framework and names the wiring left to do.
+// Meaning explains the outlet in this framework: what the command wired, and what is left
+// to the author.
 func (o Outlet) Meaning() string {
 	pascal := strings.ToUpper(o.Name[:1]) + o.Name[1:]
 	upper := strings.ToUpper(o.Name)
@@ -982,9 +1036,9 @@ func (o Outlet) Meaning() string {
 		if o.Auth != "" {
 			auth = "the " + o.Auth + " auth"
 		}
-		fmt.Fprintf(&b, "This is a session outlet: a browser surface bound to %s (the program declares it with that auth's `Auth` and `WebApp(\"/%s\")`), so its people sign in under `/%s/user/login` and the generated router serves its browser application from `/%s/`. Give the App what the generated `Handlers` now requires: `%s()` returning the auth's session handlers (an auth's embedded session manager satisfies its handler interface, so the method returns it), and the `%sDeepLink` and `%sAssets` pair serving a dist directory from configuration (`APP_%s_DIST` defaulting to `web/dist/%s`), like the console's. A route of the outlet's own goes in the `%s` field of the application's `Hooks`, inside the outlet's guards. Decide which resources the %s outlet serves and annotate them; then run `go generate ./...`. Extend the integration tests: sign in under `/%s/user/login` and read `user-domains` and the permission digest there, and show a resource that is not a member answers not found under the prefix. If the outlet's audience is another population, add an auth for it (`impulse add auth`), point the outlet's `Auth` at it, and add its development login to the bootstrap identities. Where the copied browser application carries a brand declaration (`brand.json` in its directory), it is the console's: give it its own name, logo and colors and run `impulse brand`, which writes them into `pkg/brand` and names the line that hands the brand to the maintenance page in the main (`maintenance.Brands`, under `/%s`).\n\n", auth, o.Name, o.Prefix, o.Name, pascal, pascal, pascal, upper, o.Name, pascal, o.Name, o.Prefix, o.Name)
+		fmt.Fprintf(&b, "This is a session outlet: a browser surface bound to %s (the program declares it with that auth's `Auth` and `WebApp(\"/%s\")`), so its people sign in under `/%s/user/login` and the generated router serves its browser application from `/%s/`. Under the generated router the command gives the App what the generated `Handlers` now requires, in a new file of the App's package (`%s_outlet.go`): `%s()` returning the auth's session handlers (an auth's embedded session manager satisfies its handler interface, so the method returns it), and the `%sDeepLink` and `%sAssets` pair serving the outlet's built bundle through the resource package's served browser app, like the console's. The bundle's directory comes from configuration: the `Configurer` gains `%sDist()`, the site configuration reads it from `APP_%s_DIST` with the outlet's directory under the web workspace's `dist` as the default (`web/dist/%s`), the environment template names the variable, and the test configurers answer it with no directory, as they answer the console's. Where the application's own files do not read as the skeletons write them (no `Configurer` interface, an App that holds no handlers of the auth), the command writes nothing there, and the changes list what is missing under what it could not make; the compiler holds the App to it. A route of the outlet's own goes in the `%s` field of the application's `Hooks`, inside the outlet's guards. Decide which resources the %s outlet serves and annotate them; then run `go generate ./...`. Extend the integration tests: sign in under `/%s/user/login` and read `user-domains` and the permission digest there, and show a resource that is not a member answers not found under the prefix. If the outlet's audience is another population, add an auth for it (`impulse add auth`), point the outlet's `Auth` at it, and add its development login to the bootstrap identities. Where the copied browser application carries a brand declaration (`brand.json` in its directory), it is the console's: give it its own name, logo and colors and run `impulse brand`, which writes them into `pkg/brand` and names the line that hands the brand to the maintenance page in the main (`maintenance.Brands`, under `/%s`).\n\n", auth, o.Name, o.Prefix, o.Name, o.Name, pascal, pascal, pascal, pascal, upper, o.Name, pascal, o.Name, o.Prefix, o.Name)
 		fmt.Fprintf(&b, "The outlet serves the live routes (`/%s/live/renew`, `/%s/live/unsubscribe`, `/%s/live/token`) through the App's one `LiveService`, the live service the data level opens over the application's Firestore database, so it needs no live wiring of its own; its browser application's list and record pages opt in through the client packages' live option as the console's do.\n\n", o.Prefix, o.Prefix, o.Prefix)
-		b.WriteString("Every browser outlet takes one shape: its API under its application's mount path (`/" + o.Name + "/api` under `/" + o.Name + "`), so the application's scope covers its own API, login, and callback routes; `impulse check` warns where an outlet's API sits elsewhere. With two browser applications none is mounted at `/`: an installed application's scope is every URL under its start, so one at `/` would own the origin and the other would never get its own install prompt, and the generator refuses the shape. A console that was alone at `/` therefore moved to `/console` with its API at `/console/api` (the generator program, the project's `baseHref` and `servePath`, its proxy, environments, and base element), and the regenerated router answers the root alone with a redirect to `/console/`. The App's `DeepLink` and `Assets` pair follows (the resource package's served browser app built with the mount path, `resource.NewBrowserApp(cfg.ConsoleDist(), \"/console\")`, which strips the mount prefix and rewrites the application's routes to its entry document, as the portal's reads in the reference), as do a `LoginURL` naming the console's login page, the hand-written routes, hooks, and tests that name `/api`, and the README and Procfile lines; the brief lists each by file and line.\n")
+		b.WriteString("Every browser outlet takes one shape: its API under its application's mount path (`/" + o.Name + "/api` under `/" + o.Name + "`), so the application's scope covers its own API, login, and callback routes; `impulse check` warns where an outlet's API sits elsewhere. With two browser applications none is mounted at `/`: an installed application's scope is every URL under its start, so one at `/` would own the origin and the other would never get its own install prompt, and the generator refuses the shape. A console that was alone at `/` therefore moved to `/console` with its API at `/console/api` (the generator program, the project's `baseHref` and `servePath`, its proxy, environments, and base element), and the regenerated router answers the root alone with a redirect to `/console/`. The command follows the move through the application's own files and reports each by file and line. The App's `DeepLink` and `Assets` pair follows: the resource package's served browser app is built with the mount path (`resource.NewBrowserApp(cfg.ConsoleDist(), \"/console\")`, which strips the mount prefix and rewrites the application's routes to its entry document, as the portal's reads in the reference). The console's auth is told its pages where they are now: `LoginURL`, `MailLoginURL` and `DevicePage` of the auth's `Settings`, where the application builds them outside its tests, name the page under `/console`. The hand-written Go (tests included), the README, the process files and the environment template that named `/api` name `/console/api`; that rewrite is of text, so read each line the changes list. What the command leaves is yours, and `login-pages`, `installable` and the application's own tests hold it: a path after a host's port (`http://127.0.0.1:8090/api`), a login page named outside the auth's settings or as a whole address, a `DevicePage` a test's settings name, a deep link composed by hand (`spaassets.DeepLink(next, \"/\")`), and a test that asks for a page at the root.\n")
 
 		return b.String()
 	}
@@ -992,7 +1046,7 @@ func (o Outlet) Meaning() string {
 	if o.Auth != "" {
 		auth = "the " + o.Auth + " auth"
 	}
-	fmt.Fprintf(&b, "This is a machine outlet: a surface with no browser, declared with `Tokens` naming %s, whose Auth issues the tokens its requests carry, so the generated router composes its group with no session handling and no XSRF guard: `NoCaching`, `CompressionMiddleware`, `ReleaseHeader`, the device flow's two endpoints (`POST /%s/oauth/device/authorize` and `POST /%s/oauth/token`, which a command-line client reaches before it holds a token), then the token check, `%s().ValidateToken`, in front of the outlet's routes. The auth's session outlet gains the token routes under its own prefix (`.../user/tokens`, `.../user/tokens/revoke`, `.../user/device`, `.../user/device/approve`, `.../user/device/deny`), where a signed-in person issues, lists and revokes their own application tokens and approves or denies a command-line client's device authorization; the auth package's handlers already carry them, and the outlet's generated client descriptor gains a `tokens` block naming those routes and the machine outlets the auth issues for. The console shows the two pages over that block: the person's own tokens through the library's frame, where Your API keys in the person's menu opens the frame's API keys page (`frameRoutes()`, at `<mount>/api-keys` in every place) composing `<impulse-tokens />` for every signed-in person, since each has tokens of their own; and a device page the console mounts at `<mount>/device` composing `<impulse-device-approval />` (`@impulseframework/resource-angular/impulse-tokens`), in no menu and outside every place, where the link a program prints (`<mount>/device?userCode=XXXX-XXXX`) lands behind the sign-in guard; the `outlets` skeleton's console shows both pages. The auth's settings name the device page: `DevicePage: \"<mount>/device\"` in the data level's construction, which `New` passes as the device verification path (`session.WithDeviceVerificationURL`), so a device authorization sends the client's person there, and the `login-pages` check holds the page to the mount path. Give the App what the generated `Handlers` now requires: `%s() router.%sTokens`, returning the machine outlet registered on the auth once, when the App is built and before the first request (`session.RegisterMachineOutlet` over the auth's `Handlers().Session`, under the outlet's name %q). The token check requires `Authorization: Bearer <token>`, answers unauthorized with `WWW-Authenticate: Bearer realm=%q` without one, and binds the request to the person the token acts for, the way the session middleware binds a browser to its user, so the handlers behind it run the same fail-closed permission checks: a program holds a token its person issued, and holds that person's roles. There is no configured key; the application issues every token. A program the release ships to machines, a daemon or a command-line tool that runs where no Go toolchain is, is declared on this outlet with `ShipsProgram` naming its main package and the platforms it is compiled for (`generation.ShipsProgram(\"cmd/corral\", generation.Platforms(\"linux/amd64\"))`): the image build compiles it for each platform into the image, and the outlet serves the file with its checksum at `GET /%s/programs/<name>/<release>/<os>/<arch>`, behind the token check. A person installs the first copy on a machine from the release's assets or with `go install`; from then on the copy keeps itself at the outlet's release through `resource/shipped`: its `Follower` reads the server's release from every answer, fetches the new file with the token the copy already carries, verifies the checksum, swaps the file beside the running copy and leaves the program to exit for its service manager to start the new release. The `shipped-programs` check builds each declared program for each of its platforms. Decide which resources the %s outlet serves and annotate them; then run `go generate ./...`. Extend the integration tests: a signed-in person issues a token for the outlet on the auth's session outlet (`POST .../user/tokens` with `{\"name\", \"outlet\": %q}`) and it answers under the prefix, no token and a token the auth never issued answer unauthorized, and a resource that is not a member answers not found under the prefix.\n", auth, o.Prefix, o.Prefix, pascal, pascal, pascal, o.Name, o.Name, o.Prefix, o.Name, o.Name)
+	fmt.Fprintf(&b, "This is a machine outlet: a surface with no browser, declared with `Tokens` naming %s, whose Auth issues the tokens its requests carry, so the generated router composes its group with no session handling and no XSRF guard: `NoCaching`, `CompressionMiddleware`, `ReleaseHeader`, the device flow's two endpoints (`POST /%s/oauth/device/authorize` and `POST /%s/oauth/token`, which a command-line client reaches before it holds a token), then the token check, `%s().ValidateToken`, in front of the outlet's routes. The auth's session outlet gains the token routes under its own prefix (`.../user/tokens`, `.../user/tokens/revoke`, `.../user/device`, `.../user/device/approve`, `.../user/device/deny`), where a signed-in person issues, lists and revokes their own application tokens and approves or denies a command-line client's device authorization; the auth package's handlers already carry them, and the outlet's generated client descriptor gains a `tokens` block naming those routes and the machine outlets the auth issues for. The console shows the two pages over that block: the person's own tokens through the library's frame, where Your API keys in the person's menu opens the frame's API keys page (`frameRoutes()`, at `<mount>/api-keys` in every place) composing `<impulse-tokens />` for every signed-in person, since each has tokens of their own; and a device page the console mounts at `<mount>/device` composing `<impulse-device-approval />` (`DeviceApprovalComponent` of `@impulseframework/resource-angular/tokens`), in no menu and outside every place, where the link a program prints (`<mount>/device?userCode=XXXX-XXXX`) lands behind the sign-in guard; the `outlets` skeleton's console shows both pages. The auth's settings name the device page: `DevicePage: \"<mount>/device\"`, which `New` passes as the device verification path (`session.WithDeviceVerificationURL`), so a device authorization sends the client's person there, and the `login-pages` check holds the page to the mount path. Under the generated router the command wires all of it and says so among the changes. The auth's file gains the outlet's name (`%sOutlet`, %q), the `DevicePage` setting passed to the Auth's construction, and the registration in `New`, once and before the first request, after the sign-in methods' (`session.RegisterMachineOutlet` over the Auth), with `%sTokens()` on its `Handlers` returning the registered outlet. Every construction of the auth's `Settings` names the device page, a test harness's too, since `New` refuses an empty one. The console gains the page (`app/components/ui/device/`, from the reference) and its route among the signed-in pages of its routes. A new file of the App's package (`%s_outlet.go`) declares what the generated `Handlers` now requires, `%s() router.%sTokens`, returning the auth's. Where a file does not read as the tool writes it (an auth file whose `New` is laid out otherwise, routes that do not open the frame's children as the skeletons do, an App that holds no handlers of the auth), the command writes nothing there, and the changes list what is missing under what it could not make. The token check requires `Authorization: Bearer <token>`, answers unauthorized with `WWW-Authenticate: Bearer realm=%q` without one, and binds the request to the person the token acts for, the way the session middleware binds a browser to its user, so the handlers behind it run the same fail-closed permission checks: a program holds a token its person issued, and holds that person's roles. There is no configured key; the application issues every token. A program the release ships to machines, a daemon or a command-line tool that runs where no Go toolchain is, is declared on this outlet with `ShipsProgram` naming its main package and the platforms it is compiled for (`generation.ShipsProgram(\"cmd/corral\", generation.Platforms(\"linux/amd64\"))`): the image build compiles it for each platform into the image, and the outlet serves the file with its checksum at `GET /%s/programs/<name>/<release>/<os>/<arch>`, behind the token check. A person installs the first copy on a machine from the release's assets or with `go install`; from then on the copy keeps itself at the outlet's release through `resource/shipped`: its `Follower` reads the server's release from every answer, fetches the new file with the token the copy already carries, verifies the checksum, swaps the file beside the running copy and leaves the program to exit for its service manager to start the new release. The `shipped-programs` check builds each declared program for each of its platforms. Decide which resources the %s outlet serves and annotate them; then run `go generate ./...`. Extend the integration tests: a signed-in person issues a token for the outlet on the auth's session outlet (`POST .../user/tokens` with `{\"name\", \"outlet\": %q}`) and it answers under the prefix, no token and a token the auth never issued answer unauthorized, and a resource that is not a member answers not found under the prefix.\n", auth, o.Prefix, o.Prefix, pascal, pascal, o.Name, pascal, o.Name, pascal, pascal, o.Name, o.Prefix, o.Name, o.Name)
 
 	return b.String()
 }

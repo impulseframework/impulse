@@ -13,8 +13,10 @@
 .impulse-login-resend,
 .impulse-login-cancel,
 .impulse-login-sign-up,
+.impulse-login-forgot,
 .impulse-login-accept,
 .impulse-login-create-account,
+.impulse-login-existing-account,
 .impulse-login-continue,
 .impulse-login-sign-out,
 .impulse-login-retry {
@@ -25,6 +27,11 @@
 .impulse-login-sign-up,
 .impulse-login-create-account {
   margin-top: 12px;
+}
+
+// "Forgot your password?" sits right under the form it belongs to.
+.impulse-login-forgot {
+  margin-top: 4px;
 }
 
 .impulse-login-invitation {
@@ -78,7 +85,10 @@
 .impulse-login-account-note,
 .impulse-login-started-note,
 .impulse-login-starting-note,
+.impulse-login-reset-note,
+.impulse-login-address-note,
 .impulse-login-landed-note,
+.impulse-login-verify-note,
 .impulse-login-signed-in-note,
 .impulse-login-invitation-note,
 .impulse-login-unreachable-note {
@@ -86,6 +96,7 @@
 }
 
 .impulse-login-cancel,
+.impulse-login-existing-account,
 .impulse-login-resend {
   margin-top: 8px;
 }

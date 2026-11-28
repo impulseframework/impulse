@@ -7,6 +7,7 @@ import (
 
 	"github.com/georgysavva/scany/v2/pgxscan"
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/tracer"
 	"github.com/jackc/pgx/v5"
@@ -14,19 +15,22 @@ import (
 
 // signInMethodColumns are the sign-in methods table's columns, in signInMethodRow's
 // order.
-const signInMethodColumns = `"Name", "OpenSignUp", "OpenedFor", "DefaultRole", "UpdatedAt"`
+const signInMethodColumns = `"Name", "OpenSignUp", "OpenedFor", "DefaultRole", "SelfServiceReset", "UpdatedAt"`
 
 // signInMethodRow is a sign-in method's row as the table holds it.
 type signInMethodRow struct {
-	Name        string    `db:"Name"`
-	OpenSignUp  bool      `db:"OpenSignUp"`
-	OpenedFor   *string   `db:"OpenedFor"`
-	DefaultRole *string   `db:"DefaultRole"`
-	UpdatedAt   time.Time `db:"UpdatedAt"`
+	Name             string    `db:"Name"`
+	OpenSignUp       bool      `db:"OpenSignUp"`
+	OpenedFor        *string   `db:"OpenedFor"`
+	DefaultRole      *string   `db:"DefaultRole"`
+	SelfServiceReset bool      `db:"SelfServiceReset"`
+	UpdatedAt        time.Time `db:"UpdatedAt"`
 }
 
 func (r *signInMethodRow) record() *dbtype.SignInMethod {
-	return &dbtype.SignInMethod{Name: r.Name, OpenSignUp: r.OpenSignUp, OpenedFor: r.OpenedFor, DefaultRole: r.DefaultRole, UpdatedAt: r.UpdatedAt}
+	return &dbtype.SignInMethod{
+		Name: r.Name, OpenSignUp: r.OpenSignUp, OpenedFor: r.OpenedFor, DefaultRole: r.DefaultRole, SelfServiceReset: r.SelfServiceReset, UpdatedAt: r.UpdatedAt,
+	}
 }
 
 func (s *SessionStorageDriver) signInMethodsTable() string {
@@ -79,16 +83,42 @@ func (s *SessionStorageDriver) SignInMethods(ctx context.Context) ([]*dbtype.Sig
 
 // SetSignInMethod writes the row of the sign-in method m names, replacing the one it
 // had, with UpdatedAt the database's time.
-func (s *SessionStorageDriver) SetSignInMethod(ctx context.Context, m *dbtype.SignInMethod) error {
+func (s *SessionStorageDriver) SetSignInMethod(ctx context.Context, m *dbtype.SignInMethod, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	query := fmt.Sprintf(`INSERT INTO %s (%s) VALUES ($1, $2, $3, $4, now())
-		ON CONFLICT ("Name") DO UPDATE SET "OpenSignUp" = EXCLUDED."OpenSignUp", "OpenedFor" = EXCLUDED."OpenedFor", "DefaultRole" = EXCLUDED."DefaultRole", "UpdatedAt" = EXCLUDED."UpdatedAt"`,
+	query := fmt.Sprintf(`INSERT INTO %s (%s) VALUES ($1, $2, $3, $4, $5, now())
+		ON CONFLICT ("Name") DO UPDATE SET "OpenSignUp" = EXCLUDED."OpenSignUp", "OpenedFor" = EXCLUDED."OpenedFor", "DefaultRole" = EXCLUDED."DefaultRole",
+			"SelfServiceReset" = EXCLUDED."SelfServiceReset", "UpdatedAt" = EXCLUDED."UpdatedAt"`,
 		s.signInMethodsTable(), signInMethodColumns)
-	if _, err := s.conn.Exec(ctx, query, m.Name, m.OpenSignUp, m.OpenedFor, m.DefaultRole); err != nil {
-		return errors.Wrap(err, "pgx.Conn.Exec()")
-	}
 
-	return nil
+	return s.recordedWrite(ctx, record, func(ctx context.Context, db statementRunner) error {
+		if _, err := db.Exec(ctx, query, m.Name, m.OpenSignUp, m.OpenedFor, m.DefaultRole, m.SelfServiceReset); err != nil {
+			return errors.Wrap(err, "Exec()")
+		}
+
+		return nil
+	})
+}
+
+// SetSelfServiceReset writes whether a person may ask for their own password reset
+// link on the row of the sign-in method registered under method, with UpdatedAt the
+// database's time, and leaves what else the row says as it stands. It is one
+// statement: a method with no row gets one that is invite only, and a row there has
+// the one field and its time written, never the row read and written back.
+func (s *SessionStorageDriver) SetSelfServiceReset(ctx context.Context, method string, on bool, record *auditlog.Record) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	query := fmt.Sprintf(`INSERT INTO %s (%s) VALUES ($1, false, NULL, NULL, $2, now())
+		ON CONFLICT ("Name") DO UPDATE SET "SelfServiceReset" = EXCLUDED."SelfServiceReset", "UpdatedAt" = EXCLUDED."UpdatedAt"`,
+		s.signInMethodsTable(), signInMethodColumns)
+
+	return s.recordedWrite(ctx, record, func(ctx context.Context, db statementRunner) error {
+		if _, err := db.Exec(ctx, query, method, on); err != nil {
+			return errors.Wrap(err, "Exec()")
+		}
+
+		return nil
+	})
 }

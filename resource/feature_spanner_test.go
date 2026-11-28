@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -17,6 +19,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/impulseframework/impulse/accesstypes"
 	initiator "github.com/impulseframework/impulse/db"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/spxscan"
 )
@@ -59,12 +62,13 @@ func featureRows(t *testing.T, db *initiator.SpannerDB) []FeatureFlag {
 	return rows
 }
 
-// featureChange is an audit row as the tests compare it.
+// featureChange is an audit row as the tests compare it: the flag, when, the value
+// written, and who made the flip in the columns the table keeps it in.
 type featureChange struct {
 	Name      string    `spanner:"Name"`
 	ChangedAt time.Time `spanner:"ChangedAt"`
 	Enabled   bool      `spanner:"Enabled"`
-	ChangedBy string    `spanner:"ChangedBy"`
+	eventSourceColumns
 }
 
 // featureChanges reads the audit table in writing order.
@@ -72,7 +76,7 @@ func featureChanges(t *testing.T, db *initiator.SpannerDB) []featureChange {
 	t.Helper()
 
 	var rows []featureChange
-	if err := spxscan.Select(t.Context(), db.Single(), &rows, spanner.Statement{SQL: "SELECT Name, ChangedAt, Enabled, ChangedBy FROM FeatureFlagChanges ORDER BY ChangedAt"}); err != nil {
+	if err := spxscan.Select(t.Context(), db.Single(), &rows, spanner.Statement{SQL: "SELECT Name, ChangedAt, Enabled, " + strings.Join(eventsource.ColumnNames(), ", ") + " FROM FeatureFlagChanges ORDER BY ChangedAt"}); err != nil {
 		t.Fatalf("spxscan.Select() error = %v", err)
 	}
 
@@ -91,7 +95,7 @@ func TestMigrateFeatures(t *testing.T) {
 
 	db, client := featureDatabase(t, "migrate-features")
 	ctx := t.Context()
-	process := ProcessEvent("MigrateFeatures")
+	process := eventsource.ProcessEvent("MigrateFeatures").String()
 
 	steps := []struct {
 		name     string
@@ -115,13 +119,13 @@ func TestMigrateFeatures(t *testing.T) {
 			declared: []FeatureDeclaration{{Name: "debriefs", Description: "Mission debriefs, reworded.", Constant: "Debriefs"}, {Name: "cargo", Description: "Cargo.", Constant: "Cargo"}},
 			before: func(t *testing.T) {
 				t.Helper()
-				if err := SetFeatureEnabled(ctx, client, "debriefs", true, "harbormaster (test)"); err != nil {
+				if err := SetFeatureEnabled(ctx, client, "debriefs", true, eventsource.ProcessEvent("harbormaster (test)")); err != nil {
 					t.Fatalf("SetFeatureEnabled() error = %v", err)
 				}
 			},
 			wantRows: []FeatureFlag{
 				{Name: "cargo", Description: "Cargo.", UpdatedBy: process},
-				{Name: "debriefs", Description: "Mission debriefs, reworded.", Enabled: true, UpdatedBy: "harbormaster (test)"},
+				{Name: "debriefs", Description: "Mission debriefs, reworded.", Enabled: true, UpdatedBy: "the process harbormaster (test)"},
 			},
 			wantChanges: 1,
 		},
@@ -276,7 +280,7 @@ func TestFeatureSet_Follow(t *testing.T) {
 				t.Errorf("subscribed kinds mismatch (-want +got):\n%s", diff)
 			}
 
-			if err := SetFeatureEnabled(ctx, client, "debriefs", true, "harbormaster (test)"); err != nil {
+			if err := SetFeatureEnabled(ctx, client, "debriefs", true, eventsource.ProcessEvent("harbormaster (test)")); err != nil {
 				t.Fatalf("SetFeatureEnabled() error = %v", err)
 			}
 			if tt.signal {
@@ -288,7 +292,7 @@ func TestFeatureSet_Follow(t *testing.T) {
 				t.Fatalf("the copy did not show the flip within %s", tt.within)
 			}
 			flag, ok := features.Flag("debriefs")
-			if !ok || flag.UpdatedBy != "harbormaster (test)" || flag.UpdatedAt.IsZero() {
+			if !ok || flag.UpdatedBy != "the process harbormaster (test)" || flag.UpdatedAt.IsZero() {
 				t.Errorf("Flag() = %+v, %v; want the flipped row with its commit timestamp and principal", flag, ok)
 			}
 		})
@@ -339,6 +343,122 @@ func featureRouter(a *featureTestApp, signals Signaler) http.Handler {
 	return r
 }
 
+// observingSignaler is a signaler that tells a test of each signal as it is sent, before
+// the signal answers, with the context it is sent under.
+type observingSignaler func(ctx context.Context, kind SignalKind)
+
+func (o observingSignaler) Signal(ctx context.Context, kind SignalKind) error {
+	o(ctx, kind)
+
+	return nil
+}
+
+// endingClient is a client whose reads end the request once a test has armed it: the
+// request's context is canceled as a read begins, as it is when the page that asked
+// closes while the server reads.
+type endingClient struct {
+	Client
+	end atomic.Pointer[context.CancelFunc]
+}
+
+func (c *endingClient) ReadOnlyTransaction() ReadOnlyTransactionCloser {
+	if end := c.end.Load(); end != nil {
+		(*end)()
+	}
+
+	return c.Client.ReadOnlyTransaction()
+}
+
+// TestSetFeatureHandler_reloadsBeforeItSignals pins the order of a flip's last two
+// steps, on the Spanner emulator: this instance's copy holds the flip before the other
+// instances are told, so a request that comes while the signal is being sent, which
+// waits for the channel, is answered from the flip; and the signal is sent whatever
+// became of the reload and of the request. A request that ends while this instance
+// reloads, the flip committed, still signals, under a context the request's end did not
+// reach and with the signal's own timeout on it.
+func TestSetFeatureHandler_reloadsBeforeItSignals(t *testing.T) {
+	t.Parallel()
+
+	// clientClosedRequest is the status of a request whose client went away.
+	const clientClosedRequest = 499
+	tests := []struct {
+		name string
+		// reloadFails says the database fails the reads of the copy once it is loaded.
+		reloadFails bool
+		// requestEnds says the request's context is canceled as the reload's read begins.
+		requestEnds bool
+		wantStatus  int
+		// wantOnAtSignal is what this instance's copy says of the flag as the signal is sent.
+		wantOnAtSignal bool
+	}{
+		{name: "the copy holds the flip as the signal is sent", wantStatus: http.StatusOK, wantOnAtSignal: true},
+		{name: "a reload that fails still signals the other instances", reloadFails: true, wantStatus: http.StatusInternalServerError, wantOnAtSignal: false},
+		{name: "a request that ends during the reload still signals the other instances", requestEnds: true, wantStatus: clientClosedRequest, wantOnAtSignal: false},
+	}
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, client := featureDatabase(t, "set-feature-order-"+strconv.Itoa(i))
+			ctx := sessionCtx("harbormaster", nil)
+			if err := MigrateFeatures(ctx, client, []FeatureDeclaration{{Name: "debriefs", Description: "Debriefs.", Constant: "Debriefs"}}); err != nil {
+				t.Fatalf("MigrateFeatures() error = %v", err)
+			}
+			failing := &failingClient{Client: client}
+			ending := &endingClient{Client: failing}
+			features, err := LoadFeatures(ctx, ending)
+			if err != nil {
+				t.Fatalf("LoadFeatures() error = %v", err)
+			}
+			failing.fail.Store(tt.reloadFails)
+			request, endRequest := context.WithCancel(ctx)
+			defer endRequest()
+			if tt.requestEnds {
+				ending.end.Store(&endRequest)
+			}
+			var (
+				signaled     []SignalKind
+				onAtSignal   bool
+				signalEnded  error
+				signalWithin time.Duration
+				signalBound  bool
+			)
+			signals := observingSignaler(func(ctx context.Context, kind SignalKind) {
+				signaled = append(signaled, kind)
+				onAtSignal = features.Enabled("debriefs")
+				signalEnded = ctx.Err()
+				var deadline time.Time
+				deadline, signalBound = ctx.Deadline()
+				signalWithin = time.Until(deadline)
+			})
+			handler := featureRouter(&featureTestApp{client: client, perms: featureGrants(accesstypes.Execute), features: features}, signals)
+
+			req := httptest.NewRequestWithContext(request, http.MethodPost, "/api/"+SetFeatureRoute, strings.NewReader(`{"name":"debriefs","enabled":true}`))
+			rr := httptest.NewRecorder()
+			handler.ServeHTTP(rr, req)
+
+			if rr.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d (body %s)", rr.Code, tt.wantStatus, rr.Body.String())
+			}
+			if got := request.Err() != nil; got != tt.requestEnds {
+				t.Fatalf("the request ended under the handler = %v, want %v", got, tt.requestEnds)
+			}
+			if !slices.Equal(signaled, []SignalKind{KindFeatures}) {
+				t.Fatalf("signals sent = %v, want the features kind once", signaled)
+			}
+			if onAtSignal != tt.wantOnAtSignal {
+				t.Errorf("as the flip's signal was sent, this instance's copy said the flag on = %v, want %v", onAtSignal, tt.wantOnAtSignal)
+			}
+			if signalEnded != nil {
+				t.Errorf("the flip's signal was sent under a context that had ended (%v): the other instances are not told of a flip that is committed", signalEnded)
+			}
+			if !signalBound || signalWithin <= 0 || signalWithin > FeatureSignalTimeout {
+				t.Errorf("the flip's signal was sent with %s left (deadline set: %v), want the signal's own timeout of %s", signalWithin, signalBound, FeatureSignalTimeout)
+			}
+		})
+	}
+}
+
 // TestSetFeatureHandler pins the flip over the emulator: the row and the audit row
 // written in one transaction with the commit timestamp and the principal, the features
 // kind signaled, the copy reloaded and answered from; an unknown name 404; a dry run
@@ -383,6 +503,7 @@ func TestSetFeatureHandler(t *testing.T) {
 			perms:      featureGrants(accesstypes.Execute),
 			body:       `{"name":"unknown","enabled":true}`,
 			wantStatus: http.StatusNotFound,
+			wantBody:   saysFlagNotFound("unknown"),
 		},
 		{
 			name:       "a dry run refuses as the real call would, then writes and signals nothing",
@@ -477,15 +598,15 @@ func TestSetFeatureHandler(t *testing.T) {
 			if len(rows) != 1 || rows[0].Enabled != tt.wantEnabled {
 				t.Errorf("FeatureFlags = %+v, want the one flag with Enabled %v", rows, tt.wantEnabled)
 			}
-			if tt.wantEnabled && rows[0].UpdatedBy != UserEvent(ctx) {
-				t.Errorf("UpdatedBy = %q, want the principal %q", rows[0].UpdatedBy, UserEvent(ctx))
+			if tt.wantEnabled && rows[0].UpdatedBy != eventsource.UserEvent(ctx).String() {
+				t.Errorf("UpdatedBy = %q, want the principal %q", rows[0].UpdatedBy, eventsource.UserEvent(ctx).String())
 			}
 			changes := featureChanges(t, db)
 			if len(changes) != tt.wantChanges {
 				t.Errorf("FeatureFlagChanges = %+v, want %d rows", changes, tt.wantChanges)
 			}
 			for _, change := range changes {
-				if change.Name != "debriefs" || !change.Enabled || change.ChangedBy != UserEvent(ctx) || change.ChangedAt.IsZero() {
+				if change.Name != "debriefs" || !change.Enabled || change.eventSourceColumns != whoColumnsOf(eventsource.UserEvent(ctx)) || change.ChangedAt.IsZero() {
 					t.Errorf("audit row = %+v, want the flip with its commit timestamp and principal", change)
 				}
 			}
@@ -510,7 +631,7 @@ func TestFeatureFlagHandlers(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("MigrateFeatures() error = %v", err)
 	}
-	if err := SetFeatureEnabled(ctx, client, "beacons", true, "harbormaster (test)"); err != nil {
+	if err := SetFeatureEnabled(ctx, client, "beacons", true, eventsource.ProcessEvent("harbormaster (test)")); err != nil {
 		t.Fatalf("SetFeatureEnabled() error = %v", err)
 	}
 	features, err := LoadFeatures(ctx, client)
@@ -528,12 +649,14 @@ func TestFeatureFlagHandlers(t *testing.T) {
 		// row carries.
 		wantNames  []string
 		wantFields []string
+		// wantBody, where it is set, checks the body of an answer that is not 200.
+		wantBody func(t *testing.T, body []byte)
 	}{
 		{name: "the list, by name, every field to a List grant", perms: featureGrants(accesstypes.List), target: "/api/" + FeatureFlagsRoute, wantStatus: http.StatusOK, wantNames: []string{"beacons", "debriefs"}, wantFields: []string{"description", "enabled", "name", "updatedAt", "updatedBy"}},
 		{name: "the list with the columns asked for", perms: featureGrants(accesstypes.List), target: "/api/" + FeatureFlagsRoute + "?columns=name,enabled", wantStatus: http.StatusOK, wantNames: []string{"beacons", "debriefs"}, wantFields: []string{"enabled", "name"}},
 		{name: "the list without a List grant is forbidden", perms: featureGrants(accesstypes.Read), target: "/api/" + FeatureFlagsRoute, wantStatus: http.StatusForbidden},
 		{name: "one flag to a Read grant", perms: featureGrants(accesstypes.Read), target: "/api/" + FeatureFlagsRoute + "/beacons", wantStatus: http.StatusOK, wantNames: []string{"beacons"}, wantFields: []string{"description", "enabled", "name", "updatedAt", "updatedBy"}},
-		{name: "an unknown flag is not found", perms: featureGrants(accesstypes.Read), target: "/api/" + FeatureFlagsRoute + "/unknown", wantStatus: http.StatusNotFound},
+		{name: "an unknown flag is not found", perms: featureGrants(accesstypes.Read), target: "/api/" + FeatureFlagsRoute + "/unknown", wantStatus: http.StatusNotFound, wantBody: saysFlagNotFound("unknown")},
 		{name: "one flag without a Read grant is forbidden", perms: featureGrants(accesstypes.List), target: "/api/" + FeatureFlagsRoute + "/beacons", wantStatus: http.StatusForbidden},
 	}
 
@@ -546,6 +669,9 @@ func TestFeatureFlagHandlers(t *testing.T) {
 			handler.ServeHTTP(rr, httptest.NewRequestWithContext(ctx, http.MethodGet, tt.target, http.NoBody))
 			if rr.Code != tt.wantStatus {
 				t.Fatalf("status = %d, want %d (body %s)", rr.Code, tt.wantStatus, rr.Body.String())
+			}
+			if tt.wantBody != nil {
+				tt.wantBody(t, rr.Body.Bytes())
 			}
 			if tt.wantStatus != http.StatusOK {
 				return
@@ -577,6 +703,55 @@ func TestFeatureFlagHandlers(t *testing.T) {
 			}
 			if diff := cmp.Diff(tt.wantNames, names); diff != "" {
 				t.Errorf("names mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// flagNotFoundWords is what a caller is told of a flag that is not there, whichever route
+// found it missing.
+const flagNotFoundWords = "This feature flag does not exist."
+
+// saysFlagNotFound checks the body of an answer for a flag that is not there: it says
+// flagNotFoundWords, and nothing of the name asked for, which the server's log keeps.
+func saysFlagNotFound(name string) func(t *testing.T, body []byte) {
+	return func(t *testing.T, body []byte) {
+		t.Helper()
+		if !strings.Contains(string(body), flagNotFoundWords) {
+			t.Errorf("the answer = %s, want it to say %q", body, flagNotFoundWords)
+		}
+		if strings.Contains(string(body), name) {
+			t.Errorf("the answer = %s, which carries the name asked for, %q", body, name)
+		}
+	}
+}
+
+// TestSetFeatureEnabled_aFlagThatIsNotThere pins the answer for a flip of a flag that is
+// not there, over the emulator: a name that is no valid flag name and a valid name the
+// table does not hold are each not found, say flagNotFoundWords, and keep the name asked
+// for in the error, which the server's log prints.
+func TestSetFeatureEnabled_aFlagThatIsNotThere(t *testing.T) {
+	t.Parallel()
+
+	_, client := featureDatabase(t, "set-feature-not-there")
+	ctx := sessionCtx("harbormaster", nil)
+	if err := MigrateFeatures(ctx, client, []FeatureDeclaration{{Name: "debriefs", Description: "Debriefs.", Constant: "Debriefs"}}); err != nil {
+		t.Fatalf("MigrateFeatures() error = %v", err)
+	}
+
+	for _, name := range []Feature{"Not A Flag", "unknown"} {
+		t.Run(string(name), func(t *testing.T) {
+			t.Parallel()
+
+			err := SetFeatureEnabled(ctx, client, name, true, eventsource.ProcessEvent("harbormaster (test)"))
+			if err == nil || !httpio.HasNotFound(err) {
+				t.Fatalf("SetFeatureEnabled(%q) error = %v, want a not-found answer", name, err)
+			}
+			if got := httpio.Message(err); got != flagNotFoundWords {
+				t.Errorf("the caller is told %q, want %q", got, flagNotFoundWords)
+			}
+			if !strings.Contains(err.Error(), string(name)) {
+				t.Errorf("the error's text, which the server's log prints, is %q: it does not carry the name %q", err.Error(), name)
 			}
 		})
 	}

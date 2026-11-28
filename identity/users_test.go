@@ -9,6 +9,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session/sessioninfo"
@@ -33,144 +34,6 @@ func mustUUID(s string) impulse.UUID {
 
 func ptr[T any](v T) *T {
 	return &v
-}
-
-// TestManager_CreateUser pins the rule on a new user: a username, an address written
-// bare or refused, at least one role, each written as a membership under the new user's
-// id beside the row in the same transaction, and the id of the buffered row answered.
-func TestManager_CreateUser(t *testing.T) {
-	t.Parallel()
-
-	steward := []accesstypes.Role{"Steward"}
-	id := createdID.String()
-
-	tests := []struct {
-		name        string
-		account     NewAccount
-		failOn      string
-		wantErr     func(error) bool
-		wantWrites  []string
-		wantChanged int
-	}{
-		{
-			name:        "a user without an address, holding a global role",
-			account:     NewAccount{Username: "dana", Scope: globalScope, Roles: steward},
-			wantWrites:  []string{"insert user dana <none>", "insert membership global/ " + id + " Steward"},
-			wantChanged: 1,
-		},
-		{
-			name:        "an address is written bare",
-			account:     NewAccount{Username: "dana", Email: ptr("  Dana Reyes <dana@example.com> "), Scope: globalScope, Roles: steward},
-			wantWrites:  []string{"insert user dana dana@example.com", "insert membership global/ " + id + " Steward"},
-			wantChanged: 1,
-		},
-		{
-			name:        "a name is written without the space around it",
-			account:     NewAccount{Username: "dana", Name: ptr("  Dana Reyes "), Scope: globalScope, Roles: steward},
-			wantWrites:  []string{"insert user dana <none> name=Dana Reyes", "insert membership global/ " + id + " Steward"},
-			wantChanged: 1,
-		},
-		{
-			name:        "a name of nothing but space is no name",
-			account:     NewAccount{Username: "dana", Name: ptr("   "), Scope: globalScope, Roles: steward},
-			wantWrites:  []string{"insert user dana <none>", "insert membership global/ " + id + " Steward"},
-			wantChanged: 1,
-		},
-		{
-			name:    "a name too long to keep is refused, and nothing is written",
-			account: NewAccount{Username: "dana", Name: ptr(strings.Repeat("n", sessioninfo.MaxNameLength+1)), Scope: globalScope, Roles: steward},
-			wantErr: httpio.HasBadRequest,
-		},
-		{
-			name:        "the username is written without the space around it, and the membership under the id, whatever the name",
-			account:     NewAccount{Username: "  dana ", Scope: alphaScope, Roles: []accesstypes.Role{"Reader"}},
-			wantWrites:  []string{"insert user dana <none>", "insert membership domain/alpha " + id + " Reader"},
-			wantChanged: 1,
-		},
-		{
-			name:        "a role held in every domain",
-			account:     NewAccount{Username: "dana", Scope: everyScope, Roles: []accesstypes.Role{"Reader"}},
-			wantWrites:  []string{"insert user dana <none>", "insert membership every/ " + id + " Reader"},
-			wantChanged: 1,
-		},
-		{
-			name:        "a role named twice is one membership",
-			account:     NewAccount{Username: "dana", Scope: globalScope, Roles: []accesstypes.Role{"Steward", "Steward"}},
-			wantWrites:  []string{"insert user dana <none>", "insert membership global/ " + id + " Steward"},
-			wantChanged: 1,
-		},
-		{
-			name:    "no role is refused: nothing is written",
-			account: NewAccount{Username: "dana", Scope: globalScope},
-			wantErr: httpio.HasBadRequest,
-		},
-		{
-			name:    "a role that does not exist where it is given is refused",
-			account: NewAccount{Username: "dana", Scope: globalScope, Roles: []accesstypes.Role{"Reader"}},
-			wantErr: httpio.HasNotFound,
-			// The row was buffered before the role was judged; the error rolls the
-			// transaction back, so it is never written.
-			wantWrites: []string{"insert user dana <none>"},
-		},
-		{
-			name:    "a value that is no address is refused",
-			account: NewAccount{Username: "dana", Email: ptr("dana at example"), Scope: globalScope, Roles: steward},
-			wantErr: httpio.HasBadRequest,
-		},
-		{
-			name:    "an empty address is refused, not written as none",
-			account: NewAccount{Username: "dana", Email: ptr(""), Scope: globalScope, Roles: steward},
-			wantErr: httpio.HasBadRequest,
-		},
-		{
-			name:    "a blank username is refused",
-			account: NewAccount{Username: "   ", Scope: globalScope, Roles: steward},
-			wantErr: httpio.HasBadRequest,
-		},
-		{
-			name:    "the store's failure is the answer",
-			account: NewAccount{Username: "dana", Scope: globalScope, Roles: steward},
-			failOn:  "InsertUser",
-			wantErr: func(err error) bool { return errors.Is(err, errStore) },
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			store := &fakeStore{nextID: createdID, failOn: tt.failOn}
-			m, engine := newManager(t, store, engineRoles)
-
-			var got impulse.UUID
-			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-				id, err := m.CreateUser(ctx, txn, &tt.account)
-				got = id
-
-				return err
-			})
-			if tt.wantErr != nil {
-				if err == nil || !tt.wantErr(err) {
-					t.Fatalf("CreateUser() error = %v, want the refusal", err)
-				}
-				if got != impulse.NilUUID {
-					t.Errorf("CreateUser() = %s beside an error, want the nil id", got)
-				}
-			} else {
-				if err != nil {
-					t.Fatalf("CreateUser() error = %v", err)
-				}
-				if got != createdID {
-					t.Errorf("CreateUser() = %s, want the id the row is created under (%s)", got, createdID)
-				}
-			}
-			if diff := cmp.Diff(tt.wantWrites, store.writes); diff != "" {
-				t.Errorf("buffered writes (-want +got):\n%s", diff)
-			}
-			if engine.changed != tt.wantChanged {
-				t.Errorf("the engine was told %d times, want %d", engine.changed, tt.wantChanged)
-			}
-		})
-	}
 }
 
 // TestManager_DisableUser pins the shared rule: disabling a user ends every session they
@@ -248,6 +111,7 @@ func TestManager_DisableUser(t *testing.T) {
 			if diff := cmp.Diff(tt.wantWrites, store.writes); diff != "" {
 				t.Errorf("buffered writes (-want +got):\n%s", diff)
 			}
+			wantAccountRow(t, store, err, auditlog.ActAccountDisabled, userID)
 		})
 	}
 }
@@ -268,6 +132,7 @@ func TestManager_EnableUser(t *testing.T) {
 	if diff := cmp.Diff([]string{"update user " + userID.String() + " disabled=false"}, store.writes); diff != "" {
 		t.Errorf("buffered writes (-want +got):\n%s", diff)
 	}
+	wantAccountRow(t, store, nil, auditlog.ActAccountEnabled, userID)
 }
 
 // TestManager_SetName pins a person's name written by an operator: without the space
@@ -318,46 +183,94 @@ func TestManager_SetName(t *testing.T) {
 	}
 }
 
-// TestManager_SetEmail pins an address entered by hand: written bare, taken off by nil,
-// refused when it is no address, and not found for a user that does not exist.
+// TestManager_SetEmail pins an administrator's change of an address: nothing is written,
+// and once the transaction has committed the session library is asked to mail the link
+// that confirms the new address, bare, saying who asked; the account keeps an address
+// always, so none is refused; and the caller is told how the mailing went.
 func TestManager_SetEmail(t *testing.T) {
 	t.Parallel()
 
+	inAlpha := func(ctx context.Context) context.Context {
+		return resource.WithCaller(ctx, &resource.Caller{Permissions: callerPermissions{user: erin}, Scope: accesstypes.DomainScope("alpha")})
+	}
+	refused := httpio.NewConflictMessage("This person signs in through their organization's directory, which keeps their email address. Change it there")
 	tests := []struct {
 		name       string
 		user       impulse.UUID
-		email      *string
+		email      string
+		caller     func(ctx context.Context) context.Context
 		failOn     string
+		mailErr    error
 		wantErr    func(error) bool
-		wantWrites []string
+		wantAsked  []string
+		wantSent   bool
+		wantReason string
 	}{
-		{name: "an address is written bare", user: userID, email: ptr("  Dana Reyes <dana@example.com> "), wantWrites: []string{"update user " + userID.String() + " email=dana@example.com"}},
-		{name: "no address takes the one held off", user: userID, wantWrites: []string{"update user " + userID.String() + " email=<none>"}},
-		{name: "a value that is no address is refused", user: userID, email: ptr("dana"), wantErr: httpio.HasBadRequest},
-		{name: "an empty value is no address", user: userID, email: ptr(""), wantErr: httpio.HasBadRequest},
-		{name: "a user that does not exist is not found", user: createdID, email: ptr("dana@example.com"), wantErr: httpio.HasNotFound},
-		{name: "a failed read fails the call", user: userID, email: ptr("dana@example.com"), failOn: "Username", wantErr: func(err error) bool { return errors.Is(err, errStore) }},
-		{name: "a failed write fails the call", user: userID, email: ptr("dana@example.com"), failOn: "UpdateUser", wantErr: func(err error) bool { return errors.Is(err, errStore) }},
+		{
+			name: "the link is asked for after the commit, to the bare address, by the application for a call in no tenant", user: userID, email: "  Dana Reyes <dana@example.com> ",
+			wantAsked: []string{"address change of " + userID.String() + " to dana@example.com asked by the application"}, wantSent: true,
+		},
+		{
+			name: "a tenant's administrator is named by the tenant", user: userID, email: "dana@example.com", caller: inAlpha,
+			wantAsked: []string{"address change of " + userID.String() + " to dana@example.com asked by tenant alpha"}, wantSent: true,
+		},
+		{name: "no address is refused: an account always keeps one", user: userID, email: "  ", wantErr: httpio.HasBadRequest},
+		{name: "a value that is no address is refused", user: userID, email: "dana", wantErr: httpio.HasBadRequest},
+		{name: "a user that does not exist is not found", user: createdID, email: "dana@example.com", wantErr: httpio.HasNotFound},
+		{name: "a failed read fails the call", user: userID, email: "dana@example.com", failOn: "Username", wantErr: func(err error) bool { return errors.Is(err, errStore) }},
+		{
+			name: "a refusal the session library words is passed on as the reason", user: userID, email: "dana@example.com", mailErr: refused,
+			wantReason: "This person signs in through their organization's directory, which keeps their email address. Change it there",
+		},
+		{
+			name: "any other failure is a message that could not be sent, in words that carry none of it", user: userID, email: "dana@example.com", mailErr: errStore,
+			wantReason: "The message could not be sent. Try again in a few minutes",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			store := &fakeStore{usernames: map[impulse.UUID]string{userID: "dana"}, failOn: tt.failOn}
-			m, _ := newManager(t, store, nil)
+			mail := &fakeMail{err: tt.mailErr}
+			m, err := New(managedAuth, store, &fakeEngine{}, fakeSessions{mail: mail})
+			if err != nil {
+				t.Fatalf("New() error = %v", err)
+			}
 
-			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-				return m.SetEmail(ctx, txn, tt.user, tt.email)
+			told, sent, reason := 0, false, ""
+			err = inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+				if tt.caller != nil {
+					ctx = tt.caller(ctx)
+				}
+				err := m.SetEmail(ctx, txn, tt.user, tt.email, func(s bool, r string) { told, sent, reason = told+1, s, r })
+				if len(mail.asked) != 0 || told != 0 {
+					t.Errorf("before the commit: asked %v, told %d time(s), want nothing mailed until the transaction commits", mail.asked, told)
+				}
+
+				return err
 			})
 			if tt.wantErr != nil {
 				if err == nil || !tt.wantErr(err) {
 					t.Fatalf("SetEmail() error = %v, want the refusal", err)
 				}
-			} else if err != nil {
+				if len(mail.asked) != 0 || told != 0 {
+					t.Errorf("a refused change: asked %v, told %d time(s), want nothing", mail.asked, told)
+				}
+
+				return
+			}
+			if err != nil {
 				t.Fatalf("SetEmail() error = %v", err)
 			}
-			if diff := cmp.Diff(tt.wantWrites, store.writes); diff != "" {
-				t.Errorf("buffered writes (-want +got):\n%s", diff)
+			if len(store.writes) != 0 {
+				t.Errorf("buffered writes = %v, want none: the account keeps its address until the new one confirms", store.writes)
+			}
+			if diff := cmp.Diff(tt.wantAsked, mail.asked); diff != "" {
+				t.Errorf("asked of the session library (-want +got):\n%s", diff)
+			}
+			if told != 1 || sent != tt.wantSent || reason != tt.wantReason {
+				t.Errorf("told %d time(s): sent %v, reason %q; want once: sent %v, reason %q", told, sent, reason, tt.wantSent, tt.wantReason)
 			}
 		})
 	}

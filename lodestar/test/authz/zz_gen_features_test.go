@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/lodestar/pkg/resources"
 	"github.com/impulseframework/impulse/resource"
 )
@@ -57,6 +58,14 @@ func TestGeneratedFeatureGates(t *testing.T) {
 			grants:  grants{accesstypes.Read: true},
 			wantOn:  []int{http.StatusOK, http.StatusNotFound},
 		},
+		{
+			name:    "CommendationChangeHistory",
+			feature: resources.Commendations,
+			method:  http.MethodGet,
+			target:  "/console/api/commendations/00000000-0000-0000-0000-000000000001/changes",
+			grants:  grants{accesstypes.Read: true},
+			wantOn:  []int{http.StatusOK, http.StatusNotFound},
+		},
 	}
 	fields := []struct {
 		name    string
@@ -78,7 +87,7 @@ func TestGeneratedFeatureGates(t *testing.T) {
 
 	call := func(t *testing.T, feature resource.Feature, enabled bool, g grants, method, target, body string) *httptest.ResponseRecorder {
 		t.Helper()
-		if err := resource.SetFeatureEnabled(ctx, client, feature, enabled, "TestGeneratedFeatureGates"); err != nil {
+		if err := resource.SetFeatureEnabled(ctx, client, feature, enabled, eventsource.ProcessEvent("TestGeneratedFeatureGates")); err != nil {
 			t.Fatalf("resource.SetFeatureEnabled() error = %v", err)
 		}
 		h := newTestHandler(t, db, g)

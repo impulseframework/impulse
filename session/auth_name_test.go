@@ -147,8 +147,8 @@ func TestAuth_ChangeName(t *testing.T) {
 
 		rr := httptest.NewRecorder()
 		f.auth.ChangeName().ServeHTTP(rr, request(ctx, `{"name":"Pat"}`))
-		if rr.Code != http.StatusForbidden || !strings.Contains(rr.Body.String(), "not permitted in an impersonated session") {
-			t.Errorf("ChangeName() = %d %s, want 403 naming the impersonated session", rr.Code, rr.Body.String())
+		if rr.Code != http.StatusForbidden || !strings.Contains(rr.Body.String(), "You are acting as someone else, and this session cannot change their account.") {
+			t.Errorf("ChangeName() = %d %s, want 403 saying the session cannot change their account", rr.Code, rr.Body.String())
 		}
 	})
 
@@ -266,7 +266,7 @@ func TestAuth_signIn_theNameADirectoryGave(t *testing.T) {
 			t.Parallel()
 			f := newAuthFixture(t, gomock.NewController(t))
 			workos.SignIn(f.auth, "workos", resolveAll[workos.Identity](), &workos.Config{APIKey: "sk", ClientID: "client", RedirectURL: "https://app/sso/callback"})
-			identity := &sessioninfo.Identity{Method: sessioninfo.MethodWorkOS, Connection: "conn_1", Subject: "user_1", Email: "pat@example.com", EmailVerified: true, Name: tt.asserted}
+			identity := &sessioninfo.Identity{Method: sessioninfo.MethodWorkOS, Connection: "conn_1", Subject: "user_1", Email: "pat@example.com", Name: tt.asserted}
 			f.expectSignIn(impulse.Must(impulse.NewUUID()), func(req *sessioninfo.NewSessionRequest) {
 				if req.Identity.Name != tt.want {
 					t.Errorf("the sign-in's request carries the name %q, want %q", req.Identity.Name, tt.want)

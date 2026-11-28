@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/resource"
 )
 
 type (
@@ -14,7 +15,7 @@ type (
 	// each member of each group, wherever the group is kept, with the person's username
 	// and name and the group's name. The key is the group's id and the account's id. The
 	// group's id is read by a grant's condition (group), so a role file can show a person
-	// the people of the groups they are in themselves (group IN subject.groups).
+	// the people of the groups they are in themselves (group IN subject.crewGroups).
 	//
 	// StartsAt and EndsAt are the period of the person's place in the group, each empty
 	// for none. A place that has ended is not listed: it gives the person nothing and
@@ -25,6 +26,7 @@ type (
 	// @outlet(default)
 	// @order(Username asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(group member)
 	CrewGroupUser struct {
 		// @primarykey
 		// @attribute(group)
@@ -62,4 +64,41 @@ WHERE (m.EndsAt IS NULL OR m.EndsAt > CURRENT_TIMESTAMP())
 // Subquery is the query the rows are read from.
 func (CrewGroupUser) Subquery() (query string, params map[string]any) {
 	return crewGroupUserQuery, nil
+}
+
+// crewGroupAdministeredTenantsQuery answers the sector each group of the
+// Crew auth makes its people administrators of, a row for each, RowKey the group's id,
+// Tenant the sector, and the kind, the sector and the name of the role: a
+// group kept in a sector that holds there one of the roles the auth's permission
+// engine names as a sector's administrator's (@enteringAdministratorRoles), in
+// an assignment that has not ended, one that has not begun included. The methods that put a
+// person in a group and take one out refuse a caller by the same count (the identity
+// package's requireEnteringToChange), and each row of the whole application's groups, of
+// their people and of the roles they hold reads it (TenantsToEnter).
+const crewGroupAdministeredTenantsQuery = `
+SELECT tr.GroupId AS RowKey, tr.Kind AS Kind, tr.DomainId AS DomainId, tr.Role AS Role, tg.DomainId AS Tenant
+FROM CrewGroupRoles tr
+JOIN CrewGroups tg ON tg.Id = tr.GroupId
+WHERE tg.Kind = 'domain' AND tg.Axis = ''
+  AND tr.Kind = 'domain' AND tr.Axis = '' AND tr.DomainId = tg.DomainId
+  AND tr.Role IN UNNEST(@enteringAdministratorRoles)
+  AND (tr.EndsAt IS NULL OR tr.EndsAt > CURRENT_TIMESTAMP())
+`
+
+// crewGroupTenantsToEnter is what each row of a group of the Crew auth, or
+// of one of its people, answers TenantsToEnter with: the query, the roles it reads, and
+// column, the row's column that holds the group's id.
+func crewGroupTenantsToEnter(column string) resource.TenantsToEnter {
+	// The roles are the people's: the same names, bound under the same parameter.
+	enter := crewSessionUserTenantsToEnter(column)
+	enter.Query = crewGroupAdministeredTenantsQuery
+
+	return enter
+}
+
+// TenantsToEnter names the sector the group is kept in, where the group holds one
+// of that sector's administrator roles there: a caller whose session does not
+// enter it is not offered the methods that put a person in the group or take one out.
+func (CrewGroupUser) TenantsToEnter() resource.TenantsToEnter {
+	return crewGroupTenantsToEnter("GroupId")
 }

@@ -1,22 +1,27 @@
 import { Resource } from './brands';
 
 /**
- * The display-type vocabulary: the name the ccc generator emits for every field it
+ * The display-type vocabulary: the name the impulse generator emits for every field it
  * describes, a table column, a view column, a computed field, and an RPC field alike, and
  * the name a browser chooses a control and a cell renderer by. A leaf's display type is
- * its own name on every path (a time.Time is 'date', a civil.Date 'civildate', a impulse.UUID
+ * its own name on every path (a time.Time is 'date', a civil.Date 'civildate', an impulse.UUID
  * 'uuid', so a computed UUID field and a UUID column carry the same name), a nested
  * struct, an imported type, and a value with no fixed shape are 'object', a byte slice is
  * 'bytes', a nullable BOOL column is 'nullboolean', and a picker is 'enumerated'. A slice
  * of a leaf adds [], for every leaf but 'nullboolean', the tri-state rule for one
  * nullable BOOL column. 'enumerated[]' is a method's request field that holds several
  * picked keys; a column stores one key, so no resource field carries it. The list is the
- * generator's own (resource/generation/displaytype.go) and its
- * README's table (section 12), spelled the same, and the generator refuses to emit
- * anything outside it, so the union says exactly what a generated file can carry.
+ * generator's own (generation/displaytype.go) and the table of the resource package's
+ * README (resource/README.md, section 12), spelled the same, and the generator refuses to
+ * emit anything outside it, so the union says exactly what a generated file can carry.
  */
 export type ValidDisplayTypes =
   | 'string'
+  /**
+   * An integer, a float, or a decimal. A decimal is a string in the interface, because
+   * its JSON is a quoted string that keeps every digit, and this name says it is drawn
+   * and entered as a number.
+   */
   | 'number'
   | 'boolean'
   /** A nullable BOOL column: null, true, or false (NullBoolean), one tri-state control. */
@@ -64,6 +69,12 @@ export interface EnumerationOption {
 export interface RPCFieldMeta {
   fieldName: string;
   displayType: ValidRPCTypes;
+  /**
+   * Set on a decimal field, and on a list of decimals: its display type is number, which
+   * chooses the number control, and its value is text in JSON, so a form sends what the
+   * person typed as a string and no digit is lost.
+   */
+  decimal?: true;
   /** The resource whose rows a picker for this field lists; absent when the values are fixed (see enumeration). */
   enumeratedResource?: Resource;
   /** The fixed values of an enumeration table the field names; the picker renders them without a request. */
@@ -103,6 +114,14 @@ export interface MethodTransition {
 export interface MethodTarget {
   resource: Resource;
   key: Record<string, string>;
+  /**
+   * The request fields of the key whose empty text is a value of the key, such as the
+   * group of a role a person holds directly: a text field the method does not declare
+   * required. A row that holds the empty text there is named by it, and it is sent as it
+   * is. Every other part of the key holds a value on every row, and a row that holds
+   * none there is refused. Absent where no part of the key may be empty.
+   */
+  mayBeEmpty?: string[];
 }
 
 export interface MethodMeta {
@@ -121,10 +140,13 @@ export interface MethodMeta {
   dryRun?: true;
   /**
    * Set on a method that warns before it runs (@warning): the server writes what the
-   * call will do (asked with X-Warning, nothing saved), and a dialog shows it in the
-   * warning style and holds its confirm button until the person has typed the word.
+   * call will do (asked with X-Warning, nothing saved), and a dialog shows it and holds
+   * its confirm button until the server has answered. `typed` is the word the method has
+   * a person type first, where it declares one (@warning(typed: word)): the dialog then
+   * shows the server's words in the warning style and holds the button until the word
+   * is typed too.
    */
-  warning?: { typed: string };
+  warning?: { typed?: string };
   fields: RPCFieldMeta[];
   /** The feature flag that gates the method, by name; absent on an ungated method. See MethodDescriptor.feature. */
   feature?: string;
@@ -132,6 +154,15 @@ export interface MethodMeta {
   transition?: MethodTransition;
   /** The row the method runs against; absent on a method with no target row. */
   target?: MethodTarget;
+  /**
+   * The resources whose rows offer a method that names no target row (@callerEnters naming
+   * them): a page fills the method's request from such a row, and the row's Execute answer lists
+   * the method only for a caller who holds its grant and whose session enters every tenant the
+   * row names. The answer is not the whole of the method's judgment: the call may still be
+   * refused for a reason of the method's own. Absent on a method no row answers for, which is
+   * offered wherever its grant is held.
+   */
+  offeredOn?: Resource[];
 }
 
 /** When the server accepts a filter on a field: on its own, or only beside an indexed field. */
@@ -152,8 +183,25 @@ export interface FieldMeta {
    * Use the validators config parameter in all other contexts
    */
   required: boolean;
+  /**
+   * The default the schema declares for a yes or no field, emitted by the generator from
+   * the column's `DEFAULT (TRUE)` or `DEFAULT (FALSE)`: what the server stores for a create
+   * that leaves the field out. A create form starts the field there, so the form shows
+   * what an untouched save stores. Absent where the column declares no default, or one
+   * that is neither word, and on every field that is not a yes or no.
+   */
+  schemaDefault?: boolean;
   primaryKey?: { ordinalPosition: number };
   displayType: ValidDisplayTypes;
+  /**
+   * Set on a decimal field (a column of Spanner's NUMERIC type or PostgreSQL's numeric),
+   * and on a list of decimals. Its display type is number, which chooses the number
+   * control, and its value is text in JSON in both directions: a JavaScript number keeps
+   * about fifteen digits, and a decimal may hold more. A form sends what the person typed
+   * as a string, so no digit is lost. Absent on an integer and a float, which travel as
+   * JSON numbers. Emitted by the generator.
+   */
+  decimal?: true;
   /** The resource whose rows a picker for this key lists; absent when the values are fixed (see enumeration). */
   enumeratedResource?: Resource;
   /**
@@ -180,6 +228,15 @@ export interface FieldMeta {
    */
   filterable?: FilterEligibility;
   /**
+   * Set when the server refuses a sort by this field: its values have no order the query
+   * decoder knows (a list, a map, a nested object), and a request that sorts by it is
+   * answered 400. A table draws such a column's heading as words, with nothing to press,
+   * so it offers no sort the server would refuse. Absent on every field the server
+   * orders: text, numbers, yes or no, moments, dates, decimals and UUIDs. Emitted by the
+   * generator from the field's declared type.
+   */
+  sortable?: false;
+  /**
    * The text matches the server answers on this field, derived from the schema: a stored
    * LOWER(col) column leading an index answers `startswith`; a token column under the
    * table's search index answers `contains`, and the anchors its tokenizer declares; a
@@ -193,7 +250,7 @@ export interface FieldMeta {
    * Set when the field is declared `pii` on the server: a filter naming it, a text match
    * on it, or a search box that reaches it must travel in the request body, never in a
    * URL, which the server refuses with a 400. The store posts such a request on its own.
-   * Absent on every other field. Emitted by the ccc TypeScript generator.
+   * Absent on every other field. Emitted by the impulse TypeScript generator.
    */
   pii?: true;
   /**
@@ -211,13 +268,13 @@ export interface FieldMeta {
    * browser. JavaScript counts UTF-16 units and the server counts code points, so the
    * form refuses a little early on astral characters and never accepts what the server
    * refuses. Absent on an unbounded column and on every non-string field. Emitted by the
-   * ccc TypeScript generator.
+   * impulse TypeScript generator.
    */
   maxLength?: number;
   /**
    * The server never accepts this field from clients — it is server-owned
    * (output-only, an @state column, or the tenant key) — so forms render it read-only
-   * in every mode. Emitted by the ccc TypeScript generator.
+   * in every mode. Emitted by the impulse TypeScript generator.
    */
   readOnly?: boolean;
   /**
@@ -225,7 +282,7 @@ export interface FieldMeta {
    * accepted on create and update and absent from every list and read response, and a
    * `columns=` naming it is refused. The generated row interface has no property for it
    * while the Create and Patch shapes carry it, so a create or edit form renders a blank
-   * input for it and a view renders nothing. Emitted by the ccc TypeScript generator.
+   * input for it and a view renders nothing. Emitted by the impulse TypeScript generator.
    */
   writeOnly?: boolean;
   /**
@@ -242,6 +299,17 @@ export interface FieldMeta {
    * draws it. The generated row type makes it optional. Absent on an ungated field.
    */
   feature?: string;
+  /**
+   * Set on a field that holds a role's name (`@roleOf`): the stored names of the roles the
+   * field may hold that the auth's role file defines, sorted, a tenant's roles alone on a
+   * tenant-scoped resource and the Super Administrator role too on every other. A list
+   * writes the field's value in words, "Night shift lead" for `NightShiftLead`, and its
+   * column's filter offers these roles to pick, in words, and sends the stored name. A role
+   * made at run time is written the same way and is not listed here: the table asks the
+   * list which roles it holds beyond these, and offers them too. Empty where the generator
+   * had no role file to read. Absent on every other field. Emitted by the generator.
+   */
+  roles?: string[];
 }
 
 /** One @searchAlso branch of a resource's search box, as the metadata describes it. */
@@ -254,6 +322,17 @@ export interface SearchBranchMeta {
   fieldName: string;
   /** Set when the child field is declared `pii`: a box reaching it travels in the body. */
   pii?: true;
+}
+
+/**
+ * The words a person calls a resource's rows by: one row ("hangar pass") and several
+ * ("hangar passes"), each written alone and in the case it has inside a sentence. A
+ * screen puts "a", "an" or "this" before the word and capitalizes it where it opens a
+ * sentence.
+ */
+export interface RowWords {
+  one: string;
+  many: string;
 }
 
 export interface ResourceMeta {
@@ -276,15 +355,39 @@ export interface ResourceMeta {
    * one that says `live: true` is announced once and asks plainly, since its subscription
    * would never hear a change. Absent on metadata from a generator that predates the
    * field: no page is live by itself, and a page's own `live: true` is honored as before.
-   * See pageIsLive. Emitted by the ccc TypeScript generator.
+   * See pageIsLive. Emitted by the impulse TypeScript generator.
    */
   live?: boolean;
   /**
-   * The field a row of the resource is called by, where the resource declares one: the
-   * tenant record's name (`@tenantName`). The record is keyed by an id nobody reads, so a
-   * picker over it that configures no display of its own lists each row by this field,
-   * and a page that names the tenant a row is in reads it from here. Absent on every
-   * other resource, and on the tenant record of an application that marks no name.
+   * Set on a computed resource (a `@computed` struct). No query selects its rows: the
+   * server's handler orders and filters them by their real values, so the server refuses
+   * a sort or a filter by a field unless the caller holds List on the field with no
+   * condition left once the request is checked, or under the list's own condition. A list
+   * draws a column the digest lists as `conditional` with its heading as words and no
+   * filter control, so it offers nothing the server would refuse; a column listed as
+   * `conditionalOnTime` sorts and filters, since the server settles such a grant from the
+   * time of the request, and so does one listed as `conditionalWithResource`, which the
+   * server reads only on the rows the caller is shown. Absent on a table
+   * and a view, whose sorts and filters run over what the caller may see. Emitted by the
+   * impulse TypeScript generator.
+   */
+  computed?: true;
+  /**
+   * The words a row of the resource goes by. A list names its row by them on the button
+   * that adds one ("Add a hangar pass"), in the question before one is deleted ("Delete
+   * this hangar pass?") and in the message after ("Hangar pass deleted."). The generator
+   * emits the resource's name split into words, or the words its `@rowWord` states; a
+   * view that declares its table (rowsOf) and states none carries the table's. Absent on
+   * metadata from a generator that predates the field: a list then says "Create" and
+   * speaks of "this row".
+   */
+  rowWords?: RowWords;
+  /**
+   * The field the resource's rows are known by, by JSON name: the field marked `@name`,
+   * or the tenant record's `@tenantName`. A picker over the resource lists and shows its
+   * rows by it where the page configures no display, and a list that points to the
+   * resource reads its name field from it. Absent where the resource declares none: a
+   * picker then lists the keys.
    */
   nameField?: string;
   listDisabled?: boolean;
@@ -311,11 +414,41 @@ export interface ResourceMeta {
    */
   searchBranches?: SearchBranchMeta[];
   /**
+   * The resource's name fields: beside an id field that points to a row with a name, the
+   * name of that row. A name is no column of the resource: it is looked up by the id in
+   * the pointed-to table, stored nowhere and never written. Absent on a resource none of
+   * whose id fields points to a row with a name.
+   */
+  nameFields?: NameFieldMeta[];
+  /**
    * The feature flag that gates the resource, by name; absent on an ungated resource.
    * The generated routes read it to skip the page while the flag is off. See
    * ResourceDescriptor.feature.
    */
   feature?: string;
+}
+
+/**
+ * One name field of a resource: the name of the row an id field points to, where the
+ * pointed-to resource says what its rows are known by (`@name`, the tenant record's
+ * `@tenantName`, or an enumeration table's description). It is spelled as the id field
+ * with a trailing `Id` dropped, then `Name`: `squadronId` gives `squadronName`.
+ */
+export interface NameFieldMeta {
+  /** The name field's JSON name, as the row type carries it. */
+  fieldName: string;
+  /** The id field the name stands beside, by JSON name. */
+  of: string;
+  /**
+   * Whether a filter may name the name, in a field's own words: `'always'` where the id
+   * and the pointed-to name are both indexed, `'withIndexed'` where the filter must also
+   * name an indexed field. Absent where a filter may not name it.
+   */
+  filterable?: FilterEligibility;
+  /** The text matches the name answers, which stand alone as a field's do. Absent where it answers none. */
+  search?: SearchMatch[];
+  /** Set when the pointed-to name is declared `pii`: a filter by it travels in the body. */
+  pii?: true;
 }
 
 export type Meta = MethodMeta | ResourceMeta;

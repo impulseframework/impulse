@@ -3,7 +3,9 @@ package access
 
 import (
 	"context"
+	"reflect"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/go-playground/errors/v5"
@@ -31,13 +33,31 @@ type Client struct {
 }
 
 // New creates a new Client over a policy store built by one of the store
-// subpackages (spannerstore, postgresstore).
+// subpackages (spannerstore, postgresstore) and the permission collection of
+// the running release: what the release declares, its permissions, resources
+// and fields. The collection is required, and New refuses a nil one, a nil
+// pointer of a collection's type included. A stored grant naming what the
+// release does not declare (after a rollback, or once a release drops a
+// resource or a permission) is left out of the snapshot and reported as a
+// SkippedGrant instead of being carried as a grant nothing can check, a grant
+// that names a permission and no resource among them; the writes that give a
+// custom role a grant refuse a name the release does not declare
+// (UserManager.AddRoleGrant, UserManager.AddRolePermission), by the rule the
+// load skips by, and hold a grant on a resource to the rest of the role
+// file's rule as well, its scope and its condition; and the role file
+// validates against it.
 //
 // Permission checks are answered by the snapshot engine, compiled in-memory
-// from the release's default roles (WithDefaultRoles) and the policy store,
-// and kept fresh by a background heartbeat plus an optional push hint (see
-// WithChangeSignal). All policy writes (user management) go through the same
-// store and refresh the snapshot immediately on this instance.
+// from the release's default roles (WithDefaultRoles) and the policy store.
+// The snapshot is kept fresh by the checks themselves: one that finds it older
+// than the heartbeat interval (WithHeartbeatInterval), or behind a change this
+// instance wrote or was hinted of (WithChangeSignal), reads the store before
+// it answers, on the engine's own context and never the caller's, so a check
+// is safe inside a database transaction. A background heartbeat and the push
+// hint do the same ahead of the checks; nothing depends on them, so an
+// instance that got no CPU between requests is no staler than the interval.
+// All policy writes (user management) go through the same store and are read
+// by the next check on this instance.
 //
 // The store's values — domains, users, resources — are opaque labels to
 // access: referential validity belongs to the callers that write them, and
@@ -47,36 +67,56 @@ type Client struct {
 // accesstypes.PolicyScope; neither is ever a distinguished value.
 //
 // New fails when the role file does not parse or does not validate against
-// the collection: a release whose default roles are wrong does not start.
-func New(store Store, opts ...Option) (*Client, error) {
+// the collection: a release whose default roles are wrong does not start. A
+// refusal of New's own does not name New: the caller that wraps its error
+// names it.
+func New(store Store, collection PermissionCollection, opts ...Option) (*Client, error) {
+	if IsNilCollection(collection) {
+		return nil, errors.New("the collection must not be nil: pass the permission collection the release declares, which every grant is held to: the generated router's Collection(), or for an application with several sites the union of theirs (access.UnionCollection)")
+	}
 	options := defaultClientOptions()
 	for _, opt := range opts {
 		opt(options)
 	}
+	options.collection = collection
+	if options.roleFiles > 1 {
+		return nil, errors.Newf("access.WithDefaultRoles() is among the options %d times, and an engine holds the roles of one auth, so it takes one role file: "+
+			"hand it its own auth's, once (another auth has an engine of its own)", options.roleFiles)
+	}
 
 	// Every Client defines the Super Administrator role, with or without a role
-	// file: the file's roles are compiled beside it.
-	config := &RoleConfig{}
+	// file: the file's roles are compiled beside it. A Client opened without a
+	// role file hands no configuration (nil), which declares no role and is asked
+	// nothing a role file is asked; it is told no auth's name, so it does not open
+	// where the collection knows several auths (validateEngineAuth).
+	var config *RoleConfig
 	if options.roleFileSet {
-		if options.collection == nil {
-			return nil, errors.New("access.WithDefaultRoles(): the collection must not be nil; the role file validates against what the release declares")
-		}
 		var err error
 		config, err = options.roleFile.Parse()
 		if err != nil {
 			return nil, errors.Wrap(err, "access.WithDefaultRoles()")
 		}
+		// The name the file is handed over under is the application's wiring, not the
+		// file's content: one generation did not know is refused as that.
+		if err := validateAuthName(collection, options.auth); err != nil {
+			return nil, errors.Wrap(err, "access.WithDefaultRoles()")
+		}
+		if err := validateFileAuth(config, options.auth); err != nil {
+			return nil, errors.Wrap(err, "access.WithDefaultRoles()")
+		}
+	} else if err := validateEngineAuth(collection); err != nil {
+		return nil, err
 	}
 	// The methods a super administrator always runs are the application's wiring, not
 	// the role file's content: one the release does not declare is refused as that,
 	// before the file's grants are compiled.
-	if _, err := superAdministratorRole(options.collection, options.superMethods); err != nil {
-		return nil, errors.Wrap(err, "access.New()")
+	if _, err := superAdministratorRole(collection, options.superMethods); err != nil {
+		return nil, err
 	}
-	defaults, err := compileDefaultRoles(options.collection, config, options.superMethods)
+	defaults, err := compileDefaultRoles(collection, config, options.superMethods, options.auth)
 	if err != nil {
 		if !options.roleFileSet {
-			return nil, errors.Wrap(err, "access.New()")
+			return nil, err
 		}
 
 		return nil, errors.Wrap(err, "access.WithDefaultRoles(): the role file does not validate")
@@ -89,13 +129,37 @@ func New(store Store, opts ...Option) (*Client, error) {
 	return &Client{
 		evaluator:            snapEngine,
 		snapEngine:           snapEngine,
-		userManager:          newUserManager(manager, defaults, snapEngine, options.tenantAdministrators),
+		userManager:          newUserManager(manager, defaults, snapEngine, options.tenantAdministrators, collection),
 		store:                store,
 		defaults:             defaults,
-		collection:           options.collection,
+		collection:           collection,
 		superMethods:         slices.Clone(options.superMethods),
 		tenantAdministrators: slices.Clone(options.tenantAdministrators),
 	}, nil
+}
+
+// IsNilCollection reports whether collection is no collection: the nil
+// interface, or a nil pointer of a collection's type, which a variable nothing
+// was assigned to hands over (var collection *resource.GeneratedCollection).
+// The interface that holds such a pointer is not nil, so a comparison with nil
+// lets it through, and the first question the engine asks it panics. New and
+// UnionCollection refuse what it reports, and an auth that takes the collection
+// as a setting asks it before it opens anything, so that its refusal names the
+// setting: this is the one place that decides what a nil collection is.
+//
+// A struct value that wraps a nil collection is not reported: nothing short of
+// asking it a question tells it from a collection. New asks the collection its
+// first question once the role file is parsed, before it compiles the file's
+// grants or opens the store, and that call panics on such a value: an
+// application that hands one over stops when it starts, with a panic and not
+// with New's refusal.
+func IsNilCollection(collection PermissionCollection) bool {
+	if collection == nil {
+		return true
+	}
+	value := reflect.ValueOf(collection)
+
+	return value.Kind() == reflect.Pointer && value.IsNil()
 }
 
 // WaitReady blocks until the first policy snapshot has loaded (or ctx
@@ -105,11 +169,13 @@ func (c *Client) WaitReady(ctx context.Context) error {
 	return c.snapEngine.waitReady(ctx)
 }
 
-// Close stops the Client's background policy reloading and change-signal
-// watch, and waits for a change announcement still in flight (bounded by a
-// few seconds), so a policy write made right before Close reaches the other
-// instances before the application closes the channel the signal rides on.
-// Permission checks keep answering from the last loaded snapshot.
+// Close stops the Client's policy reloading, the background loop's and the
+// checks' own, and its change-signal watch. A policy write hands its
+// announcement to the change signal before it returns, so a write that has
+// returned before Close has announced already, and the application closes
+// the channel the signal rides on after Close. Close does not wait for a
+// write still running on another goroutine. Permission checks keep answering
+// from the last loaded snapshot, and read the store no more.
 func (c *Client) Close() error {
 	return c.snapEngine.close()
 }
@@ -122,7 +188,7 @@ func (c *Client) Handlers(logHandler LogHandler) Handlers {
 // CheckPolicy reads the policy store once and reports everything a deploy
 // should hear about before the release takes traffic: the shapes the role
 // file carries that are legal and probably not what the author wanted
-// (GrantWarning, ConcealingKeyWarning), and what the store holds that this
+// (GrantWarning, RequiredFieldWarning, ConcealingKeyWarning, UnreadSetWarning), and what the store holds that this
 // release cannot use as written — a grant it would skip (*SkippedGrant), a
 // custom role a default of the same name shadows (*ShadowedRole), memberships
 // naming a role nothing defines (*OrphanedMembership). It writes nothing: the
@@ -158,19 +224,23 @@ func (c *Client) CheckPolicy(ctx context.Context) ([]Warning, error) {
 //
 // The Environment is the per-request decision context (sampled once per
 // request). The engine folds condition facts against it at check time; a
-// condition referencing an attribute the Environment does not carry is a
-// check error, never a silent allow or deny. The answer here is always
-// Granted or Denied: a scope-wide grant carries only row-free conditions
-// (row-referencing ones are rejected at snapshot load — no row exists for
-// them to see), and row-free conditions fold to a definite answer. A
-// condition folding leaves unsettled — a subject-attribute reference, which
-// is data only the database can compare — is a check error too: there is no
-// place to evaluate it on this path.
+// condition that reads an attribute the Environment does not carry is a check
+// error, never a silent allow or deny, when the check comes to read it. A
+// holder's conditions are joined as any-of and read in turn, so one that folds
+// true settles the answer first: the check then answers Granted with no error,
+// and the condition that needed the missing attribute is never read. The answer
+// here is always Granted or Denied: a scope-wide grant carries only conditions
+// about the time of the request, which fold to a definite answer. A stored one
+// whose condition no scope-wide check could settle (it reads a row or a subject
+// value, or its time is not one the check can read) is left out at snapshot
+// load and reported as a SkippedGrant, so it gives nobody the permission and
+// fails no other grant.
 //
-// There is no scope validation: an unknown tenant simply holds no grants, so
-// the check fails closed. Callers wanting to distinguish "invalid tenant"
-// from "no permission" validate the tenant in their own guard, against the
-// source that owns tenants.
+// A tenant's name is not validated: an unknown tenant simply holds no grants,
+// so the check fails closed. A scope that names nothing, the zero Scope, is
+// refused with accesstypes.ErrNoScope. Callers wanting to distinguish "invalid
+// tenant" from "no permission" validate the tenant in their own guard, against
+// the source that owns tenants.
 func (c *Client) CheckUser(ctx context.Context, env accesstypes.Environment, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission) (accesstypes.Decision, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -200,8 +270,9 @@ func (c *Client) CheckUser(ctx context.Context, env accesstypes.Environment, use
 // user's identity, so a set folding TRUE answers Granted, one folding FALSE
 // answers Denied, and a Conditional decision carries only what the database
 // must still evaluate — the engine folds facts, and never renders SQL. A
-// condition referencing an attribute the Environment does not carry is a
-// check error, never a silent allow or deny.
+// condition that reads an attribute the Environment does not carry is a check
+// error when the check comes to read it, never a silent allow or deny; see
+// CheckUser for when another condition settles the answer first.
 //
 // Grouping is the engine's job — only the engine owns grant-set identity: a
 // Conditional decision carries one ConditionGroup whose Resources lists
@@ -211,12 +282,17 @@ func (c *Client) CheckUser(ctx context.Context, env accesstypes.Environment, use
 // a write check's boolean list — OR across a group's grants inside its
 // Condition, AND across groups computed by the caller — and a denial names
 // the failing group's Resources. See CheckUser for the Environment and scope
-// semantics.
+// semantics. A name with more than one dot is refused with an error before
+// anything is read.
 func (c *Client) CheckUserResources(
 	ctx context.Context, env accesstypes.Environment, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource,
 ) (accesstypes.Decisions, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+
+	if err := refuseManyDots(resources); err != nil {
+		return nil, err
+	}
 
 	resourceDecisions, err := c.evaluator.checkUserResources(ctx, env, user, scope, perm, resources...)
 	if err != nil {
@@ -229,6 +305,20 @@ func (c *Client) CheckUserResources(
 	}
 
 	return decisions, nil
+}
+
+// refuseManyDots errors for the first of resources, in the order given, whose
+// name holds more than one dot: a dot separates a resource from one of its
+// fields, and a resource's own name holds none, so such a name names nothing,
+// and answering it Denied would hide the caller's mistake.
+func refuseManyDots(resources []accesstypes.Resource) error {
+	for _, res := range resources {
+		if strings.Count(string(res), ".") > 1 {
+			return errors.Newf("resource %q: a name a check is asked about holds at most one dot. A dot separates a resource from one of its fields (Resource.field), so a name with more than one names nothing. Ask about the resource, or about one field of it", res)
+		}
+	}
+
+	return nil
 }
 
 // factsFor builds the condition-folding facts for one user check: the
@@ -256,10 +346,13 @@ func environmentFacts(env accesstypes.Environment) condition.Facts {
 }
 
 // settleScopeWide translates a scope-wide engine decision into the public
-// Decision: granted and denied pass through, and conditional coverage —
-// always row-free, enforced at snapshot load — folds against the facts to a
-// definite answer. A condition folding leaves unsettled needs data no
-// scope-wide check can reach, and is an error rather than a guess.
+// Decision: granted and denied pass through, and conditional coverage folds
+// against the facts to a definite answer. The snapshot load keeps only
+// conditions a scope-wide check can settle (grantRule.unusable), so what can
+// still fail here is the request's: a fact the condition reads and the
+// environment does not carry, which is an error rather than a guess. A
+// condition left unsettled is an error the same way; no loaded grant brings
+// one.
 func settleScopeWide(decision resourceDecision, facts condition.Facts) (accesstypes.Decision, error) {
 	switch {
 	case decision.granted:
@@ -291,8 +384,8 @@ func settleScopeWide(decision resourceDecision, facts condition.Facts) (accessty
 //
 // The Environment and scope semantics are CheckUser's. A role has no identity
 // of its own, so the folding facts carry the request's instant and nothing
-// else; a scope-wide condition that needs a subject is a check error here
-// exactly as it is for a user.
+// else; a stored scope-wide grant whose condition needs a subject is left out
+// at snapshot load, for a role exactly as for a user.
 func (c *Client) CheckRole(ctx context.Context, env accesstypes.Environment, role accesstypes.Role, scope accesstypes.Scope, perm accesstypes.Permission) (accesstypes.Decision, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -315,12 +408,17 @@ func (c *Client) CheckRole(ctx context.Context, env accesstypes.Environment, rol
 // semantics. A Conditional decision's payload is what the database must still
 // evaluate; a subject term in it is bound at render time to the session's
 // effective identity by the resource layer, never here — a role has no
-// identity of its own.
+// identity of its own. A name with more than one dot is refused with an error
+// before anything is read.
 func (c *Client) CheckRoleResources(
 	ctx context.Context, env accesstypes.Environment, role accesstypes.Role, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource,
 ) (accesstypes.Decisions, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+
+	if err := refuseManyDots(resources); err != nil {
+		return nil, err
+	}
 
 	resourceDecisions, err := c.evaluator.checkRoleResources(ctx, role, scope, perm, resources...)
 	if err != nil {
@@ -336,8 +434,9 @@ func (c *Client) CheckRoleResources(
 }
 
 // UserHasGrants reports whether user holds at least one grant in scope,
-// answered from the in-memory policy snapshot (safe inside transactions; no
-// store read). It is the visibility question concealed tenancy asks: an
+// answered from the in-memory policy snapshot (safe inside transactions: a
+// reload it waits on runs on the engine's own context). It is the visibility
+// question concealed tenancy asks: an
 // application hiding tenant existence answers a caller with no grants in a
 // domain exactly as if the domain did not exist, while a caller with any
 // foothold proceeds to ordinary permission checks. It is also the predicate a
@@ -354,7 +453,7 @@ func (c *Client) UserHasGrants(ctx context.Context, user accesstypes.User, scope
 
 // UserIsSuperAdministrator reports whether user holds the Super Administrator
 // role (accesstypes.SuperAdministrator), answered from the in-memory policy
-// snapshot like the checks (safe inside transactions; no store read). It is
+// snapshot like the checks (safe inside transactions). It is
 // the question a session's reach into a tenant asks of the session's actor:
 // a super administrator enters every tenant, whatever the tenant's sign-in
 // settings say. The one other person a tenant's sign-in settings do not keep
@@ -379,9 +478,11 @@ func (c *Client) SuperAdministratorMethods() []accesstypes.Resource {
 
 // UserPermissionDigest returns user's structural grant enumeration within
 // scope: every resource and field the user's grants reach, each mapping
-// permission → granted (an unconditional cover exists) or conditional (only
-// conditional grants cover it), with denied targets absent — fail-closed by
-// construction. It is the payload of the frontend's per-scope permission
+// permission → granted (an unconditional cover exists), conditional on time
+// (only conditional grants cover it, and every one of their conditions reads
+// the time of the request alone) or conditional (only conditional grants
+// cover it, and one of their conditions reads more), with denied targets
+// absent — fail-closed by construction. It is the payload of the frontend's per-scope permission
 // digest and is advisory only; enforcement stays with the Check seams.
 //
 // Unlike the Check seams the digest never folds: it reports grant structure
@@ -419,9 +520,9 @@ func (c *Client) RoleHasGrants(ctx context.Context, role accesstypes.Role, scope
 
 // RolePermissionDigest returns role's structural grant enumeration within
 // scope — the frontend digest payload for a session operating as the role,
-// with UserPermissionDigest's semantics: granted or conditional per resource
-// and permission, denied targets absent, nothing folded, scope-wide grants
-// not enumerated.
+// with UserPermissionDigest's semantics: granted, conditional on time or
+// conditional per resource and permission, denied targets absent, nothing
+// folded, scope-wide grants not enumerated.
 func (c *Client) RolePermissionDigest(ctx context.Context, role accesstypes.Role, scope accesstypes.Scope) (accesstypes.PermissionDigest, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -434,6 +535,16 @@ func (c *Client) RolePermissionDigest(ctx context.Context, role accesstypes.Role
 // for sessions operating as a role principal. See RoleChecker.
 func (c *Client) ForRole(role accesstypes.Role) *RoleChecker {
 	return NewRoleChecker(c, role)
+}
+
+// Auth returns the name of the auth whose roles the engine holds: the name its
+// role file carries and was handed over under (WithDefaultRoles). It is empty for
+// an engine opened with no role file, and for one whose file was handed over
+// under no name. What takes an engine on an auth's behalf asks it, so that one
+// auth's engine is never taken for another's (the resource package's
+// SessionPermissions does, for the requests of an auth).
+func (c *Client) Auth() string {
+	return c.defaults.authName()
 }
 
 // UserManager returns the UserManager for managing users, roles, and permissions.

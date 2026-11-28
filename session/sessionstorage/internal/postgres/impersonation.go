@@ -35,8 +35,8 @@ func (s *SessionStorageDriver) ImpersonationEnabled() bool {
 // impersonationColumns are the record's columns after the SessionId marker, in
 // the order the session query selects and Session scans them.
 var impersonationColumns = []string{
-	"ActorUsername", "ActorUserId", "ActorRealm", "SourceSessionId", "PrincipalKind", "PrincipalUserId", "PrincipalRole",
-	"Mask", "Reason", "StartedAt", "ExpiresAt", "EndedAt", "EndReason",
+	"ActorUsername", "ActorUserId", "ActorRealm", "SourceSessionId", "PrincipalKind", "PrincipalUserId", "PrincipalUsername",
+	"PrincipalRole", "Mask", "Reason", "StartedAt", "ExpiresAt", "EndedAt", "EndReason",
 }
 
 // impersonationSelect renders the impersonation columns for the session query:
@@ -72,8 +72,8 @@ func newImpersonationScan(sessionID impulse.UUID) *impersonationScan {
 // dests returns the scan destinations in impersonationColumns order.
 func (p *impersonationScan) dests() []any {
 	return []any{
-		&p.imp.ActorUsername, &p.actorUserID, &p.imp.ActorRealm, &p.sourceSessionID, &p.imp.PrincipalKind, &p.imp.PrincipalUserID, &p.imp.PrincipalRole,
-		&p.imp.Mask, &p.imp.Reason, &p.imp.StartedAt, &p.imp.ExpiresAt, &p.imp.EndedAt, &p.imp.EndReason,
+		&p.imp.ActorUsername, &p.actorUserID, &p.imp.ActorRealm, &p.sourceSessionID, &p.imp.PrincipalKind, &p.imp.PrincipalUserID, &p.imp.PrincipalUsername,
+		&p.imp.PrincipalRole, &p.imp.Mask, &p.imp.Reason, &p.imp.StartedAt, &p.imp.ExpiresAt, &p.imp.EndedAt, &p.imp.EndReason,
 	}
 }
 
@@ -109,7 +109,8 @@ func throwaways(n int) []any {
 
 // InsertImpersonatedSession inserts a session row and its impersonation record
 // atomically, honoring the request's custom session data semantics exactly as
-// InsertSession does (per-call data, configured resolver, or neither).
+// InsertSession does (per-call data, configured resolver, or neither), and removes the
+// sessions idle more than 30 days once the session is in, as it does.
 func (s *SessionStorageDriver) InsertImpersonatedSession(
 	ctx context.Context, insertSession *dbtype.InsertSession, req *sessioninfo.NewSessionRequest, imp *dbtype.InsertImpersonation,
 ) (impulse.UUID, error) {
@@ -133,6 +134,7 @@ func (s *SessionStorageDriver) InsertImpersonatedSession(
 	if err := s.execSessionInsert(ctx, id, query, args, req, s.initialAuthEvent(id, req, imp, insertRecord)); err != nil {
 		return impulse.NilUUID, err
 	}
+	sessionsRemoval.remove(ctx, s.conn, s.sessionTable())
 
 	return id, nil
 }
@@ -152,13 +154,13 @@ func (s *SessionStorageDriver) insertImpersonation(ctx context.Context, txn pgx.
 
 	query := fmt.Sprintf(`
 		INSERT INTO %s
-			("SessionId", "ActorUsername", "ActorUserId", "ActorRealm", "SourceSessionId", "PrincipalKind", "PrincipalUserId", "PrincipalRole", "Mask", "Reason", "StartedAt", "ExpiresAt")
+			("SessionId", "ActorUsername", "ActorUserId", "ActorRealm", "SourceSessionId", "PrincipalKind", "PrincipalUserId", "PrincipalUsername", "PrincipalRole", "Mask", "Reason", "StartedAt", "ExpiresAt")
 		VALUES
-			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now(), $11)
+			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now(), $12)
 		`, pgx.Identifier{s.impersonation.TableName}.Sanitize())
 	args := []any{
-		id, imp.ActorUsername, actorUserID, imp.ActorRealm, sourceSessionID, imp.PrincipalKind, imp.PrincipalUserID, imp.PrincipalRole,
-		imp.Mask, imp.Reason, imp.ExpiresAt,
+		id, imp.ActorUsername, actorUserID, imp.ActorRealm, sourceSessionID, imp.PrincipalKind, imp.PrincipalUserID, imp.PrincipalUsername,
+		imp.PrincipalRole, imp.Mask, imp.Reason, imp.ExpiresAt,
 	}
 
 	if _, err := txn.Exec(ctx, query, args...); err != nil {
@@ -212,9 +214,9 @@ func (s *SessionStorageDriver) DestroyImpersonatedSessions(ctx context.Context, 
 		SET "EndedAt" = now(), "EndReason" = $2
 		WHERE "ActorUsername" = $1 AND "EndedAt" IS NULL`, impTable)
 
-	txn, err := s.conn.Begin(ctx)
+	txn, err := s.begin(ctx)
 	if err != nil {
-		return errors.Wrap(err, "Queryer.Begin()")
+		return errors.Wrap(err, "SessionStorageDriver.begin()")
 	}
 	defer func() {
 		_ = txn.Rollback(ctx)
@@ -256,9 +258,9 @@ func (s *SessionStorageDriver) DestroyImpersonatedSession(ctx context.Context, s
 		SET "EndedAt" = now(), "EndReason" = $2
 		WHERE "SessionId" = $1 AND "EndedAt" IS NULL`, impTable)
 
-	txn, err := s.conn.Begin(ctx)
+	txn, err := s.begin(ctx)
 	if err != nil {
-		return errors.Wrap(err, "Queryer.Begin()")
+		return errors.Wrap(err, "SessionStorageDriver.begin()")
 	}
 	defer func() {
 		_ = txn.Rollback(ctx)

@@ -10,6 +10,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -31,12 +32,27 @@ func (RefitTask) FileKeys() []resource.FileKey {
 	}
 }
 
+// NamedRows names the columns that name a row of another resource the application lists
+// (RefitID): a create or an update sets one only to a row its caller can list, so the
+// library answers any other as a row that is not there.
+func (RefitTask) NamedRows() []resource.NamedRow {
+	return []resource.NamedRow{
+		{Field: "RefitID", Resource: "Refits", Table: "Refits", KeyColumn: "Id", TenantColumn: "ShipId", TenantPath: []resource.BindingHop{{Table: "Ships", JoinColumn: "Id", Column: "HangarId"}, {Table: "Hangars", JoinColumn: "Id", Column: "SectorId"}}},
+	}
+}
+
+// TenantBinding is the row's way to its tenant: the library writes the tenant on every
+// change record of the row, whoever writes the row.
+func (RefitTask) TenantBinding() resource.TenantBinding {
+	return resource.TenantBinding{Field: "RefitID", Path: []resource.BindingHop{{Table: "Refits", JoinColumn: "Id", Column: "ShipId"}, {Table: "Ships", JoinColumn: "Id", Column: "HangarId"}, {Table: "Hangars", JoinColumn: "Id", Column: "SectorId"}}}
+}
+
 // refitTaskRead mirrors the wire shape the resource routes list
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; refitTaskReadSets holds one Set per read operation.
 type refitTaskRead struct {
-	RefitID      impulse.UUID `json:"refitId"      perm:"-"`
 	TaskNumber   int64        `json:"taskNumber"   perm:"-"`
+	RefitID      impulse.UUID `json:"refitId"      perm:"-"`
 	Instructions string       `json:"instructions"`
 	Done         bool         `json:"done"`
 	Notes        *string      `json:"notes"`
@@ -49,8 +65,8 @@ var refitTaskReadSets resource.SetCache[RefitTask, refitTaskRead]
 // accept on a mutation, so a patch armed with Enforce meets the field permissions the
 // routes enforce; refitTaskWriteSets holds one Set per mutation.
 type refitTaskWrite struct {
-	RefitID      impulse.UUID `json:"-"`
 	TaskNumber   int64        `json:"-"`
+	RefitID      impulse.UUID `json:"-"`
 	Instructions string       `json:"instructions"`
 	Done         bool         `json:"done"`
 	Notes        *string      `json:"notes"`
@@ -73,18 +89,6 @@ func NewRefitTaskQueryFromQuerySet(qSet *resource.QuerySet[RefitTask]) *RefitTas
 	return &RefitTaskQuery{qSet: qSet}
 }
 
-func (q *RefitTaskQuery) SetRefitID(v impulse.UUID) *RefitTaskQuery {
-	q.qSet.SetKey("RefitID", v)
-
-	return q
-}
-
-func (q *RefitTaskQuery) RefitID() impulse.UUID {
-	v, _ := q.qSet.Key("RefitID").(impulse.UUID)
-
-	return v
-}
-
 func (q *RefitTaskQuery) SetTaskNumber(v int64) *RefitTaskQuery {
 	q.qSet.SetKey("TaskNumber", v)
 
@@ -93,6 +97,18 @@ func (q *RefitTaskQuery) SetTaskNumber(v int64) *RefitTaskQuery {
 
 func (q *RefitTaskQuery) TaskNumber() int64 {
 	v, _ := q.qSet.Key("TaskNumber").(int64)
+
+	return v
+}
+
+func (q *RefitTaskQuery) SetRefitID(v impulse.UUID) *RefitTaskQuery {
+	q.qSet.SetKey("RefitID", v)
+
+	return q
+}
+
+func (q *RefitTaskQuery) RefitID() impulse.UUID {
+	v, _ := q.qSet.Key("RefitID").(impulse.UUID)
 
 	return v
 }
@@ -175,8 +191,8 @@ func NewRefitTaskColumns() *RefitTaskColumns {
 
 func (c *RefitTaskColumns) All() *RefitTaskColumns {
 	c.fields = []accesstypes.Field{
-		"RefitID",
 		"TaskNumber",
+		"RefitID",
 		"Instructions",
 		"Done",
 		"Notes",
@@ -186,14 +202,14 @@ func (c *RefitTaskColumns) All() *RefitTaskColumns {
 	return c
 }
 
-func (c *RefitTaskColumns) RefitID() *RefitTaskColumns {
-	c.fields = append(c.fields, "RefitID")
+func (c *RefitTaskColumns) TaskNumber() *RefitTaskColumns {
+	c.fields = append(c.fields, "TaskNumber")
 
 	return c
 }
 
-func (c *RefitTaskColumns) TaskNumber() *RefitTaskColumns {
-	c.fields = append(c.fields, "TaskNumber")
+func (c *RefitTaskColumns) RefitID() *RefitTaskColumns {
+	c.fields = append(c.fields, "RefitID")
 
 	return c
 }
@@ -304,12 +320,12 @@ func (c *refitTaskSort) addField(field string) *RefitTaskSort {
 	return &RefitTaskSort{refitTaskSort: c}
 }
 
-func (c *refitTaskSort) RefitID() *RefitTaskSort {
-	return c.addField("RefitID")
-}
-
 func (c *refitTaskSort) TaskNumber() *RefitTaskSort {
 	return c.addField("TaskNumber")
+}
+
+func (c *refitTaskSort) RefitID() *RefitTaskSort {
+	return c.addField("RefitID")
 }
 
 func (c *refitTaskSort) Instructions() *RefitTaskSort {
@@ -378,11 +394,11 @@ func (p *RefitTaskCreatePatch) ToStruct() *RefitTask {
 	return p.patchSet.ToStruct()
 }
 
-func (p *RefitTaskCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *RefitTaskCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *RefitTaskCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *RefitTaskCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -421,14 +437,14 @@ func (p *RefitTaskCreatePatch) RowSkipped() bool {
 func (p *RefitTaskCreatePatch) registerDefaultFuncs() {
 }
 
-func (p *RefitTaskCreatePatch) RefitID() impulse.UUID {
-	v, _ := p.patchSet.Key("RefitID").(impulse.UUID)
+func (p *RefitTaskCreatePatch) TaskNumber() int64 {
+	v, _ := p.patchSet.Key("TaskNumber").(int64)
 
 	return v
 }
 
-func (p *RefitTaskCreatePatch) TaskNumber() int64 {
-	v, _ := p.patchSet.Key("TaskNumber").(int64)
+func (p *RefitTaskCreatePatch) RefitID() impulse.UUID {
+	v, _ := p.patchSet.Key("RefitID").(impulse.UUID)
 
 	return v
 }
@@ -546,11 +562,11 @@ func (p *RefitTaskUpdatePatch) ToStruct() *RefitTask {
 	return p.patchSet.ToStruct()
 }
 
-func (p *RefitTaskUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *RefitTaskUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *RefitTaskUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *RefitTaskUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -593,14 +609,14 @@ func (p *RefitTaskUpdatePatch) RowCreated() bool {
 func (p *RefitTaskUpdatePatch) registerDefaultFuncs() {
 }
 
-func (p *RefitTaskUpdatePatch) RefitID() impulse.UUID {
-	v, _ := p.patchSet.Key("RefitID").(impulse.UUID)
+func (p *RefitTaskUpdatePatch) TaskNumber() int64 {
+	v, _ := p.patchSet.Key("TaskNumber").(int64)
 
 	return v
 }
 
-func (p *RefitTaskUpdatePatch) TaskNumber() int64 {
-	v, _ := p.patchSet.Key("TaskNumber").(int64)
+func (p *RefitTaskUpdatePatch) RefitID() impulse.UUID {
+	v, _ := p.patchSet.Key("RefitID").(impulse.UUID)
 
 	return v
 }
@@ -704,11 +720,11 @@ func NewRefitTaskDeletePatch(refitID impulse.UUID, taskNumber int64) *RefitTaskD
 	return &RefitTaskDeletePatch{patchSet: patchSet}
 }
 
-func (p *RefitTaskDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *RefitTaskDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *RefitTaskDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *RefitTaskDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -724,14 +740,14 @@ func (p *RefitTaskDeletePatch) Enforce(caller *resource.Caller) *RefitTaskDelete
 	return p
 }
 
-func (p *RefitTaskDeletePatch) RefitID() impulse.UUID {
-	v, _ := p.patchSet.Key("RefitID").(impulse.UUID)
+func (p *RefitTaskDeletePatch) TaskNumber() int64 {
+	v, _ := p.patchSet.Key("TaskNumber").(int64)
 
 	return v
 }
 
-func (p *RefitTaskDeletePatch) TaskNumber() int64 {
-	v, _ := p.patchSet.Key("TaskNumber").(int64)
+func (p *RefitTaskDeletePatch) RefitID() impulse.UUID {
+	v, _ := p.patchSet.Key("RefitID").(impulse.UUID)
 
 	return v
 }

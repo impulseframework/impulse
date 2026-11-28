@@ -10,10 +10,8 @@ import {
   refusedRoute,
   tenantGuard,
 } from '@impulseframework/resource-angular/auth-frame';
-import { identityRoutes } from '@impulseframework/resource-angular/identity-pages';
-import { resourceRoutes } from '@impulseframework/resource-angular/resource-route-generator';
-import { tenantSignInRoute } from '@components/ui/sign-in/sign-in.routes';
-import { tenantsConfig } from './configs/tenants.config';
+import { featureFlagsRoute } from '@impulseframework/resource-angular/feature-flags';
+import { identityRoutes, tenantSignInRoute, tenantsRoute } from '@impulseframework/resource-angular/identity-pages';
 
 // The dashboard is every place's first page (provideFrame's home): outside every tenant it
 // shows the global digest, under a tenant the digest there.
@@ -60,8 +58,8 @@ export const routes: Routes = [
         canActivate: [outsideGuard],
         children: [
           dashboardRoute(),
-          // All tenants: the library's list page over the tenant record.
-          resourceRoutes(tenantsConfig, resourceMeta),
+          // All tenants: the library's tenants page, the list and a tenant's own page.
+          tenantsRoute(apiDescriptor, resourceMeta, { auth: 'Staff' }),
           // The staff's accounts across the whole application: the accounts with a
           // person's row page (the roles held, the sign-in identities and the sessions
           // under it), the mailed links, the sessions and the failed sign-ins. No page is
@@ -70,7 +68,10 @@ export const routes: Routes = [
           // pages from it, each placed in the menus behind the List grant on its resource,
           // each row offering the methods the caller may run on it.
           ...identityRoutes(apiDescriptor, resourceMeta, { auth: 'Staff', scope: 'global' }),
-          // The person's account, API keys and About pages: the library's, in every place.
+          // The feature flags: the library's list page over the flags the application
+          // declares, a page of the place outside every tenant.
+          featureFlagsRoute(resourceMeta),
+          // The person's account and API keys pages: the library's, in every place.
           ...frameRoutes(),
         ],
       },
@@ -92,7 +93,7 @@ export const routes: Routes = [
           // application.
           ...identityRoutes(apiDescriptor, resourceMeta, { auth: 'Staff', scope: 'domain' }).map(underTenant),
           // Who may enter the tenant: its declared directories and its directory-only flag.
-          tenantSignInRoute(),
+          tenantSignInRoute(apiDescriptor, { auth: 'Staff' }),
           ...frameRoutes(),
           { path: '**', redirectTo: 'dashboard' },
         ],

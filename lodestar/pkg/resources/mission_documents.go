@@ -31,6 +31,10 @@ type (
 	// streams to it, and the generated setter of such a column takes the typed key, so
 	// a key minted for the default store does not compile into a document row.
 	//
+	// A document also goes with its mission, in code: the mission's delete
+	// (Mission's @deleteCascade) and its sector's take each document through its own
+	// delete, so its stored file is released after the commit like any other.
+	//
 	// Demonstrates: filestore.named, @file.typed.
 	Documents struct{ resource.Store }
 
@@ -82,7 +86,7 @@ type (
 		// @file(name: FileName, type: ContentType)
 		StoreKey         resource.Key[Documents] `spanner:"StoreKey"`
 		UploadedByUserID string                  `spanner:"UploadedByUserId"`
-		UploadedByName   string                  `spanner:"UploadedByName" conditions:"output_only"`
+		UploadedByName   string                  `spanner:"UploadedByName"   conditions:"output_only"`
 		UploadedAt       time.Time               `spanner:"UploadedAt"`
 		// Provenance is nullable: a document filed before the origin was recorded has none.
 		Provenance *Provenance `spanner:"Provenance"`

@@ -27,16 +27,24 @@ import (
 // DefaultSessionTimeout is the idle session timeout unless WithSessionTimeout sets one.
 const DefaultSessionTimeout = 10 * time.Minute
 
+// MaxSessionTimeout is the longest idle session timeout: a session's row is removed 30
+// days after its last activity, by the session table's row deletion policy on Spanner
+// and by the store on PostgreSQL, so a session idle longer than that is gone whatever
+// the timeout says.
+const MaxSessionTimeout = 30 * 24 * time.Hour
+
 // NewBaseSession builds the BaseSession a session type runs on, applying the
 // BaseSessionOptions and CookieOptions among options. Other options are left to the
 // caller. The cookie client is also returned, for the OIDC authenticators that write
 // their state cookie through it.
+//
+// An option nobody made is refused: the zero BaseSessionOption, which a program can
+// declare and which sets nothing, is a mistake in the program, said here before the
+// session type exists.
 func NewBaseSession[O any](storage sessionstorage.BaseStore, cookieKey string, options []O) (*basesession.BaseSession, *internalcookie.Client, error) {
-	baseSession := &basesession.BaseSession{
-		Handle:         httpio.Log,
-		SessionTimeout: DefaultSessionTimeout,
-		Storage:        storage,
-	}
+	baseSession := basesession.New(storage)
+	baseSession.Handle = httpio.Log
+	baseSession.SessionTimeout = DefaultSessionTimeout
 
 	var cookieOpts []internalcookie.Option
 	for _, opt := range options {
@@ -44,8 +52,19 @@ func NewBaseSession[O any](storage sessionstorage.BaseStore, cookieKey string, o
 		case CookieOption:
 			cookieOpts = append(cookieOpts, internalcookie.Option(o))
 		case BaseSessionOption:
-			o(baseSession)
+			if !o.apply(baseSession) {
+				return nil, nil, errors.New(
+					"a session option was made by no With function (it is the zero session.BaseSessionOption, which sets nothing): " +
+						"pass the options the session package's With functions return, such as session.WithSessionTimeout, and remove the one declared without them",
+				)
+			}
 		}
+	}
+	if baseSession.SessionTimeout > MaxSessionTimeout {
+		return nil, nil, errors.Newf(
+			"a session timeout of %s is longer than 30 days, and a session's row is removed 30 days after its last activity: "+
+				"pass session.WithSessionTimeout a timeout of 30 days or less", baseSession.SessionTimeout,
+		)
 	}
 	// The table-name options are applied here, through the store's setters, so a name
 	// that is not an identifier is refused under its option's name before any SQL.

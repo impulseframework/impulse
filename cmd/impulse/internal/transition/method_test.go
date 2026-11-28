@@ -2,6 +2,7 @@ package transition
 
 import (
 	"errors"
+	"io/fs"
 	"strings"
 	"testing"
 
@@ -9,6 +10,7 @@ import (
 
 	"github.com/impulseframework/impulse/app"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/authpkg"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton"
 )
 
 func TestMethodCommand(t *testing.T) {
@@ -22,6 +24,7 @@ func TestMethodCommand(t *testing.T) {
 		{name: "password", method: Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodPassword}}, want: "impulse add method staff password"},
 		{name: "a directory method with its shape", method: Method{Auth: "members", Spec: authpkg.Method{Kind: app.MethodGoogle, Name: "workspace", Authority: AuthorityApplication, Slot: authpkg.SlotListed}}, want: "impulse add method members google workspace --authority application --slot listed"},
 		{name: "an organization's identity provider under its name", method: Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodOIDC, Name: "okta", Authority: AuthorityApplication}}, want: "impulse add method staff oidc okta --authority application"},
+		{name: "an organization's identity provider with the words its people read", method: Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodOIDC, Name: "company-sso", Authority: AuthorityApplication, Label: "Lakeside ID"}}, want: `impulse add method staff oidc company-sso --authority application --label "Lakeside ID"`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -99,7 +102,7 @@ func TestMethodApply(t *testing.T) {
 			method: Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodGoogle, Name: "workspace", Authority: AuthorityApplication}},
 			wantDid: []string{
 				"pkg/auth/staff/workspace.go: the workspace method (google, one Workspace, role membership the application's): its registration constant, its settings, its handlers (WorkspaceLogin and the rest), and registerWorkspace, which registers it on the Auth",
-				"pkg/auth/staff/staff.go: Handlers holds the workspace method (workspace *google.Method), New registers it (registerWorkspace), and Settings carries its WorkspaceSettings and the LoginURL, and the package doc lists it",
+				"pkg/auth/staff/staff.go: Handlers holds the workspace method (workspace *google.Method), New registers it (registerWorkspace), and Settings carries its WorkspaceSettings and the LoginURL, and the package doc lists it, and its first sentence says the auth's people also sign in with an account of the organization's Google Workspace",
 				`cmd/generate/resourcegenerator/main.go: generation.GoogleMethod("workspace") declared on 1 outlet Auth option(s) bound to the staff auth, so the generated router mounts user/workspace/login and the callback and the methods route offers it`,
 				"Procfile: 2 go run command(s) build with -tags skipAuth, so the staff auth's directory is simulated in development",
 				"ran go generate ./..., so the router mounts the method's routes and the login page offers it",
@@ -119,7 +122,7 @@ func TestMethodApply(t *testing.T) {
 					}
 				}
 				main := read(t, a, "pkg/auth/staff/staff.go")
-				for _, want := range []string{"\tpassword  *session.PasswordMethod\n\tworkspace *google.Method\n", "\thandlers.password = registerPassword(authSession)\n", "\tauthSession.SetSignUpSeated(identityClient.SignedUp())\n\thandlers.workspace, err = registerWorkspace(authSession, accessClient, settings)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\n\treturn &Auth{db: db, access: accessClient, handlers: handlers, identity: identityClient}, nil", "\tWorkspace WorkspaceSettings\n", "\tLoginURL string\n", "\t\"github.com/impulseframework/impulse/session/google\"\n"} {
+				for _, want := range []string{"\tpassword  *session.PasswordMethod\n\tworkspace *google.Method\n", "\thandlers.password = registerPassword(authSession)\n", "\tauthSession.SetSignUpSeated(identityClient.SignedUp())\n\thandlers.workspace, err = registerWorkspace(authSession, accessClient, settings)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\n\treturn &Auth{access: accessClient, handlers: handlers, identity: identityClient}, nil", "\tWorkspace WorkspaceSettings\n", "\tLoginURL string\n", "\t\"github.com/impulseframework/impulse/session/google\"\n"} {
 					if !strings.Contains(main, want) {
 						t.Errorf("staff.go lacks %q:\n%s", want, main)
 					}
@@ -148,8 +151,8 @@ func TestMethodApply(t *testing.T) {
 					t.Errorf("program = %s", program)
 				}
 				meaning := (&Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodGoogle, Name: "workspace", Authority: AuthorityApplication}}).Meaning()
-				if !strings.Contains(meaning, "the generated management of the staff auth makes both (the `InviteStaffUser` and `CreateStaffUser` methods), so grant Execute on them to the role that invites in the role file") {
-					t.Errorf("Meaning() lacks the grants on the methods that invite and create:\n%s", meaning)
+				if !strings.Contains(meaning, "the generated management of the staff auth sends it (the `InviteStaffUser` method), so grant Execute on it to the role that invites in the role file") {
+					t.Errorf("Meaning() lacks the grant on the method that invites:\n%s", meaning)
 				}
 			},
 		},
@@ -265,9 +268,12 @@ func TestMethodApply(t *testing.T) {
 			extra:  map[string]string{"pkg/config/data.go": authConfigSettings},
 			wantDid: []string{
 				"pkg/auth/staff/okta.go: the okta method (oidc, one organization's identity provider, role membership the application's): its registration constant, its settings, its handlers (OktaLogin and the rest), and registerOkta, which registers it on the Auth",
-				"pkg/auth/staff/staff.go: Handlers holds the okta method (okta *oidc.Method), New registers it (registerOkta), and Settings carries its OktaSettings and the LoginURL, and the package doc lists it",
+				"pkg/auth/staff/staff.go: Handlers holds the okta method (okta *oidc.Method), New registers it (registerOkta), and Settings carries its OktaSettings and the LoginURL, and the package doc lists it, and its first sentence says the auth's people also sign in through the organization's own identity provider",
 				"pkg/config/data.go: dataConfig reads the staff auth's okta registration from APP_STAFF_OKTA_ISSUER, APP_STAFF_OKTA_CLIENT_ID, APP_STAFF_OKTA_CLIENT_SECRET, APP_STAFF_OKTA_REDIRECT_URL, and dataConfig.staffSettings passes them",
 				`cmd/generate/resourcegenerator/main.go: generation.OIDCMethod("okta") declared on 1 outlet Auth option(s) bound to the staff auth, so the generated router mounts user/okta/login and the callback and the methods route offers it`,
+				// No words were given: the brief says what people read and names the file
+				// where the provider's own name goes.
+				`cmd/generate/resourcegenerator/main.go: people read the okta method as "Okta", words made from its registration name, on the login page's button (Sign in with Okta) and in the lists of a person's ways to sign in; to show the provider's own name, chain .Labeled("<words>") on the declaration (generation.OIDCMethod("okta").Labeled("Lakeside ID")) and run go generate ./...`,
 				"Procfile: 2 go run command(s) build with -tags skipAuth, so the staff auth's directory is simulated in development",
 				"ran go generate ./..., so the router mounts the method's routes and the login page offers it",
 			},
@@ -293,6 +299,11 @@ func TestMethodApply(t *testing.T) {
 					}
 				}
 				main := read(t, a, "pkg/auth/staff/staff.go")
+				// The package doc's first sentence said the auth's people sign in with a
+				// password; it says the provider too, and is wrapped again.
+				if want := "// Package staff is the staff auth: the people who sign in to the console with a password,\n// or through the organization's own identity provider, who hold their roles in the staff\n// permission store.\n//\n"; !strings.HasPrefix(main, want) {
+					t.Errorf("staff.go starts %q, want %q", main[:min(len(main), 300)], want)
+				}
 				for _, want := range []string{"\tpassword *session.PasswordMethod\n\tokta     *oidc.Method\n", "\thandlers.okta = registerOkta(authSession, accessClient, settings)\n", "\tOkta OktaSettings\n", "\tLoginURL string\n", "\t\"github.com/impulseframework/impulse/session/oidc\"\n"} {
 					if !strings.Contains(main, want) {
 						t.Errorf("staff.go lacks %q:\n%s", want, main)
@@ -314,18 +325,44 @@ func TestMethodApply(t *testing.T) {
 			},
 		},
 		{
+			name:   "an organization's identity provider added with the words its people read: the declaration carries them and the brief names the file",
+			method: Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodOIDC, Name: "company-sso", Authority: AuthorityApplication, Label: "Lakeside ID"}},
+			extra:  map[string]string{"pkg/config/data.go": authConfigSettings},
+			wantDid: []string{
+				`cmd/generate/resourcegenerator/main.go: generation.OIDCMethod("company-sso").Labeled("Lakeside ID") declared on 1 outlet Auth option(s) bound to the staff auth, so the generated router mounts user/company-sso/login and the callback and the methods route offers it`,
+				`cmd/generate/resourcegenerator/main.go: people read the company-sso method as "Lakeside ID", on the login page's button (Sign in with Lakeside ID) and in the lists of a person's ways to sign in; the words are the declaration's .Labeled("Lakeside ID"), so change them there and run go generate ./...`,
+			},
+			check: func(t *testing.T, a *app.App) {
+				t.Helper()
+				if program := read(t, a, "cmd/generate/resourcegenerator/main.go"); !strings.Contains(program, `generation.Auth("example.com/acme/beacon/pkg/auth/staff", generation.PasswordMethod(), generation.OIDCMethod("company-sso").Labeled("Lakeside ID"))`) {
+					t.Errorf("program = %s", program)
+				}
+				// The words are the page's alone: the registration name stays the key in the
+				// method file, its routes and its variables.
+				file := read(t, a, "pkg/auth/staff/company-sso.go")
+				for _, want := range []string{`const CompanySsoRegistration = "company-sso"`, "Connection:   CompanySsoRegistration,"} {
+					if !strings.Contains(file, want) {
+						t.Errorf("company-sso.go lacks %q:\n%s", want, file)
+					}
+				}
+				if strings.Contains(file, "Lakeside") {
+					t.Errorf("company-sso.go carries the words, which the declaration alone holds:\n%s", file)
+				}
+			},
+		},
+		{
 			name:   "a persona method, registered where the provider is configured, with its cast",
 			method: Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodPersona, Name: "persona"}},
 			wantDid: []string{
 				"pkg/auth/staff/persona.go: the persona method (persona, the persona provider, role membership the application's): its registration constant, its settings, its handlers (PersonaLogin and the rest), and registerPersona, which registers it on the Auth",
 				"pkg/auth/staff/cast.json and pkg/auth/staff/cast.go: the cast of the persona sign-in, empty, and the file that embeds it, reads it (Cast) and seeds its accounts (SeedCast)",
-				"pkg/auth/staff/staff.go: Handlers holds the persona method (persona *oidc.Method), New registers it (registerPersona), and Settings carries its PersonaSettings and the LoginURL, and the package doc lists it",
+				"pkg/auth/staff/staff.go: Handlers holds the persona method (persona *oidc.Method), New registers it (registerPersona), and Settings carries its PersonaSettings and the LoginURL, and the package doc lists it, and its first sentence says the auth's people also sign in as a persona of the test environments",
 				`cmd/generate/resourcegenerator/main.go: generation.PersonaMethod("persona") declared on 1 outlet Auth option(s) bound to the staff auth, so the generated router mounts user/persona/login and the callback and the methods route offers it, where the provider is configured`,
 				"ran go generate ./..., so the router mounts the method's routes and the login page offers it",
 			},
 			wantSkipped: []string{
 				"pkg/auth/staff/cast.json: name the personas (login, name, email, roles from roles.json); impulse check and bedrock check refuse an empty cast (persona-cast), since a persona sign-in with nobody to sign in as deploys nothing useful",
-				"cmd/deployment/migrate: seed the cast where the seed runs (-seed), after SeedAdministrators: data.Staff().SeedCast(ctx), so the environments that take the seed hold the personas' accounts for the sign-in to link",
+				"cmd/deployment/migrate: seed the cast under -seed, once the data level is open and before InviteAdministrators: data.Staff().SeedCast(ctx, out), so the environments that take the seed hold the personas' accounts for the sign-in to link, and one whose cast gives a persona the Super Administrator role invites no first administrator and needs no mailbox. A persona seeded earlier is given the roles its entry names that it does not hold, each said on out, and nothing is taken: a role that left the cast stays on the account",
 				`placement.json: name the persona provider under persona ({"issuer": the provider's URL, "clientId": the application's client ID root, both from the provider's registration of the application}), so bedrock sets APP_STAFF_PERSONA_ISSUER in the first environment and its pull requests, derives APP_STAFF_PERSONA_CLIENT_ID and APP_STAFF_PERSONA_REDIRECT_URL, and registers each deployment with the provider after traffic; without it the method is registered nowhere`,
 				"pkg/config/data.go: no environment struct (env := &T{}) to add the persona method's variables to; read APP_STAFF_PERSONA_ISSUER, APP_STAFF_PERSONA_CLIENT_ID, APP_STAFF_PERSONA_REDIRECT_URL and pass them in staff.Settings.Persona",
 			},
@@ -340,7 +377,7 @@ func TestMethodApply(t *testing.T) {
 					}
 				}
 				cast := read(t, a, "pkg/auth/staff/cast.go")
-				for _, want := range []string{"//go:embed cast.json", "func Cast() (*cast.Cast, error)", "func (a *Auth) SeedCast(ctx context.Context) (int, error)", "httpio.HasNotFound(err)", "accesstypes.GlobalPolicyScope()", "accesstypes.EveryDomainPolicyScope()"} {
+				for _, want := range []string{"//go:embed cast.json", "func Cast() (*cast.Cast, error)", "func (a *Auth) SeedCast(ctx context.Context, out io.Writer) (int, error)", "httpio.HasNotFound(err)", "accesstypes.GlobalPolicyScope()", "accesstypes.EveryDomainPolicyScope()"} {
 					if !strings.Contains(cast, want) {
 						t.Errorf("cast.go lacks %q:\n%s", want, cast)
 					}
@@ -572,8 +609,22 @@ func TestMethodMeaningIdentityProvider(t *testing.T) {
 				"Register it with the identity provider",
 				"Decide who may open a sign-in method to sign-up. Every method of the staff auth starts invite only",
 				"A newcomer needs an invitation until an administrator opens the method to sign-up",
+				// No words were given, so the brief says what people read and where the
+				// provider's own name goes.
+				"Give the method the name its people know. Nothing said what to call the provider, so the login page's button says \"Sign in with Okta\", words made from the registration name",
+				"Chain `.Labeled(\"<words>\")` on the method's declaration in the generator program (`generation.OIDCMethod(\"okta\").Labeled(\"Lakeside ID\")`; the change's lines above name the file, where an outlet declares the auth) and run `go generate ./...`",
 			},
-			unwanted: []string{"organization slot", "cast", "placement.json", "Have the provider send the roles"},
+			unwanted: []string{"organization slot", "cast", "placement.json", "Have the provider send the roles", "Read the method's name where people do"},
+		},
+		{
+			name: "the provider was added with the words its people read",
+			spec: authpkg.Method{Kind: app.MethodOIDC, Name: "company-sso", Authority: AuthorityApplication, Label: "Lakeside ID"},
+			want: []string{
+				"Read the method's name where people do. The login page's button says \"Sign in with Lakeside ID\"",
+				"The words are the declaration's `.Labeled(\"Lakeside ID\")` in the generator program (the change's lines above name the file, where an outlet declares the auth): change them there and run `go generate ./...`",
+				"The registration name (`company-sso`) stays the key in the routes, the variables and the stored links",
+			},
+			unwanted: []string{"Give the method the name its people know", "Company Sso"},
 		},
 		{
 			name: "the provider's token names the roles",
@@ -602,5 +653,92 @@ func TestMethodMeaningIdentityProvider(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// Test_retellPopulation holds the package doc's first sentence to the methods the auth
+// has: the base's says its people sign in with a password, and each method added joins
+// it, in the words the tenanted skeleton's own sentence carries. A sentence that names
+// no way, one that says the way already, and a file with no such paragraph are left as
+// they are.
+func Test_retellPopulation(t *testing.T) {
+	t.Parallel()
+
+	const (
+		rest     = "//\n// An auth is a package.\npackage staff\n"
+		base     = "// Package staff is the staff auth: the people who sign in to the console with a password, who hold their roles in the\n// staff permission store.\n" + rest
+		generic  = "// Package members is the members auth: the people who sign in to the application, who hold their roles in the\n// members permission store.\n" + rest
+		withBoth = "// Package staff is the staff auth: the people who sign in to the console with a password,\n// or with any Google account, who hold their roles in the staff permission store.\n" + rest
+	)
+	google := &authpkg.Method{Kind: app.MethodGoogle, Name: "google", Slot: authpkg.SlotAny, Authority: AuthorityApplication}
+	provider := &authpkg.Method{Kind: app.MethodOIDC, Name: "sso", Authority: AuthorityApplication}
+	tests := []struct {
+		name   string
+		src    string
+		method *authpkg.Method
+		want   string
+		told   bool
+	}{
+		{name: "the base gains a Google method", src: base, method: google, want: withBoth, told: true},
+		{
+			name: "and then an organization's identity provider", src: withBoth, method: provider, told: true,
+			want: "// Package staff is the staff auth: the people who sign in to the console with a password,\n// or with any Google account, or through the organization's own identity provider, who\n// hold their roles in the staff permission store.\n" + rest,
+		},
+		{name: "a way the sentence says already is not said twice", src: withBoth, method: google, want: withBoth},
+		{name: "a sentence that names no way is left as it is", src: generic, method: google, want: generic},
+		{name: "a file with no package paragraph is left as it is", src: "package staff\n", method: google, want: "package staff\n"},
+		{
+			// The paragraph's end is looked for in the comment that opens the file: an
+			// empty comment line in a comment further down is not it.
+			name:   "a package comment of one paragraph is left as it is, whatever comments follow",
+			src:    "// Package staff is the staff auth: the people who sign in to the console with a password, who hold their roles in the\n// staff permission store.\npackage staff\n\n// New opens the auth.\n//\n// It refuses a nil client.\nfunc New() {}\n",
+			method: google,
+			want:   "// Package staff is the staff auth: the people who sign in to the console with a password, who hold their roles in the\n// staff permission store.\npackage staff\n\n// New opens the auth.\n//\n// It refuses a nil client.\nfunc New() {}\n",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, told := retellPopulation([]byte(tt.src), tt.method)
+			if told != tt.told {
+				t.Errorf("retellPopulation() told = %v, want %v", told, tt.told)
+			}
+			if diff := cmp.Diff(tt.want, string(got)); diff != "" {
+				t.Errorf("retellPopulation() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// Test_retellPopulation_theSkeletons holds the sentence add method writes to the one the
+// tenanted skeleton carries: the base's auth file with any Google account added says,
+// word for word, what the tenanted skeleton's says.
+func Test_retellPopulation_theSkeletons(t *testing.T) {
+	t.Parallel()
+
+	paragraph := func(candidate string) string {
+		t.Helper()
+		tree, err := skeleton.FS(candidate)
+		if err != nil {
+			t.Fatalf("skeleton.FS(%s) error = %v", candidate, err)
+		}
+		src, err := fs.ReadFile(tree, "pkg/auth/staff/staff.go")
+		if err != nil {
+			t.Fatalf("%s: reading the auth file: %v", candidate, err)
+		}
+		if candidate == skeleton.Base {
+			retold, told := retellPopulation(src, &authpkg.Method{Kind: app.MethodGoogle, Name: "google", Slot: authpkg.SlotAny, Authority: AuthorityApplication})
+			if !told {
+				t.Fatalf("the base's auth file was not retold:\n%s", src[:min(len(src), 300)])
+			}
+			src = retold
+		}
+		first, _, _ := strings.Cut(string(src), "\n//\n")
+
+		return strings.Join(strings.Fields(strings.ReplaceAll(first, "//", "")), " ")
+	}
+	if got, want := paragraph(skeleton.Base), paragraph("tenanted"); got != want {
+		t.Errorf("the base's first sentence with a Google method = %q, want the tenanted skeleton's %q", got, want)
 	}
 }

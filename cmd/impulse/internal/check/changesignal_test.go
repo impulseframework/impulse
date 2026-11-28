@@ -23,7 +23,7 @@ import (
 )
 
 func New(ctx context.Context, signals access.ChangeSignal) error {
-	_, err := access.New(nil, access.WithDefaultRoles(nil, nil), access.WithChangeSignal(signals))
+	_, err := access.New(nil, nil, access.WithDefaultRoles(nil, Name), access.WithChangeSignal(signals))
 
 	return err
 }
@@ -37,7 +37,7 @@ import (
 )
 
 func New(ctx context.Context, signals access.ChangeSignal) error {
-	_, err := access.New(nil, access.WithChangeSignal(signals), access.WithDefaultRoles(nil, nil))
+	_, err := access.New(nil, nil, access.WithChangeSignal(signals), access.WithDefaultRoles(nil, Name))
 
 	return err
 }
@@ -51,7 +51,7 @@ import (
 )
 
 func New(ctx context.Context) error {
-	_, err := access.New(nil, access.WithDefaultRoles(nil, nil))
+	_, err := access.New(nil, nil, access.WithDefaultRoles(nil, Name))
 
 	return err
 }
@@ -65,7 +65,7 @@ import (
 )
 
 func New(ctx context.Context, opts ...access.Option) error {
-	_, err := access.New(nil, opts...)
+	_, err := access.New(nil, nil, opts...)
 
 	return err
 }
@@ -79,7 +79,7 @@ import (
 )
 
 func New(ctx context.Context, signals acc.ChangeSignal) error {
-	_, err := acc.New(nil, acc.WithChangeSignal(signals))
+	_, err := acc.New(nil, nil, acc.WithChangeSignal(signals))
 
 	return err
 }
@@ -94,7 +94,7 @@ import (
 )
 
 func TestEngine(t *testing.T) {
-	if _, err := access.New(nil); err != nil {
+	if _, err := access.New(nil, nil); err != nil {
 		t.Fatal(err)
 	}
 }

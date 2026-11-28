@@ -3,7 +3,15 @@ import { CreatePermission, Domain, Permission, Resource } from './brands';
 import { createClient, ResourceHandle } from './client';
 import { ApiDescriptor } from './descriptor';
 import { PermissionDigest } from './digest';
-import { fieldPermissionStates, PermissionsSnapshot, PermissionStore, Requester } from './permissions';
+import {
+  digestFailure,
+  fieldPermissionStates,
+  PermissionsSnapshot,
+  PermissionStore,
+  Requester,
+  UserDomain,
+} from './permissions';
+import { ApiError } from './transport';
 
 const incidents = 'IncidentReports' as Resource;
 const memberships = 'TeamMemberships' as Resource;
@@ -181,17 +189,17 @@ describe('the tenant list', () => {
     const store = new PermissionStore(
       answering([
         { domain: 'anvil', name: 'Anvil' },
-        { domain: 'bastion', name: 'Bastion', closed: reason },
+        { domain: 'bastion', name: 'Bastion', unavailable: reason },
       ]).request,
       { digest: 'permission-digest', domains: 'user-domains' },
     );
-    expect([...store.closedDomains()]).toEqual([]);
+    expect([...store.unavailableDomains()]).toEqual([]);
     expect(await store.loadDomains()).toEqual(['anvil' as Domain]);
     expect(store.domains()).toEqual(['anvil' as Domain]);
-    expect([...store.closedDomains()]).toEqual([['bastion' as Domain, reason]]);
+    expect([...store.unavailableDomains()]).toEqual([['bastion' as Domain, reason]]);
     expect(store.domainName('bastion' as Domain)).toBe('Bastion');
     store.clear();
-    expect([...store.closedDomains()]).toEqual([]);
+    expect([...store.unavailableDomains()]).toEqual([]);
   });
 
   it('an empty answer, or none, lists nothing; clear() forgets the names', async () => {
@@ -208,5 +216,367 @@ describe('the tenant list', () => {
     named.clear();
     expect(named.domains()).toEqual([]);
     expect(named.domainName('ridgeline' as Domain)).toBe('ridgeline');
+  });
+});
+
+// A read of the tenant list that fails is not an answer either. The store never keeps a
+// failure as an empty list, which would say the person is in no tenant: a list never read
+// stays unread, and a list read before keeps its last answer.
+describe('a read of the tenant list that fails', () => {
+  // A requester whose user-domains route fails while `down`, and answers the list otherwise.
+  const failing = (listed: unknown): { store: PermissionStore; server: { down: boolean } } => {
+    const server = { down: true };
+    const request = (async () => {
+      if (server.down) {
+        throw new Error('the list could not be read');
+      }
+      return listed;
+    }) as Requester;
+    return { store: new PermissionStore(request, { digest: 'permission-digest', domains: 'user-domains' }), server };
+  };
+
+  it('says nothing of the list before it is read: not known, and not unread', () => {
+    const { store } = failing([]);
+    expect(store.hasDomains()).toBe(false);
+    expect(store.domainsUnread()).toBe(false);
+  });
+
+  it('rejects, and leaves a list never read as unread, not as a person in no tenant', async () => {
+    const { store } = failing([{ domain: 'ridgeline', name: 'Ridgeline County' }]);
+    await expect(store.loadDomains()).rejects.toThrow('the list could not be read');
+    expect(store.hasDomains()).toBe(false);
+    expect(store.domainsUnread()).toBe(true);
+    expect(store.domains()).toEqual([]);
+  });
+
+  it('tells its subscribers that the list could not be read', async () => {
+    const { store } = failing([]);
+    const heard: boolean[] = [];
+    store.subscribe(() => heard.push(store.domainsUnread()));
+    await expect(store.loadDomains()).rejects.toThrow();
+    expect(heard).toEqual([true]);
+  });
+
+  it('is unread no more once a read answers, an empty list included', async () => {
+    const { store, server } = failing([]);
+    await expect(store.loadDomains()).rejects.toThrow();
+    server.down = false;
+    expect(await store.loadDomains()).toEqual([]);
+    expect(store.hasDomains()).toBe(true);
+    expect(store.domainsUnread()).toBe(false);
+  });
+
+  it('keeps the list it read before, with its names and the tenants it lists as not available', async () => {
+    const { store, server } = failing([
+      { domain: 'ridgeline', name: 'Ridgeline County' },
+      { domain: 'bastion', name: 'Bastion', unavailable: 'Bastion admits only its own directory.' },
+    ]);
+    server.down = false;
+    await store.loadDomains();
+    server.down = true;
+    await expect(store.loadDomains()).rejects.toThrow('the list could not be read');
+    expect(store.domains()).toEqual(['ridgeline' as Domain]);
+    expect(store.domainName('ridgeline' as Domain)).toBe('Ridgeline County');
+    expect([...store.unavailableDomains()]).toEqual([['bastion' as Domain, 'Bastion admits only its own directory.']]);
+    expect(store.hasDomains()).toBe(true);
+    expect(store.domainsUnread()).toBe(false);
+  });
+
+  it('is forgotten with everything else on clear()', async () => {
+    const { store } = failing([]);
+    await expect(store.loadDomains()).rejects.toThrow();
+    store.clear();
+    expect(store.domainsUnread()).toBe(false);
+  });
+});
+
+// A read of a digest that fails is not an answer. The cache holds no failure as an empty
+// digest, which would say the person holds nothing: a scope never read stays unloaded, a
+// scope read before keeps its last answer. Whoever asked sees the rejection, and every
+// listener hears which scope it was and whether the server refused the read. A domain the
+// server refuses is not this session's: what the cache held of it is forgotten.
+describe('a digest read that fails', () => {
+  const list = { resource: incidents, permission: 'List' as Permission };
+
+  /** A server that answers each tenant's digest as the script says: a digest, or what the request throws. */
+  const serving = (script: Record<string, PermissionDigest | Error>): PermissionStore => {
+    const request = (async (_method: string, path: string, options?: { query?: URLSearchParams }) => {
+      if (path === 'user-domains') {
+        return [{ domain: alpha, name: 'Alpha' }];
+      }
+      const answer = script[options?.query?.get('domain') ?? ''];
+      if (answer instanceof Error) {
+        throw answer;
+      }
+      return answer;
+    }) as Requester;
+    return new PermissionStore(request, { digest: 'permission-digest', domains: 'user-domains' });
+  };
+
+  const refusal = (status: number): ApiError => new ApiError('GET', 'permission-digest', status, { message: 'no' });
+
+  it('leaves a scope that was never read unloaded: nothing is known, which is not an empty digest', async () => {
+    const store = serving({ [alpha]: refusal(500) });
+    await expect(store.loadDigest(alpha)).rejects.toBeInstanceOf(ApiError);
+    expect(store.hasDigest(alpha)).toBe(false);
+    expect(store.digest(alpha)).toBeUndefined();
+  });
+
+  it('keeps the last answer of a scope that was read before, where the read fails', async () => {
+    for (const thrown of [refusal(500), refusal(401), new Error('the request never arrived')]) {
+      const script: Record<string, PermissionDigest | Error> = { [alpha]: digest };
+      const store = serving(script);
+      await store.loadDigest(alpha);
+      script[alpha] = thrown;
+      await expect(store.loadDigest(alpha)).rejects.toBe(thrown);
+      expect(store.can({ ...list, domain: alpha })).toBe(true);
+      expect(store.digest(alpha)).toEqual(digest);
+    }
+  });
+
+  // A refusal is the server saying the domain is not this session's: nothing held there is kept.
+  for (const status of [403, 404]) {
+    it(`forgets what the person held in a domain the server refuses with a ${status}, before anyone hears of it`, async () => {
+      const script: Record<string, PermissionDigest | Error> = { '': digest, [alpha]: digest };
+      const store = serving(script);
+      await Promise.all([store.loadDigest(), store.loadDigest(alpha)]);
+      // What a listener finds the store holding of the domain when it hears of the refusal.
+      const heard: string[] = [];
+      store.onUnread((domain, failure) =>
+        heard.push(`${domain ?? 'global'} ${failure}, held: ${store.hasDigest(domain)}`),
+      );
+
+      script[alpha] = refusal(status);
+      await expect(store.loadDigest(alpha)).rejects.toBeInstanceOf(ApiError);
+
+      expect(heard).toEqual([`${alpha} refused, held: false`]);
+      // Forgotten, which is not an answer that the person holds nothing: nothing is held.
+      expect(store.hasDigest(alpha)).toBe(false);
+      expect(store.digest(alpha)).toBeUndefined();
+      expect(store.can({ ...list, domain: alpha })).toBe(false);
+      // What the person holds outside every domain is as it was.
+      expect(store.can(list)).toBe(true);
+    });
+  }
+
+  it('never forgets what the person holds outside every domain, where the server refuses its read', async () => {
+    for (const status of [403, 404]) {
+      const script: Record<string, PermissionDigest | Error> = { '': digest };
+      const store = serving(script);
+      await store.loadDigest();
+      script[''] = refusal(status);
+      await expect(store.loadDigest()).rejects.toBeInstanceOf(ApiError);
+      expect(store.can(list)).toBe(true);
+      expect(store.digest()).toEqual(digest);
+    }
+  });
+
+  it("keeps every scope's last answer when a refresh cannot read one of them", async () => {
+    const script: Record<string, PermissionDigest | Error> = { '': digest, [alpha]: digest };
+    const store = serving(script);
+    await Promise.all([store.loadDigest(), store.loadDigest(alpha)]);
+    script[alpha] = new Error('the request never arrived');
+    await expect(store.refresh()).rejects.toBeInstanceOf(Error);
+    expect(store.can(list)).toBe(true);
+    expect(store.can({ ...list, domain: alpha })).toBe(true);
+  });
+
+  // The server's 403 and 404 are a refusal; anything else is a failure.
+  const cases: { name: string; thrown: Error; want: string }[] = [
+    { name: 'a 403', thrown: refusal(403), want: 'refused' },
+    { name: 'a 404', thrown: refusal(404), want: 'refused' },
+    { name: 'a 500', thrown: refusal(500), want: 'failed' },
+    { name: 'a 401', thrown: refusal(401), want: 'failed' },
+    { name: 'a request that never arrived', thrown: new Error('the request never arrived'), want: 'failed' },
+  ];
+  for (const tt of cases) {
+    it(`tells each listener the scope and that the read ${tt.want}, for ${tt.name}`, async () => {
+      const store = serving({ '': tt.thrown, [alpha]: tt.thrown });
+      const heard: string[] = [];
+      const stop = store.onUnread((domain, failure) => heard.push(`${domain ?? 'global'} ${failure}`));
+      await expect(store.loadDigest(alpha)).rejects.toBe(tt.thrown);
+      await expect(store.loadDigest()).rejects.toBe(tt.thrown);
+      expect(heard).toEqual([`${alpha} ${tt.want}`, `global ${tt.want}`]);
+      // A listener that was stopped hears nothing more.
+      stop();
+      await expect(store.loadDigest(alpha)).rejects.toBe(tt.thrown);
+      expect(heard).toHaveLength(2);
+    });
+  }
+
+  it('tells no listener of a read that answers, an empty digest among them', async () => {
+    const store = serving({ [alpha]: {} });
+    const heard: string[] = [];
+    store.onUnread((domain, failure) => heard.push(`${domain ?? 'global'} ${failure}`));
+    expect(await store.loadDigest(alpha)).toEqual({});
+    expect(store.hasDigest(alpha)).toBe(true);
+    expect(heard).toEqual([]);
+  });
+
+  it('asks the server again on the next read: a failure is not remembered as an answer', async () => {
+    const script: Record<string, PermissionDigest | Error> = { [alpha]: refusal(500) };
+    const store = serving(script);
+    await expect(store.ensure({ ...list, domain: alpha })).rejects.toBeInstanceOf(ApiError);
+    script[alpha] = digest;
+    expect(await store.ensure({ ...list, domain: alpha })).toBe(true);
+  });
+});
+
+// The server answers a digest with no entries for a domain the session does not reach (a
+// seat taken away, a domain that is not there), the same answer it gives for a domain where
+// the person holds nothing. The person's list of domains tells the two apart, so the store
+// reads the list again before it keeps a domain's empty digest: a domain that has left the
+// list is a refusal, and one the list still names is held as empty, which is then true.
+// What the store held of a domain that has left the list is forgotten: the person is in it
+// no more, and what one session held there is not kept for the session that takes its place.
+describe("a domain's digest that reads empty", () => {
+  const list = { resource: incidents, permission: 'List' as Permission, domain: alpha };
+  const named: UserDomain[] = [{ domain: alpha, name: 'Alpha' }];
+
+  /** A server that answers alpha's digest, the global one and the person's list as the script says when asked. */
+  const serving = (script: {
+    digest: PermissionDigest | Error;
+    global?: PermissionDigest;
+    listed: UserDomain[] | Error;
+  }): { store: PermissionStore; paths: string[]; heard: string[] } => {
+    const paths: string[] = [];
+    const request = (async (_method: string, path: string, options?: { query?: URLSearchParams }) => {
+      paths.push(path);
+      const tenant = options?.query?.get('domain');
+      const answer = path === 'user-domains' ? script.listed : tenant ? script.digest : (script.global ?? {});
+      if (answer instanceof Error) {
+        throw answer;
+      }
+      return answer;
+    }) as Requester;
+    const store = new PermissionStore(request, { digest: 'permission-digest', domains: 'user-domains' });
+    const heard: string[] = [];
+    store.onUnread((domain, failure) => heard.push(`${domain ?? 'global'} ${failure}`));
+    return { store, paths, heard };
+  };
+
+  /** What a read of alpha's digest throws. */
+  const thrownBy = async (store: PermissionStore): Promise<unknown> =>
+    store.loadDigest(alpha).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+
+  it('is a refusal for a domain that has left the list, and forgets what the person held there', async () => {
+    const script = { digest: digest as PermissionDigest | Error, listed: named as UserDomain[] | Error };
+    const { store } = serving(script);
+    await store.loadDomains();
+    await store.loadDigest(alpha);
+    // What a listener finds the store holding of the domain when it hears of the refusal.
+    const heard: string[] = [];
+    store.onUnread((domain, failure) =>
+      heard.push(`${domain ?? 'global'} ${failure}, held: ${store.hasDigest(domain)}`),
+    );
+
+    // The seat is taken away: the server lists the domain no more, and answers its digest empty.
+    script.digest = {};
+    script.listed = [];
+    const thrown = await thrownBy(store);
+
+    expect((thrown as Error | undefined)?.name).toBe('DomainUnlistedError');
+    expect(digestFailure(thrown)).toBe('refused');
+    // Forgotten, which is not an answer that the person holds nothing: nothing is held.
+    expect(store.hasDigest(alpha)).toBe(false);
+    expect(store.digest(alpha)).toBeUndefined();
+    expect(store.can(list)).toBe(false);
+    expect(heard).toEqual([`${alpha} refused, held: false`]);
+    expect(store.domains()).toEqual([]);
+  });
+
+  it('keeps the last answer of a domain whose digest reads empty where the list cannot be read', async () => {
+    const script = { digest: digest as PermissionDigest | Error, listed: named as UserDomain[] | Error };
+    const { store } = serving(script);
+    await store.loadDomains();
+    await store.loadDigest(alpha);
+
+    script.digest = {};
+    script.listed = new ApiError('GET', 'user-domains', 500, { message: 'no' });
+    expect(digestFailure(await thrownBy(store))).toBe('failed');
+
+    // Nothing says the domain has left the list, so nothing is forgotten.
+    expect(store.can(list)).toBe(true);
+    expect(store.digest(alpha)).toEqual(digest);
+  });
+
+  it('is a refusal for a domain that was never read and the list does not name, which stays unloaded', async () => {
+    const { store, heard } = serving({ digest: {}, listed: [] });
+    expect(digestFailure(await thrownBy(store))).toBe('refused');
+    expect(heard).toEqual([`${alpha} refused`]);
+    expect(store.hasDigest(alpha)).toBe(false);
+  });
+
+  it('is a refusal for a domain that is closed to this sign-in, though the list names it', async () => {
+    const { store, heard } = serving({
+      digest: {},
+      listed: [{ domain: alpha, name: 'Alpha', unavailable: 'Alpha admits only its own directory.' }],
+    });
+    expect(digestFailure(await thrownBy(store))).toBe('refused');
+    expect(heard).toEqual([`${alpha} refused`]);
+    expect(store.hasDigest(alpha)).toBe(false);
+  });
+
+  it('is an answer for a domain the list still names: the person holds nothing there', async () => {
+    const { store, paths, heard } = serving({ digest: {}, listed: named });
+    expect(await store.loadDigest(alpha)).toEqual({});
+    // The list was read again, after the digest, before the digest was kept.
+    expect(paths).toEqual(['permission-digest', 'user-domains']);
+    expect(store.hasDigest(alpha)).toBe(true);
+    expect(store.can(list)).toBe(false);
+    expect(heard).toEqual([]);
+  });
+
+  it('fails the read where the list cannot be read: nothing says which of the two the empty digest was', async () => {
+    const script = { digest: {} as PermissionDigest | Error, listed: new Error('the request never arrived') };
+    const { store, heard } = serving(script);
+    const thrown = await thrownBy(store);
+    expect(thrown).toBe(script.listed);
+    expect(digestFailure(thrown)).toBe('failed');
+    expect(heard).toEqual([`${alpha} failed`]);
+    expect(store.hasDigest(alpha)).toBe(false);
+  });
+
+  it('reads no list for a digest with entries, or for what the person holds outside every domain', async () => {
+    const { store, paths, heard } = serving({ digest, global: {}, listed: [] });
+    await store.loadDigest(alpha);
+    expect(await store.loadDigest()).toEqual({});
+    expect(paths).toEqual(['permission-digest', 'permission-digest']);
+    expect(store.hasDigest()).toBe(true);
+    expect(heard).toEqual([]);
+  });
+
+  it('tells a refresh of the domain that left as a refusal and forgets it, and every other scope keeps what the refresh read', async () => {
+    const script = {
+      digest: digest as PermissionDigest | Error,
+      global: { TeamMemberships: { Create: 'granted' } } as PermissionDigest,
+      listed: named as UserDomain[] | Error,
+    };
+    const { store, paths, heard } = serving(script);
+    await Promise.all([store.loadDomains(), store.loadDigest(), store.loadDigest(alpha)]);
+
+    // Another session takes this one's place: it is not in the domain, and holds nothing outside it.
+    script.digest = {};
+    script.listed = [];
+    script.global = {};
+    const thrown = await store.refresh().then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+
+    expect(digestFailure(thrown)).toBe('refused');
+    expect(heard).toEqual([`${alpha} refused`]);
+    // Nothing the session before held in the domain is kept.
+    expect(store.hasDigest(alpha)).toBe(false);
+    expect(store.can(list)).toBe(false);
+    expect(store.hasDigest()).toBe(true);
+    expect(store.can({ resource: memberships, permission: CreatePermission })).toBe(false);
+    // A later refresh reads the list and what is still held, and asks for the forgotten domain no more.
+    paths.length = 0;
+    await store.refresh();
+    expect([...paths].sort()).toEqual(['permission-digest', 'user-domains']);
   });
 });

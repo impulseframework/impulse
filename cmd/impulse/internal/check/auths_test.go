@@ -47,12 +47,12 @@ type Auth struct {
 	session *Session
 }
 
-func New(ctx context.Context, db *cloudspanner.Client, key string, collection access.PermissionCollection) (*Auth, error) {
-	engine, err := access.New(nil, access.WithDefaultRoles(collection, Roles()))
+func New(ctx context.Context, db *cloudspanner.Client, key string, collection access.PermissionCollection, mail session.MailSettings) (*Auth, error) {
+	engine, err := access.New(nil, collection, access.WithDefaultRoles(Roles(), Name))
 	if err != nil {
 		return nil, err
 	}
-	s, err := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(db), key, session.SuperAdministratorsBy(signin.SuperAdministrators(resource.SignInRoles(engine.UserManager()))),
+	s, err := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(db), key, session.SuperAdministratorsBy(signin.SuperAdministrators(resource.SignInRoles(engine.UserManager()))), mail,
 		session.WithSessionTableName(TablePrefix+"Sessions"), session.WithUserTableName(TablePrefix+"SessionUsers"))
 	if err != nil {
 		return nil, err
@@ -73,7 +73,7 @@ const staffSuperAdministrators = "session.SuperAdministratorsBy(signin.SuperAdmi
 // engine, so its Auth is told of no super administrators), exporting no Roles(), and
 // reading its role file without embedding it.
 var (
-	staffAuthUnhanded = strings.Replace(strings.Replace(staffAuth, "\tengine, err := access.New(nil, access.WithDefaultRoles(collection, Roles()))\n\tif err != nil {\n\t\treturn nil, err\n\t}\n", "", 1),
+	staffAuthUnhanded = strings.Replace(strings.Replace(staffAuth, "\tengine, err := access.New(nil, collection, access.WithDefaultRoles(Roles(), Name))\n\tif err != nil {\n\t\treturn nil, err\n\t}\n", "", 1),
 		staffSuperAdministrators, "session.NoSuperAdministrators()", 1)
 	staffAuthNoRoles = strings.Replace(staffAuthUnhanded, "//go:embed roles.json\nvar roleFile access.RoleFile\n\n// Roles is the release's default roles for the staff auth.\nfunc Roles() access.RoleFile { return roleFile }\n\n", "", 1)
 	staffAuthNoEmbed = strings.Replace(staffAuth, "//go:embed roles.json\nvar roleFile access.RoleFile\n", "var roleFile access.RoleFile\n", 1)
@@ -122,7 +122,7 @@ type DataConfiguration struct {
 }
 
 func New(ctx context.Context) (*DataConfiguration, error) {
-	if _, err := access.New(nil, access.WithDefaultRoles(router.Collection(), staff.Roles())); err != nil {
+	if _, err := access.New(nil, router.Collection(), access.WithDefaultRoles(staff.Roles(), staff.Name)); err != nil {
 		return nil, err
 	}
 	s, err := staff.New(ctx, nil, "", router.Collection())
@@ -180,7 +180,9 @@ type Configurer interface {
 	Staff() *staff.Auth
 }
 `
-	rolesJSON = "{\"roles\": {\"global\": [], \"domain\": []}}\n"
+	rolesJSON = "{\"auth\": \"staff\", \"roles\": {\"global\": [], \"domain\": []}}\n"
+	// membersRolesJSON is the members auth's empty role file.
+	membersRolesJSON = "{\"auth\": \"members\", \"roles\": {\"global\": [], \"domain\": []}}\n"
 	// rolesValidation is the roles validation test with the staff row: it parses the
 	// staff auth's role file and runs access.ValidateRoles over the collection.
 	rolesValidation = `package deploy_test
@@ -198,7 +200,7 @@ func TestRoles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := access.ValidateRoles(nil, roles); err != nil {
+	if _, err := access.ValidateRoles(nil, roles, staff.Name); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -213,7 +215,7 @@ import (
 )
 
 func TestRoles(t *testing.T) {
-	if _, err := access.ValidateRoles(nil, nil); err != nil {
+	if _, err := access.ValidateRoles(nil, nil, "staff"); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -253,12 +255,12 @@ type Auth struct {
 	session *Session
 }
 
-func New(ctx context.Context, db *cloudspanner.Client, key string, collection access.PermissionCollection) (*Auth, error) {
-	engine, err := access.New(nil, access.WithDefaultRoles(collection, Roles()))
+func New(ctx context.Context, db *cloudspanner.Client, key string, collection access.PermissionCollection, mail session.MailSettings) (*Auth, error) {
+	engine, err := access.New(nil, collection, access.WithDefaultRoles(Roles(), Name))
 	if err != nil {
 		return nil, err
 	}
-	s, err := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(db), key, session.SuperAdministratorsBy(signin.SuperAdministrators(resource.SignInRoles(engine.UserManager()))),
+	s, err := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(db), key, session.SuperAdministratorsBy(signin.SuperAdministrators(resource.SignInRoles(engine.UserManager()))), mail,
 		session.WithSessionTableName(TablePrefix+"Sessions"), session.WithUserTableName(TablePrefix+"SessionUsers"))
 	if err != nil {
 		return nil, err
@@ -306,12 +308,12 @@ type Auth struct {
 	session *Session
 }
 
-func New(ctx context.Context, db *cloudspanner.Client, key string, collection access.PermissionCollection) (*Auth, error) {
-	engine, err := access.New(nil, access.WithDefaultRoles(collection, Roles()))
+func New(ctx context.Context, db *cloudspanner.Client, key string, collection access.PermissionCollection, mail session.MailSettings) (*Auth, error) {
+	engine, err := access.New(nil, collection, access.WithDefaultRoles(Roles(), Name))
 	if err != nil {
 		return nil, err
 	}
-	s, err := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(db), key, session.SuperAdministratorsBy(signin.SuperAdministrators(resource.SignInRoles(engine.UserManager()))),
+	s, err := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(db), key, session.SuperAdministratorsBy(signin.SuperAdministrators(resource.SignInRoles(engine.UserManager()))), mail,
 		session.WithSessionTableName(TablePrefix+"Sessions"), session.WithUserTableName(TablePrefix+"SessionUsers"))
 	if err != nil {
 		return nil, err
@@ -395,12 +397,52 @@ func TestRoles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := access.ValidateRoles(nil, roles); err != nil {
+	if _, err := access.ValidateRoles(nil, roles, members.Name); err != nil {
 		t.Fatal(err)
 	}
 }
 `
 )
+
+// handedUnderNameText is the finding for the staff auth's role file handed over by its
+// own package, among the options of the engine it opens, at line of
+// pkg/auth/staff/staff.go, under text: anything but a package's Name.
+func handedUnderNameText(line int, text string) string {
+	return fmt.Sprintf("pkg/auth/staff: pkg/auth/staff/staff.go:%d hands Roles() to access.WithDefaultRoles under %s, and impulse check takes only the package's own Name there; a role file is held to the auth it is handed over for, so hand the staff auth's file over under its own name: access.WithDefaultRoles(Roles(), Name)", line, text)
+}
+
+// handedNoRolesCall is the finding for a role file handed to access.WithDefaultRoles at
+// line of pkg/config/data.go as anything but an auth package's own Roles() call.
+func handedNoRolesCall(line int) string {
+	return fmt.Sprintf("pkg/config/data.go:%d hands access.WithDefaultRoles a role file that is not an auth package's own Roles() call, so impulse check cannot tell whose roles it holds; a role file is held to the auth it is handed over for, so hand each auth's file over in the auth's own package, as the package gives it and under its own name: access.WithDefaultRoles(Roles(), Name)", line)
+}
+
+// handedOutside is the finding for an auth's role file handed over at file:line, outside
+// the auth's own package.
+func handedOutside(auth, file string, line int) string {
+	return fmt.Sprintf("pkg/auth/%s: %s:%d hands %s.Roles() to access.WithDefaultRoles outside the %s auth's own package, where nothing ties the call to the engine it opens; an auth's role file is handed over in the auth's own package, among the options of the access.New call that opens its engine, so no other auth's engine can be given it: write access.WithDefaultRoles(Roles(), Name) there and take this call out", auth, file, line, auth, auth)
+}
+
+// staffHanding is the staff auth package with its engine's role file option written as
+// handOver, and with lead written at the start of New.
+func staffHanding(lead, handOver string) string {
+	return strings.Replace(staffAuth, "\tengine, err := access.New(nil, collection, access.WithDefaultRoles(Roles(), Name))\n", lead+"\tengine, err := access.New(nil, collection, "+handOver+")\n", 1)
+}
+
+// staffNamed is the staff auth package with its Name declared as decl, and its
+// TablePrefix in a declaration of its own.
+func staffNamed(decl string) string {
+	return strings.Replace(staffAuth, "const (\n\tName        = \"staff\"\n\tTablePrefix = \"Staff\"\n)\n", decl+"\n\nconst TablePrefix = \"Staff\"\n", 1)
+}
+
+// staffNameNotWritten is the finding for a staff auth package that hands its role file
+// over and declares no constant Name written out as a string.
+const staffNameNotWritten = `pkg/auth/staff: the package declares no constant Name written out as a string; it is the name the staff auth's role file is handed over under, and impulse check reads it where it is declared, so declare it: const Name = "staff"`
+
+// staffImportingMembers is the staff auth package importing the members auth's package.
+func staffImportingMembers(auth string) string {
+	return strings.Replace(auth, "\t\"github.com/impulseframework/impulse/session/signin\"\n", "\t\"github.com/impulseframework/impulse/session/signin\"\n\n\t\"example.com/harbor/pkg/auth/members\"\n", 1)
+}
 
 func TestAuthsWired(t *testing.T) {
 	t.Parallel()
@@ -481,7 +523,119 @@ func TestAuthsWired(t *testing.T) {
 		},
 		{
 			name: "the role file handed over by the data level", files: with(with(without(), "pkg/auth/staff/staff.go", staffAuthUnhanded), "pkg/config/data.go", staffConfigHanding),
+			wantStatus: Fail, wantSummary: "1 auth wiring problem(s)",
+			wantDetails: []string{handedOutside("staff", "pkg/config/data.go", 17)},
+		},
+		{
+			name: "an auth's engine handed another auth's role file beside its own",
+			files: with(with(with(without(), "pkg/auth/members/members.go", fmt.Sprintf(membersAuth, "signin.DisableRoleSync()")), "pkg/auth/members/roles.json", membersRolesJSON),
+				"pkg/auth/staff/staff.go", staffImportingMembers(staffHanding("", "access.WithDefaultRoles(Roles(), Name), access.WithDefaultRoles(members.Roles(), members.Name)"))),
+			wantStatus: Fail, wantSummary: "6 auth wiring problem(s)",
+			wantDetails: []string{
+				"pkg/auth/members: nothing outside tests calls members.New; the members auth is never constructed",
+				handedOutside("members", "pkg/auth/staff/staff.go", 35),
+				`pkg/auth/members: no outlet declares Auth("example.com/harbor/pkg/auth/members", ...) and no surface takes *members.Auth; nothing binds to the members auth, so its people can sign in nowhere`,
+				"pkg/auth/members, pkg/auth/staff: both issue their XSRF token in the cookie XSRF-TOKEN, so a login to one overwrites the other's token in the browser; name each auth's cookie (session.WithXSRFCookieName) and the same name in the web app that binds to it (withXsrfConfiguration)",
+				"pkg/auth/members, pkg/auth/staff: both remember a browser in the cookie auth-trusted, so a browser one auth remembers after a sign-in code forgets the other's remembered browsers; name each auth's cookie (session.WithTrustedDeviceCookieName, the skeletons' <name>-trusted)",
+				"pkg/auth/members, pkg/auth/staff: both ride their sessions in the cookie auth, so a login to one ends the other's session in the browser; name each auth's cookie (session.WithCookieName)",
+				"pkg/auth/members: no test validates the members auth's role file (access.ValidateRoles over the collection, parsing members.Roles()), so a warning the deploy prints is accepted nowhere in code; add the members row to pkg/deploy/deploy_test.go with its expected warnings empty",
+			},
+		},
+		{
+			name: "an auth's engine handed another auth's role file beside its own, with a comment before each option's parenthesis",
+			files: with(with(with(without(), "pkg/auth/members/members.go", fmt.Sprintf(membersAuth, "signin.DisableRoleSync()")), "pkg/auth/members/roles.json", membersRolesJSON),
+				"pkg/auth/staff/staff.go", staffImportingMembers(staffHanding("", "access.WithDefaultRoles /* its own */ (Roles(), Name), access.WithDefaultRoles /* the roles */ (members.Roles(), members.Name)"))),
+			wantStatus: Fail, wantSummary: "6 auth wiring problem(s)",
+			wantDetails: []string{
+				"pkg/auth/members: nothing outside tests calls members.New; the members auth is never constructed",
+				handedOutside("members", "pkg/auth/staff/staff.go", 35),
+				`pkg/auth/members: no outlet declares Auth("example.com/harbor/pkg/auth/members", ...) and no surface takes *members.Auth; nothing binds to the members auth, so its people can sign in nowhere`,
+				"pkg/auth/members, pkg/auth/staff: both issue their XSRF token in the cookie XSRF-TOKEN, so a login to one overwrites the other's token in the browser; name each auth's cookie (session.WithXSRFCookieName) and the same name in the web app that binds to it (withXsrfConfiguration)",
+				"pkg/auth/members, pkg/auth/staff: both remember a browser in the cookie auth-trusted, so a browser one auth remembers after a sign-in code forgets the other's remembered browsers; name each auth's cookie (session.WithTrustedDeviceCookieName, the skeletons' <name>-trusted)",
+				"pkg/auth/members, pkg/auth/staff: both ride their sessions in the cookie auth, so a login to one ends the other's session in the browser; name each auth's cookie (session.WithCookieName)",
+				"pkg/auth/members: no test validates the members auth's role file (access.ValidateRoles over the collection, parsing members.Roles()), so a warning the deploy prints is accepted nowhere in code; add the members row to pkg/deploy/deploy_test.go with its expected warnings empty",
+			},
+		},
+		{
+			name:       "the package's Name is another auth's",
+			files:      with(without(), "pkg/auth/staff/staff.go", staffNamed(`const Name = "members"`)),
+			wantStatus: Fail, wantSummary: "1 auth wiring problem(s)",
+			wantDetails: []string{`pkg/auth/staff: the package's Name is "members", and the package is the staff auth; a role file handed over under another auth's name is held to that auth's subject sets, so write Name = "staff", the directory's name, which generation knows the auth by, or rename the directory`},
+		},
+		{
+			name:       "the package's Name is a variable",
+			files:      with(without(), "pkg/auth/staff/staff.go", staffNamed(`var Name = "staff"`)),
+			wantStatus: Fail, wantSummary: "1 auth wiring problem(s)",
+			wantDetails: []string{staffNameNotWritten},
+		},
+		{
+			name:       "the package's Name is a sum",
+			files:      with(without(), "pkg/auth/staff/staff.go", staffNamed(`const Name = "st" + "aff"`)),
+			wantStatus: Fail, wantSummary: "1 auth wiring problem(s)",
+			wantDetails: []string{staffNameNotWritten},
+		},
+		{
+			name:       "the package's Name is a typed constant of the directory's name",
+			files:      with(without(), "pkg/auth/staff/staff.go", staffNamed(`const Name string = "staff"`)),
 			wantStatus: Pass, wantSummary: "1 auth(s) constructed, roles handed to the engine, and bound: staff",
+		},
+		{
+			name:       "a package that hands no role file over and declares no Name",
+			files:      with(without(), "pkg/auth/staff/staff.go", strings.Replace(staffAuthUnhanded, "\tName        = \"staff\"\n", "", 1)),
+			wantStatus: Fail, wantSummary: "1 auth wiring problem(s)",
+			wantDetails: []string{"pkg/auth/staff: nothing outside tests hands staff.Roles() to access.WithDefaultRoles; the staff auth's default roles never reach its permission engine"},
+		},
+		{
+			name:       "the role file handed over in the auth's package, outside the access.New call",
+			files:      with(without(), "pkg/auth/staff/staff.go", staffHanding("\toption := access.WithDefaultRoles(Roles(), Name)\n", "option")),
+			wantStatus: Fail, wantSummary: "1 auth wiring problem(s)",
+			wantDetails: []string{"pkg/auth/staff: pkg/auth/staff/staff.go:33 hands Roles() to access.WithDefaultRoles outside an access.New call, so impulse check cannot tell which engine is given the staff auth's role file; write the option among the arguments of the access.New call that opens the auth's engine: access.New(store, collection, access.WithDefaultRoles(Roles(), Name))"},
+		},
+		{
+			name:       "the role file handed over under a Name the function declares for itself",
+			files:      with(without(), "pkg/auth/staff/staff.go", staffHanding("\tName := TablePrefix\n", "access.WithDefaultRoles(Roles(), Name)")),
+			wantStatus: Fail, wantSummary: "1 auth wiring problem(s)",
+			wantDetails: []string{"pkg/auth/staff: pkg/auth/staff/staff.go:34 hands Roles() to access.WithDefaultRoles under a Name the function declares for itself, which hides the package's own; rename the function's, and hand the staff auth's file over under the package's: access.WithDefaultRoles(Roles(), Name)"},
+		},
+		{
+			name:       "the role file handed over under another package's name",
+			files:      with(without(), "pkg/auth/staff/staff.go", staffImportingMembers(staffHanding("", "access.WithDefaultRoles(Roles(), members.Name)"))),
+			wantStatus: Fail, wantSummary: "1 auth wiring problem(s)",
+			wantDetails: []string{"pkg/auth/staff: pkg/auth/staff/staff.go:35 hands Roles() to access.WithDefaultRoles under members.Name; a role file is held to the auth it is handed over for, so hand the staff auth's file over under its own name: access.WithDefaultRoles(Roles(), Name)"},
+		},
+		{
+			name:       "the role file handed over under the auth's name written out",
+			files:      with(without(), "pkg/auth/staff/staff.go", staffHanding("", `access.WithDefaultRoles(Roles(), "staff")`)),
+			wantStatus: Fail, wantSummary: "1 auth wiring problem(s)",
+			wantDetails: []string{handedUnderNameText(33, `"staff"`)},
+		},
+		{
+			name:       "the role file handed over under no name",
+			files:      with(without(), "pkg/auth/staff/staff.go", staffHanding("", `access.WithDefaultRoles(Roles(), "")`)),
+			wantStatus: Fail, wantSummary: "1 auth wiring problem(s)",
+			wantDetails: []string{handedUnderNameText(33, `""`)},
+		},
+		{
+			name:       "the role file handed over under a variable that holds the package's Name",
+			files:      with(without(), "pkg/auth/staff/staff.go", staffHanding("\tname := Name\n", "access.WithDefaultRoles(Roles(), name)")),
+			wantStatus: Fail, wantSummary: "1 auth wiring problem(s)",
+			wantDetails: []string{handedUnderNameText(34, "name")},
+		},
+		{
+			name: "beside the auth package's own call, a role file handed over in a variable that holds the package's Roles()",
+			files: with(without(), "pkg/config/data.go",
+				strings.Replace(strings.Replace(staffConfigHanding, "staff.Roles(), staff.Name", "roles, staff.Name", 1),
+					"func New(ctx context.Context) (*DataConfiguration, error) {\n", "func New(ctx context.Context) (*DataConfiguration, error) {\n\troles := staff.Roles()\n", 1)),
+			wantStatus: Fail, wantSummary: "1 auth wiring problem(s)",
+			wantDetails: []string{handedNoRolesCall(18)},
+		},
+		{
+			name: "beside the auth package's own call, a wrapper that takes the role file and the name as parameters",
+			files: with(without(), "pkg/config/data.go",
+				strings.Replace(staffConfigHanding, "access.New(nil, router.Collection(), access.WithDefaultRoles(staff.Roles(), staff.Name))", "engine(router.Collection(), staff.Roles(), staff.Name)", 1)+
+					"\nfunc engine(collection access.PermissionCollection, roles access.RoleFile, name string) (*access.Client, error) {\n\treturn access.New(nil, collection, access.WithDefaultRoles(roles, name))\n}\n"),
+			wantStatus: Fail, wantSummary: "1 auth wiring problem(s)",
+			wantDetails: []string{handedNoRolesCall(31)},
 		},
 		{
 			name: "the package exports no Roles()", files: with(without(), "pkg/auth/staff/staff.go", staffAuthNoRoles),
@@ -502,7 +656,7 @@ func TestAuthsWired(t *testing.T) {
 			name: "an application-run directory auth assigns roles in the bootstrap",
 			files: map[string]string{
 				"pkg/auth/members/members.go": fmt.Sprintf(membersAuth, "signin.DisableRoleSync()"),
-				"pkg/auth/members/roles.json": rolesJSON,
+				"pkg/auth/members/roles.json": membersRolesJSON,
 				"pkg/config/data.go":          membersConfig,
 				"pkg/deploy/deploy.go":        staffDeploy,
 				"cmd/bootstrap/main.go":       membersBootstrap,
@@ -515,7 +669,7 @@ func TestAuthsWired(t *testing.T) {
 			name: "a directory-run auth with a role writer in the bootstrap",
 			files: map[string]string{
 				"pkg/auth/members/members.go": fmt.Sprintf(membersAuth, "signin.RoleSync(nil)"),
-				"pkg/auth/members/roles.json": rolesJSON,
+				"pkg/auth/members/roles.json": membersRolesJSON,
 				"pkg/config/data.go":          membersConfig,
 				"pkg/deploy/deploy.go":        staffDeploy,
 				"cmd/bootstrap/main.go":       membersBootstrap,
@@ -527,7 +681,7 @@ func TestAuthsWired(t *testing.T) {
 		},
 		{
 			name:       "two auths leave their cookies at the library defaults",
-			files:      with(with(without(), "pkg/auth/members/members.go", fmt.Sprintf(membersAuth, "signin.DisableRoleSync()")), "pkg/auth/members/roles.json", rolesJSON),
+			files:      with(with(without(), "pkg/auth/members/members.go", fmt.Sprintf(membersAuth, "signin.DisableRoleSync()")), "pkg/auth/members/roles.json", membersRolesJSON),
 			wantStatus: Fail, wantSummary: "5 auth wiring problem(s)",
 			wantDetails: []string{
 				"pkg/auth/members: nothing outside tests calls members.New; the members auth is never constructed",
@@ -597,7 +751,7 @@ func TestAuthsWired(t *testing.T) {
 			name: "the program declares a directory method without .SyncsRoles() while the package syncs roles",
 			files: map[string]string{
 				"pkg/auth/members/members.go": fmt.Sprintf(membersAuth, "signin.RoleSync(nil)"),
-				"pkg/auth/members/roles.json": rolesJSON,
+				"pkg/auth/members/roles.json": membersRolesJSON,
 				"pkg/config/data.go":          membersConfig,
 				"pkg/deploy/deploy.go":        staffDeploy,
 				"pkg/deploy/deploy_test.go":   membersValidation,
@@ -616,7 +770,7 @@ func TestAuthsWired(t *testing.T) {
 			name: "the program declares .SyncsRoles() on a directory method the package leaves to the application",
 			files: map[string]string{
 				"pkg/auth/members/members.go": fmt.Sprintf(membersAuth, "signin.DisableRoleSync()"),
-				"pkg/auth/members/roles.json": rolesJSON,
+				"pkg/auth/members/roles.json": membersRolesJSON,
 				"pkg/config/data.go":          membersConfig,
 				"pkg/deploy/deploy.go":        staffDeploy,
 				"pkg/deploy/deploy_test.go":   membersValidation,
@@ -635,7 +789,7 @@ func TestAuthsWired(t *testing.T) {
 			name: "a directory method registered with RoleSync beside the password method is named: it stands alone on its auth",
 			files: map[string]string{
 				"pkg/auth/members/members.go": fmt.Sprintf(membersAuthBeside, "signin.RoleSync(nil)"),
-				"pkg/auth/members/roles.json": rolesJSON,
+				"pkg/auth/members/roles.json": membersRolesJSON,
 				"pkg/config/data.go":          membersConfig,
 				"pkg/deploy/deploy.go":        staffDeploy,
 				"pkg/deploy/deploy_test.go":   membersValidation,
@@ -654,7 +808,7 @@ func TestAuthsWired(t *testing.T) {
 			name: "the program declares .SyncsRoles() on the directory method the package syncs roles for",
 			files: map[string]string{
 				"pkg/auth/members/members.go": fmt.Sprintf(membersAuth, "signin.RoleSync(nil)"),
-				"pkg/auth/members/roles.json": rolesJSON,
+				"pkg/auth/members/roles.json": membersRolesJSON,
 				"pkg/config/data.go":          membersConfig,
 				"pkg/deploy/deploy.go":        staffDeploy,
 				"pkg/deploy/deploy_test.go":   membersValidation,

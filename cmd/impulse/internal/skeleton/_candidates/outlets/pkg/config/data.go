@@ -142,7 +142,7 @@ func NewDataConfiguration(ctx context.Context) (*DataConfiguration, error) {
 
 	// The sender every auth mails through: the Workspace relay where the deployment names
 	// a mailbox, the log in development.
-	sender, err := openMailSender(env)
+	sender, err := openMailSender(env, core.Environment())
 	if err != nil {
 		return nil, err
 	}
@@ -247,10 +247,11 @@ func (c *DataConfiguration) StaffIdentity() *staffidentity.Client {
 	return c.staff.Identity()
 }
 
-// StaffAdministratorPassword returns the password the staff auth's first administrator is
-// seeded with, the stack's generated secret; empty where the deployment carries none.
-func (c *DataConfiguration) StaffAdministratorPassword() string {
-	return c.env.StaffAdministratorPassword
+// StaffAdministrator returns the email address of the staff auth's first administrator,
+// which the placement names and the migrate command has the invitation mailed to; empty
+// where the deployment names none.
+func (c *DataConfiguration) StaffAdministrator() string {
+	return c.env.StaffAdministrator
 }
 
 // Members returns the members auth: the one the portal binds to.
@@ -266,8 +267,9 @@ func (c *DataConfiguration) MembersIdentity() *membersidentity.Client {
 	return c.members.Identity()
 }
 
-// MembersAdministrator returns the sign-in name the members auth's first administrator is
-// seeded under, which the placement names; empty where the deployment names none.
+// MembersAdministrator returns the email address of the members auth's first
+// administrator, which the placement names and the migrate command has the invitation
+// mailed to; empty where the deployment names none.
 func (c *DataConfiguration) MembersAdministrator() string {
 	return c.env.MembersAdministrator
 }
@@ -293,7 +295,8 @@ func (c *DataConfiguration) LiveOrigins() []string {
 // ctx ends, rereading on the tenants signal the record's generated write paths publish
 // through the live service (a tenant made or deleted on any instance) and at its
 // backstop. The generated DomainGuard and the consolidated dispatcher ask it before a
-// tenant-scoped request runs, with no read and no wait, so a new tenant is usable at
+// tenant-scoped request runs, and it rereads the table first when its copy is past the
+// backstop or behind a signal, so a new tenant is usable at
 // once, on every instance and on every outlet, without a restart. The foothold half of
 // the concealed-domain answer comes from the session's permissions, in the store of the
 // auth the request came through.
@@ -377,18 +380,22 @@ type dataConfig struct {
 	// MailMailbox and MailAppPassword send the auths' mail through the Google Workspace
 	// SMTP relay as the mailbox (a no-reply address of the organization's domain, with
 	// two-step verification and an app password, the secret); MailFrom is the address the
-	// mail is from when it is not the mailbox, an alias of its account. Unset, as in
-	// development, the mail is written to the log and nothing is sent.
+	// mail is from when it is not the mailbox, an alias of its account. Unset in
+	// development (APP_ENVIRONMENT=development), the session library's logging stand-in
+	// writes each message to the log instead of sending it; unset anywhere else, the
+	// application does not start.
 	MailMailbox     string `env:"APP_MAIL_MAILBOX"`
 	MailFrom        string `env:"APP_MAIL_FROM"`
 	MailAppPassword string `env:"APP_MAIL_APP_PASSWORD" secret:"true"`
 
-	// StaffAdministratorPassword is the password of the staff auth's first administrator
-	// (staff.Administrator), which the migrate command seeds while the auth's users table
-	// holds no rows: a secret the stack generates, read like any other setting, that
-	// nobody types and the first sign-in changes. Unset in development, where the
-	// bootstrap creates the development logins instead.
-	StaffAdministratorPassword string `env:"APP_STAFF_ADMINISTRATOR_PASSWORD" secret:"generated"`
+	// StaffAdministrator is the email address of the staff auth's first administrator
+	// (staff.AdministratorVariable), which the placement names for each environment:
+	// while nobody of the auth holds the Super Administrator role the migrate command
+	// has an invitation mailed there (staff.Auth.InviteAdministrator), and the person
+	// signs in from its link. It is an address, not a secret, and no password is
+	// generated for the person. Unset in development, where the bootstrap creates the
+	// development logins instead, one of them holding the role.
+	StaffAdministrator string `env:"APP_STAFF_ADMINISTRATOR"`
 
 	// The members auth's directory registration (pkg/auth/members, user/directory/login):
 	// the tenant whose accounts it admits, the app registration's client credentials, and
@@ -401,12 +408,13 @@ type dataConfig struct {
 	MembersDirectoryClientSecret        string `env:"APP_MEMBERS_DIRECTORY_CLIENT_SECRET"        secret:"true"`
 	MembersDirectoryRedirectURL         string `env:"APP_MEMBERS_DIRECTORY_REDIRECT_URL"`
 
-	// MembersAdministrator is the sign-in name of the members auth's first administrator,
-	// as the directory presents it (the user principal name): while the auth's users
-	// table holds no rows the migrate command creates a user without a password under it,
-	// holding the administrator roles, and that person's first sign-in links to it. Named
-	// per environment by the placement; unset in development, where the bootstrap seeds
-	// the development members.
+	// MembersAdministrator is the email address of the members auth's first administrator
+	// (members.AdministratorVariable), which the placement names for each environment:
+	// while nobody of the auth holds the Super Administrator role the migrate command
+	// has an invitation mailed there (members.Auth.InviteAdministrator), and the
+	// person's sign-in through the directory from its link accepts it and is given the
+	// roles; the address the directory gives must be the invited one. Unset in
+	// development, where the bootstrap seeds the development members.
 	MembersAdministrator string `env:"APP_MEMBERS_ADMINISTRATOR"`
 }
 
@@ -464,16 +472,33 @@ func (env *dataConfig) membersSettings(collection access.PermissionCollection, s
 	}
 }
 
-// openMailSender opens the sender every auth mails through: the Google Workspace SMTP
-// relay as the mailbox the deployment names (APP_MAIL_MAILBOX, with its app password),
-// or the log where none is named, as in development, where nothing is sent and a
-// developer follows the link from the log. A mailbox named without its app password is
-// the first environment before an operator adds the secret's version (the stack's
-// secret_versions, where no entry means not yet): the log stands in there too, so the
-// environment runs and its migrations seed, and the relay takes over once the version
-// is pinned; a release to any other environment is refused until it is.
-func openMailSender(env *dataConfig) (mail.Sender, error) {
+// developmentEnvironment is the name the development template gives the environment
+// (APP_ENVIRONMENT=development): the one environment whose mail the log may take.
+const developmentEnvironment = "development"
+
+// errNoMailbox refuses to open the data level outside development with no mailbox to
+// send as.
+var errNoMailbox = errors.New("the application has no mailbox to send as, so it does not start: APP_MAIL_MAILBOX and APP_MAIL_APP_PASSWORD are not both set, and mail is written to the log in development alone (APP_ENVIRONMENT=development), since the links and codes it carries are secrets. Give this environment its mailbox and the mailbox's app password, then start it again")
+
+// openMailSender opens the mail driver the auths send through: the Google Workspace
+// SMTP relay as the configured mailbox with its app password (APP_MAIL_MAILBOX,
+// APP_MAIL_APP_PASSWORD). In development, and nowhere else, the session library's
+// logging stand-in takes its place where the two are not both set: it writes each
+// message to the log, link included, and sends nothing, so development follows the link
+// from the log. Development is the environment the process is told it runs in
+// (APP_ENVIRONMENT=development, as the development template sets it). Anywhere else an
+// application with no mailbox, or with a mailbox and no app password yet, does not
+// start: the links and codes it mails are secrets, and a log is no place for them. The
+// log is no mailbox (mail.Delivers): while nobody of an auth holds the Super
+// Administrator role the migrate command refuses to invite its first administrator
+// through it, since an invitation's link is never written to a log, so the mailbox and
+// its app password come before the first release.
+func openMailSender(env *dataConfig, environment string) (mail.Sender, error) {
 	if env.MailMailbox == "" || env.MailAppPassword == "" {
+		if environment != developmentEnvironment {
+			return nil, errNoMailbox
+		}
+
 		return mail.Log{}, nil
 	}
 	sender, err := workspace.New(&workspace.Settings{Mailbox: env.MailMailbox, From: env.MailFrom, AppPassword: env.MailAppPassword, Name: staff.Application})

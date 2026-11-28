@@ -5,6 +5,7 @@ import (
 
 	"github.com/impulseframework/impulse/access/internal/policy"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 )
 
 // Store is the persistence seam for policy data: three typed tables (custom
@@ -17,7 +18,9 @@ import (
 // at run time. Implementations are thin — each method is one SQL statement
 // against one store's tables; everything smarter (validation, resource/field
 // splitting, change signaling, snapshot compilation) lives in the access
-// package, one shared code path for every store.
+// package, one shared code path for every store. A membership held on one record of a
+// tenant is kept in two tables of its own, a person's and a group's, keyed by the record
+// first; the memberships tables hold none.
 //
 // The interface is sealed by construction: ReadPolicy's signature references
 // this module's internal/policy package, so only packages inside this module
@@ -45,57 +48,96 @@ import (
 //     gives the assignment that period: the row is written where the key is
 //     free, and where it is taken the period is replaced and the rest of the
 //     row left as it was, so assigning again is how a period changes and the
-//     same period again is a no-op. No row is written when a period begins or
-//     ends: the reads apply it. The listings of what a person or a group holds
-//     return the assignments that count at the database's present, so one
-//     outside its period is left out while its row is still there; ReadPolicy
-//     returns every row with its period, for the engine to apply at the
-//     instant of each check.
-//   - A membership names a role by name alone: InsertUserRole writes it
-//     whether or not a role row exists, since the role may be one of the
-//     release's defaults, which have no row. The access package checks that
-//     the name resolves before it writes.
+//     same period again is a no-op. A person's role carries a reason too,
+//     opaque text that is empty for none: its insert writes the reason with
+//     the period and replaces both where the key is taken, so the reason kept
+//     is the one the role was last given with. No row is written when a
+//     period begins or ends: the reads apply it. The listings of what a
+//     person or a group holds return the assignments that count at the
+//     database's present, so one outside its period is left out while its row
+//     is still there; ReadPolicy returns every row with its period, for the
+//     engine to apply at the instant of each check.
+//   - A membership names a role by name alone, and so does a group's role.
+//     InsertUserRole and InsertGroupRole write the row whether or not a role
+//     row exists: they are how one of the release's default roles, which has
+//     no row, is given. InsertCustomUserRole and InsertCustomGroupRole are how
+//     a custom role is given: each reads the role's row where the holding
+//     reads it (the scope's own, or every domain's for one domain) in the
+//     transaction that writes the holding, writes nothing and wraps
+//     policy.ErrNoRole where no such row is held, and takes its turn with a
+//     DeleteRole of that row. Of a role given and deleted at the same moment,
+//     either the holding is written and the delete refuses, or the role goes
+//     and nothing is held.
 //   - DeleteRole is scoped to (scope, role): it cascades the role's grants,
 //     refuses with an error while memberships held in that scope that have
 //     not ended still name the role (checked in the same transaction as the
 //     delete), takes the ended ones with the role, and reports whether a row
-//     was actually deleted.
+//     was actually deleted. A role held in every domain is refused as well,
+//     wrapping policy.ErrHeldInDomain, while a membership or a group's role
+//     held in one domain names it, has not ended, and that domain holds no
+//     custom role of the name itself; the ended ones of those go with the
+//     role.
+//   - InsertRole reads the roles a new name is held to and inserts in one
+//     transaction that no other insert of a name alike but for case runs
+//     beside: of two such names added at the same moment, one is held and the
+//     other is refused.
 //   - InsertGrant requires the (scope, role) row to exist (DB-enforced
-//     parent interleave or foreign key): a grant is a custom role's.
+//     parent interleave or foreign key): a grant is a custom role's; a write
+//     for a role with no row wraps policy.ErrNoRole.
 //   - ChangeGrants applies a role's removals and additions in one transaction,
 //     so a grant whose condition changed (one row removed, one added) is never
 //     seen with neither row.
 //   - List results are sorted for deterministic output.
-//   - ReadPolicy reads roles, grants, memberships, groups and their members
-//     with snapshot consistency: the row sets observe the same store state.
+//   - ReadPolicy reads roles, grants, memberships, groups and their members,
+//     and the roles held on a record, with snapshot consistency: the row sets
+//     observe the same store state.
 //   - A group's member and a group's role each require the group's row
-//     (DB-enforced foreign key), and DeleteGroup refuses a group that still
-//     has a member or a role that has not ended: a group goes once it is
-//     emptied, so no person loses a role by a group's deletion, and the ended
-//     members and roles, which give nobody anything, go with it.
+//     (DB-enforced foreign key), and DeleteGroup deletes the group with its
+//     members and the roles it holds. A member or a role written to a group
+//     with no row wraps policy.ErrNoGroup.
 type Store interface {
 	// ReadPolicy returns the store's complete policy content as normalized
 	// records for the snapshot compiler: the custom roles, their grants and
 	// the memberships.
 	ReadPolicy(ctx context.Context) (*policy.Records, error)
 
-	// Membership. InsertUserRole gives the membership its period, replacing
-	// the period of one that is there; the three listings return the
-	// memberships that count now.
-	InsertUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period) error
-	DeleteUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role) error
+	// Membership. InsertUserRole gives the membership its period and its
+	// reason, replacing the period and the reason of one that is there; the
+	// three listings return the memberships that count now. Each of the three
+	// writes of a person's role is handed the record of its act, nil for none: a
+	// store that keeps an audit log writes a record in the write's own
+	// transaction, and none where the write fails or, for DeleteUserRole, where
+	// there was no row to remove.
+	InsertUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string, record *auditlog.Record) error
+	// InsertCustomUserRole writes what InsertUserRole writes, only while the
+	// roles table holds a row of the custom role where the membership reads
+	// it, and wraps policy.ErrNoRole where it holds none.
+	InsertCustomUserRole(
+		ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string, record *auditlog.Record,
+	) error
+	DeleteUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, record *auditlog.Record) error
 	ListUserRoles(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User) ([]accesstypes.Role, error)
 	// ListUserMemberships returns every membership the user holds now,
 	// wherever it is held, sorted by scope then role: the no-scope listing,
 	// read through the user index.
 	ListUserMemberships(ctx context.Context, user accesstypes.User) ([]policy.Membership, error)
+	// ListUserAssignments returns every membership of the user's own that has
+	// not ended, wherever it is held, each with its period and the reason it
+	// was given for, sorted by scope then role: what the person holds or
+	// will, and why. One whose period has not begun is listed; ReadPolicy
+	// does not carry the reason, which is not policy.
+	ListUserAssignments(ctx context.Context, user accesstypes.User) ([]policy.Assignment, error)
 	ListRoleUsers(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) ([]accesstypes.User, error)
 
 	// Roles. A role row carries the description its creator gave it, as
 	// opaque text: InsertRole writes it with the row and, for a (scope, role)
 	// that exists, is the documented no-op, so the stored description stays
-	// as it is. ListRoles returns each role with its description, sorted by
-	// name.
+	// as it is. InsertRole refuses a name that differs only in the case of
+	// its ASCII letters from a custom role held where the two names would be
+	// read side by side (policy.CaseTwin): in the scope itself, for one domain
+	// in every domain as well, and for every domain in each single domain as
+	// well. The refusal is a *policy.CaseTwinError naming the role held.
+	// ListRoles returns each role with its description, sorted by name.
 	InsertRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, description string) error
 	ListRoles(ctx context.Context, scope accesstypes.PolicyScope) ([]policy.RoleRow, error)
 	DeleteRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error)
@@ -137,10 +179,9 @@ type Store interface {
 	// group where it is kept (a unique index). InsertGroup is no idempotent
 	// insert: an id or a name already taken there is an error, reported by
 	// taken. SetGroupDescription and DeleteGroup report whether the group was
-	// there; DeleteGroup refuses with an error while the group has a member or
-	// a role that has not ended, checked in the delete's own transaction, and
-	// takes the ended ones with the group. ListGroups returns the groups kept
-	// in scope, sorted by name, and Group one by its id.
+	// there. DeleteGroup deletes the group with its members and the roles it
+	// holds, in one transaction. ListGroups returns the groups kept in scope,
+	// sorted by name, and Group one by its id.
 	InsertGroup(ctx context.Context, group *policy.GroupRow) (taken bool, err error)
 	SetGroupDescription(ctx context.Context, group accesstypes.Group, description string) (bool, error)
 	DeleteGroup(ctx context.Context, group accesstypes.Group) (bool, error)
@@ -169,10 +210,41 @@ type Store interface {
 	// sorted by name then id: the groups a role is held through. DeleteRole
 	// refuses, wrapping policy.ErrHeldByGroup, while a group's row of the role
 	// in the scope has not ended, checked in the delete's own transaction, and
-	// takes the ended ones with the role.
+	// takes the ended ones with the role; for a role held in every domain it
+	// refuses, wrapping policy.ErrHeldInDomain, for a group's row in one domain
+	// as the contract above says.
+	// CountGroupMembersIn and ListGroupRolesIn say what the groups kept in
+	// scope hold, for a listing of them: how many people each has, and the
+	// roles each holds with their periods, sorted by group, then where the
+	// role is held, then role. Both read what has not ended, an assignment
+	// whose period has not begun among it. A group with no member is absent
+	// from the counts.
+	CountGroupMembersIn(ctx context.Context, scope accesstypes.PolicyScope) (map[accesstypes.Group]int, error)
+	ListGroupRolesIn(ctx context.Context, scope accesstypes.PolicyScope) ([]policy.Membership, error)
 	InsertGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role, period accesstypes.Period) error
+	// InsertCustomGroupRole writes what InsertGroupRole writes, only while the
+	// roles table holds a row of the custom role where the group's role reads
+	// it, and wraps policy.ErrNoRole where it holds none.
+	InsertCustomGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role, period accesstypes.Period) error
 	DeleteGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role) error
 	ListGroupRoles(ctx context.Context, group accesstypes.Group) ([]policy.Membership, error)
 	ListUserGroupRoles(ctx context.Context, user accesstypes.User) ([]policy.GroupRole, error)
 	ListRoleGroups(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) ([]policy.GroupRow, error)
+
+	// The roles held on one record of a tenant, a person's and a group's, with the
+	// contracts of the memberships': an insert gives the row its period, replacing the
+	// period of one that is there; a delete of an absent row is a no-op; the role is
+	// named by name alone. InsertRecordGroupRole requires the group's row, as
+	// InsertGroupRole does, and wraps policy.ErrNoGroup where it is not there; DeleteGroup
+	// takes the group's rows with its members and roles.
+	InsertRecordUserRole(ctx context.Context, at accesstypes.RecordScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period) error
+	DeleteRecordUserRole(ctx context.Context, at accesstypes.RecordScope, user accesstypes.User, role accesstypes.Role) error
+	InsertRecordGroupRole(ctx context.Context, group accesstypes.Group, at accesstypes.RecordScope, role accesstypes.Role, period accesstypes.Period) error
+	DeleteRecordGroupRole(ctx context.Context, group accesstypes.Group, at accesstypes.RecordScope, role accesstypes.Role) error
+	// ListRecordRoles returns who holds what on the record and has not ended, one whose period
+	// has not begun among them: the people's first, by user then role, then the groups', by
+	// group name, then id, then role.
+	ListRecordRoles(ctx context.Context, at accesstypes.RecordScope) ([]policy.RecordAssignment, error)
+	// DeleteRecordRoles removes every membership held on the record, a person's and a group's.
+	DeleteRecordRoles(ctx context.Context, at accesstypes.RecordScope) error
 }

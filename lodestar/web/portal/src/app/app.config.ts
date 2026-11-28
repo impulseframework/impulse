@@ -54,9 +54,9 @@ export const appConfig: ApplicationConfig = {
     provideResourceClient((options) => createApi({ baseUrl: environment.apiUrl, ...options })),
     // The frame every signed-in page sits in, drawn by the library: the portal's name, the
     // sector the page is in with the way to the client's other sectors, Help, and the
-    // person's own menu (Appearance and Sign out: the client signs in through their
-    // company's directory, so the account page holds nothing for them). The portal has no
-    // menus of its own. The sector the URL names is the tenant the library's pages work in.
+    // person's own menu (Your account, Appearance and Sign out; the client signs in through
+    // their company's directory, so the account page shows their account with nothing to change). The
+    // portal has no menus of its own. The sector the URL names is the tenant the library's pages work in.
     provideFrame({ name: 'Lodestar Client Portal', home: 'tracker', menus: [] }),
     provideRouter(routes, withComponentInputBinding(), withRouterConfig({ paramsInheritanceStrategy: 'always' })),
     // The date adapter and the animations as standalone providers: the animations module,
@@ -79,11 +79,11 @@ export const appConfig: ApplicationConfig = {
     // Demonstrates: webapp.installable, webapp.update-notice.
     provideServiceWorker('ngsw-worker.js', { enabled: !isDevMode(), registrationStrategy: 'registerWhenStable:30000' }),
     provideAppUpdate(),
-    // The look the person chose, light or dark, applied before the first page renders,
-    // remembered in the browser and kept with the person's account, so it follows them
-    // to another device (the frame writes it there); Appearance in the person's menu is
-    // where they choose. The portal offers one palette (theme.scss), so no palette is
-    // named here.
+    // The look the person chose, light, dark or as their device is set, applied before
+    // the first page renders, remembered in the browser and kept with the person's
+    // account, so it follows them to another device (the frame writes it there);
+    // Appearance in the person's menu is where they choose. The portal offers one palette
+    // (theme.scss), so no palette is named here.
     provideTheme(),
   ],
 };

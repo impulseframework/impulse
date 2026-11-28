@@ -31,6 +31,10 @@ const (
 	// one (session.Auth.FirstPassword): the code is asked for under /code, and the
 	// password is set, with the code, at the suffix itself.
 	userFirstPasswordSuffix = "/user/first-password"
+	// userPasswordResetSuffix is where a password reset link is asked for by the person
+	// (the suffix itself), opened (/open) and completed with a new password (/complete)
+	// (session.Auth.PasswordReset).
+	userPasswordResetSuffix = "/user/password-reset"
 	// userForgetBrowserSuffix is where a signed-in person's account page forgets the
 	// browser the second factor remembered for them (session.Auth.ForgetBrowser).
 	userForgetBrowserSuffix = "/user/browser/forget"
@@ -48,6 +52,34 @@ const (
 	// (session.Auth.ChangeLook).
 	userLookSuffix    = "/user/look"
 	changeLookHandler = "ChangeLook"
+	// userUsernameSuffix is where a signed-in person's account page changes their own
+	// username (session.Auth.ChangeUsername), and userUsernameFreeSuffix where it asks,
+	// as the person types one, whether a name is free (session.Auth.UsernameFree).
+	userUsernameSuffix     = "/user/username"
+	userUsernameFreeSuffix = "/user/username/free"
+	changeUsernameHandler  = "ChangeUsername"
+	usernameFreeHandler    = "UsernameFree"
+	// userSessionsSuffix is where a signed-in person's account page lists where they are
+	// signed in (session.Auth.OwnSessions), userSessionsEndSuffix where it signs them out
+	// of one browser (session.Auth.EndOwnSession) and userSessionsEndOthersSuffix where
+	// it signs them out of every other (session.Auth.EndOtherSessions).
+	userSessionsSuffix          = "/user/sessions"
+	userSessionsEndSuffix       = "/user/sessions/end"
+	userSessionsEndOthersSuffix = "/user/sessions/end-others"
+	ownSessionsHandler          = "OwnSessions"
+	endOwnSessionHandler        = "EndOwnSession"
+	endOtherSessionsHandler     = "EndOtherSessions"
+	// userForgetBrowsersSuffix is where a signed-in person's account page forgets every
+	// browser the second factor remembered for them (session.Auth.ForgetBrowsers).
+	userForgetBrowsersSuffix = "/user/browser/forget-all"
+	forgetBrowsersHandler    = "ForgetBrowsers"
+	// userTenantsSuffix is where a signed-in person's account page lists their tenants
+	// (session.Auth.OwnTenants), and userTenantsLeaveSuffix where it takes them out of
+	// one (session.Auth.LeaveTenant).
+	userTenantsSuffix      = "/user/tenants"
+	userTenantsLeaveSuffix = "/user/tenants/leave"
+	ownTenantsHandler      = "OwnTenants"
+	leaveTenantHandler     = "LeaveTenant"
 	// The token page's routes under an issuing session outlet's prefix, and the device
 	// flow's public endpoints under a machine outlet's.
 	userTokensSuffix  = "/user/tokens"
@@ -77,6 +109,13 @@ const (
 	// the password method (session.FirstPasswordHandlers).
 	firstPasswordSendCodeHandler = "FirstPasswordSendCode"
 	firstPasswordSetHandler      = "FirstPasswordSet"
+	// The password reset's handlers on a session outlet's surface whose auth declares
+	// the password method (session.PasswordResetHandlers), and the handler that
+	// confirms an address an administrator set (session.EmailHandlers.Confirm).
+	passwordResetRequestHandler  = "PasswordResetRequest"
+	passwordResetOpenHandler     = "PasswordResetOpen"
+	passwordResetCompleteHandler = "PasswordResetComplete"
+	emailConfirmHandler          = "EmailConfirm"
 	// The device flow's and the token page's handlers on an issuing session outlet's
 	// surface (session.DeviceHandlers, ApplicationTokenHandlers).
 	deviceAuthorizeHandler = "DeviceAuthorize"
@@ -121,9 +160,11 @@ type servedMethod struct {
 }
 
 // servedPending are the pending sign-in routes of a session outlet: what the login
-// page is told beside the methods. The last three are the second factor's: where the
-// page asks for the sign-in code the Auth mails, where it verifies the code entered,
-// and where a person who holds no address gives one for the code.
+// page is told beside the methods. Confirm is where a person confirms with their
+// password, and is empty for an auth with no password method: nobody there holds a
+// password, so the route would have nothing behind it. The last three are the second
+// factor's: where the page asks for the sign-in code the Auth mails, where it verifies
+// the code entered, and where a person who holds no address gives one for the code.
 type servedPending struct {
 	Status      string
 	Confirm     string
@@ -144,10 +185,21 @@ type servedInvitation struct {
 }
 
 // servedEmail are the email address routes of a session outlet: where a signed-in
-// person adds an address and where they verify it from the mailed link.
+// person adds an address, where they verify it from the mailed link, and where the
+// reader of a new address an administrator set confirms it, signed in or not.
 type servedEmail struct {
-	Add    string
-	Verify string
+	Add     string
+	Verify  string
+	Confirm string
+}
+
+// servedPasswordReset are the password reset routes of a session outlet whose auth
+// declares the password method: where a person asks for a link, where the mailed link
+// is opened, and where it is completed with a new password.
+type servedPasswordReset struct {
+	Request  string
+	Open     string
+	Complete string
 }
 
 // servedSignUp are the sign-up routes of a session outlet whose auth declares the
@@ -397,10 +449,11 @@ func validateWebAppMounts(outlets []*routerOutlet) error {
 type servedRouterData struct {
 	Source  string
 	Package string
-	// AuthImports are the auth packages the file imports for BindAuth(<pkg>.Name),
-	// sorted; empty unless more than one session auth is declared.
+	// AuthImports are the auth packages the file imports for
+	// resource.BindAuth(<pkg>.Name), sorted; empty unless more than one session auth
+	// is declared.
 	AuthImports []string
-	// MultiAuth emits BindAuth: more than one distinct session auth is declared.
+	// MultiAuth emits resource.BindAuth: more than one distinct session auth is declared.
 	MultiAuth bool
 	// Outlets is every outlet, the default first.
 	Outlets []*servedOutlet
@@ -627,6 +680,9 @@ type servedOutlet struct {
 	// RemovePassword is where the account page removes the person's own password, told
 	// to the browser beside the methods; empty without a password method.
 	RemovePassword string
+	// PasswordStrength is where a page that sets a password asks how strong it is, told to
+	// the browser beside the methods; empty without a password method.
+	PasswordStrength string
 	// ForgetBrowser is where the account page forgets the remembered browser, told to
 	// the browser beside the methods.
 	ForgetBrowser string
@@ -639,6 +695,25 @@ type servedOutlet struct {
 	// ChangeLook is where the person's pages keep the look the person chose, told to
 	// the browser beside the methods.
 	ChangeLook string
+	// ChangeUsername and UsernameFree are where the account page changes the person's
+	// own username and asks whether a name is free, told to the browser beside the
+	// methods (the list leaves them out where the usernames are the addresses).
+	ChangeUsername string
+	UsernameFree   string
+	// OwnSessionsList, OwnSessionsEnd and OwnSessionsEndOthers are where the account
+	// page lists where the person is signed in, signs them out of one browser and out of
+	// every other, told to the browser beside the methods.
+	OwnSessionsList      string
+	OwnSessionsEnd       string
+	OwnSessionsEndOthers string
+	// ForgetBrowsers is where the account page forgets every browser remembered for the
+	// person, told to the browser beside the methods.
+	ForgetBrowsers string
+	// OwnTenantsList and OwnTenantsLeave are where the account page lists the person's
+	// tenants and takes them out of one, told to the browser beside the methods where the
+	// auth's package set the hook that answers them.
+	OwnTenantsList  string
+	OwnTenantsLeave string
 	// Invitation, Email and SignUp are the invitation, email address and sign-up
 	// routes the login page is told beside the methods: the invitation's sign-up with a
 	// password method, SignUp with a password method too (nil otherwise).
@@ -648,6 +723,9 @@ type servedOutlet struct {
 	// FirstPassword are the first password routes the account page is told beside the
 	// methods, with a password method (nil otherwise).
 	FirstPassword *servedFirstPassword
+	// PasswordReset are the password reset routes the login page is told beside the
+	// methods, with a password method (nil otherwise).
+	PasswordReset *servedPasswordReset
 	// Routes are the session routes under the prefix, in mount order: OpenRoutes, the
 	// ones outside the XSRF guard, GuardedRoutes, the POSTs behind it, then
 	// ValidatedRoutes, the ones a signed-in person calls, inside the validated group
@@ -1150,12 +1228,21 @@ func linkTokenIssuers(data *servedRouterData) {
 // servedAccountPathsOf names the routes of the signed-in person's account page under
 // the outlet's prefix, as the router tells them to the browser beside the methods:
 // forgetting the remembered browser, the person's own name, what the person signs in
-// with, and the look the person chose.
+// with, the look the person chose, the person's own username, where they are signed
+// in, forgetting every remembered browser, and the person's tenants.
 func servedAccountPathsOf(so *servedOutlet, prefix string) {
 	so.ForgetBrowser = prefix + userForgetBrowserSuffix
 	so.ChangeName = prefix + userNameSuffix
 	so.SignInMeans = prefix + userSignInMeansSuffix
 	so.ChangeLook = prefix + userLookSuffix
+	so.ChangeUsername = prefix + userUsernameSuffix
+	so.UsernameFree = prefix + userUsernameFreeSuffix
+	so.OwnSessionsList = prefix + userSessionsSuffix
+	so.OwnSessionsEnd = prefix + userSessionsEndSuffix
+	so.OwnSessionsEndOthers = prefix + userSessionsEndOthersSuffix
+	so.ForgetBrowsers = prefix + userForgetBrowsersSuffix
+	so.OwnTenantsList = prefix + userTenantsSuffix
+	so.OwnTenantsLeave = prefix + userTenantsLeaveSuffix
 }
 
 // servedSessionOf fills a session outlet's methods and routes from its auth's methods:
@@ -1169,7 +1256,7 @@ func servedSessionOf(so *servedOutlet, o *routerOutlet) {
 	}
 	so.MethodsPath = prefix + userMethodsSuffix
 	so.Pending = servedPending{
-		Status: prefix + userPendingSuffix, Confirm: prefix + userPendingSuffix + "/confirm", Cancel: prefix + userPendingSuffix + "/cancel",
+		Status: prefix + userPendingSuffix, Cancel: prefix + userPendingSuffix + "/cancel",
 		SendCode: prefix + userPendingSuffix + "/code", VerifyCode: prefix + userPendingSuffix + "/code/verify", EnrollEmail: prefix + userPendingSuffix + "/email",
 	}
 	open := []servedRoute{
@@ -1178,6 +1265,8 @@ func servedSessionOf(so *servedOutlet, o *routerOutlet) {
 		route(http.MethodDelete, userSessionSuffix, "Logout", false),
 		route(http.MethodGet, userPendingSuffix, pendingStatusHandler, false),
 		route(http.MethodGet, userSignInMeansSuffix, signInMeansHandler, false),
+		route(http.MethodGet, userSessionsSuffix, ownSessionsHandler, false),
+		route(http.MethodGet, userTenantsSuffix, ownTenantsHandler, false),
 	}
 	var guarded []servedRoute
 	kinds := make([]string, 0, len(o.auth.methods))
@@ -1187,15 +1276,17 @@ func servedSessionOf(so *servedOutlet, o *routerOutlet) {
 		switch m.kind {
 		case methodPassword:
 			sm.LoginPath = prefix + base + "/login"
-			sm.Handlers = []string{sm.Accessor + "Login", sm.Accessor + "Change", sm.Accessor + "Remove"}
-			sm.Description = "The password method's login, password change and password removal (session.PasswordMethod); the change and the removal validate the session themselves, outside ValidateSession"
+			sm.Handlers = []string{sm.Accessor + "Login", sm.Accessor + "Change", sm.Accessor + "Remove", sm.Accessor + "Strength"}
+			sm.Description = "The password method's login, password change, password removal and password strength (session.PasswordMethod); the change and the removal validate the session themselves, outside ValidateSession, and the strength question needs none"
 			guarded = append(guarded,
 				route(http.MethodPost, base+"/login", sm.Accessor+"Login", true),
 				route(http.MethodPost, base+"/change", sm.Accessor+"Change", true),
 				route(http.MethodPost, base+"/remove", sm.Accessor+"Remove", true),
+				route(http.MethodPost, base+"/strength", sm.Accessor+"Strength", true),
 			)
 			so.ChangePassword = prefix + base + "/change"
 			so.RemovePassword = prefix + base + "/remove"
+			so.PasswordStrength = prefix + base + "/strength"
 		case methodGoogle, methodWorkOS, methodAzure, methodOIDC:
 			sm.LoginPath = prefix + base + "/login"
 			sm.Handlers = []string{sm.Accessor + "Login", sm.Accessor + "Callback"}
@@ -1230,15 +1321,17 @@ func servedSessionOf(so *servedOutlet, o *routerOutlet) {
 		so.Methods = append(so.Methods, sm)
 		kinds = append(kinds, m.name)
 	}
+	guarded = servedPendingRoutesOf(so, o, guarded, route)
 	guarded = append(guarded,
-		route(http.MethodPost, userPendingSuffix+"/confirm", pendingConfirmHandler, true),
-		route(http.MethodPost, userPendingSuffix+"/cancel", pendingCancelHandler, true),
-		route(http.MethodPost, userPendingSuffix+"/code", pendingSendCodeHandler, true),
-		route(http.MethodPost, userPendingSuffix+"/code/verify", pendingVerifyCodeHandler, true),
-		route(http.MethodPost, userPendingSuffix+"/email", pendingEnrollEmailHandler, true),
 		route(http.MethodPost, userForgetBrowserSuffix, forgetBrowserHandler, true),
 		route(http.MethodPost, userNameSuffix, changeNameHandler, true),
 		route(http.MethodPost, userLookSuffix, changeLookHandler, true),
+		route(http.MethodPost, userUsernameSuffix, changeUsernameHandler, true),
+		route(http.MethodPost, userUsernameFreeSuffix, usernameFreeHandler, true),
+		route(http.MethodPost, userSessionsEndSuffix, endOwnSessionHandler, true),
+		route(http.MethodPost, userSessionsEndOthersSuffix, endOtherSessionsHandler, true),
+		route(http.MethodPost, userForgetBrowsersSuffix, forgetBrowsersHandler, true),
+		route(http.MethodPost, userTenantsLeaveSuffix, leaveTenantHandler, true),
 	)
 	servedAccountPathsOf(so, prefix)
 	guarded, validatedRoutes := servedMailRoutesOf(so, o, guarded, route)
@@ -1249,6 +1342,24 @@ func servedSessionOf(so *servedOutlet, o *routerOutlet) {
 		so.AuthLabel += " of the " + so.AuthPackage + " auth"
 	}
 	so.AuthLabel += " (" + strings.Join(kinds, ", ") + ")"
+}
+
+// servedPendingRoutesOf adds the routes that answer a pending sign-in behind the XSRF
+// guard and returns the guarded routes with them. A pending sign-in is confirmed with
+// the password of the account it matched, so the confirmation is served, and told to
+// the login page, only where the auth has the password method.
+func servedPendingRoutesOf(so *servedOutlet, o *routerOutlet, guarded []servedRoute, route func(method, suffix, handler string, xsrf bool) servedRoute) []servedRoute {
+	if o.auth.hasPassword() {
+		so.Pending.Confirm = "/" + o.prefix + userPendingSuffix + "/confirm"
+		guarded = append(guarded, route(http.MethodPost, userPendingSuffix+"/confirm", pendingConfirmHandler, true))
+	}
+
+	return append(guarded,
+		route(http.MethodPost, userPendingSuffix+"/cancel", pendingCancelHandler, true),
+		route(http.MethodPost, userPendingSuffix+"/code", pendingSendCodeHandler, true),
+		route(http.MethodPost, userPendingSuffix+"/code/verify", pendingVerifyCodeHandler, true),
+		route(http.MethodPost, userPendingSuffix+"/email", pendingEnrollEmailHandler, true),
+	)
 }
 
 // servedMailRoutesOf adds the invitation, email address, sign-up and first password
@@ -1270,9 +1381,9 @@ func servedMailRoutesOf(so *servedOutlet, o *routerOutlet, guarded []servedRoute
 	// Every auth with the password method mounts the sign-up routes: whether anyone
 	// may sign up is an administrator's choice in the running application, and the
 	// handlers answer 404 while the method is invite only.
-	hasPassword := slices.ContainsFunc(o.auth.methods, func(m AuthMethod) bool { return m.kind == methodPassword })
+	hasPassword := o.auth.hasPassword()
 	so.Invitation = servedInvitation{Open: prefix + userInvitationSuffix, Accept: prefix + userInvitationSuffix + "/accept"}
-	so.Email = servedEmail{Add: prefix + userEmailSuffix, Verify: prefix + userEmailSuffix + "/verify"}
+	so.Email = servedEmail{Add: prefix + userEmailSuffix, Verify: prefix + userEmailSuffix + "/verify", Confirm: prefix + userEmailSuffix + "/confirm"}
 	guarded = append(guarded, route(http.MethodPost, userInvitationSuffix, invitationOpenHandler, true))
 	so.SessionHandlers = append(so.SessionHandlers,
 		servedSessionHandler{Name: invitationOpenHandler, Description: "The invitation the login page was sent to, opened (session.InvitationHandlers.Open): the sign-in that follows carries it"},
@@ -1283,9 +1394,13 @@ func servedMailRoutesOf(so *servedOutlet, o *routerOutlet, guarded []servedRoute
 		guarded = append(guarded, route(http.MethodPost, userInvitationSuffix+"/sign-up", invitationSignUpHandler, true))
 		so.SessionHandlers = append(so.SessionHandlers, servedSessionHandler{Name: invitationSignUpHandler, Description: "An invited person's account, created with a password and signed in (session.InvitationHandlers.SignUp)"})
 	}
+	// The reader of a new address an administrator set confirms it behind the XSRF
+	// guard alone: they may have lost the mailbox their sign-in code goes to.
+	guarded = append(guarded, route(http.MethodPost, userEmailSuffix+"/confirm", emailConfirmHandler, true))
 	so.SessionHandlers = append(so.SessionHandlers,
 		servedSessionHandler{Name: emailAddHandler, Description: "A signed-in person's email address, added by mailing it a verification link (session.EmailHandlers.Add)"},
 		servedSessionHandler{Name: emailVerifyHandler, Description: "The address verified from the mailed link (session.EmailHandlers.Verify)"},
+		servedSessionHandler{Name: emailConfirmHandler, Description: "An address an administrator set for a person, confirmed from the link mailed to it (session.EmailHandlers.Confirm)"},
 	)
 	validatedRoutes = []servedRoute{
 		validated(userInvitationSuffix+"/accept", invitationAcceptHandler),
@@ -1312,6 +1427,22 @@ func servedMailRoutesOf(so *servedOutlet, o *routerOutlet, guarded []servedRoute
 			servedSessionHandler{Name: signUpStartHandler, Description: "A sign-up started from an address, which is mailed its link (session.SignUpHandlers.Start)"},
 			servedSessionHandler{Name: signUpOpenHandler, Description: "The sign-up link opened (session.SignUpHandlers.Open)"},
 			servedSessionHandler{Name: signUpCompleteHandler, Description: "The sign-up completed with a password: the account created and signed in (session.SignUpHandlers.Complete)"},
+		)
+		// Whether a person may ask for their own link is an administrator's choice in
+		// the running application: the request answers 404 while it is off, and the
+		// link an administrator sends is opened and completed either way.
+		so.PasswordReset = &servedPasswordReset{
+			Request: prefix + userPasswordResetSuffix, Open: prefix + userPasswordResetSuffix + "/open", Complete: prefix + userPasswordResetSuffix + "/complete",
+		}
+		guarded = append(guarded,
+			route(http.MethodPost, userPasswordResetSuffix, passwordResetRequestHandler, true),
+			route(http.MethodPost, userPasswordResetSuffix+"/open", passwordResetOpenHandler, true),
+			route(http.MethodPost, userPasswordResetSuffix+"/complete", passwordResetCompleteHandler, true),
+		)
+		so.SessionHandlers = append(so.SessionHandlers,
+			servedSessionHandler{Name: passwordResetRequestHandler, Description: "A person's own request for a password reset link, served while an administrator allows it (session.PasswordResetHandlers.Request)"},
+			servedSessionHandler{Name: passwordResetOpenHandler, Description: "The password reset link opened (session.PasswordResetHandlers.Open)"},
+			servedSessionHandler{Name: passwordResetCompleteHandler, Description: "The password reset completed with a new password: every session of the person ends (session.PasswordResetHandlers.Complete)"},
 		)
 	}
 
@@ -1485,7 +1616,7 @@ var (
 // Package {{ .Package }} serves the application. The middleware in front of every route,
 // outermost first, one line per group, each chain followed by what it stands in front of:
 //
-//	every request: tracing, hooks.Outermost, request logging{{ if .RequestLog.Declared }} ({{ .RequestLog }}){{ end }}, SecurityHeaders, httpio.WithParams
+//	every request: tracing, hooks.Outermost, request logging{{ if .RequestLog.Declared }} ({{ .RequestLog }}){{ end }}, SecurityHeaders, httpio.WithParams, NameEnvironment
 {{- range .RootMountedRoutes }}
 //	  by hand under {{ .Prefix }}: {{ .Words }}
 {{- end }}
@@ -1592,11 +1723,6 @@ type Handlers interface {
 	{{ .SessionInterface }}
 {{- end }}
 {{- end }}
-{{- if .MultiAuth }}
-	// BindAuth marks a session group's requests as authenticated by the named auth, so
-	// the handlers behind it check permissions and tenant visibility in that auth's store.
-	BindAuth(name string) func(http.Handler) http.Handler
-{{- end }}
 {{- range .MachineOutlets }}
 {{- if .Getter }}
 	// {{ .Getter }} returns the {{ .Name }} outlet's token surface: the machine outlet the application
@@ -1622,6 +1748,11 @@ type Handlers interface {
 	// (resource.CheckAPIVersion). A value that is not a release, dev for one, is named
 	// as it is and checks nothing.
 	ServerVersion() string
+	// ServerEnvironment is the name of the environment this server runs in, the
+	// configuration's APP_ENVIRONMENT: what every answer names (resource.NameEnvironment)
+	// and the About pop-up of a browser application shows. Production is told no name
+	// and reports none, so its answers name no environment.
+	ServerEnvironment() string
 
 	// Every request: where the request log goes; the router builds the request logger from it.
 	LogExporter() logger.Exporter
@@ -1661,12 +1792,21 @@ type {{ .SessionInterface }} interface {
 	// Methods tells the login page what the outlet offers (session.Auth.Methods): the
 	// router hands it the methods below at the paths it mounts them.
 	Methods(list *session.MethodList) http.HandlerFunc
+{{- if .Pending.Confirm }}
 	// The pending sign-in (session.PendingHandlers): a sign-in that waits for a
 	// password confirmation or for the second factor, and the second factor's step:
 	// the sign-in code the Auth mails, verified from the login page, and the address a
 	// person who holds none gives for it.
 	PendingStatus() http.HandlerFunc
 	PendingConfirmWithPassword() http.HandlerFunc
+{{- else }}
+	// The pending sign-in (session.PendingHandlers): a sign-in that waits for the
+	// second factor, and the second factor's step: the sign-in code the Auth mails,
+	// verified from the login page, and the address a person who holds none gives for
+	// it. The Auth has no password method, so no pending sign-in is confirmed with a
+	// password and the router mounts no route for one.
+	PendingStatus() http.HandlerFunc
+{{- end }}
 	PendingCancel() http.HandlerFunc
 	PendingSendCode() http.HandlerFunc
 	PendingVerifyCode() http.HandlerFunc
@@ -1685,6 +1825,32 @@ type {{ .SessionInterface }} interface {
 	// ChangeLook keeps the look the signed-in person chose, so it follows them to
 	// every browser (session.Auth.ChangeLook); it validates the session itself.
 	ChangeLook() http.HandlerFunc
+	// ChangeUsername writes the signed-in person's own username, from their account
+	// page (session.Auth.ChangeUsername); it validates the session itself.
+	ChangeUsername() http.HandlerFunc
+	// UsernameFree answers whether a username the signed-in person types is free, to
+	// their account page (session.Auth.UsernameFree); it validates the session itself.
+	UsernameFree() http.HandlerFunc
+	// OwnSessions answers where the signed-in person is signed in, to their account
+	// page (session.Auth.OwnSessions); it validates the session itself.
+	OwnSessions() http.HandlerFunc
+	// EndOwnSession signs the signed-in person out of one other browser of theirs, from
+	// their account page (session.Auth.EndOwnSession); it validates the session itself.
+	EndOwnSession() http.HandlerFunc
+	// EndOtherSessions signs the signed-in person out of every browser but this one,
+	// from their account page (session.Auth.EndOtherSessions); it validates the session
+	// itself.
+	EndOtherSessions() http.HandlerFunc
+	// ForgetBrowsers forgets every browser the second factor remembered for the
+	// signed-in person, from their account page (session.Auth.ForgetBrowsers); it
+	// validates the session itself.
+	ForgetBrowsers() http.HandlerFunc
+	// OwnTenants answers the signed-in person's tenants, with the roles held in each, to
+	// their account page (session.Auth.OwnTenants); it validates the session itself.
+	OwnTenants() http.HandlerFunc
+	// LeaveTenant takes the signed-in person out of one of their tenants, from their
+	// account page (session.Auth.LeaveTenant); it validates the session itself.
+	LeaveTenant() http.HandlerFunc
 {{- range .SessionHandlers }}
 	// {{ .Description }}.
 	{{ .Name }}() http.HandlerFunc
@@ -1813,6 +1979,9 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 {{- end }}
 	r.Use(h.SecurityHeaders)
 	r.Use(httpio.WithParams)
+	// The environment this server runs in, named on every answer (X-Environment) where the
+	// application reports one: production reports none.
+	r.Use(resource.NameEnvironment(h.ServerEnvironment()))
 
 	// The application's routes outside every outlet.
 	if hooks.Root != nil {
@@ -1831,7 +2000,7 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 	r.Group(func(r chi.Router) {
 {{- template "outletWord" . }}
 {{- if .AuthPackage }}
-		r.Use(h.BindAuth({{ .AuthPackage }}.Name))
+		r.Use(resource.BindAuth({{ .AuthPackage }}.Name))
 {{- end }}
 		r.Use(h.NoCaching)
 		r.Use(h.CompressionMiddleware())
@@ -1866,7 +2035,7 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 	r.Group(func(r chi.Router) {
 {{- template "outletWord" . }}
 {{- if .AuthPackage }}
-		r.Use(h.BindAuth({{ .AuthPackage }}.Name))
+		r.Use(resource.BindAuth({{ .AuthPackage }}.Name))
 {{- end }}
 		r.Use(h.NoCaching)
 		r.Use(h.CompressionMiddleware())
@@ -1916,7 +2085,7 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 			},
 {{- end }}
 			Pending: session.PendingRoutes{
-				Status: "{{ $outlet.Pending.Status }}", Confirm: "{{ $outlet.Pending.Confirm }}", Cancel: "{{ $outlet.Pending.Cancel }}",
+				Status: "{{ $outlet.Pending.Status }}",{{ if $outlet.Pending.Confirm }} Confirm: "{{ $outlet.Pending.Confirm }}",{{ end }} Cancel: "{{ $outlet.Pending.Cancel }}",
 				SendCode: "{{ $outlet.Pending.SendCode }}", VerifyCode: "{{ $outlet.Pending.VerifyCode }}", EnrollEmail: "{{ $outlet.Pending.EnrollEmail }}",
 			},
 {{- if $outlet.ChangePassword }}
@@ -1925,6 +2094,9 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 {{- if $outlet.RemovePassword }}
 			RemovePassword: "{{ $outlet.RemovePassword }}",
 {{- end }}
+{{- if $outlet.PasswordStrength }}
+			PasswordStrength: "{{ $outlet.PasswordStrength }}",
+{{- end }}
 {{- if $outlet.FirstPassword }}
 			FirstPassword: session.FirstPasswordRoutes{SendCode: "{{ $outlet.FirstPassword.SendCode }}", Set: "{{ $outlet.FirstPassword.Set }}"},
 {{- end }}
@@ -1932,10 +2104,18 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 			ChangeName: "{{ $outlet.ChangeName }}",
 			SignInMeans: "{{ $outlet.SignInMeans }}",
 			ChangeLook: "{{ $outlet.ChangeLook }}",
+			ChangeUsername: "{{ $outlet.ChangeUsername }}",
+			UsernameFree: "{{ $outlet.UsernameFree }}",
+			OwnSessions: session.OwnSessionsRoutes{List: "{{ $outlet.OwnSessionsList }}", End: "{{ $outlet.OwnSessionsEnd }}", EndOthers: "{{ $outlet.OwnSessionsEndOthers }}"},
+			ForgetBrowsers: "{{ $outlet.ForgetBrowsers }}",
+			OwnTenants: session.OwnTenantsRoutes{List: "{{ $outlet.OwnTenantsList }}", Leave: "{{ $outlet.OwnTenantsLeave }}"},
 			Invitation: session.InvitationRoutes{Open: "{{ $outlet.Invitation.Open }}", Accept: "{{ $outlet.Invitation.Accept }}"{{ if $outlet.Invitation.SignUp }}, SignUp: "{{ $outlet.Invitation.SignUp }}"{{ end }}},
-			Email: session.EmailRoutes{Add: "{{ $outlet.Email.Add }}", Verify: "{{ $outlet.Email.Verify }}"},
+			Email: session.EmailRoutes{Add: "{{ $outlet.Email.Add }}", Verify: "{{ $outlet.Email.Verify }}", Confirm: "{{ $outlet.Email.Confirm }}"},
 {{- if $outlet.SignUp }}
 			SignUp: session.SignUpRoutes{Start: "{{ $outlet.SignUp.Start }}", Open: "{{ $outlet.SignUp.Open }}", Complete: "{{ $outlet.SignUp.Complete }}"},
+{{- end }}
+{{- if $outlet.PasswordReset }}
+			PasswordReset: session.PasswordResetRoutes{Request: "{{ $outlet.PasswordReset.Request }}", Open: "{{ $outlet.PasswordReset.Open }}", Complete: "{{ $outlet.PasswordReset.Complete }}"},
 {{- end }}
 		}))
 {{- else if and (not .Validated) (not .Optional) }}
@@ -2244,6 +2424,36 @@ func serveGeneratedRouterRequest(t *testing.T, rec *routerCallRecorder, serverVe
 	router.ServeHTTP(rr, req)
 
 	return rr
+}
+
+// TestGeneratedRouterEnvironment proves every answer names the environment the server
+// reports, the answer for an address no route serves included, and that a server which
+// reports none, as production does, names none.
+func TestGeneratedRouterEnvironment(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		environment string
+		want        []string
+	}{
+		{name: "a server told its environment names it", environment: "tst", want: []string{"tst"}},
+		{name: "a server told none names none", environment: "", want: nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			stub := newRouterHandlersStub(newRouterCallRecorder())
+			stub.serverEnvironment = tt.environment
+			rr := httptest.NewRecorder()
+			New(stub, Hooks{}).ServeHTTP(rr, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/no-such-route", http.NoBody))
+
+			if got := rr.Header().Values(resource.ServerEnvironmentHeader); !slices.Equal(got, tt.want) {
+				t.Errorf("%s = %q, want %q", resource.ServerEnvironmentHeader, got, tt.want)
+			}
+		})
+	}
 }
 
 // TestGeneratedRouter drives every generated route through New: each request answers
@@ -3068,10 +3278,28 @@ func newRouterCallRecorder() *routerCallRecorder {
 	return &routerCallRecorder{generatedCallRecorder: newGeneratedCallRecorder()}
 }
 
+{{- if .MultiAuth }}
+
+// routerBindRecorded marks a request whose bind to an auth the chain records already.
+type routerBindRecorded struct{}
+
+// Middleware returns middleware that appends its name to the chain when it runs. The
+// first recorded middleware that runs on a request bound to an auth (resource.BindAuth,
+// which the router mounts itself) appends the bind in front of its own name, so the
+// chain shows where the router's bind sits.
+{{- else }}
+
 // Middleware returns middleware that appends its name to the chain when it runs.
+{{- end }}
 func (rec *routerCallRecorder) Middleware(name string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+{{- if .MultiAuth }}
+			if auth := resource.BoundAuth(r.Context()); auth != "" && r.Context().Value(routerBindRecorded{}) == nil {
+				rec.chain = append(rec.chain, "BindAuth("+auth+")")
+				r = r.WithContext(context.WithValue(r.Context(), routerBindRecorded{}, true))
+			}
+{{- end }}
 			rec.chain = append(rec.chain, name)
 			next.ServeHTTP(w, r)
 		})
@@ -3163,6 +3391,8 @@ type routerHandlersStub struct {
 	// serverVersion is the release the stub reports; empty, no release, so a case that
 	// sets none is never refused.
 	serverVersion string
+	// serverEnvironment is the environment's name the stub reports; empty, production's.
+	serverEnvironment string
 	// exporter is where the request log goes when a test sets one, the console for the
 	// request log test; nil hands the router the recording stub.
 	exporter logger.Exporter
@@ -3170,6 +3400,10 @@ type routerHandlersStub struct {
 
 func (s *routerHandlersStub) ServerVersion() string {
 	return s.serverVersion
+}
+
+func (s *routerHandlersStub) ServerEnvironment() string {
+	return s.serverEnvironment
 }
 {{- if or .FileStores .SecretFields }}
 
@@ -3251,11 +3485,6 @@ func (s *routerHandlersStub) {{ .Getter }}() {{ .TokensInterface }} {
 }
 {{ end }}
 {{- end }}
-{{- if .MultiAuth }}
-func (s *routerHandlersStub) BindAuth(name string) func(http.Handler) http.Handler {
-	return s.rec.Middleware("BindAuth(" + name + ")")
-}
-{{ end }}
 {{- if .ScheduledRoutes }}
 func (s *routerHandlersStub) SchedulerAuth(next http.Handler) http.Handler {
 	return s.rec.Middleware("SchedulerAuth")(next)

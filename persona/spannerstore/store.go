@@ -12,6 +12,7 @@ import (
 
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse/internal/spannertxn"
 	"github.com/impulseframework/impulse/persona"
 	"google.golang.org/api/iterator"
 	"google.golang.org/grpc/codes"
@@ -31,7 +32,9 @@ var errNotFound = errors.New("spannerstore: no row")
 
 var _ persona.Store = &Store{}
 
-// Store is the persona sign-in's store over a Spanner database.
+// Store is the persona sign-in's store over a Spanner database. Its read-write transactions
+// run at the serializable isolation level (spannertxn.Serializable), as every one the
+// library runs does.
 type Store struct {
 	client *spanner.Client
 }
@@ -219,7 +222,7 @@ func (s *Store) updateRequest(ctx context.Context, id string, columns any) error
 	if err != nil {
 		return errors.Wrap(err, "spanner.UpdateStruct()")
 	}
-	_, err = s.client.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err = spannertxn.Serializable(ctx, s.client, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		if _, err := txn.ReadRow(ctx, requests, spanner.Key{id}, []string{"Id"}); err != nil {
 			if spanner.ErrCode(err) == codes.NotFound {
 				return persona.ErrUnknownRequest
@@ -235,15 +238,36 @@ func (s *Store) updateRequest(ctx context.Context, id string, columns any) error
 			return persona.ErrUnknownRequest
 		}
 
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return nil
 }
 
-// DeleteRequest removes a request and its code.
+// DeleteRequest removes a request and its code, refusing an ID with no request: the row is
+// read in the transaction that deletes it, so of two exchanges of one code at the same
+// moment one ends here with ErrUnknownRequest.
 func (s *Store) DeleteRequest(ctx context.Context, id string) error {
-	return s.apply(ctx, spanner.Delete(requests, spanner.Key{id}))
+	_, err := spannertxn.Serializable(ctx, s.client, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		if _, err := txn.ReadRow(ctx, requests, spanner.Key{id}, []string{"Id"}); err != nil {
+			if spanner.ErrCode(err) == codes.NotFound {
+				return persona.ErrUnknownRequest
+			}
+
+			return errors.Wrap(err, "spanner.ReadWriteTransaction.ReadRow()")
+		}
+
+		return txn.BufferWrite([]*spanner.Mutation{spanner.Delete(requests, spanner.Key{id})})
+	})
+	if err != nil {
+		if errors.Is(err, persona.ErrUnknownRequest) {
+			return persona.ErrUnknownRequest
+		}
+
+		return errors.Wrap(err, "spannertxn.Serializable()")
+	}
+
+	return nil
 }
 
 // ExpireRequests removes every request created before the time.
@@ -298,11 +322,12 @@ type keyRow struct {
 	ID         string    `spanner:"Id"`
 	PrivateKey string    `spanner:"PrivateKey"`
 	CreatedAt  time.Time `spanner:"CreatedAt"`
+	Position   int64     `spanner:"Position"`
 }
 
 // SigningKeys reads the signing keys, newest first.
 func (s *Store) SigningKeys(ctx context.Context) ([]*persona.SigningKey, error) {
-	iter := s.client.Single().Query(ctx, spanner.Statement{SQL: "SELECT * FROM PersonaKeys ORDER BY CreatedAt DESC"})
+	iter := s.client.Single().Query(ctx, spanner.Statement{SQL: "SELECT * FROM PersonaKeys ORDER BY Position DESC"})
 	defer iter.Stop()
 	var list []*persona.SigningKey
 	for {
@@ -325,18 +350,67 @@ func (s *Store) SigningKeys(ctx context.Context) ([]*persona.SigningKey, error) 
 	}
 }
 
-// AddSigningKey adds a signing key.
+// AddSigningKey adds a signing key at the next position: the highest is read in the
+// transaction that inserts, so two keys added at the same moment take two positions.
 func (s *Store) AddSigningKey(ctx context.Context, key *persona.SigningKey) error {
 	encoded, err := encodeKey(key.Key)
 	if err != nil {
 		return err
 	}
-	m, err := spanner.InsertStruct(keys, &keyRow{ID: key.ID, PrivateKey: encoded, CreatedAt: key.CreatedAt})
+	_, err = spannertxn.Serializable(ctx, s.client, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		iter := txn.Query(ctx, spanner.Statement{SQL: "SELECT MAX(Position) FROM PersonaKeys"})
+		defer iter.Stop()
+		row, err := iter.Next()
+		if err != nil {
+			return errors.Wrap(err, "spanner.RowIterator.Next()")
+		}
+		var highest spanner.NullInt64
+		if err := row.Columns(&highest); err != nil {
+			return errors.Wrap(err, "spanner.Row.Columns()")
+		}
+		m, err := spanner.InsertStruct(keys, &keyRow{ID: key.ID, PrivateKey: encoded, CreatedAt: key.CreatedAt, Position: highest.Int64 + 1})
+		if err != nil {
+			return errors.Wrap(err, "spanner.InsertStruct()")
+		}
+
+		return txn.BufferWrite([]*spanner.Mutation{m})
+	})
+	if err != nil {
+		return errors.Wrap(err, "spannertxn.Serializable()")
+	}
+
+	return nil
+}
+
+// AddFirstSigningKey adds the key when the store holds none: the table is read in the
+// transaction that inserts, so two first keys made at the same moment leave one.
+func (s *Store) AddFirstSigningKey(ctx context.Context, key *persona.SigningKey) error {
+	encoded, err := encodeKey(key.Key)
+	if err != nil {
+		return err
+	}
+	m, err := spanner.InsertStruct(keys, &keyRow{ID: key.ID, PrivateKey: encoded, CreatedAt: key.CreatedAt, Position: 1})
 	if err != nil {
 		return errors.Wrap(err, "spanner.InsertStruct()")
 	}
+	_, err = spannertxn.Serializable(ctx, s.client, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		iter := txn.Query(ctx, spanner.Statement{SQL: "SELECT Id FROM PersonaKeys LIMIT 1"})
+		defer iter.Stop()
+		if _, err := iter.Next(); !errors.Is(err, iterator.Done) {
+			if err != nil {
+				return errors.Wrap(err, "spanner.RowIterator.Next()")
+			}
 
-	return s.apply(ctx, m)
+			return nil
+		}
+
+		return txn.BufferWrite([]*spanner.Mutation{m})
+	})
+	if err != nil {
+		return errors.Wrap(err, "spannertxn.Serializable()")
+	}
+
+	return nil
 }
 
 // signInRow is a PersonaSignIns row.
@@ -399,7 +473,7 @@ func (s *Store) readOne(ctx context.Context, stmt spanner.Statement, dest any) e
 // deleteWhere runs a delete statement with one time parameter and returns the count.
 func (s *Store) deleteWhere(ctx context.Context, sql string, before time.Time) (int64, error) {
 	var count int64
-	_, err := s.client.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err := spannertxn.Serializable(ctx, s.client, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		n, err := txn.Update(ctx, spanner.Statement{SQL: sql, Params: map[string]any{"before": before}})
 		if err != nil {
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
@@ -409,7 +483,7 @@ func (s *Store) deleteWhere(ctx context.Context, sql string, before time.Time) (
 		return nil
 	})
 	if err != nil {
-		return 0, errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return 0, errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return count, nil

@@ -17,11 +17,16 @@ import (
 // are: the permission store names a person by the id of their account. A name another
 // user holds is refused.
 //
+// A row offers it only to a caller whose session enters every tenant the person
+// administers (@callerEnters); the method refuses anyone else.
+//
 // @rpc
+// @callerEnters
 // @outlet(default)
 // @answers(204)
+// @class(credential)
 type RenameStaffUser struct {
-	// @target(StaffSessionUser)
+	// @target(StaffListedUser)
 	UserID   impulse.UUID
 	Username string `validate:"required"`
 }

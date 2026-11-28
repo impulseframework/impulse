@@ -13,10 +13,12 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/sessioninfo"
+	"github.com/impulseframework/impulse/session/signin"
 	"github.com/impulseframework/impulse/spxscan/spxapi"
 )
 
@@ -76,6 +78,11 @@ func (fakeDatabase) ExecuteFunc(ctx context.Context, f func(ctx context.Context,
 	return nil
 }
 
+// ExecuteDeleteFunc is ExecuteFunc whatever run says, as the mock client's is.
+func (d fakeDatabase) ExecuteDeleteFunc(ctx context.Context, _ resource.DeleteRun, f func(ctx context.Context, txn resource.ReadWriteTransaction) error) error {
+	return d.ExecuteFunc(ctx, f)
+}
+
 // fakeStore is an auth's tables in memory: the committed rows the reads answer from, and
 // a log of the writes the rules buffered, in order.
 type fakeStore struct {
@@ -108,6 +115,8 @@ type fakeStore struct {
 	invitations map[accesstypes.Domain][]impulse.UUID
 	// invited are the unconsumed invitations that make a tenant.
 	invited []InvitedTenantRow
+	// sentInvitations are the invitations as their rows keep them, by id (SentInvitation).
+	sentInvitations map[impulse.UUID]*SentInvitation
 	// passwords are the users that exist for the password rule, true where one holds a
 	// password; identities the user each identity links to; tokens the tokens by id,
 	// and families the unrevoked tokens of each family.
@@ -116,17 +125,39 @@ type fakeStore struct {
 	// cameThrough is the method and the connection an identity came through, for the
 	// identities a test says it of; every other came through google's lakeside.
 	cameThrough map[impulse.UUID]Link
-	tokens      map[impulse.UUID]*Token
-	families    map[impulse.UUID][]impulse.UUID
+	// managing are the tenants whose directory each user signs in through, for a user
+	// who holds an identity link (TenantHoldings' DirectoryTenants).
+	managing map[impulse.UUID][]accesstypes.Domain
+	// costs are what DeleteCosts answers, and withUser what RowsWithUser answers for
+	// each user (none for the others).
+	costs    TenantDeleteCosts
+	withUser map[impulse.UUID]int
+	// userAsks marks a user row with rows of the application's that go with it, so the
+	// row's delete not told everythingUnder asks first, and userLeft is what the row's
+	// delete told everythingUnder answers one save deleted, nil for a delete that took
+	// everything.
+	userAsks bool
+	userLeft *resource.DeleteLeft
+	tokens   map[impulse.UUID]*Token
+	families map[impulse.UUID][]impulse.UUID
 	// methodRows are the rows of the sign-in methods table, by the method's name, and
 	// openedFor the audience the last row written was opened for, nil for none.
 	methodRows map[string]SignInMethodRow
 	openedFor  *string
+	// settingsRow is the row of the sign-in settings table, nil for none.
+	settingsRow *SignInSettingsRow
+	// auditRows are the rows of the audit records table AuditRecords answers, in order,
+	// and auditAsked the queries it was asked (audit_read_test.go).
+	auditRows  []auditlog.Stored
+	auditAsked []*AuditQuery
+	// audit are the rows of the audit log the rules buffered, in order, each as the
+	// record was handed to the store (audit_test.go).
+	audit []auditlog.Record
 	// fakeGroupTables are the groups of people, their members and the roles they hold
 	// (groups_test.go).
 	fakeGroupTables
-	// nextID is the id InsertUser answers.
-	nextID impulse.UUID
+	// fakeRecordTables are the roles held on records (fake_store_records_test.go).
+	fakeRecordTables
 	// failOn names a call that fails.
 	failOn string
 
@@ -145,23 +176,6 @@ func (f *fakeStore) fail(call string) error {
 	return nil
 }
 
-func (f *fakeStore) InsertUser(_ context.Context, _ resource.ReadWriteTransaction, user *NewUser) (impulse.UUID, error) {
-	if err := f.fail("InsertUser"); err != nil {
-		return impulse.NilUUID, err
-	}
-	email := "<none>"
-	if user.Email != nil {
-		email = *user.Email
-	}
-	line := "insert user " + user.Username + " " + email
-	if user.Name != nil {
-		line += " name=" + *user.Name
-	}
-	f.writes = append(f.writes, line)
-
-	return f.nextID, nil
-}
-
 func (f *fakeStore) UpdateUser(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID, change *UserChange) error {
 	if err := f.fail("UpdateUser"); err != nil {
 		return err
@@ -175,13 +189,6 @@ func (f *fakeStore) UpdateUser(_ context.Context, _ resource.ReadWriteTransactio
 	}
 	if change.PasswordChangeRequired != nil {
 		line += " passwordChangeRequired=" + boolText(*change.PasswordChangeRequired)
-	}
-	if change.Email != nil {
-		address := "<none>"
-		if change.Email.Address != nil {
-			address = *change.Email.Address
-		}
-		line += " email=" + address
 	}
 	if change.Name != nil {
 		name := "<none>"
@@ -325,13 +332,67 @@ func (f *fakeStore) UserByVerifiedEmail(_ context.Context, _ resource.ReadWriteT
 	return userID, found, nil
 }
 
-func (f *fakeStore) DeleteUser(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID) error {
+func (f *fakeStore) ConfirmedEmail(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID) (email string, found bool, err error) {
+	if err := f.fail("ConfirmedEmail"); err != nil {
+		return "", false, err
+	}
+	for address, holder := range f.emails {
+		if holder == id {
+			return address, true, nil
+		}
+	}
+
+	return "", false, nil
+}
+
+// fakeUserQuestion is the question the fake store's delete of a user row answers where
+// the account has rows that go with it (userAsks) and the delete is not told to take
+// them, as the delete patch does (428).
+const fakeUserQuestion = "Delete this account and everything under it: 7 task assignments. This can't be undone."
+
+// DeleteUser buffers the user row's delete as the generated store does: told
+// everythingUnder, the delete takes the application's rows that go with the account, and
+// not told, an account with such rows (userAsks) is asked about (428) and nothing is
+// written. What one save told everythingUnder left is f.userLeft.
+func (f *fakeStore) DeleteUser(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID, everythingUnder bool) (*resource.DeleteLeft, error) {
 	if err := f.fail("DeleteUser"); err != nil {
-		return err
+		return nil, err
+	}
+	if everythingUnder {
+		f.writes = append(f.writes, "delete user "+id.String()+" with everything under it")
+
+		return f.userLeft, nil
+	}
+	if f.userAsks {
+		return nil, httpio.NewPreconditionRequiredMessage(fakeUserQuestion)
 	}
 	f.writes = append(f.writes, "delete user "+id.String())
 
+	return nil, nil
+}
+
+// DeleteUserWithTenant buffers the delete of the user row of an account that goes with
+// its tenant, as the generated store does, and nothing of the application's. The write it
+// records says which of the two deletes was called.
+func (f *fakeStore) DeleteUserWithTenant(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID) error {
+	if err := f.fail("DeleteUserWithTenant"); err != nil {
+		return err
+	}
+	f.writes = append(f.writes, "delete user "+id.String()+" with its tenant")
+
 	return nil
+}
+
+func (f *fakeStore) RowsWithUser(_ context.Context, _ resource.ReadWriteTransaction, userID impulse.UUID) (int, error) {
+	if err := f.fail("RowsWithUser"); err != nil {
+		return 0, err
+	}
+
+	return f.withUser[userID], nil
+}
+
+func (f *fakeStore) DeleteCosts() TenantDeleteCosts {
+	return f.costs
 }
 
 func (f *fakeStore) SessionExpired(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID) (expired, found bool, err error) {
@@ -384,15 +445,6 @@ func (f *fakeStore) RenameSession(_ context.Context, _ resource.ReadWriteTransac
 	return nil
 }
 
-func (f *fakeStore) SetPassword(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID, hash string, changeRequired bool) error {
-	if err := f.fail("SetPassword"); err != nil {
-		return err
-	}
-	f.writes = append(f.writes, "set password "+id.String()+" "+hash+" changeRequired="+boolText(changeRequired))
-
-	return nil
-}
-
 func (f *fakeStore) RemovePassword(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID) error {
 	if err := f.fail("RemovePassword"); err != nil {
 		return err
@@ -420,6 +472,9 @@ func (f *fakeStore) InsertInvitation(_ context.Context, _ resource.ReadWriteTran
 		invitedBy = row.InvitedByUserID.String()
 	}
 	line := "insert invitation " + row.ID.String() + " " + row.Email + " tenant=" + row.TenantID + " roles=" + strings.Join(row.RoleNames, ",") + " by=" + invitedBy
+	if row.EveryTenant {
+		line += " every-tenant"
+	}
 	if row.Name != "" {
 		line += " name=" + row.Name
 	}
@@ -449,6 +504,15 @@ func (f *fakeStore) ConsumeMailLink(_ context.Context, _ resource.ReadWriteTrans
 	return nil
 }
 
+func (f *fakeStore) SentInvitation(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID) (invitation *SentInvitation, found bool, err error) {
+	if err := f.fail("SentInvitation"); err != nil {
+		return nil, false, err
+	}
+	invitation, found = f.sentInvitations[id]
+
+	return invitation, found, nil
+}
+
 func (f *fakeStore) SignInMethodRows(context.Context, resource.ReadOnlyTransaction) ([]SignInMethodRow, error) {
 	if err := f.fail("SignInMethodRows"); err != nil {
 		return nil, err
@@ -471,6 +535,41 @@ func (f *fakeStore) SetSignInMethod(_ context.Context, _ resource.ReadWriteTrans
 	}
 	f.writes = append(f.writes, fmt.Sprintf("set sign-in method %s open=%t role=%s", row.Name, row.OpenSignUp, role))
 	f.openedFor = row.OpenedFor
+
+	return nil
+}
+
+func (f *fakeStore) SetSelfServiceReset(_ context.Context, _ resource.ReadWriteTransaction, name string, on bool) error {
+	if err := f.fail("SetSelfServiceReset"); err != nil {
+		return err
+	}
+	f.writes = append(f.writes, fmt.Sprintf("set self-service reset of %s on=%t", name, on))
+
+	return nil
+}
+
+func (f *fakeStore) SignInSettingsRow(context.Context, resource.ReadOnlyTransaction) (*SignInSettingsRow, error) {
+	if err := f.fail("SignInSettingsRow"); err != nil {
+		return nil, err
+	}
+
+	return f.settingsRow, nil
+}
+
+func (f *fakeStore) SetRequireSecondFactor(_ context.Context, _ resource.ReadWriteTransaction, on bool) error {
+	if err := f.fail("SetRequireSecondFactor"); err != nil {
+		return err
+	}
+	f.writes = append(f.writes, fmt.Sprintf("set require second factor on=%t", on))
+
+	return nil
+}
+
+func (f *fakeStore) SetRememberBrowserDays(_ context.Context, _ resource.ReadWriteTransaction, days int64) error {
+	if err := f.fail("SetRememberBrowserDays"); err != nil {
+		return err
+	}
+	f.writes = append(f.writes, fmt.Sprintf("set remember browser days=%d", days))
 
 	return nil
 }
@@ -587,8 +686,146 @@ func (f *fakeStore) TenantMemberships(_ context.Context, _ resource.ReadWriteTra
 	return keys, nil
 }
 
-// DeleteTenantRoles logs one write for the tenant's custom roles and their grants, and
-// answers how many rows of the roles table the tenant holds.
+// TenantHoldings answers the people the tenant's delete considers as the generated store
+// reads them: everyone who holds a membership in the tenant, a place in one of its groups
+// or a role on one of its records, ended or not, and everyone with an identity link whose
+// tenants that manage them hold it, in the order of their ids. Each is what the fake's
+// per-person reads answer for them, read with no call failing, so a test that fails one of
+// those reads shows the delete asks it of nobody; DirectoryTenants are what managing holds
+// for a person with an identity link.
+func (f *fakeStore) TenantHoldings(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]PersonHoldings, error) {
+	if err := f.fail("TenantHoldings"); err != nil {
+		return nil, err
+	}
+	reads := *f
+	reads.failOn = ""
+	held, err := reads.TenantMemberships(ctx, txn, domain)
+	if err != nil {
+		return nil, err
+	}
+	onRecords, _, err := reads.TenantRecordRoles(ctx, txn, domain)
+	if err != nil {
+		return nil, err
+	}
+	groups, err := reads.TenantGroups(ctx, txn, domain)
+	if err != nil {
+		return nil, err
+	}
+	var users []accesstypes.User
+	for _, key := range held {
+		users = append(users, key.User)
+	}
+	for _, key := range onRecords {
+		users = append(users, key.User)
+	}
+	for _, id := range groups {
+		members, err := reads.GroupMembers(ctx, txn, id)
+		if err != nil {
+			return nil, err
+		}
+		users = append(users, members...)
+	}
+	for id, tenants := range f.managing {
+		links, err := reads.Identities(ctx, txn, id)
+		if err != nil {
+			return nil, err
+		}
+		if len(links) > 0 && slices.Contains(tenants, domain) {
+			users = append(users, User(id))
+		}
+	}
+	var ids []impulse.UUID
+	for _, user := range users {
+		if id, ok := UserID(user); ok && !slices.Contains(ids, id) {
+			ids = append(ids, id)
+		}
+	}
+	slices.SortFunc(ids, func(a, b impulse.UUID) int { return strings.Compare(a.String(), b.String()) })
+
+	people := make([]PersonHoldings, 0, len(ids))
+	for _, id := range ids {
+		person, err := reads.holdings(ctx, txn, id)
+		if err != nil {
+			return nil, err
+		}
+		people = append(people, *person)
+	}
+
+	return people, nil
+}
+
+// holdings is one row of TenantHoldings: what the per-person reads answer for the person,
+// the sessions, the records held and the rows with the user among them.
+func (f *fakeStore) holdings(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (*PersonHoldings, error) {
+	person := &PersonHoldings{ID: id}
+	var err error
+	if person.Username, person.Found, err = f.Username(ctx, txn, id); err != nil {
+		return nil, err
+	}
+	if person.Memberships, err = f.Memberships(ctx, txn, id); err != nil {
+		return nil, err
+	}
+	if person.Places, err = f.UserGroups(ctx, txn, id); err != nil {
+		return nil, err
+	}
+	if person.RecordRoles, err = f.RecordMemberships(ctx, txn, id); err != nil {
+		return nil, err
+	}
+	if person.Links, err = f.Identities(ctx, txn, id); err != nil {
+		return nil, err
+	}
+	if len(person.Links) > 0 {
+		person.DirectoryTenants = f.managing[id]
+	}
+	sessions, err := f.LiveSessions(ctx, txn, id)
+	if err != nil {
+		return nil, err
+	}
+	for _, session := range sessions {
+		live, _, err := f.Impersonation(ctx, txn, session)
+		if err != nil {
+			return nil, err
+		}
+		person.Sessions = append(person.Sessions, LiveSession{ID: session, Record: live})
+	}
+	if person.Found {
+		records, err := f.ImpersonationsHeldBy(ctx, txn, person.Username)
+		if err != nil {
+			return nil, err
+		}
+		for _, record := range records {
+			expired, exists, err := f.SessionExpired(ctx, txn, record.SessionID)
+			if err != nil {
+				return nil, err
+			}
+			person.Held = append(person.Held, HeldRecord{SessionID: record.SessionID, Session: exists && !expired})
+		}
+	}
+	if person.WithUser, err = f.RowsWithUser(ctx, txn, id); err != nil {
+		return nil, err
+	}
+
+	return person, nil
+}
+
+// TenantRoles answers how many rows of the roles table the tenant holds.
+func (f *fakeStore) TenantRoles(_ context.Context, _ resource.ReadWriteTransaction, domain accesstypes.Domain) (int, error) {
+	if err := f.fail("TenantRoles"); err != nil {
+		return 0, err
+	}
+	at := access.NewMembershipKey(accesstypes.DomainPolicyScope(domain), "", "")
+	roles := 0
+	for key, held := range f.roles {
+		if held && key.Kind == at.Kind && key.Axis == at.Axis && key.Domain == at.Domain {
+			roles++
+		}
+	}
+
+	return roles, nil
+}
+
+// DeleteTenantRoles logs one write for the tenant's custom roles, and answers how many
+// rows of the roles table the tenant holds.
 func (f *fakeStore) DeleteTenantRoles(_ context.Context, _ resource.ReadWriteTransaction, domain accesstypes.Domain) (int, error) {
 	if err := f.fail("DeleteTenantRoles"); err != nil {
 		return 0, err
@@ -678,7 +915,7 @@ func (u *fakeUserManager) Membership(ctx context.Context, scope accesstypes.Poli
 			return access.MembershipKey{}, err
 		}
 		if !custom {
-			return access.MembershipKey{}, httpio.NewNotFoundMessagef("role %q is not a valid role. Please check that the role exists.", role)
+			return access.MembershipKey{}, httpio.NewNotFoundMessageWithError(errors.Newf("role %q does not exist", role), "The role "+roleInWords(role)+" does not exist.")
 		}
 	}
 	if user == "" {
@@ -720,14 +957,81 @@ type fakeSessions struct {
 	// method.
 	unoffered map[sessioninfo.AuthMethod]bool
 	untaken   map[string]bool
+	// through are the registrations an identity of a connection signs in through, where
+	// the fake is given them: two registrations of one method may take one connection.
+	through map[string][]string
 	// named are the names the registrations give a connection, and labels the labels of
 	// the buttons a person signs in to a method's directories with.
 	named  map[string]string
 	labels map[sessioninfo.AuthMethod]string
+	// tenantNames are what the application calls its tenants, by key.
+	tenantNames map[accesstypes.Domain]string
+	// sessionTimeout is how long the Auth lets a session sit idle.
+	sessionTimeout time.Duration
+	// signInFailureLimit is how many failed sign-ins lock a name.
+	signInFailureLimit int
 }
+
+// acmeDirectory is the directory the tests' seats are offered through, as the session
+// library names it on each seat.
+var acmeDirectory = signin.Directory{Method: sessioninfo.MethodAzure, Connection: "acme-tenant"}
 
 func (s fakeSessions) DirectoryName(method sessioninfo.AuthMethod, connection string) (name, label string) {
 	return s.named[connection], s.labels[method]
+}
+
+func (s fakeSessions) TenantName(tenant accesstypes.Domain) string {
+	return s.tenantNames[tenant]
+}
+
+func (s fakeSessions) SessionTimeout() time.Duration {
+	return s.sessionTimeout
+}
+
+func (s fakeSessions) SignInFailureLimit() int {
+	return s.signInFailureLimit
+}
+
+// asked records a message the rules asked the session library to mail, and answers the
+// mailbox's failure; a fake with no mailbox mails nothing.
+func (s fakeSessions) asked(what string) error {
+	if s.mail == nil {
+		return nil
+	}
+	if s.mail.err != nil {
+		return s.mail.err
+	}
+	s.mail.asked = append(s.mail.asked, what)
+
+	return nil
+}
+
+// askerText says an asker as the fake's record keeps it.
+func askerText(by session.AskedBy) string {
+	switch {
+	case !by.Administrator:
+		return "the person"
+	case by.Tenant == "":
+		return "the application"
+	default:
+		return "tenant " + by.Tenant
+	}
+}
+
+func (s fakeSessions) RequestAddressChange(_ context.Context, userID impulse.UUID, email string, by session.AskedBy) error {
+	return s.asked("address change of " + userID.String() + " to " + email + " asked by " + askerText(by))
+}
+
+func (s fakeSessions) SendPasswordReset(_ context.Context, userID impulse.UUID, by session.AskedBy) error {
+	return s.asked("password reset of " + userID.String() + " asked by " + askerText(by))
+}
+
+func (s fakeSessions) EndPasswordResetLinks(_ context.Context, userID impulse.UUID) error {
+	return s.asked("end the password reset links of " + userID.String())
+}
+
+func (s fakeSessions) NoticeFactorReset(_ context.Context, userID impulse.UUID) error {
+	return s.asked("factor reset notice to " + userID.String())
 }
 
 func (s fakeSessions) SignInMethods() []session.RegisteredMethod {
@@ -738,21 +1042,16 @@ func (s fakeSessions) SignsInThrough(method sessioninfo.AuthMethod, connection s
 	if s.unoffered[method] || s.untaken[connection] {
 		return nil
 	}
+	if names, ok := s.through[connection]; ok {
+		return names
+	}
 
 	return []string{string(method)}
 }
 
-func (fakeSessions) HashPassword(password string) (string, error) {
-	if password == "" {
-		return "", httpio.NewBadRequestMessage("an empty password is not a password")
-	}
-
-	return "hash(" + password + ")", nil
-}
-
 func (s fakeSessions) PrepareInvitation(_ context.Context, req *session.InvitationRequest) (session.PreparedInvitation, error) {
 	if s.mail == nil {
-		return nil, errors.New("the Auth sends no mail: pass WithMail to NewAuth")
+		return nil, errors.New("the fake was given no mailbox, so it prepares no invitation")
 	}
 	if !strings.Contains(req.Email, "@") {
 		return nil, httpio.NewBadRequestMessage("the address is not an email address")
@@ -761,20 +1060,23 @@ func (s fakeSessions) PrepareInvitation(_ context.Context, req *session.Invitati
 	return &fakePrepared{
 		mail: s.mail,
 		row: session.InvitationRow{
-			ID: s.mail.id, TokenHash: []byte("hash"), Email: req.Email, Name: strings.TrimSpace(req.Name), TenantID: req.TenantID, RoleNames: req.RoleNames, InvitedByUserID: req.InvitedByUserID,
-			ExpiresAt: time.Time{}, NewTenant: req.NewTenant,
+			ID: s.mail.id, TokenHash: []byte(preparedTokenHash), Email: req.Email, Name: strings.TrimSpace(req.Name), TenantID: req.TenantID, EveryTenant: req.EveryTenant,
+			RoleNames: req.RoleNames, InvitedByUserID: req.InvitedByUserID, ExpiresAt: time.Time{}, NewTenant: req.NewTenant,
 		},
 	}, nil
 }
 
 // fakeMail is the mailbox of the fake session library: the id its invitations take,
-// the addresses mailed, the invitations withdrawn after a failed send, and the failure
+// the addresses mailed, the invitations ended after a failed send, and the failure
 // a send answers.
 type fakeMail struct {
-	id        impulse.UUID
-	sent      []string
-	withdrawn []impulse.UUID
-	err       error
+	id    impulse.UUID
+	sent  []string
+	ended []impulse.UUID
+	err   error
+	// asked are the messages about an account the rules asked for, in order: the link
+	// that confirms a new address, the reset link, and the notices.
+	asked []string
 }
 
 // fakePrepared is a prepared invitation of the fake session library.
@@ -789,11 +1091,11 @@ func (p *fakePrepared) Row() *session.InvitationRow {
 	return &row
 }
 
-// Send mails the link as the session library does: a failed send withdraws the
+// Send mails the link as the session library does: a failed send ends the
 // invitation and is the error.
 func (p *fakePrepared) Send(context.Context) error {
 	if p.mail.err != nil {
-		p.mail.withdrawn = append(p.mail.withdrawn, p.row.ID)
+		p.mail.ended = append(p.mail.ended, p.row.ID)
 
 		return p.mail.err
 	}

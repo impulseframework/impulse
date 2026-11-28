@@ -1,6 +1,7 @@
 package access
 
 import (
+	"cmp"
 	"context"
 	"slices"
 	"strings"
@@ -8,38 +9,44 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/access/internal/policy"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/tracer"
 )
 
 var _ UserManager = &userManager{}
 
-// userManager implements UserManager on top of the policyStore seam, the
-// release's default roles and the evaluator. Validation (role existence,
+// userManager implements UserManager on top of the store's management seam
+// (managementStore), the release's default roles and the evaluator. Validation (role existence,
 // empty-input checks, the default roles' read-only rule) lives here; the
 // store only persists and queries policy. Scopes are opaque partition labels
 // — nothing here validates tenant existence, and no operation enumerates
 // tenants: the application owns its tenant list.
 type userManager struct {
-	store     policyStore
+	store     managementStore
 	defaults  *defaultRoles
 	evaluator evaluator
 	// tenantAdministrators are the roles whose holders administer a tenant
 	// (WithTenantAdministratorRoles), which TenantsAdministered reads the
 	// store by.
 	tenantAdministrators []accesstypes.Role
+	// collection is what the running release declares (the collection New is
+	// given), which a grant written to a role is held to (requireDeclared).
+	collection PermissionCollection
 }
 
 // newUserManager creates a userManager over the policy store, the release's
 // default roles (nil for none), the evaluator the effective-permission
-// listings answer from and the roles whose holders administer a tenant (none
-// where the application named none).
-func newUserManager(store policyStore, defaults *defaultRoles, evaluator evaluator, tenantAdministrators []accesstypes.Role) *userManager {
+// listings answer from, the roles whose holders administer a tenant (none
+// where the application named none) and the release's permission collection,
+// which a grant written to a role is held to.
+func newUserManager(store managementStore, defaults *defaultRoles, evaluator evaluator, tenantAdministrators []accesstypes.Role, collection PermissionCollection) *userManager {
 	return &userManager{
 		store:                store,
 		defaults:             defaults,
 		evaluator:            evaluator,
 		tenantAdministrators: slices.Clone(tenantAdministrators),
+		collection:           collection,
 	}
 }
 
@@ -48,6 +55,8 @@ func newUserManager(store policyStore, defaults *defaultRoles, evaluator evaluat
 func (u *userManager) AddRoleUsers(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, users ...accesstypes.User) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+	u, announce := u.holdAnnouncement()
+	defer announce()
 
 	if err := refuseSuperAdministratorOutsideGlobal(scope, role); err != nil {
 		return err
@@ -57,15 +66,15 @@ func (u *userManager) AddRoleUsers(ctx context.Context, scope accesstypes.Policy
 		return err
 	}
 	if !roleFound {
-		return httpio.NewNotFoundMessagef("role %q is not a valid role. Please check that the role exists.", string(role))
+		return roleNotFound(role)
 	}
 
 	for _, user := range users {
 		if user == "" {
-			return httpio.NewBadRequestMessage("user cannot be empty string")
+			return httpio.NewBadRequestMessage("No person is named. Name the person the role is for.")
 		}
 
-		if err := u.store.addUserRole(ctx, scope, user, role, accesstypes.Period{}); err != nil {
+		if err := u.giveUserRole(ctx, scope, user, role, accesstypes.Period{}, "", nil); err != nil {
 			return err
 		}
 	}
@@ -74,18 +83,32 @@ func (u *userManager) AddRoleUsers(ctx context.Context, scope accesstypes.Policy
 }
 
 // AddUserRoles assigns roles to user, the memberships held in scope, each with
-// no period: a role the user holds for a period is theirs until it is removed.
-// Errors if any role doesn't exist in scope.
+// no period and no reason: a role the user holds for a period is theirs until
+// it is removed, and the reason it was given for goes with the period. Errors
+// if any role doesn't exist in scope. Where ctx carries a directory's sync
+// (auditlog.WithDirectorySync), each role given is recorded as the directory's act
+// on the person (directoryRoleRecord).
 func (u *userManager) AddUserRoles(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, roles ...accesstypes.Role) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+	u, announce := u.holdAnnouncement()
+	defer announce()
 
-	return u.assignUserRoles(ctx, scope, user, accesstypes.Period{}, roles...)
+	return u.assignUserRoles(ctx, scope, user, accesstypes.Period{}, "", directoryRecords(ctx, auditlog.ActRoleGiven, scope), roles...)
 }
 
-// assignUserRoles gives user each role in scope for the period, once every role
-// is one the user may be given there for it.
-func (u *userManager) assignUserRoles(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, period accesstypes.Period, roles ...accesstypes.Role) error {
+// assignUserRoles gives user each role in scope for the period and with the
+// reason, once every role is one the user may be given there for it and the
+// reason is one a role carries. record makes the record of each role's write, nil
+// for none.
+func (u *userManager) assignUserRoles(
+	ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, period accesstypes.Period, reason string,
+	record func(role accesstypes.Role) *auditlog.Record, roles ...accesstypes.Role,
+) error {
+	reason, err := ValidateReason(reason)
+	if err != nil {
+		return err
+	}
 	for _, role := range roles {
 		if err := refuseSuperAdministratorOutsideGlobal(scope, role); err != nil {
 			return err
@@ -98,18 +121,44 @@ func (u *userManager) assignUserRoles(ctx context.Context, scope accesstypes.Pol
 			return err
 		}
 		if !roleFound {
-			return httpio.NewNotFoundMessagef("role %q is not a valid role. Please check that the role exists.", role)
+			return roleNotFound(role)
 		}
 	}
 
 	if user == "" {
-		return httpio.NewBadRequestMessage("user cannot be empty string")
+		return httpio.NewBadRequestMessage("No person is named. Name the person the role is for.")
 	}
 
 	for _, role := range roles {
-		if err := u.store.addUserRole(ctx, scope, user, role, period); err != nil {
+		var given *auditlog.Record
+		if record != nil {
+			given = record(role)
+		}
+		if err := u.giveUserRole(ctx, scope, user, role, period, reason, given); err != nil {
 			return err
 		}
+	}
+
+	return nil
+}
+
+// giveUserRole gives user the role in scope for the period and with the reason: one of
+// the release's default roles by its name, and a custom role only while its row is
+// there. A custom role deleted since the call found it is answered as a role that does
+// not exist, and nothing is given. The store is handed record, the record of the act
+// (nil for none).
+func (u *userManager) giveUserRole(
+	ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string, record *auditlog.Record,
+) error {
+	if u.defaults.exists(scope, role) {
+		return u.store.assignUserRole(ctx, scope, user, role, period, reason, record)
+	}
+	if err := u.store.assignCustomUserRole(ctx, scope, user, role, period, reason, record); err != nil {
+		if errors.Is(err, policy.ErrNoRole) {
+			return roleNotFound(role)
+		}
+
+		return err
 	}
 
 	return nil
@@ -120,17 +169,19 @@ func (u *userManager) assignUserRoles(ctx context.Context, scope accesstypes.Pol
 func (u *userManager) DeleteRoleUsers(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, users ...accesstypes.User) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+	u, announce := u.holdAnnouncement()
+	defer announce()
 
 	roleFound, err := u.roleExists(ctx, scope, role)
 	if err != nil {
 		return err
 	}
 	if !roleFound {
-		return httpio.NewNotFoundMessagef("role %q is not a valid role. Please check that the role exists.", string(role))
+		return roleNotFound(role)
 	}
 
 	for _, user := range users {
-		if err := u.store.deleteUserRole(ctx, scope, user, role); err != nil {
+		if err := u.store.deleteUserRole(ctx, scope, user, role, nil); err != nil {
 			return err
 		}
 	}
@@ -139,45 +190,41 @@ func (u *userManager) DeleteRoleUsers(ctx context.Context, scope accesstypes.Pol
 }
 
 // DeleteAllRolePermissions removes all permissions from a custom role held in
-// scope, scope-wide and resource-specific alike.
+// scope, scope-wide and resource-specific alike. Each row is removed by the
+// columns the store holds it under, so a row no write could have made, which a
+// load skips and reports, is removed with the rest.
 func (u *userManager) DeleteAllRolePermissions(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+	u, announce := u.holdAnnouncement()
+	defer announce()
 
-	if err := u.requireCustomRole(ctx, scope, role, "Permissions cannot be removed from a role that doesn't exist"); err != nil {
+	if err := u.requireCustomRole(ctx, scope, role); err != nil {
 		return err
 	}
 
-	perms, err := u.store.roleGrants(ctx, scope, role)
-	if err != nil {
-		return errors.Wrap(err, "roleGrants()")
-	}
-
-	for permission, grants := range perms {
-		if grants.ScopeWide {
-			if err := u.store.removeScopeWideGrant(ctx, scope, role, permission); err != nil {
-				return err
-			}
-		}
-		for _, resource := range grants.Resources {
-			if err := u.store.removeGrants(ctx, scope, role, permission, resource); err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
+	return u.store.removeAllGrants(ctx, scope, role)
 }
 
 // DeleteUserRoles removes user's memberships of roles held in scope. The
 // operation succeeds regardless of whether the roles were previously assigned
-// to the user.
+// to the user. Where ctx carries a directory's sync (auditlog.WithDirectorySync),
+// each role taken is recorded as the directory's act on the person
+// (directoryRoleRecord); a role the person did not hold is no act, and is not
+// recorded.
 func (u *userManager) DeleteUserRoles(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, roles ...accesstypes.Role) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+	u, announce := u.holdAnnouncement()
+	defer announce()
 
+	record := directoryRecords(ctx, auditlog.ActRoleTaken, scope)
 	for _, role := range roles {
-		if err := u.store.deleteUserRole(ctx, scope, user, role); err != nil {
+		var taken *auditlog.Record
+		if record != nil {
+			taken = record(role)
+		}
+		if err := u.store.deleteUserRole(ctx, scope, user, role, taken); err != nil {
 			return err
 		}
 	}
@@ -227,7 +274,7 @@ func (u *userManager) UserPermissions(ctx context.Context, user accesstypes.User
 	defer span.End()
 
 	if len(scopes) == 0 {
-		return nil, httpio.NewBadRequestMessage("at least one scope is required")
+		return nil, httpio.NewBadRequestMessage("No place is named. Name the whole application or at least one tenant to read the permissions in.")
 	}
 
 	userPermissions := make(accesstypes.UserPermissionCollection)
@@ -243,6 +290,20 @@ func (u *userManager) UserPermissions(ctx context.Context, user accesstypes.User
 	return userPermissions, nil
 }
 
+// roleCaseTwin is the refusal of a custom role's name that differs only in case
+// from a custom role already held: the name asked, the role held as it is spelled,
+// and where it is held in words (placeInWords).
+const roleCaseTwin = "The name %q differs only in upper and lower case from the role %q, which is held %s. A directory tells role names apart without regard to case, so choose a name that differs by more."
+
+// roleCaseTwinCause is roleCaseTwin's cause, for the server's log: the name asked,
+// the role held and the scope it is held in.
+const roleCaseTwinCause = "role %q differs only in case from the role %q held in scope %s; a directory names roles without regard to case, so one spelling is held"
+
+// defaultRoleCaseTwin is the refusal of a custom role's name that differs only
+// in case from one of the release's default roles: the name asked and the
+// default role.
+const defaultRoleCaseTwin = "The name %q differs only in upper and lower case from %q, one of the application's built-in roles. A directory tells role names apart without regard to case, so choose a name that differs by more."
+
 // AddRole creates a custom role held in scope, with the description saying
 // what it is for. The scope is an opaque partition label: its validity is
 // the caller's business. The name follows the one grammar every role name
@@ -252,41 +313,111 @@ func (u *userManager) UserPermissions(ctx context.Context, user accesstypes.User
 func (u *userManager) AddRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, description string) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+	u, announce := u.holdAnnouncement()
+	defer announce()
 
 	if role == "" {
-		return httpio.NewBadRequestMessage("role cannot be empty string")
+		return httpio.NewBadRequestMessage("The role has no name. Give it one.")
 	}
 	if !roleNamePattern.MatchString(string(role)) {
-		return httpio.NewBadRequestMessagef("role %s: %s", string(role), roleNameRule)
+		return httpio.NewBadRequestMessageWithErrorf(
+			errors.Newf("role %s: %s", string(role), roleNameRule),
+			"The name %q cannot be used for a role. A role's name is letters and digits and starts with a capital letter, such as Administrator or TenantAdministrator.", string(role),
+		)
 	}
 	if strings.TrimSpace(description) == "" {
-		return httpio.NewBadRequestMessagef("role %q carries no description; a role carries one or two plain sentences saying what it is for", string(role))
+		return httpio.NewBadRequestMessageWithError(
+			errors.Newf("role %q carries no description; a role carries one or two plain sentences saying what it is for", string(role)),
+			"The role has no description. Say what it is for in one or two plain sentences.",
+		)
 	}
 	if isSuperAdministratorName(role) {
-		return httpio.NewConflictMessagef("role %s: %s; choose another name", string(role), superAdministratorReserved)
+		return httpio.NewConflictMessageWithErrorf(
+			errors.Newf("role %s: %s; choose another name", string(role), superAdministratorReserved),
+			"The name %q is reserved for the Super administrator role, which every application has. Choose another name.", string(role),
+		)
 	}
 	if u.defaults.exists(scope, role) {
-		return httpio.NewConflictMessagef("role %q is one of the release's default roles; a custom role cannot take its name", string(role))
+		return httpio.NewConflictMessagef("The application has a built-in role named %q. Choose another name.", string(role))
 	}
 
 	// A name is taken under any spelling: a directory names roles without regard
 	// to case, so two roles that differ only in case could never be told apart.
+	// A role held in every domain is read in each domain beside that domain's
+	// own, so it is held to every domain's custom roles too.
 	held, roleDoesExist, err := u.ResolveRole(ctx, scope, string(role))
 	if err != nil {
 		return err
 	}
 	if roleDoesExist && held == role {
-		return httpio.NewConflictMessagef("role %q already exists", string(role))
+		return httpio.NewConflictMessagef("A role named %q already exists. Choose another name.", string(role))
 	}
 	if roleDoesExist {
-		return httpio.NewConflictMessagef("role %q differs only in case from the role %q held in scope %s; a directory names roles without regard to case, so one spelling is held", string(role), string(held), scope)
+		return u.caseTwinRefusal(ctx, scope, role, held)
+	}
+	if scope.IsEveryDomain() {
+		domainHeld, err := u.store.domainRoles(ctx)
+		if err != nil {
+			return err
+		}
+		twins := slices.DeleteFunc(domainHeld, func(r policy.Role) bool {
+			return r.Name == role || !policy.SameRoleName(string(r.Name), string(role))
+		})
+		if len(twins) > 0 {
+			twin := slices.MinFunc(twins, func(a, b policy.Role) int {
+				aDomain, _ := a.Scope.Domain()
+				bDomain, _ := b.Scope.Domain()
+
+				return cmp.Or(cmp.Compare(aDomain, bDomain), cmp.Compare(a.Name, b.Name))
+			})
+
+			return httpio.NewConflictMessageWithErrorf(
+				errors.Newf(roleCaseTwinCause, string(role), string(twin.Name), twin.Scope),
+				roleCaseTwin, string(role), string(twin.Name), placeInWords(twin.Scope),
+			)
+		}
 	}
 
+	// The checks above answer the usual case; a twin added at the same moment is
+	// one only the store's insert sees, and it refuses the name the same way.
 	if err := u.store.addRole(ctx, scope, role, description); err != nil {
+		var twin *policy.CaseTwinError
+		if errors.As(err, &twin) {
+			return httpio.NewConflictMessageWithErrorf(
+				errors.Newf(roleCaseTwinCause, string(role), string(twin.Held.Name), twin.Held.Scope),
+				roleCaseTwin, string(role), string(twin.Held.Name), placeInWords(twin.Held.Scope),
+			)
+		}
+
 		return err
 	}
 
 	return nil
+}
+
+// caseTwinRefusal is the Conflict AddRole answers a name with when scope already
+// holds held, a role that differs from the name only in case. It says where held
+// is held: among the release's default roles, in scope itself, or, for one
+// domain, in every domain.
+func (u *userManager) caseTwinRefusal(ctx context.Context, scope accesstypes.PolicyScope, role, held accesstypes.Role) error {
+	if u.defaults.exists(scope, held) {
+		return httpio.NewConflictMessagef(defaultRoleCaseTwin, string(role), string(held))
+	}
+	place := scope
+	if _, oneDomain := scope.Domain(); oneDomain {
+		inScope, err := u.store.roleExists(ctx, scope, held)
+		if err != nil {
+			return err
+		}
+		if !inScope {
+			place = accesstypes.EveryDomainPolicyScope()
+		}
+	}
+
+	return httpio.NewConflictMessageWithErrorf(
+		errors.Newf(roleCaseTwinCause, string(role), string(held), place),
+		roleCaseTwin, string(role), string(held), placeInWords(place),
+	)
 }
 
 // Roles returns the roles that exist in scope, sorted by name, each with its
@@ -339,29 +470,41 @@ func listedOnce(roles []RoleInfo) []RoleInfo {
 // holds there, each now or for a period that has not begun; assignments of it
 // that have ended, a person's and a group's, go with it. A role deleted from
 // under a group would leave the group's row behind, and a role of the name
-// made again would at once be held by everyone in the group.
+// made again would at once be held by everyone in the group. A role held in
+// every domain is refused as well while a person or a group holds it in one
+// domain that has no custom role of the name of its own, now or for a period
+// that has not begun.
 func (u *userManager) DeleteRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+	u, announce := u.holdAnnouncement()
+	defer announce()
 
 	if u.defaults.exists(scope, role) {
-		return false, httpio.NewBadRequestMessagef("role %q is one of the release's default roles; it cannot be deleted", string(role))
+		return false, httpio.NewBadRequestMessageWithError(
+			errors.Newf("role %q is one of the release's default roles; it cannot be deleted", string(role)),
+			"The role "+roleInWords(role)+" is one of the application's built-in roles, so it cannot be deleted.",
+		)
 	}
 
 	if hasUsers, err := u.hasUsersAssigned(ctx, scope, role); err != nil {
 		return false, errors.Wrap(err, "client.hasUsersAssigned()")
 	} else if hasUsers {
-		return false, httpio.NewBadRequestMessagef("Users assigned to the role. You cannot delete a role that has users assigned")
+		return false, httpio.NewBadRequestMessage("People hold this role. Take it away from them first, then delete it.")
 	}
 
 	deleted, err := u.store.deleteRole(ctx, scope, role)
 	if errors.Is(err, policy.ErrHeldByGroup) {
-		return false, httpio.NewBadRequestMessagef("A group holds the role, now or for a period that has not begun yet. You cannot delete a role a group holds: take it away from the group first")
+		return false, httpio.NewBadRequestMessage("A group holds this role, now or for a period that has not begun yet. Take it away from the group first, then delete it.")
+	}
+	if errors.Is(err, policy.ErrHeldInDomain) {
+		return false, httpio.NewBadRequestMessageWithError(err, "A person or a group holds this role in a tenant, now or for a period that has not begun yet. Take it away there first, then delete it.")
 	}
 	if errors.Is(err, policy.ErrStillAssigned) {
-		// The listing above reads who holds the role now: what stands in the way
-		// is an assignment whose period has not begun.
-		return false, httpio.NewBadRequestMessagef("Users are assigned to the role for a period that has not begun yet. You cannot delete a role that has users assigned")
+		// The listing above reads who holds the role now: what stands in the way is
+		// an assignment whose period has not begun, or one given while the delete
+		// ran, after the listing read.
+		return false, httpio.NewBadRequestMessage("People hold this role, now or for a period that has not begun yet. Take it away from them first, then delete it.")
 	}
 	if err != nil {
 		return false, err
@@ -371,17 +514,23 @@ func (u *userManager) DeleteRole(ctx context.Context, scope accesstypes.PolicySc
 }
 
 // AddRolePermission grants permission to role scope-wide: the permission is
-// held with no resource attachment.
+// held with no resource attachment. A permission the running release does not
+// have is refused (requireDeclaredPermission).
 func (u *userManager) AddRolePermission(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, permission accesstypes.Permission) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+	u, announce := u.holdAnnouncement()
+	defer announce()
 
-	if err := u.requireCustomRole(ctx, scope, role, "Permissions cannot be added to a role that doesn't exist"); err != nil {
+	if err := u.requireCustomRole(ctx, scope, role); err != nil {
+		return err
+	}
+	if err := u.requireDeclaredPermission(permission); err != nil {
 		return err
 	}
 
 	if err := u.store.addScopeWideGrant(ctx, scope, role, permission); err != nil {
-		return err
+		return grantRefusal(role, err)
 	}
 
 	return nil
@@ -391,8 +540,10 @@ func (u *userManager) AddRolePermission(ctx context.Context, scope accesstypes.P
 func (u *userManager) DeleteRolePermission(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, permission accesstypes.Permission) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+	u, announce := u.holdAnnouncement()
+	defer announce()
 
-	if err := u.requireCustomRole(ctx, scope, role, "Permissions cannot be removed from a role that doesn't exist"); err != nil {
+	if err := u.requireCustomRole(ctx, scope, role); err != nil {
 		return err
 	}
 
@@ -407,8 +558,10 @@ func (u *userManager) DeleteRolePermission(ctx context.Context, scope accesstype
 func (u *userManager) AddRolePermissionResources(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, permission accesstypes.Permission, resources ...accesstypes.Resource) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+	u, announce := u.holdAnnouncement()
+	defer announce()
 
-	if err := u.requireCustomRole(ctx, scope, role, "Permissions cannot be added to a role that doesn't exist"); err != nil {
+	if err := u.requireCustomRole(ctx, scope, role); err != nil {
 		return err
 	}
 
@@ -424,8 +577,10 @@ func (u *userManager) AddRolePermissionResources(ctx context.Context, scope acce
 func (u *userManager) AddRoleGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, grants ...GrantRow) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+	u, announce := u.holdAnnouncement()
+	defer announce()
 
-	if err := u.requireCustomRole(ctx, scope, role, "Permissions cannot be added to a role that doesn't exist"); err != nil {
+	if err := u.requireCustomRole(ctx, scope, role); err != nil {
 		return err
 	}
 
@@ -437,9 +592,12 @@ func (u *userManager) addGrantRows(ctx context.Context, scope accesstypes.Policy
 	if err := requireResources(rows); err != nil {
 		return err
 	}
+	if err := u.requireDeclared(scope, role, rows); err != nil {
+		return err
+	}
 
 	if err := u.store.addGrants(ctx, scope, role, rows); err != nil {
-		return err
+		return grantRefusal(role, err)
 	}
 
 	return nil
@@ -450,8 +608,10 @@ func (u *userManager) addGrantRows(ctx context.Context, scope accesstypes.Policy
 func (u *userManager) ChangeRoleGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, removals, additions []GrantRow) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+	u, announce := u.holdAnnouncement()
+	defer announce()
 
-	if err := u.requireCustomRole(ctx, scope, role, "Permissions cannot be changed on a role that doesn't exist"); err != nil {
+	if err := u.requireCustomRole(ctx, scope, role); err != nil {
 		return err
 	}
 	if err := requireResources(removals); err != nil {
@@ -460,20 +620,138 @@ func (u *userManager) ChangeRoleGrants(ctx context.Context, scope accesstypes.Po
 	if err := requireResources(additions); err != nil {
 		return err
 	}
-
-	if err := u.store.changeGrants(ctx, scope, role, removals, additions); err != nil {
+	// A removal is held to nothing: a grant the release no longer declares is one
+	// to take away.
+	if err := u.requireDeclared(scope, role, additions); err != nil {
 		return err
 	}
 
+	if err := u.store.changeGrants(ctx, scope, role, removals, additions); err != nil {
+		return grantRefusal(role, err)
+	}
+
 	return nil
+}
+
+// grantRefusal answers a grant's write that the store refused because the role has no
+// row, deleted since the call found it, as a role that does not exist: nothing was
+// written. Any other error is returned as it is.
+func grantRefusal(role accesstypes.Role, err error) error {
+	if errors.Is(err, policy.ErrNoRole) {
+		return roleNotFound(role)
+	}
+
+	return err
 }
 
 // requireResources refuses a grant row that names no resource.
 func requireResources(rows []GrantRow) error {
 	for _, row := range rows {
 		if row.Resource == "" {
-			return httpio.NewBadRequestMessage("resource cannot be empty string")
+			return httpio.NewBadRequestMessage("No resource is named. Name the resource the permission is given on.")
 		}
+	}
+
+	return nil
+}
+
+// requireDeclared refuses a grant a role file could not give the role, before
+// it is written to a custom role held in scope: the whole of the rule the role
+// file's grants are held to when the engine opens (expandRoleGrants), so a role
+// made at run time holds nothing a default role could not. The rule is
+// grantRule, and each part of it is said here in its own sentence
+// (brokenRule.badRequest).
+//
+// The names come first: a permission on a resource or a field the permission
+// collection does not list under it, and an action no role is given, so a role
+// carries no name nobody declared.
+//
+// Then what a listed name can still break, in the role file's own sentences
+// (misplacedGrant, validateGrantCondition): the resource is of the role's
+// scope, a global resource for a role held globally and a domain's for one
+// held in a domain or in every domain; Update is not given on what the release
+// marks immutable, a grant of all a resource's fields reaching no such field
+// (snapshot.allFieldsLeaveOut); a condition parses and reads only the attributes the
+// resource declares and the subject vocabulary the application declares, a
+// field's condition being held to its resource's attributes; and, in an engine
+// whose role file was handed over under an auth's name, the condition reads no
+// set of another auth's people (anotherAuthsSet), since the custom role is
+// a role of that auth.
+//
+// A load of the policy holds a role's stored grant to the same rule
+// (snapshot.intern): a grant refused here is one the load would skip and
+// report, for the same reason. A stored grant can still break the rule, after
+// a rollback, once a release drops a resource or an attribute, or when a row
+// is written straight to the store, and that is the grant the load skips.
+//
+// A name the store cannot hold (splitGrantResource) is left to the store, which
+// refuses it in its own words.
+func (u *userManager) requireDeclared(scope accesstypes.PolicyScope, role accesstypes.Role, rows []GrantRow) error {
+	if len(rows) == 0 {
+		return nil
+	}
+
+	rule := newGrantRule(u.collection, u.defaults.authName())
+	for _, row := range rows {
+		base, field, err := splitGrantResource(row.Resource)
+		if err != nil {
+			continue
+		}
+		grant := &policy.Grant{
+			Scope:     scope,
+			Subject:   policy.Subject{Kind: policy.SubjectRole, Name: string(role)},
+			Perm:      row.Permission,
+			Resource:  base,
+			Field:     field,
+			Condition: row.Condition,
+		}
+		if broken := rule.refusal(grant, parseAuthoredCondition); broken != nil {
+			return broken.badRequest(role, row.Permission, row.Resource, base)
+		}
+	}
+
+	return nil
+}
+
+// badRequest is the refusal of a write that would give role the grant: permission on
+// asked, the resource as the caller named it, whose base resource is base. Each part
+// of the rule is said in its own sentence: the names as what was asked and why, with
+// what a role is given; the place and the condition in the role file's sentences,
+// which name the role.
+func (b *brokenRule) badRequest(role accesstypes.Role, permission accesstypes.Permission, asked accesstypes.Resource, base string) error {
+	switch b.part {
+	case noRoleActionPart:
+		return httpio.NewBadRequestMessagef(
+			"%s on %s cannot be given to a role, because %s. Nothing asks for a grant of it, so the grant would do nothing.",
+			permission, asked, plainText(b.reason),
+		)
+	case namesPart:
+		return httpio.NewBadRequestMessagef(
+			"%s on %s cannot be given to a role, because %s. A role is given a permission the application declares on a resource or a field, so check the permission and the name.",
+			permission, asked, plainText(b.reason),
+		)
+	case conditionPart:
+		err := grantConditionError(b.reason, role, permission, accesstypes.Resource(base))
+
+		return httpio.NewBadRequestMessageWithError(err, plainText(err))
+	default:
+		return httpio.NewBadRequestMessageWithError(b.reason, plainText(b.reason))
+	}
+}
+
+// requireDeclaredPermission is requireDeclared for a scope-wide grant, which
+// names a permission and nothing else: the permission is one the running
+// release has, which is one its permission collection lists. A role given a
+// permission no release has would show it in the role's editor and hold nothing
+// by it. The rule is the one a load of the policy holds a stored scope-wide
+// grant to (unlistedName), so a grant refused here is one a load would skip; a
+// removal is held to nothing.
+func (u *userManager) requireDeclaredPermission(permission accesstypes.Permission) error {
+	if err := unlistedName(u.collection.List(), &policy.Grant{Perm: permission}); err != nil {
+		return httpio.NewBadRequestMessagef(
+			"%s cannot be given to a role, because %s. A role is given a permission the application declares, so check the permission's name.",
+			permission, plainText(err),
+		)
 	}
 
 	return nil
@@ -484,16 +762,21 @@ func requireResources(rows []GrantRow) error {
 func (u *userManager) AddRoleGrant(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, permission accesstypes.Permission, resource accesstypes.Resource, condition string) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+	u, announce := u.holdAnnouncement()
+	defer announce()
 
-	if err := u.requireCustomRole(ctx, scope, role, "Permissions cannot be added to a role that doesn't exist"); err != nil {
+	if err := u.requireCustomRole(ctx, scope, role); err != nil {
 		return err
 	}
 	if resource == "" {
-		return httpio.NewBadRequestMessage("resource cannot be empty string")
+		return httpio.NewBadRequestMessage("No resource is named. Name the resource the permission is given on.")
+	}
+	if err := u.requireDeclared(scope, role, []GrantRow{{Permission: permission, Resource: resource, Condition: condition}}); err != nil {
+		return err
 	}
 
 	if err := u.store.addGrant(ctx, scope, role, permission, resource, condition); err != nil {
-		return err
+		return grantRefusal(role, err)
 	}
 
 	return nil
@@ -505,8 +788,10 @@ func (u *userManager) DeleteRolePermissionResources(
 ) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+	u, announce := u.holdAnnouncement()
+	defer announce()
 
-	if err := u.requireCustomRole(ctx, scope, role, "Permissions cannot be removed from a role that doesn't exist"); err != nil {
+	if err := u.requireCustomRole(ctx, scope, role); err != nil {
 		return err
 	}
 
@@ -524,8 +809,10 @@ func (u *userManager) DeleteRolePermissionResources(
 func (u *userManager) DeleteRoleGrant(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, permission accesstypes.Permission, resource accesstypes.Resource, condition string) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+	u, announce := u.holdAnnouncement()
+	defer announce()
 
-	if err := u.requireCustomRole(ctx, scope, role, "Permissions cannot be removed from a role that doesn't exist"); err != nil {
+	if err := u.requireCustomRole(ctx, scope, role); err != nil {
 		return err
 	}
 
@@ -606,17 +893,21 @@ func (u *userManager) RoleHolders(ctx context.Context, scope accesstypes.PolicyS
 }
 
 // RolePermissions returns the permissions role holds in scope, answered from
-// the policy snapshot.
+// the policy snapshot. A scope that names nothing is refused with
+// accesstypes.ErrNoScope before the role is looked for.
 func (u *userManager) RolePermissions(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) (accesstypes.RolePermissionCollection, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	if scope.IsZero() {
+		return nil, errors.Wrap(accesstypes.ErrNoScope, "access.RolePermissions()")
+	}
 	roleFound, err := u.roleExists(ctx, scope.PolicyScope(), role)
 	if err != nil {
 		return nil, err
 	}
 	if !roleFound {
-		return nil, httpio.NewNotFoundMessagef("role %s doesn't exist", role)
+		return nil, roleNotFound(role)
 	}
 
 	permissions, err := u.evaluator.rolePermissions(ctx, role, scope)
@@ -627,10 +918,11 @@ func (u *userManager) RolePermissions(ctx context.Context, scope accesstypes.Sco
 	return permissions, nil
 }
 
-// RoleGrants returns the role's resource grants as held, keyed by permission
-// and resource, with the conditions each resource is granted under (sorted;
-// "" is the unconditional grant).
-func (u *userManager) RoleGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (map[accesstypes.Permission]map[accesstypes.Resource][]string, error) {
+// RoleGrants returns the role's resource grants, keyed by permission and
+// resource, each with the condition the resource is granted under (sorted by
+// it; "" is the unconditional grant). A custom role's stored row that a load of
+// the policy leaves out is listed with why (RoleGrant.Skipped).
+func (u *userManager) RoleGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (map[accesstypes.Permission]map[accesstypes.Resource][]RoleGrant, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -643,15 +935,56 @@ func (u *userManager) RoleGrants(ctx context.Context, scope accesstypes.PolicySc
 		return nil, err
 	}
 	if held == nil {
-		return nil, httpio.NewNotFoundMessagef("role %s doesn't exist", role)
+		return nil, roleNotFound(role)
 	}
 
-	grants, err := u.store.roleGrantConditions(ctx, *held, role)
+	rows, err := u.store.roleResourceGrants(ctx, *held, role)
 	if err != nil {
 		return nil, err
 	}
 
-	return grants, nil
+	return u.listStoredGrants(*held, role, rows), nil
+}
+
+// listStoredGrants renders a custom role's stored rows on resources in the shape
+// RoleGrants speaks, each resource's grants sorted by condition. held is where the role
+// is held, the scope a load of the policy reads its rows in.
+//
+// Each row is asked what a load of the policy asks of it (grantRule.unusable, with the
+// load's reading of a condition), and a row the load leaves out is marked with the
+// load's reason: the store holds it and the role does not, so a listing that showed it
+// as any other row would show a grant nobody is given.
+func (u *userManager) listStoredGrants(held accesstypes.PolicyScope, role accesstypes.Role, rows []policy.RoleGrant) map[accesstypes.Permission]map[accesstypes.Resource][]RoleGrant {
+	rule := newGrantRule(u.collection, u.defaults.authName())
+	out := make(map[accesstypes.Permission]map[accesstypes.Resource][]RoleGrant)
+	for _, row := range rows {
+		listed := RoleGrant{Condition: row.Condition}
+		grant := &policy.Grant{
+			Scope:     held,
+			Subject:   policy.Subject{Kind: policy.SubjectRole, Name: string(role)},
+			Perm:      row.Perm,
+			Resource:  row.Resource,
+			Field:     row.Field,
+			Condition: row.Condition,
+		}
+		if reason := rule.unusable(grant, true, parseStoredCondition); reason != nil {
+			listed.Skipped = plainText(reason)
+		}
+		if out[row.Perm] == nil {
+			out[row.Perm] = make(map[accesstypes.Resource][]RoleGrant)
+		}
+		res := joinResourceField(row.Resource, row.Field)
+		out[row.Perm][res] = append(out[row.Perm][res], listed)
+	}
+	for _, resources := range out {
+		for _, grants := range resources {
+			slices.SortFunc(grants, func(a, b RoleGrant) int {
+				return strings.Compare(a.Condition, b.Condition)
+			})
+		}
+	}
+
+	return out
 }
 
 // ResolveRole returns the role scope holds under name, matched without regard
@@ -659,8 +992,14 @@ func (u *userManager) RoleGrants(ctx context.Context, scope accesstypes.PolicySc
 // a custom role held in scope, or — for one domain — a custom role held in
 // every domain. The exact spelling wins when it exists; otherwise the one role
 // that matches case-insensitively; two such roles with no exact match is an
-// error, never a guess (AddRole and the role file refuse the pair, so only a
-// store written before this rule can hold one).
+// error, never a guess (AddRole, the store's insert and the role file refuse
+// the pair. A store can hold one all the same: where a release brings a
+// default role whose name differs only in case from a custom role already
+// held, or where the store was written before this rule. The answer is then
+// this error, which names the roles, until one of them is removed). Case is
+// the case of ASCII letters alone: a letter from outside ASCII matches only
+// itself, so a name written with a look-alike letter (the Kelvin sign for k,
+// the long s for s) is no role's.
 func (u *userManager) ResolveRole(ctx context.Context, scope accesstypes.PolicyScope, name string) (accesstypes.Role, bool, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -674,7 +1013,7 @@ func (u *userManager) ResolveRole(ctx context.Context, scope accesstypes.PolicyS
 		if role.Name == accesstypes.Role(name) {
 			return role.Name, true, nil
 		}
-		if strings.EqualFold(string(role.Name), name) {
+		if policy.SameRoleName(string(role.Name), name) {
 			matches = append(matches, role.Name)
 		}
 	}
@@ -684,7 +1023,10 @@ func (u *userManager) ResolveRole(ctx context.Context, scope accesstypes.PolicyS
 	case 1:
 		return matches[0], true, nil
 	default:
-		return "", false, httpio.NewConflictMessagef("role %q matches %d roles in scope %s that differ only in case (%v); a directory names roles without regard to case, so rename all but one", name, len(matches), scope, matches)
+		return "", false, httpio.NewConflictMessageWithErrorf(
+			errors.Newf("role %q matches %d roles in scope %s that differ only in case (%v); a directory names roles without regard to case, so rename all but one", name, len(matches), scope, matches),
+			"The name %q matches %d roles held %s that differ only in upper and lower case. A directory tells role names apart without regard to case, so rename all but one.", name, len(matches), placeInWords(scope),
+		)
 	}
 }
 
@@ -698,7 +1040,7 @@ func refuseSuperAdministratorOutsideGlobal(scope accesstypes.PolicyScope, role a
 		return nil
 	}
 
-	return httpio.NewBadRequestMessagef("the %s role is held for the whole application alone, never in a tenant or in every tenant: give it with no tenant named", string(role))
+	return httpio.NewBadRequestMessagef("The %s role is held for the whole application alone, never in a tenant or in every tenant. Give it with no tenant named.", roleInWords(role))
 }
 
 // roleExists reports whether role exists in scope under exactly that spelling:
@@ -766,9 +1108,12 @@ func customRoleScopeBy(ctx context.Context, scope accesstypes.PolicyScope, role 
 // requireCustomRole errors unless role is a custom role held in scope itself:
 // a default role's grants are the release's, and a custom role held in every
 // domain is changed where it is held, not through one domain.
-func (u *userManager) requireCustomRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, notFoundMsg string) error {
+func (u *userManager) requireCustomRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) error {
 	if u.defaults.exists(scope, role) {
-		return httpio.NewBadRequestMessagef("role %q is one of the release's default roles; its grants are the release's. Copy them into a custom role to change them", string(role))
+		return httpio.NewBadRequestMessageWithError(
+			errors.Newf("role %q is one of the release's default roles; its grants are the release's. Copy them into a custom role to change them", string(role)),
+			"The role "+roleInWords(role)+" is one of the application's built-in roles, and its grants are fixed. Copy them into a custom role to change them.",
+		)
 	}
 
 	exists, err := u.store.roleExists(ctx, scope, role)
@@ -776,7 +1121,7 @@ func (u *userManager) requireCustomRole(ctx context.Context, scope accesstypes.P
 		return err
 	}
 	if !exists {
-		return httpio.NewNotFoundMessage(notFoundMsg)
+		return roleNotFound(role)
 	}
 
 	return nil

@@ -25,7 +25,7 @@ var roleFile access.RoleFile
 func Roles() access.RoleFile { return roleFile }
 
 func New(store access.Store, collection access.PermissionCollection) (*access.Client, error) {
-	return access.New(store, access.WithDefaultRoles(collection, Roles()))
+	return access.New(store, collection, access.WithDefaultRoles(Roles(), Name))
 }
 `
 	const data = `package config
@@ -38,15 +38,100 @@ import (
 )
 
 func engines(store access.Store) error {
-	if _, err := access.New(store, access.WithDefaultRoles(router.Collection(), crewauth.Roles())); err != nil {
+	if _, err := access.New(store, router.Collection(), access.WithDefaultRoles(crewauth.Roles(), crewauth.Name)); err != nil {
 		return err
 	}
-	if _, err := access.New(store, access.WithDefaultRoles(router.Collection(), loadRoles())); err != nil {
+	if _, err := access.New(store, router.Collection(), access.WithDefaultRoles(loadRoles(), Name)); err != nil {
 		return err
 	}
-	_, err := access.New(store, access.WithDefaultRoles(router.Collection()))
+	_, err := access.New(store, router.Collection(), access.WithDefaultRoles())
 
 	return err
+}
+`
+	const variable = `package crew
+
+import (
+	_ "embed"
+
+	"github.com/impulseframework/impulse/access"
+)
+
+//go:embed roles.json
+var roleFile access.RoleFile
+
+func Roles() access.RoleFile { return roleFile }
+
+func New(store access.Store, collection access.PermissionCollection, auth string) (*access.Client, error) {
+	return access.New(store, collection, access.WithDefaultRoles(Roles(), auth))
+}
+`
+	const otherName = `package config
+
+import (
+	"github.com/impulseframework/impulse/access"
+
+	"example.com/harbor/pkg/auth/members"
+	"example.com/harbor/pkg/auth/staff"
+	"example.com/harbor/pkg/router"
+)
+
+func engines(store access.Store) error {
+	if _, err := access.New(store, router.Collection(), access.WithDefaultRoles(staff.Roles(), members.Name)); err != nil {
+		return err
+	}
+	if _, err := access.New(store, router.Collection(), access.WithDefaultRoles(staff.Roles(), "staff")); err != nil {
+		return err
+	}
+	_, err := access.New(store, router.Collection(), access.WithDefaultRoles(staff.Roles(), authName()))
+
+	return err
+}
+`
+	// placed is an auth package handing its role file over in the shapes the check tells
+	// apart: an option held in a variable, appended to a slice and returned, none of them
+	// among an access.New call's arguments; a Name the function declares for itself, which
+	// hides the package's; and a Roles the function takes as a parameter. The package's
+	// Name is a constant of this file.
+	const placed = `package staff
+
+import (
+	_ "embed"
+
+	"github.com/impulseframework/impulse/access"
+
+	"example.com/harbor/pkg/auth/members"
+)
+
+//go:embed roles.json
+var roleFile access.RoleFile
+
+const Name = "staff"
+
+func Roles() access.RoleFile { return roleFile }
+
+func assigned() access.Option {
+	option := access.WithDefaultRoles(Roles(), Name)
+
+	return option
+}
+
+func appended(options []access.Option) []access.Option {
+	return append(options, access.WithDefaultRoles(Roles(), Name))
+}
+
+func returned() access.Option {
+	return access.WithDefaultRoles(Roles(), Name)
+}
+
+func shadowed(store access.Store, collection access.PermissionCollection) (*access.Client, error) {
+	Name := members.Name
+
+	return access.New(store, collection, access.WithDefaultRoles(Roles(), Name))
+}
+
+func handed(store access.Store, collection access.PermissionCollection, Roles func() access.RoleFile) (*access.Client, error) {
+	return access.New(store, collection, access.WithDefaultRoles(Roles(), Name))
 }
 `
 	const deploy = `package deploy
@@ -85,10 +170,37 @@ func run(ctx context.Context, data *Data) error {
 			name:  "the role file handed over unqualified, qualified, and in other shapes",
 			files: map[string]string{"pkg/auth/staff/staff.go": auth, "pkg/config/data.go": data},
 			wantRoles: []DefaultRoles{
-				{File: "pkg/auth/staff/staff.go", Line: 15, RolesPackage: "example.com/harbor/pkg/auth/staff"},
-				{File: "pkg/config/data.go", Line: 11, RolesPackage: "example.com/harbor/pkg/auth/crew"},
-				{File: "pkg/config/data.go", Line: 14},
-				{File: "pkg/config/data.go", Line: 17},
+				{File: "pkg/auth/staff/staff.go", Line: 15, RolesPackage: "example.com/harbor/pkg/auth/staff", NamePackage: "example.com/harbor/pkg/auth/staff", NameText: "Name", InEngine: true},
+				{File: "pkg/config/data.go", Line: 11, RolesPackage: "example.com/harbor/pkg/auth/crew", NamePackage: "example.com/harbor/pkg/auth/crew", NameText: "crewauth.Name", InEngine: true},
+				{File: "pkg/config/data.go", Line: 14, NamePackage: "example.com/harbor/pkg/config", NameText: "Name", InEngine: true},
+				{File: "pkg/config/data.go", Line: 17, InEngine: true},
+			},
+		},
+		{
+			name:  "the role file handed over with the auth's name in a variable",
+			files: map[string]string{"pkg/auth/crew/crew.go": variable},
+			wantRoles: []DefaultRoles{
+				{File: "pkg/auth/crew/crew.go", Line: 15, RolesPackage: "example.com/harbor/pkg/auth/crew", NameText: "auth", InEngine: true},
+			},
+		},
+		{
+			name:  "the role file handed over under another package's name, under a name written out, and under a call's answer",
+			files: map[string]string{"pkg/config/data.go": otherName},
+			wantRoles: []DefaultRoles{
+				{File: "pkg/config/data.go", Line: 12, RolesPackage: "example.com/harbor/pkg/auth/staff", NamePackage: "example.com/harbor/pkg/auth/members", NameText: "members.Name", InEngine: true},
+				{File: "pkg/config/data.go", Line: 15, RolesPackage: "example.com/harbor/pkg/auth/staff", NameText: `"staff"`, InEngine: true},
+				{File: "pkg/config/data.go", Line: 18, RolesPackage: "example.com/harbor/pkg/auth/staff", NameText: "authName()", InEngine: true},
+			},
+		},
+		{
+			name:  "the role file handed over outside an access.New call, under a Name the function declares, and as a Roles the function takes",
+			files: map[string]string{"pkg/auth/staff/staff.go": placed},
+			wantRoles: []DefaultRoles{
+				{File: "pkg/auth/staff/staff.go", Line: 19, RolesPackage: "example.com/harbor/pkg/auth/staff", NamePackage: "example.com/harbor/pkg/auth/staff", NameText: "Name"},
+				{File: "pkg/auth/staff/staff.go", Line: 25, RolesPackage: "example.com/harbor/pkg/auth/staff", NamePackage: "example.com/harbor/pkg/auth/staff", NameText: "Name"},
+				{File: "pkg/auth/staff/staff.go", Line: 29, RolesPackage: "example.com/harbor/pkg/auth/staff", NamePackage: "example.com/harbor/pkg/auth/staff", NameText: "Name"},
+				{File: "pkg/auth/staff/staff.go", Line: 35, RolesPackage: "example.com/harbor/pkg/auth/staff", NameText: "Name", InEngine: true},
+				{File: "pkg/auth/staff/staff.go", Line: 39, NamePackage: "example.com/harbor/pkg/auth/staff", NameText: "Name", InEngine: true},
 			},
 		},
 		{

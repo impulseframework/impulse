@@ -84,6 +84,9 @@ func TestFeatureFlagsDDL(t *testing.T) {
 		dbType       DBType
 		wantCount    int
 		wantContains []string
+		// wantChanges is the history's statement whole: who made a flip in the nine
+		// columns a change record keeps it in, each nullable.
+		wantChanges string
 	}{
 		{
 			name:      "Spanner: both tables, commit timestamps on the write columns",
@@ -98,6 +101,20 @@ func TestFeatureFlagsDDL(t *testing.T) {
 				"ChangedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),",
 				") PRIMARY KEY (Name, ChangedAt)",
 			},
+			wantChanges: `CREATE TABLE FeatureFlagChanges (
+  Name STRING(64) NOT NULL,
+  ChangedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+  Enabled BOOL NOT NULL,
+  Auth STRING(MAX),
+  ActorUserId STRING(MAX),
+  ActorUsername STRING(MAX),
+  PrincipalUserId STRING(MAX),
+  PrincipalUsername STRING(MAX),
+  PrincipalRole STRING(MAX),
+  SessionId STRING(MAX),
+  Process STRING(MAX),
+  Rpc STRING(MAX),
+) PRIMARY KEY (Name, ChangedAt)`,
 		},
 		{
 			name:      "Postgres: both tables, quoted identifiers",
@@ -111,6 +128,21 @@ func TestFeatureFlagsDDL(t *testing.T) {
 				`CREATE TABLE "FeatureFlagChanges" (`,
 				`PRIMARY KEY ("Name", "ChangedAt")`,
 			},
+			wantChanges: `CREATE TABLE "FeatureFlagChanges" (
+  "Name" VARCHAR(64) NOT NULL,
+  "ChangedAt" TIMESTAMPTZ NOT NULL,
+  "Enabled" BOOLEAN NOT NULL,
+  "Auth" TEXT,
+  "ActorUserId" TEXT,
+  "ActorUsername" TEXT,
+  "PrincipalUserId" TEXT,
+  "PrincipalUsername" TEXT,
+  "PrincipalRole" TEXT,
+  "SessionId" TEXT,
+  "Process" TEXT,
+  "Rpc" TEXT,
+  PRIMARY KEY ("Name", "ChangedAt")
+)`,
 		},
 		{name: "an unknown database has no statements", dbType: DBType("other")},
 	}
@@ -127,6 +159,11 @@ func TestFeatureFlagsDDL(t *testing.T) {
 			for _, want := range tt.wantContains {
 				if !strings.Contains(joined, want) {
 					t.Errorf("FeatureFlagsDDL(%s) missing %q:\n%s", tt.dbType, want, joined)
+				}
+			}
+			if tt.wantChanges != "" {
+				if diff := cmp.Diff(tt.wantChanges, got[1]); diff != "" {
+					t.Errorf("FeatureFlagsDDL(%s)'s FeatureFlagChanges statement mismatch (-want +got):\n%s", tt.dbType, diff)
 				}
 			}
 		})
@@ -148,9 +185,9 @@ func TestFeatureFlagsDDL(t *testing.T) {
 }
 
 // featureSetOf builds a FeatureSet holding the given flags, for the tests that need no
-// database behind it.
-func featureSetOf(flags map[Feature]bool) *FeatureSet {
-	s := &FeatureSet{flags: make(map[Feature]FeatureFlag, len(flags))}
+// database behind it: nothing rereads it, since no test makes it due.
+func featureSetOf(flags map[Feature]bool, opts ...FeatureOption) *FeatureSet {
+	s := newFeatureSet(nil, opts...)
 	for name, enabled := range flags {
 		s.flags[name] = FeatureFlag{Name: string(name), Enabled: enabled}
 	}
@@ -200,8 +237,7 @@ func TestFeatureSet_Follow_requiresSubscriber(t *testing.T) {
 
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
-			features := featureSetOf(map[Feature]bool{"debriefs": false})
-			features.backstop = time.Hour
+			features := featureSetOf(map[Feature]bool{"debriefs": false}, WithFeatureBackstop(time.Hour))
 			err := features.Follow(ctx, tt.subscriber)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("Follow() error = %v, wantErr %v", err, tt.wantErr)
@@ -481,6 +517,41 @@ func TestQueryDecoder_gatedFields(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestQueryDecoder_flagTurnedOn pins that a request does not change the decoder it is
+// decoded by: one decoder answers a request with a flag off, then the flag is turned on,
+// and the next request's default projection carries the field, with no restart.
+func TestQueryDecoder_flagTurnedOn(t *testing.T) {
+	t.Parallel()
+
+	rSet, err := NewSet[gatedResource, gatedRequest](accesstypes.List)
+	if err != nil {
+		t.Fatalf("NewSet() error = %v", err)
+	}
+	decoder, err := NewQueryDecoder[gatedResource, gatedRequest](rSet)
+	if err != nil {
+		t.Fatalf("NewQueryDecoder() error = %v", err)
+	}
+
+	steps := []struct {
+		name            string
+		features        *FeatureSet
+		wantRequestable []accesstypes.Field
+	}{
+		{name: "off", features: featureSetOf(map[Feature]bool{"secrets": false}), wantRequestable: []accesstypes.Field{"ID", "Name"}},
+		{name: "then on", features: featureSetOf(map[Feature]bool{"secrets": true}), wantRequestable: []accesstypes.Field{"ID", "Name", "Secret"}},
+	}
+	for _, step := range steps {
+		decoder.WithFeatures(step.features)
+		qSet, err := decoder.DecodeWithoutPermissions(httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/gated?sort=id", http.NoBody))
+		if err != nil {
+			t.Fatalf("%s: DecodeWithoutPermissions() error = %v", step.name, err)
+		}
+		if diff := cmp.Diff(step.wantRequestable, qSet.requestableFields); diff != "" {
+			t.Errorf("%s: requestable fields mismatch (-want +got):\n%s", step.name, diff)
+		}
 	}
 }
 

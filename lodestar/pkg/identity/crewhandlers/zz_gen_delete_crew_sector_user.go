@@ -21,7 +21,15 @@ import (
 
 func (h *Handlers) DeleteCrewSectorUser() http.HandlerFunc {
 	type request struct {
-		UserID impulse.UUID `json:"userId"`
+		UserID          impulse.UUID `json:"userId"`
+		EverythingUnder bool         `json:"everythingUnder"`
+		Token           string       `json:"token"`
+	}
+
+	// The answer as the wire carries it: Execute's result mirrored with generated
+	// wire names, encoded after the transaction commits.
+	type response struct {
+		Deleted int64 `json:"deleted"`
 	}
 
 	decoder := NewTargetedRPCDecoder[crewidentity.DeleteCrewSectorUser, request](h, accesstypes.Execute)
@@ -43,25 +51,37 @@ func (h *Handlers) DeleteCrewSectorUser() http.HandlerFunc {
 		// write or a read against the caller (Enforce) evaluates the same checker,
 		// scope, and decision instant.
 		ctx = resource.WithCaller(ctx, gate.Caller())
+		// The method's name rides the context too: who made a change
+		// (eventsource.UserEvent) reads it there, so every change record the body writes
+		// names the method.
+		ctx = resource.WithRPC(ctx, "DeleteCrewSectorUser")
 
 		p := (*crewidentity.DeleteCrewSectorUser)(params)
+		// The token the method's delete goes on rides the context (@deleteToken): the
+		// delete hands it to its patch (resource.DeleteTokenFrom), and the request asks the
+		// delete's question before the transaction is opened while it is empty.
+		ctx = resource.WithDeleteToken(ctx, p.Token)
 
-		// The X-Warning header takes the value true or is left off the request: any
-		// other value is refused here, and the call is not run.
+		// A request that asks for the method's warning (X-Warning: true) is decoded
+		// and checked as the call is, and answers what Warning writes for it in
+		// place of running the call: the transaction below rolls back.
+		// The header takes the value true or is left off the request: any other value
+		// is refused here, and the call is not run.
 		asksWarning, err := resource.AsksWarning(r)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		if asksWarning {
-			// The method declares no warning (@warning): a request that asks for one
-			// is refused, and never runs the call.
-			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewBadRequestMessage("DeleteCrewSectorUser declares no warning: send the call without the X-Warning header"))
-		}
+		var warning *resource.Warning
 
 		// The rows the method writes are collected for the live pages, published once
 		// the commit lands and before the answer; a transaction that rolls back wrote
 		// nothing to publish.
 		ctx, touched := resource.CollectTouchedRows(ctx)
+		// Captured inside the transaction, encoded after it commits: under
+		// abort-and-retry the value is the committing attempt's.
+		var result *crewidentity.DeleteCrewSectorUserResult
+		// The status the result chose, among the declared 202, 204.
+		var status int
 		// A dry run (X-Dry-Run: true) runs the whole frame and the body, then
 		// rolls the transaction back: every refusal answers as the real call
 		// would, and a call that would have succeeded answers 200 with no body.
@@ -71,7 +91,7 @@ func (h *Handlers) DeleteCrewSectorUser() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		if err := h.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		if err := h.ResourceClient().ExecuteDeleteFunc(ctx, resource.DeleteRunOfToken(p.Token), func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 			// Declared target: a row of the CrewSectorUser view.
 			// A view's row is one row of its query, and its key names a row in
 			// each tenant that holds one, so the gate locates it by the key
@@ -82,8 +102,36 @@ func (h *Handlers) DeleteCrewSectorUser() http.HandlerFunc {
 			if err := gate.EnforceView(ctx, txn, resource.ExecuteTarget{Resource: "CrewSectorUsers", Label: "CrewSectorUser", PKColumns: []string{"Id"}, View: crewresources.CrewSectorUser{}}, p.UserID); err != nil {
 				return err
 			}
-			if err := p.Execute(ctx, txn, h.RPCClient()); err != nil {
+
+			if asksWarning {
+				said, err := p.Warning(ctx, txn, h.RPCClient())
+				if err != nil {
+					return errors.Wrap(err, "DeleteCrewSectorUser.Warning()")
+				}
+				if err := resource.CheckWarning("DeleteCrewSectorUser", said); err != nil {
+					return errors.Wrap(err, "resource.CheckWarning()")
+				}
+				warning = said
+
+				return resource.ErrWarningAsked
+			}
+			answer, err := p.Execute(ctx, txn, h.RPCClient())
+			if err != nil {
 				return errors.Wrap(err, "Transaction.Execute()")
+			}
+			result = answer
+			if result == nil {
+				status = http.StatusNoContent
+			} else {
+				status, err = resource.ResponseStatus("DeleteCrewSectorUser", result, 202, 204)
+				if err != nil {
+					return err
+				}
+			}
+			if status >= http.StatusBadRequest {
+				// The method refused: the transaction rolls back, and the
+				// frame writes the status with the typed answer.
+				return &resource.Answer{Status: status}
 			}
 			if dryRun {
 				return resource.ErrDryRun
@@ -91,17 +139,29 @@ func (h *Handlers) DeleteCrewSectorUser() http.HandlerFunc {
 
 			return nil
 		}); err != nil {
+			if refused, ok := resource.Refused(err); ok {
+				return httpio.NewEncoder(w).StatusCodeWithBody(refused, (*response)(result))
+			}
+			if asksWarning && resource.WarningAsked(err) {
+				return httpio.NewEncoder(w).Ok(warning)
+			}
 			if dryRun && resource.DryRunRolledBack(err) {
 				return httpio.NewEncoder(w).Ok(nil)
 			}
 
-			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "spanner.Client.ReadWriteTransaction()"))
+			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "resource.Client.ExecuteFunc()"))
 		}
 
 		live.Publish(ctx, w, h.LiveService(), h.liveDerivations, domain, touched)
+		if status == http.StatusNoContent {
+			w.WriteHeader(http.StatusNoContent)
 
-		w.WriteHeader(http.StatusNoContent)
+			return nil
+		}
+		if result == nil {
+			return httpio.NewEncoder(w).Ok(nil)
+		}
 
-		return nil
+		return httpio.NewEncoder(w).StatusCodeWithBody(status, (*response)(result))
 	})
 }

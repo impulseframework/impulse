@@ -19,7 +19,7 @@ import (
 
 func (a *App) DistressCalls() http.HandlerFunc {
 	type distressCall struct {
-		ID            impulse.UUID        `json:"id"            index:"true" perm:"-"`
+		ID            impulse.UUID        `json:"id"            index:"true"      perm:"-"`
 		SectorID      impulse.UUID        `json:"sectorId"      index:"true"`
 		Summary       string              `json:"summary"`
 		Severity      int64               `json:"severity"      index:"true"`
@@ -29,6 +29,7 @@ func (a *App) DistressCalls() http.HandlerFunc {
 		FiledByUserID string              `json:"filedByUserId"`
 		FiledByName   string              `json:"filedByName"`
 		Position      *resources.Position `json:"position"`
+		SectorName    *string             `json:"sectorName"    nameof:"SectorID" index:"true"`
 	}
 
 	type response []map[string]any
@@ -47,8 +48,9 @@ func (a *App) DistressCalls() http.HandlerFunc {
 		}
 
 		// A live list registers before the query runs, so a commit that lands during
-		// the query is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, a.LiveService(), querySet, live.ListSubscription(querySet.Resource(), domain))
+		// the query is not missed; a refused request registers nothing. With it the
+		// request registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, a.LiveService(), querySet, live.ListSubscription(querySet.Resource(), domain))
 
 		res := resources.NewDistressCallQueryFromQuerySet(querySet)
 
@@ -67,7 +69,7 @@ func (a *App) DistressCalls() http.HandlerFunc {
 			if !page.Add(row) {
 				break
 			}
-			rec := (*distressCall)(&row.Data)
+			rec := &row.Data
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
@@ -109,6 +111,11 @@ func (a *App) DistressCalls() http.HandlerFunc {
 					}
 				}
 			}
+			for _, name := range querySet.Names() {
+				if looked := row.Name(name.Field); looked != nil {
+					rmap[name.JSONName] = *looked
+				}
+			}
 			if capabilities := row.Capabilities(); capabilities != nil {
 				rmap[resource.CapabilitiesProperty] = capabilities
 			}
@@ -130,16 +137,17 @@ func (a *App) DistressCalls() http.HandlerFunc {
 
 func (a *App) DistressCall() http.HandlerFunc {
 	type response struct {
-		ID            impulse.UUID        `json:"id"            index:"true" perm:"-"`
+		ID            impulse.UUID        `json:"id"            index:"true"      perm:"-"`
 		SectorID      impulse.UUID        `json:"sectorId"`
 		Summary       string              `json:"summary"`
 		Severity      int64               `json:"severity"`
 		CallerContact *string             `json:"callerContact" pii:"true"`
 		Transcript    *string             `json:"-"`
-		CaseNumber    string              `json:"caseNumber"    index:"true"`
+		CaseNumber    string              `json:"caseNumber"`
 		FiledByUserID string              `json:"filedByUserId"`
 		FiledByName   string              `json:"filedByName"`
 		Position      *resources.Position `json:"position"`
+		SectorName    *string             `json:"sectorName"    nameof:"SectorID"`
 	}
 
 	decoder := NewQueryDecoder[resources.DistressCall, response](a, accesstypes.Read)
@@ -157,8 +165,9 @@ func (a *App) DistressCall() http.HandlerFunc {
 		}
 
 		// A live row registers before the read runs, so a commit that lands during the
-		// read is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, a.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(id)))
+		// read is not missed; a refused request registers nothing. With it the request
+		// registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, a.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(id)))
 
 		res := resources.NewDistressCallQueryFromQuerySet(querySet).SetID(id)
 
@@ -166,7 +175,7 @@ func (a *App) DistressCall() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		rec := (*response)(&row.Data)
+		rec := &row.Data
 		rmap := make(map[string]any)
 		for _, field := range querySet.Fields() {
 			switch string(field) {
@@ -208,11 +217,57 @@ func (a *App) DistressCall() http.HandlerFunc {
 				}
 			}
 		}
+		for _, name := range querySet.Names() {
+			if looked := row.Name(name.Field); looked != nil {
+				rmap[name.JSONName] = *looked
+			}
+		}
 		if capabilities := row.Capabilities(); capabilities != nil {
 			rmap[resource.CapabilitiesProperty] = capabilities
 		}
 		live.SetCacheControl(w, r)
 
 		return httpio.NewEncoder(w).Ok(rmap)
+	})
+}
+
+// DistressCallChangeHistory answers a page of one distress call's change records, newest first, to whoever may read the record, with the fields they may see on it. It answers 404 while the resource does not track its changes.
+func (a *App) DistressCallChangeHistory() http.HandlerFunc {
+	type response struct {
+		ID            impulse.UUID        `json:"id"            index:"true"      perm:"-"`
+		SectorID      impulse.UUID        `json:"sectorId"`
+		Summary       string              `json:"summary"`
+		Severity      int64               `json:"severity"`
+		CallerContact *string             `json:"callerContact" pii:"true"`
+		Transcript    *string             `json:"-"`
+		CaseNumber    string              `json:"caseNumber"`
+		FiledByUserID string              `json:"filedByUserId"`
+		FiledByName   string              `json:"filedByName"`
+		Position      *resources.Position `json:"position"`
+		SectorName    *string             `json:"sectorName"    nameof:"SectorID"`
+	}
+
+	decoder := NewQueryDecoder[resources.DistressCall, response](a, accesstypes.Read)
+
+	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := tracer.Start(r.Context())
+		defer span.End()
+
+		id := httpio.Param[impulse.UUID](r, router.DistressCallID)
+
+		domain := httpio.Param[accesstypes.Domain](r, router.Domain)
+		history, err := decoder.DecodeChangeHistory(r, a.UserPermissions(r), accesstypes.DomainScope(domain), "Transcript")
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		resources.NewDistressCallQueryFromQuerySet(history.QuerySet()).SetID(id)
+
+		page, err := history.Read(ctx, a.ResourceClient())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok(page)
 	})
 }

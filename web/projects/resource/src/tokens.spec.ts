@@ -5,6 +5,10 @@ import { DeviceRequest, IssuedToken, isTokenRefusal, TokenRow, userTokens } from
 import { ApiError, TransportRequest, TransportResponse } from './transport';
 import { scriptedTransport, ScriptedTransport } from '@impulseframework/resource/testing';
 
+/** What the server says of a token that is not there, and of a code no device waits on. */
+const noToken = 'This token is already revoked or expired, or it does not exist.';
+const noDevice = 'No device is waiting for this code. Check the code, or start again on the device.';
+
 // The person's tokens over the client: the descriptor's tokens block names the routes
 // and the machine outlets; the handle lists, issues and revokes the person's own tokens
 // and looks up, approves and denies a device request, each request under the API prefix
@@ -223,8 +227,8 @@ describe('revoking a token', () => {
   });
 
   it("resolves refused with the server's words when no live token of the person's answers to the id", async () => {
-    const transport = server({ 'POST /api/user/tokens/revoke': { status: 404, body: { message: 'no live token' } } });
-    expect(await over(transport).revoke('t-9')).toEqual({ outcome: 'refused', status: 404, message: 'no live token' });
+    const transport = server({ 'POST /api/user/tokens/revoke': { status: 404, body: { message: noToken } } });
+    expect(await over(transport).revoke('t-9')).toEqual({ outcome: 'refused', status: 404, message: noToken });
   });
 });
 
@@ -242,11 +246,11 @@ describe('a device request', () => {
   });
 
   it('resolves refused in the one sentence the server uses for an unknown, expired, decided or consumed code', async () => {
-    const transport = server({ 'GET /api/user/device': { status: 404, body: { message: 'no pending device code' } } });
+    const transport = server({ 'GET /api/user/device': { status: 404, body: { message: noDevice } } });
     expect(await over(transport).device('BCDF-GHJK')).toEqual({
       outcome: 'refused',
       status: 404,
-      message: 'no pending device code',
+      message: noDevice,
     });
   });
 
@@ -281,7 +285,7 @@ describe('a device request', () => {
       expect(await tt.decide('BCDF-GHJK')).toEqual({
         outcome: 'refused',
         status: 404,
-        message: 'no pending device code',
+        message: noDevice,
       });
     });
   }
@@ -302,5 +306,5 @@ describe('a device request', () => {
 
 /** A server refusing one route with the device code's 404. */
 function serverRefusing(route: string): ScriptedTransport {
-  return server({ [route]: { status: 404, body: { message: 'no pending device code' } } });
+  return server({ [route]: { status: 404, body: { message: noDevice } } });
 }

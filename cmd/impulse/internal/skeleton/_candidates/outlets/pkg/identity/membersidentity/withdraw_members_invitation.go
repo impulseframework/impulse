@@ -19,8 +19,9 @@ import (
 // @rpc
 // @outlet(portal)
 // @answers(204)
+// @class(access)
 type WithdrawMembersInvitation struct {
-	// @target(MembersSessionMailLink)
+	// @target(MembersListedMailLink)
 	InvitationID impulse.UUID
 }
 

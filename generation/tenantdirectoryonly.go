@@ -6,12 +6,12 @@ import (
 	"net/http"
 	"path/filepath"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/ettle/strcase"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/internal/words"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -35,32 +35,44 @@ import (
 //     auth whose people the tenant seats), holding its button until the person has
 //     typed the warning's word. End<Record>DirectoryOnly,
 //     POST <prefix>/<tenants>/{tenant}/end-<record>-directory-only, turns it off, which
-//     is plain. Each writes the flag through the record's update patch;
-//   - the switch as it stands, GET <prefix>/<tenants>/{tenant}/directory-only
-//     (resource.DirectoryOnlyStateHandler), asked under the grant of either method.
+//     is plain. Each writes the flag through the record's update patch, and each
+//     action carries the class access (accesstypes.ClassAccess) in the generated
+//     collection, so a session whose permission mask refuses the class runs neither;
+//   - the read of the tenant's sign-in settings, which says how the switch stands, GET
+//     <prefix>/<tenants>/{tenant}/sign-in-settings (resource.TenantSignInSettingsHandler),
+//     asked under the grant of either method or of another of the tenant's own sign-in
+//     methods (signInSettingsGrants) and written in a file of its own
+//     (generateTenantSignInSettings).
 //
 // The record's own write paths are global and never write the switch: its field
 // decodes output-only (resourceField.IsDirectoryOnly), on create and on update.
 
-const (
-	// directoryOnlyStateHandlerFunc is the read's handler, the generated handlers
-	// interface's and the application's.
-	directoryOnlyStateHandlerFunc = "DirectoryOnly"
-	// directoryOnlyRoutesKey keys the switch's routes in an outlet's route map.
-	directoryOnlyRoutesKey = "DirectoryOnly"
-)
+// directoryOnlyRoutesKey keys the routes of the tenant's own sign-in settings in an
+// outlet's route map: the read of them and the tenant's own sign-in methods
+// (tenantOwnOutletRoutes).
+const directoryOnlyRoutesKey = "DirectoryOnly"
 
 // directoryOnlyNamingFields are the fields of a tenant's list of its people that name a
 // person, as the wire and a grant name them: the list's Username and Name columns,
 // which are what the warning lists each person by (resource.DirectoryOutsider).
 var directoryOnlyNamingFields = []string{"username", "name"}
 
+// directoryOnlyInvitationFields are the fields of a tenant's list of its invitations
+// that name an invitation, as the wire and a grant name them: the list's Email and Name
+// columns, which are what the warning lists each invitation by
+// (resource.DirectoryInvitation).
+var directoryOnlyInvitationFields = []string{"email", "name"}
+
 // tenantOwnMethod is a method the generator writes in the tenant's scope beside the
-// tenant record's declaration: its name, as grants and the client name it, and the word
-// its warning has a person type, empty for a method that declares none.
+// tenant record's declaration: its name, as grants and the client name it, the word its
+// warning has a person type, empty for a method that declares none, and the classes its
+// action carries. A method the application declares says its classes with @class; these
+// have no declaration to annotate, so the generator says them where it registers the
+// action, and a permission mask that refuses a class refuses them as it does any other.
 type tenantOwnMethod struct {
-	Name  string
-	Typed string
+	Name    string
+	Typed   string
+	Classes []accesstypes.ActionClass
 }
 
 // Route is the method's route segment under the tenant's own route.
@@ -81,11 +93,16 @@ func endDirectoryOnlyMethodName(record string) string {
 }
 
 // directoryOnlyMethodsOf are the two methods of the record's switch: the one that turns
-// it on, which warns, and the one that turns it off.
+// it on, which warns, and the one that turns it off. The switch decides who may sign in
+// to the tenant at all: on, it keeps out everyone who does not come through the
+// directory, and off, it lets them back in. So both actions carry the class access, and
+// a session whose permission mask refuses the class turns the switch neither way.
 func directoryOnlyMethodsOf(record string) []tenantOwnMethod {
+	changesAccess := []accesstypes.ActionClass{accesstypes.ClassAccess}
+
 	return []tenantOwnMethod{
-		{Name: makeDirectoryOnlyMethodName(record), Typed: resource.DirectoryOnlyWord},
-		{Name: endDirectoryOnlyMethodName(record), Typed: ""},
+		{Name: makeDirectoryOnlyMethodName(record), Typed: resource.DirectoryOnlyWord, Classes: changesAccess},
+		{Name: endDirectoryOnlyMethodName(record), Typed: "", Classes: changesAccess},
 	}
 }
 
@@ -155,29 +172,17 @@ func (r *resourceGenerator) tenantOwnRoute(prefix, httpMethod, handlerFunc, segm
 	}
 }
 
-// directoryOnlyRoutes are the switch's three routes under an outlet's prefix: the state
-// and the two methods.
-func (r *resourceGenerator) directoryOnlyRoutes(record *resourceInfo, prefix string) []*generatedRoute {
-	state := r.tenantOwnRoute(prefix, http.MethodGet, directoryOnlyStateHandlerFunc, resource.DirectoryOnlyRoute)
-
-	return append([]*generatedRoute{state}, r.tenantOwnRoutes(prefix, directoryOnlyMethodsOf(record.Name()))...)
-}
-
-// accumulateDirectoryOnlyRoute adds the switch's routes to every session outlet the
-// tenant record is served on, for a record that declares the switch, and the routes of
-// the methods that say how the tenant admits its directory's people to every outlet
-// that serves them (directoryRoleOutlets). The routes join the dispatch test.
+// accumulateDirectoryOnlyRoute adds to every outlet the routes of the tenant's own
+// sign-in settings it serves (tenantOwnOutletRoutes): the read of them, the method that
+// takes the tenant's directory where the outlet serves the directories record to sessions
+// (directoryTake), the switch's
+// methods where the outlet serves the tenant record to sessions and the record declares
+// the switch, the methods that say how the tenant admits its directory's people
+// (directoryRole) and those of its word for its directory's second factor
+// (directoryFactor) where the outlet serves them. The routes join the dispatch test.
 func (r *resourceGenerator) accumulateDirectoryOnlyRoute(outlets []*routerOutlet, outletRoutes []*outletRouteData) (routerTestRoutes []*generatedRoute) {
-	served := r.directoryOnlyOutlets()
-	role := r.directoryRole()
 	for i, outlet := range outlets {
-		var routes []*generatedRoute
-		if slices.ContainsFunc(served, func(on *routerOutlet) bool { return on.name == outlet.name }) {
-			routes = append(routes, r.directoryOnlyRoutes(r.tenantRecord(), outlet.prefix)...)
-		}
-		if role.servedOn(outlet.name) {
-			routes = append(routes, r.tenantOwnRoutes(outlet.prefix, role.methods())...)
-		}
+		routes := r.tenantOwnOutletRoutes(outlet)
 		if len(routes) == 0 {
 			continue
 		}
@@ -188,12 +193,12 @@ func (r *resourceGenerator) accumulateDirectoryOnlyRoute(outlets []*routerOutlet
 	return routerTestRoutes
 }
 
-// directoryOnlyAuthzCases are the matrix's cases for the switch's routes and for the
-// routes of the methods that say how the tenant admits its directory's people: each
-// refuses a caller who holds no Execute grant on the method in the tenant, a method on
-// a dry run and on a request for its warning too. The granted halves need a tenant with
-// a directory and a session that came through it, which the application's own served
-// tests set up.
+// directoryOnlyAuthzCases are the matrix's cases for the routes of the tenant's own
+// sign-in settings, outlet by outlet as each serves them (tenantOwnOutletRoutes): the
+// read refuses a caller who holds no Execute grant in the tenant on any of the tenant's
+// own sign-in methods, and each method a caller who holds none on it, on a dry run and
+// on a request for its warning too. The granted halves need a tenant with a directory
+// and a session that came through it, which the application's own served tests set up.
 func (r *resourceGenerator) directoryOnlyAuthzCases() []authzCase {
 	var cases []authzCase
 	deny := func(outlet *routerOutlet, routes []*generatedRoute) {
@@ -214,24 +219,20 @@ func (r *resourceGenerator) directoryOnlyAuthzCases() []authzCase {
 			cases = append(cases, deniedCase, dryRun, warning)
 		}
 	}
-	for _, outlet := range r.directoryOnlyOutlets() {
-		deny(outlet, r.directoryOnlyRoutes(r.tenantRecord(), outlet.prefix))
-	}
-	role := r.directoryRole()
 	for _, outlet := range r.allOutlets() {
-		if role.servedOn(outlet.name) {
-			deny(outlet, r.tenantOwnRoutes(outlet.prefix, role.methods()))
-		}
+		deny(outlet, r.tenantOwnOutletRoutes(outlet))
 	}
 
 	return cases
 }
 
-// collectDirectoryOnlyRegistrations registers the switch's methods, and the methods
-// that say how the tenant admits its directory's people, into the collection, each with
-// Execute in the tenant's scope, where the application serves them. The names are the
-// generator's: a method or a manual registration the application declares under one is
-// refused, naming the record.
+// collectDirectoryOnlyRegistrations registers the method that takes the tenant's
+// directory, the switch's methods, the methods that
+// say how the tenant admits its directory's people, and the methods of its word for its
+// directory's second factor into the collection, each with Execute in the tenant's
+// scope, where the application serves them. The names are the generator's: a method or
+// a manual registration the application declares under one is refused, naming the
+// record.
 func (r *resourceGenerator) collectDirectoryOnlyRegistrations(b *resource.CollectionBuilder) error {
 	if !r.genRoutes {
 		return nil
@@ -246,9 +247,15 @@ func (r *resourceGenerator) collectDirectoryOnlyRegistrations(b *resource.Collec
 			if err := b.AddMethodResource(accesstypes.DomainPermissionScope, accesstypes.Execute, accesstypes.Resource(method.Name)); err != nil {
 				return errors.Wrapf(err, "registering %s", method.Name)
 			}
+			b.SetActionClasses(accesstypes.DomainPermissionScope, accesstypes.Resource(method.Name), method.Classes)
 		}
 
 		return nil
+	}
+	if take := r.directoryTake(); take != nil {
+		if err := register(take.methods(), fmt.Sprintf("the %s record (@%s)", take.directories.Name(), tenantDirectoryKeyword)); err != nil {
+			return err
+		}
 	}
 	if methods := r.directoryOnlyMethods(); len(methods) > 0 {
 		if err := register(methods, fmt.Sprintf("the %s record's directory-only switch (@%s)", r.tenantRecord().Name(), directoryOnlyKeyword)); err != nil {
@@ -260,19 +267,34 @@ func (r *resourceGenerator) collectDirectoryOnlyRegistrations(b *resource.Collec
 			return err
 		}
 	}
+	if factor := r.directoryFactor(); factor != nil {
+		if err := register(factor.methods(), fmt.Sprintf("the %s record's word for its directory's second factor (@%s)", factor.directories.Name(), directorySecondFactorKeyword)); err != nil {
+			return err
+		}
+	}
 
 	return nil
 }
 
 // directoryOnlyPeople is one auth's part of the warning of the method that turns the
-// switch on, as the generated handler hands it to the library: the application's
-// accessor of the auth's generated identity client, and the tenant's list of the auth's
-// people with the fields that name a person, which decide whether the caller is told
-// who the switch keeps out.
+// switch on and of the read of the tenant's sign-in settings, as the generated rules
+// hand it to the library (resource.DirectoryPeople): the application's accessor of the
+// auth's generated identity client, what a page calls the auth's people (Label,
+// authLabel), and the tenant's list of the auth's people with the fields that name a
+// person, which decide whether the caller is told who the switch keeps out. Where the
+// auth has a password method, the client also answers the tenant's administrators who
+// have one (Administrators), and, where the instance carries the tenant's list of its
+// invitations, the invitations not yet accepted that would make another
+// (InvitationList, with the fields that name an invitation): the two ways into the
+// tenant beside its directory.
 type directoryOnlyPeople struct {
-	Accessor string
-	List     string
-	Fields   []string
+	Accessor         string
+	Label            string
+	List             string
+	Fields           []string
+	Administrators   bool
+	InvitationList   string
+	InvitationFields []string
 }
 
 // directoryOnlyPeople names every auth whose management the program generates and whose
@@ -282,11 +304,18 @@ func (r *resourceGenerator) directoryOnlyPeople() []*directoryOnlyPeople {
 	var people []*directoryOnlyPeople
 	for _, inst := range r.identity {
 		if inst.listsDirectoryOutsiders() {
-			people = append(people, &directoryOnlyPeople{
-				Accessor: inst.accessor(),
-				List:     r.pluralize(inst.listName(listPeopleSuffix)),
-				Fields:   slices.Clone(directoryOnlyNamingFields),
-			})
+			entry := &directoryOnlyPeople{
+				Accessor:       inst.accessor(),
+				Label:          authLabel(inst.auth),
+				List:           r.pluralize(inst.listName(listPeopleSuffix)),
+				Fields:         slices.Clone(directoryOnlyNamingFields),
+				Administrators: inst.password,
+			}
+			if inst.listsDirectoryInvitations() {
+				entry.InvitationList = r.pluralize(inst.listName(listInvitationsSuffix))
+				entry.InvitationFields = slices.Clone(directoryOnlyInvitationFields)
+			}
+			people = append(people, entry)
 		}
 	}
 
@@ -305,12 +334,9 @@ type directoryOnlyData struct {
 	Word  string
 	Field string
 	// Make is the method that turns the switch on and End the one that turns it off;
-	// StateFunc is the read's handler and StateRoute its segment under the tenant's
-	// route; DomainRoute is that route as a doc names it.
+	// DomainRoute is the tenant's own route as a doc names it.
 	Make        tenantOwnMethod
 	End         tenantOwnMethod
-	StateFunc   string
-	StateRoute  string
 	DomainRoute string
 	// KeyType is the type of the record's key, and KeyIsUUID whether the tenant the
 	// route names is parsed into one or taken as its text. FlagType is the type of the
@@ -319,12 +345,16 @@ type directoryOnlyData struct {
 	KeyIsUUID bool
 	FlagType  string
 	People    []*directoryOnlyPeople
-	// Rules is the expression that builds the rules of the record's directory, named by
-	// the program's auths (namedDirectoryRules), and SwitchRules the same rules told
-	// what each auth says of the caller's password (switchDirectoryRules), which the
-	// frame that turns the switch asks.
-	Rules       string
+	// SwitchRules is the expression that builds the rules of the record's directory,
+	// named by the program's auths and told what each auth says of the caller's password
+	// (switchDirectoryRules). The frame that turns the switch asks them, and the read of
+	// the tenant's sign-in settings is given the same, which says what turning it on
+	// takes of the caller: a read given rules that ask no auth would never say the
+	// password the method asks.
 	SwitchRules string
+	// IdentityAccessor is the application's accessor of the generated identity client
+	// whose audit log the switch is recorded in, "" where none is (tenantSignInRecorder).
+	IdentityAccessor string
 
 	LocalPackageImports string
 	ResourcePackage     string
@@ -353,14 +383,12 @@ func (r *resourceGenerator) generateDirectoryOnly() error {
 		Field:               record.DirectoryOnlyField.Name(),
 		Make:                methods[0],
 		End:                 methods[1],
-		StateFunc:           directoryOnlyStateHandlerFunc,
-		StateRoute:          resource.DirectoryOnlyRoute,
 		DomainRoute:         fmt.Sprintf("%s/{%s}", r.domainRouteSegment, r.domainRouteParam),
 		KeyType:             record.PrimaryKey().Type(),
 		KeyIsUUID:           record.PrimaryKey().Type() == impulseUUIDGoType,
 		People:              r.directoryOnlyPeople(),
-		Rules:               r.namedDirectoryRules(record),
 		SwitchRules:         r.switchDirectoryRules(record),
+		IdentityAccessor:    r.tenantSignInRecorder(),
 		LocalPackageImports: r.localPackageImports(),
 		ResourcePackage:     r.resource.Package(),
 		RouterPackage:       r.router.Package(),
@@ -414,14 +442,14 @@ func (t *typescriptGenerator) tenantOwnClientData() []*tsTenantOwnMethod {
 	if record == nil {
 		return nil
 	}
-	word := strings.ToLower(strcase.ToCase(record.Name(), strcase.LowerCase, ' '))
+	word := words.InWords(record.Name())
 	// The collection carries a method, in the tenant's scope, where the run generates
 	// routes and an outlet serves it to sessions.
 	served := func(method string) bool {
 		return t.rc != nil && t.rc.HasPermission(accesstypes.DomainPermissionScope, accesstypes.Execute, accesstypes.Resource(method))
 	}
 
-	var methods []*tsTenantOwnMethod
+	methods := t.directoryTakeClientData(record, directories, word, served)
 	if record.declaresDirectoryOnly() && record.OnOutlet(t.targetOutlet()) {
 		for _, method := range directoryOnlyMethodsOf(record.Name()) {
 			if !served(method.Name) {
@@ -441,11 +469,42 @@ func (t *typescriptGenerator) tenantOwnClientData() []*tsTenantOwnMethod {
 			}
 			own := &tsTenantOwnMethod{Name: method.Name, Typed: method.Typed, Fields: nil, Doc: fmt.Sprintf("makes the %s invite only for its directory's people: a person from the directory enters once they are invited", word)}
 			if method.Typed != "" {
-				own.Doc = fmt.Sprintf("opens the %s to its directory's people: each of them is given the role at their first sign-in through the directory, with no invitation", word)
+				own.Doc = fmt.Sprintf("opens the %s to its directory's people: each of them who holds nothing in the %s is given the role when they sign in through the directory, with no invitation", word, word)
 				own.Fields = []tsTenantOwnField{{Name: directoryRoleBodyField, Enumerated: t.directoryRolePicker}}
 			}
 			methods = append(methods, own)
 		}
+	}
+	if directories != nil && directories.DirectorySecondFactorField != nil && directories.OnOutlet(t.targetOutlet()) {
+		for _, method := range directoryFactorMethodsOf(record.Name()) {
+			if !served(method.Name) {
+				continue
+			}
+			doc := fmt.Sprintf("takes back the %s's word that its directory asks for a second factor: the people who sign in through it are asked for the mailed code again from their next sign-in", word)
+			if method.Typed != "" {
+				doc = fmt.Sprintf("says the %s's directory asks its people for a second factor of its own, so a person who signs in through it is not asked for the application's mailed code; the person calling is signed in through that directory, and the method warns first", word)
+			}
+			methods = append(methods, &tsTenantOwnMethod{Name: method.Name, Typed: method.Typed, Doc: doc, Fields: nil})
+		}
+	}
+
+	return methods
+}
+
+// directoryTakeClientData is the method that takes the record's directory, on a client
+// generated for an outlet that serves the directories record, where the collection
+// serves it (served); none otherwise. word is what a sentence calls one tenant.
+func (t *typescriptGenerator) directoryTakeClientData(record, directories *resourceInfo, word string, served func(method string) bool) []*tsTenantOwnMethod {
+	if directories == nil || !directories.OnOutlet(t.targetOutlet()) {
+		return nil
+	}
+	var methods []*tsTenantOwnMethod
+	for _, method := range directoryTakeMethodsOf(record.Name()) {
+		if !served(method.Name) {
+			continue
+		}
+		doc := fmt.Sprintf("takes the directory you are signed in through as the %s's own, after the statement that you are authorized to act for the organization", word)
+		methods = append(methods, &tsTenantOwnMethod{Name: method.Name, Typed: method.Typed, Doc: doc, Fields: nil})
 	}
 
 	return methods

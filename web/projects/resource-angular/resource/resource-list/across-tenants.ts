@@ -3,9 +3,10 @@ import { ListViewConfig } from '@impulseframework/resource-angular/types';
 
 // A list page across tenants (ListViewConfigOptions.acrossTenants): the parts that are
 // plain functions. The page lists a resource declared for it (`@listAcrossTenants`) in
-// every tenant the person reaches; each row carries its tenant, the table names it in a
-// first column, and a row's link opens the row itself inside that tenant: the record's
-// own row route there, drawn where the person may read the record in that tenant.
+// every tenant the person reaches; each row carries its tenant, the table names it in
+// its second column, after the column that names the row, and a row's link opens the row
+// itself inside that tenant: the record's own row route there, drawn where the person may
+// read the record in that tenant.
 
 /**
  * The display-row key a row's own link rides under on a list across tenants. A generated
@@ -40,9 +41,15 @@ export function refuseAcrossTenantsConfig(
   }
 }
 
-/** The application's word for one tenant, as the descriptor carries it; "Tenant" where it carries none. */
+/**
+ * The application's word for one tenant, as the descriptor carries it, which heads the
+ * tenant column; "Tenant" where it carries none. The table writes a heading as it is
+ * handed, and a label the tenant record declares may begin in lower case, so the first
+ * letter is made a capital and the rest is kept as written ("outlet" heads "Outlet").
+ */
 export function tenantWord(descriptor: ApiDescriptor): string {
-  return descriptor.domainRoute?.word?.one ?? 'Tenant';
+  const word = descriptor.domainRoute?.word?.one ?? 'Tenant';
+  return word.charAt(0).toUpperCase() + word.slice(1);
 }
 
 /**

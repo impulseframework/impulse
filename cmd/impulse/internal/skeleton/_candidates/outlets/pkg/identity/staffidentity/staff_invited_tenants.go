@@ -32,18 +32,20 @@ import (
 // @suppress(readHandler)
 // @outlet(default)
 // @order(CreatedAt asc)
+// @rowWord(invitation)
 type StaffInvitedTenant struct {
 	// @primarykey
 	ID    impulse.UUID `spanner:"Id"`
 	Email string       `spanner:"Email"`
 	// Name is the name the sender gave the person.
-	Name                *string       `spanner:"Name"`
-	TenantName          *string       `spanner:"TenantName"`
-	TenantDirectoryOnly *bool         `spanner:"TenantDirectoryOnly"`
-	DefaultRole         *string       `spanner:"DefaultRole"`
-	InvitedByUserID     *impulse.UUID `spanner:"InvitedByUserId"`
-	CreatedAt           time.Time     `spanner:"CreatedAt"`
-	ExpiresAt           time.Time     `spanner:"ExpiresAt"`
+	Name                *string `spanner:"Name"`
+	TenantName          *string `spanner:"TenantName"`
+	TenantDirectoryOnly *bool   `spanner:"TenantDirectoryOnly"`
+	// @roleOf(Staff)
+	DefaultRole     *string       `spanner:"DefaultRole"`
+	InvitedByUserID *impulse.UUID `spanner:"InvitedByUserId"`
+	CreatedAt       time.Time     `spanner:"CreatedAt"`
+	ExpiresAt       time.Time     `spanner:"ExpiresAt"`
 }
 
 // Resource implements resource.Resourcer.

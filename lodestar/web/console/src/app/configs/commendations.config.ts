@@ -25,6 +25,10 @@ export const commendationsConfig = rootConfig({
     createTitle: 'Commendation',
     primaryResource: Resources.Commendations,
     listColumns: [
+      // The pilot by the name on the registry: a citation holds the pilot's id, which
+      // nobody reads, and the list asks the server for the pilot's name beside it with the
+      // page of citations. A header click sorts by the name and the column's filter
+      // narrows by it: the pilots' names are indexed.
       { id: Commendations.fieldName.pilotId, header: 'Pilot' },
       { id: Commendations.fieldName.citation },
       { id: Commendations.fieldName.awardedByName, header: 'Awarded by' },

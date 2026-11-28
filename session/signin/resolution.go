@@ -29,19 +29,20 @@ import (
 // token asserting no application role (no_roles), both before any row is written; the
 // identity's sign-in name (Identity.SignInName: the user principal name on Entra, the
 // verified email on Google) is the username, and an identity without one is refused
-// (no_email). A pre-created user under that name, matched without regard to case, or
-// one who holds the identity's address verified when the method verified it
-// (Identity.EmailVerified), is linked: after a password confirmation when the user has
-// a password, outright when the user has none and signs in through no other connection
-// yet. A person no user was created for is decided by what an administrator chose for
-// the method in the running application, its row of the sign-in methods table, read in
-// this transaction: a method opened to sign-up admits them and makes their account,
-// with the role the row names; a method with no row is invite only, where the
-// invitation the sign-in carries is the account, and without one the person is refused
-// (not_invited) and nothing is written. A method whose directory writes the roles has
-// no such choice: the directory says who holds a role, and a person it gives one is
-// admitted. In an application with tenants, the tenant whose directory the identity
-// came through decides before the method does (signin.DirectoryReader).
+// (no_email). A pre-created user under that name, matched as a username is (one with an
+// @ in it by the case of its ASCII letters alone), or one who holds the identity's
+// address verified when the method verified it (Identity.EmailVerified), is linked:
+// after a password confirmation when the user has a password, outright when the user
+// has none and signs in through no other connection yet. A person no user was created
+// for is decided by what an administrator chose for the method in the running
+// application, its row of the sign-in methods table, read in this transaction: a method
+// opened to sign-up admits them and makes their account, with the role the row names; a
+// method with no row is invite only, where the invitation the sign-in carries is the
+// account, and without one the person is refused (not_invited) and nothing is written.
+// A method whose directory writes the roles has no such choice: the directory says who
+// holds a role, and a person it gives one is admitted. In an application with tenants,
+// the tenant whose directory the identity came through decides before the method does
+// (signin.DirectoryReader).
 //
 // A user created ahead is found by the sign-in name, and nothing else ties the two. In
 // an application whose tenants have directories (the Auth's directory admission), a
@@ -49,14 +50,21 @@ import (
 // something vouches for the link: the sign-in came through the directory of the one
 // tenant the user belongs to, holding a role there and nothing anywhere else, or it
 // carries the user's own invitation. Any other sign-in under the name is refused as a
-// person no user was created for is, since a directory asserts the names it likes. A
-// registration that declares its provider's names the application's own
-// (Registration.SeededUsers) links such a user on the name alone. A user with no
-// password who already signs in through an identity is never linked a second one on
-// the name (ErrLinkSecondIdentity): a person may hold an account under another
-// person's sign-in name, and such a user has no password to confirm with. A user who
-// holds, verified, the address the method verified for the identity is the person, and
-// is linked on a connection they already sign in through.
+// person no user was created for is, since a directory asserts the names it likes. In
+// any other application no tenant vouches for a link, so such a user is linked at once
+// only where the method vouches for the sign-in name (Google, for a Gmail address or a
+// Workspace account's) and that name is the user's own (its username as the library
+// compares two addresses, which is how the stores find a username with an @ in it, or
+// the address it holds confirmed), and otherwise once the person enters the code mailed
+// to the address the user holds, with nothing linked while the sign-in waits; a user
+// who holds no address is refused the link (ErrLinkNeedsAddress). A registration that
+// declares its provider's names the application's own (Registration.SeededUsers) links
+// such a user on the name alone. A user with no password who already signs in through
+// an identity is never linked a second one on the name (ErrLinkSecondIdentity): a
+// person may hold an account under another person's sign-in name, and such a user has
+// no password to confirm with. A user who holds, verified, the address the method
+// verified for the identity is the person, and is linked on a connection they already
+// sign in through.
 type AccountRule[Tx any] func(ctx context.Context, tx Tx, req *sessioninfo.NewSessionRequest) (*Resolution, error)
 
 // Policy is the application's sign-in rule, asked once a sign-in's user is known and
@@ -64,10 +72,15 @@ type AccountRule[Tx any] func(ctx context.Context, tx Tx, req *sessioninfo.NewSe
 // starts for a user it authenticated itself. It is optional: an Auth without one
 // decides a sign-in on the library's own checks (the user exists and is enabled, the
 // identity is linked or resolved, roles reconcile); session.Auth.SetSignInPolicy sets
-// one. It runs in the transaction that inserts the session; the user resolution has
-// committed by then, so the policy can read the user and the rows the account rule wrote,
-// and req.User says how the user was found. The transaction commits unless an error is
-// returned, so a DenySignIn or RequireMFA answer keeps the policy's own writes.
+// one. Its answer is not the last word on a second factor: while the Auth's sign-in
+// settings ask everyone for one (session.AuthAPI.SetSecondFactorRequired), an Allow,
+// and a sign-in where the Auth has no policy, is held for the library's mailed code
+// unless the sign-in already carries a second factor; a Deny and a RequireMFA stand as
+// they are. It runs in the transaction that inserts the session; the user resolution
+// has committed by then, so the policy can read the user and the rows the account rule
+// wrote, and req.User says how the user was found. The transaction commits unless an
+// error is returned, so a DenySignIn or RequireMFA answer keeps the policy's own
+// writes.
 type Policy[Tx any] func(ctx context.Context, tx Tx, req *sessioninfo.NewSessionRequest) (*Decision, error)
 
 // Then returns the policy that asks p and, unless p refuses the sign-in, asks next:
@@ -104,7 +117,12 @@ func (p Policy[Tx]) Then(next Policy[Tx]) Policy[Tx] {
 }
 
 // NewUser is the user a rule provisions. It has no password unless PasswordHash is
-// set.
+// set. PasswordHash carries over a password the person already had: the account is
+// written with the hash as given. The library judges a password's strength from the
+// password itself, when a person chooses one; a hash says nothing of the password
+// behind it, so no judgment is made of this one. A rule never makes up a password
+// here: an account with none gets one when the person chooses it, on a path that
+// judges it.
 type NewUser struct {
 	Username     string
 	PasswordHash *securehash.Hash
@@ -155,11 +173,13 @@ func Tenant(tenant string) ResolutionOption {
 	return func(r *Resolution) { r.tenant = tenant }
 }
 
-// Seats grants seats to the user a Provision resolution creates, once the resolution
-// has committed, through the Auth's directory seat hook
-// (session.Auth.SetDirectoryAdmission): the default seats of the directories the
-// tenants declared, which the standard rule adds itself, or a custom rule's own.
-// A resolution that carries seats on an Auth with no hook fails the sign-in.
+// Seats offers seats to the user a resolution provisions or links, inside the
+// resolution's transaction, through the Auth's directory seat hook
+// (session.Auth.SetDirectoryAdmission), which gives a seat where the person holds
+// nothing in the tenant: the default seats of the directories the tenants declared,
+// which the standard rule adds itself, or a custom rule's own; a seat that names no
+// directory is handed to the hook naming the one the person signed in through. A
+// resolution that carries seats on an Auth with no hook fails the sign-in.
 func Seats(seats ...DirectorySeat) ResolutionOption {
 	return func(r *Resolution) {
 		r.seats = append(r.seats, seats...)
@@ -196,8 +216,10 @@ func Standard(opts ...ResolutionOption) *Resolution {
 // connection, or a user with no identity yet, links. The standard rule's own link of
 // such a user, made on the name, is held to more: it is made only as the user's first
 // identity unless the user holds the identity's verified address (ErrLinkSecondIdentity),
-// and in a tenanted application only when something vouches for it (see AccountRule).
-// Never
+// and as a first identity only when something vouches for it (see AccountRule).
+// Where the application reads its tenants' directories, an identity from one tenant's
+// directory is never linked to a user who already signs in through another tenant's,
+// trusted or not (ErrLinkSecondDirectory). Never
 // choose userID by an email address or another claim the identity's provider does not
 // verify, unless the connection itself is one the application trusts, and then say so
 // with trusted.
@@ -228,7 +250,11 @@ func Provision(user *NewUser, onProvisioned func(ctx context.Context, userID imp
 // Confirm holds the identity as pending until the person enters the password of the
 // existing user userID. The identity is then linked. A user without a password cannot
 // confirm (the confirmation answers 401), so Confirm is for users that sign in with a
-// password; a password-less user is linked with Link or refused with Reject.
+// password; a password-less user is linked with Link or refused with Reject. On an Auth
+// that registers no password method nobody can enter a password, so the sign-in is
+// refused (ErrConfirmNeedsPasswordMethod): a rule there answers Link or Reject. A
+// confirmation whose link would put the account under a second tenant's directory is
+// refused before any password is asked for (ErrLinkSecondDirectory).
 func Confirm(userID impulse.UUID, opts ...ResolutionOption) *Resolution {
 	r := &Resolution{outcome: RequireConfirmation, userID: userID}
 	for _, opt := range opts {
@@ -365,6 +391,14 @@ var (
 	// sessioninfo.RefusedIdentityRejected. The rule should return Confirm instead.
 	ErrLinkRequiresConfirmation = errors.New(
 		"signin: an identity can't be linked to a user that has a password without confirmation (or a trusted link)")
+	// ErrConfirmNeedsPasswordMethod is the cause when the account rule returned
+	// RequireConfirmation (Confirm) on an Auth that registers no password method. A
+	// confirmation is the user's password, and nothing in such an application takes
+	// one, so the sign-in is refused where it would wait for ever, and nothing is
+	// linked. The code is sessioninfo.RefusedIdentityRejected. The Auth should register
+	// the password method, or the rule return Link or Reject.
+	ErrConfirmNeedsPasswordMethod = errors.New(
+		"signin: the account rule asked for a password confirmation on an Auth that registers no password method")
 	// ErrLinkCrossConnection is the cause when the account rule returned LinkIdentity
 	// (Link) without trusted, or the standard rule matched a pre-created user, for a user
 	// that has no password and already signs in through another connection. No
@@ -384,12 +418,56 @@ var (
 	// sessioninfo.RefusedIdentityRejected.
 	ErrLinkSecondIdentity = errors.New(
 		"signin: an identity the application has not seen can't be linked on its sign-in name to a user who already signs in through another identity")
+	// ErrLinkNeedsAddress is the cause when the standard rule matched a pre-created
+	// user by a sign-in name the identity's method does not vouch for, as that user's
+	// first identity, and the user holds no email address. Such a link waits for the
+	// code mailed to the address the account holds, which shows that the person signing
+	// in reads the account's mail; an account that holds no address has nowhere to send
+	// it, and an address typed at the sign-in would show only that the person reads
+	// their own. An administrator gives the account its address, a registration's own
+	// rule links it on its own evidence, or the application links it itself. The code
+	// is sessioninfo.RefusedIdentityRejected.
+	ErrLinkNeedsAddress = errors.New(
+		"signin: an identity can't be linked on a sign-in name its method does not vouch for to a user who holds no email address")
+	// ErrLinkSecondDirectory is the cause when an identity that came through a directory
+	// a tenant declares would be linked to a user who already signs in through a
+	// directory another tenant declares. The tenant whose directory a person signs in
+	// through manages their account, so an account signs in through one tenant's
+	// directory at most: the link is refused however it was asked for (a password's
+	// confirmation, a registration's own rule, trusted or not), before any confirmation
+	// is asked for, and nothing is linked. The code is sessioninfo.RefusedSecondDirectory.
+	ErrLinkSecondDirectory = errors.New(
+		"signin: an identity from one tenant's directory can't be linked to a user who already signs in through another tenant's directory")
+	// ErrAddressHeldByAnother is the cause when a sign-in whose method vouches for its
+	// address (Google, for a Gmail address or a Workspace account's) reaches a user who
+	// holds no confirmed address while another user holds that address, confirmed. The
+	// address would be written on nobody, and the person would be signed in to an
+	// account with no confirmed address: a user created ahead under the address as its
+	// sign-in name, beside the user who holds the address, is reached so. Which of the
+	// two is the person's account is an administrator's to settle, by removing the
+	// duplicate account or its sign-in name, so the sign-in is refused and nothing is
+	// linked. An address another user holds unconfirmed refuses nobody here; it refuses
+	// the making of a new user (ErrEmailHeldUnconfirmed). The code is
+	// sessioninfo.RefusedIdentityRejected.
+	ErrAddressHeldByAnother = errors.New(
+		"signin: the address the method vouches for is held, confirmed, by another user than the one the sign-in reached, who holds no confirmed address")
 	// ErrEmailHeld is the cause when an account rule provisioned a new user for an
 	// identity whose verified address another user already holds verified: that user
 	// is the person, and the standard rule matches the person by the address before
 	// it provisions, so the sign-in is refused rather than a second user made for one
 	// person. The code is sessioninfo.RefusedIdentityRejected.
 	ErrEmailHeld = errors.New("signin: the identity's verified email address belongs to another user")
+	// ErrEmailHeldUnconfirmed is the cause when an account rule provisioned a new user
+	// for an identity whose verified address a user holds unconfirmed. That user may be
+	// the person, and a second user made beside it would hold no address and none of its
+	// roles, so the sign-in is refused and nothing is written. The identity is not
+	// linked to the holder either: whoever typed the address there may know that
+	// account's password. The holder confirms the address by signing in with the
+	// password and entering the code mailed to it, and the sign-in then finds the
+	// account. The code is sessioninfo.RefusedAddressHeldUnconfirmed, or
+	// sessioninfo.RefusedAddressHeldNoPassword where the holder has no password to sign
+	// in with.
+	ErrEmailHeldUnconfirmed = errors.New("signin: the identity's verified email address is held, unconfirmed, by a user")
 	// ErrGuestAccount is the cause when the standard rule refused a guest of the
 	// directory (Identity.Guest). The code is sessioninfo.RefusedGuestAccount.
 	ErrGuestAccount = errors.New("signin: the identity is a guest of its directory, not a member")
@@ -417,10 +495,16 @@ var (
 	ErrInvitationExpired = errors.New("signin: the invitation has expired or was already used")
 	// ErrInvitationAddress is the cause when a sign-in or an acceptance carried an
 	// invitation mailed to another address: an invitation is accepted only by the
-	// account it was sent to (an account with no address, by the link), so the sign-in
-	// or acceptance is refused and the invitation left standing. The code is
-	// sessioninfo.RefusedInvitationAddress.
+	// account it was sent to, so the sign-in or acceptance is refused and the invitation
+	// left standing. The code is sessioninfo.RefusedInvitationAddress.
 	ErrInvitationAddress = errors.New("signin: the directory's address is not the one the invitation was mailed to")
+	// ErrInvitationCode is a second cause, beside ErrInvitationAddress, when a person
+	// signed in accepted an invitation by hand and their account has not confirmed the
+	// invited address: the link proves nothing of the address, and a session cannot be
+	// held for the code mailed to it, so the acceptance is refused, the invitation left
+	// standing, and the person accepts by signing in again from the invitation, which
+	// waits for that code.
+	ErrInvitationCode = errors.New("signin: the invitation is accepted by the code mailed to the invited address, at a sign-in from the invitation")
 	// ErrOrganizationAccountRequired is the cause when a sign-in or an acceptance
 	// carried an invitation that makes a tenant entered through its directory only, and
 	// the person did not come through an organization's directory (a password, a
@@ -432,7 +516,8 @@ var (
 	// of the tenant policy carries its own cause beside it.
 	ErrSignInDenied = errors.New("signin: the sign-in policy denied the sign-in")
 	// ErrNoTenant is the cause when the tenant policy refused a person who is a member
-	// of no tenant. The code is sessioninfo.RefusedNoTenant.
+	// of no tenant, or whose every tenant is disabled. The code is
+	// sessioninfo.RefusedNoTenant.
 	ErrNoTenant = errors.New("signin: the person is a member of no tenant")
 	// ErrConnectionNotInTenant is the cause when the tenant policy refused a sign-in
 	// through a directory because every tenant of the person admits its people through
@@ -441,7 +526,10 @@ var (
 	ErrConnectionNotInTenant = errors.New("signin: every tenant of the person admits its people through its own directory only, and the sign-in came through another directory")
 	// ErrDirectoryOnly is the cause when the tenant policy refused a sign-in that is not
 	// through a directory because every tenant of the person admits its people through
-	// its own directory only. The code is sessioninfo.RefusedDirectoryOnly.
+	// its own directory only. The code is sessioninfo.RefusedDirectoryOnly for a
+	// password, sessioninfo.RefusedDirectoryOnlySession for a session the application
+	// starts itself, and sessioninfo.RefusedDirectoryOnlyPersonalAccount for a personal
+	// account.
 	ErrDirectoryOnly = errors.New("signin: every tenant of the person admits its people through its own directory only")
 	// ErrUserDisabled is the cause when the sign-in resolved to a disabled user.
 	// The code is sessioninfo.RefusedUserDisabled.
@@ -453,6 +541,12 @@ var (
 // RequireConfirmation, and sessioninfo.PendingMFA when the sign-in policy returned
 // RequireMFA. UserID is the user it waits on. No session is written, but the user
 // resolution and the hooks' own writes are committed. Use errors.As to read it.
+//
+// One wait resolves to no user: the acceptance of an invitation through an identity
+// that asserts no address, or one its method did not verify, held for the code mailed
+// to the invited address before anybody is made or linked. Its Reason is
+// sessioninfo.PendingMFA, its one factor the email code, UserID is null and Username
+// empty, and nothing was written.
 type PendingSignInError struct {
 	// Reason is why the sign-in waits.
 	Reason sessioninfo.PendingReason

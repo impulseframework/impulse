@@ -21,18 +21,42 @@ import (
 // A person who removes a role from themselves in a domain keeps an administrator role
 // nobody else would hold there (identity.WithAdministratorRoles names them). The Super
 // Administrator role is taken away by a super administrator alone, and never from the
-// last one who can sign in. A person left with no role anywhere is deleted with their
-// identity links and sessions, in the same transaction: an account nothing admits is
-// not kept.
+// last one who can sign in. Where the role is the last thing the person holds, the
+// account stays, holding nothing.
+//
+// It names no row: a page runs it from a row of the roles people hold, filling the
+// request from the row. Where the role is one of a tenant's administrator roles held
+// in that tenant itself, such a row offers it only to a caller whose session enters
+// the tenant (@callerEnters); the method refuses anyone else.
+//
+// The method declares a warning with no word to type: asked first, the server says whose
+// role goes and where it is held.
 //
 // @rpc
+// @callerEnters(StaffHeldRole, StaffTakenRole)
 // @outlet(default)
 // @answers(204)
+// @warning
+// @class(access)
 type RemoveStaffRole struct {
 	UserID      impulse.UUID
 	Role        string `validate:"required"`
 	Domain      *string
 	EveryDomain bool
+}
+
+// Warning says whose role would go and where it is held. It writes nothing.
+func (m *RemoveStaffRole) Warning(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*resource.Warning, error) {
+	scope, err := identity.Scope(m.Domain, m.EveryDomain)
+	if err != nil {
+		return nil, errors.Wrap(err, "identity.Scope()")
+	}
+	warning, err := client.manager.RoleRemovalWarning(ctx, txn, scope, m.UserID, accesstypes.Role(m.Role))
+	if err != nil {
+		return nil, errors.Wrap(err, "identity.Manager.RoleRemovalWarning()")
+	}
+
+	return warning, nil
 }
 
 // Execute buffers the removal into the caller's transaction.

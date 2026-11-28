@@ -15,7 +15,7 @@ import (
 // tenant's sign-in settings restrict that tenant's own door and nobody else's. A
 // session reaches every tenant that seats the person, except a tenant that is
 // directory only and whose directory is not the one the person signed in through,
-// which is listed closed instead.
+// which is listed as not available instead.
 func TestSessionPermissions_tenantDoor(t *testing.T) {
 	t.Parallel()
 
@@ -36,9 +36,9 @@ func TestSessionPermissions_tenantDoor(t *testing.T) {
 		established sessioninfo.AuthEvent
 		// impersonation is the record of a session that views as someone else, with its
 		// mask; nil for a person's own session.
-		impersonation *sessioninfo.Impersonation
-		wantReached   []accesstypes.Domain
-		wantClosed    []accesstypes.Domain
+		impersonation   *sessioninfo.Impersonation
+		wantReached     []accesstypes.Domain
+		wantUnavailable []accesstypes.Domain
 	}{
 		{
 			name: "five open tenants seat one person and a directory session reaches all five, whichever of them have a directory",
@@ -102,10 +102,20 @@ func TestSessionPermissions_tenantDoor(t *testing.T) {
 			declared: map[accesstypes.Domain]*signin.TenantDeclaration{
 				"lakeside": {Directories: []signin.Directory{lakeside}, DirectoryOnly: true},
 			},
-			seated:      []accesstypes.Domain{"lakeside", "riverside"},
-			established: password,
-			wantReached: []accesstypes.Domain{"riverside"},
-			wantClosed:  []accesstypes.Domain{"lakeside"},
+			seated:          []accesstypes.Domain{"lakeside", "riverside"},
+			established:     password,
+			wantReached:     []accesstypes.Domain{"riverside"},
+			wantUnavailable: []accesstypes.Domain{"lakeside"},
+		},
+		{
+			name: "a disabled tenant is reached by no session of a person it seats, through its directory or not, and is listed with the tenants the session cannot enter",
+			declared: map[accesstypes.Domain]*signin.TenantDeclaration{
+				"lakeside": {Directories: []signin.Directory{lakeside}, Disabled: true},
+			},
+			seated:          []accesstypes.Domain{"lakeside", "riverside"},
+			established:     through(lakeside),
+			wantReached:     []accesstypes.Domain{"riverside"},
+			wantUnavailable: []accesstypes.Domain{"lakeside"},
 		},
 		{
 			name: "two directory-only tenants seat one person: the session reaches the one whose directory it came through, and the other is closed",
@@ -113,13 +123,13 @@ func TestSessionPermissions_tenantDoor(t *testing.T) {
 				"lakeside": {Directories: []signin.Directory{lakeside}, DirectoryOnly: true},
 				"hilltop":  {Directories: []signin.Directory{hilltop}, DirectoryOnly: true},
 			},
-			seated:      []accesstypes.Domain{"hilltop", "lakeside", "riverside"},
-			established: through(hilltop),
-			wantReached: []accesstypes.Domain{"hilltop", "riverside"},
-			wantClosed:  []accesstypes.Domain{"lakeside"},
+			seated:          []accesstypes.Domain{"hilltop", "lakeside", "riverside"},
+			established:     through(hilltop),
+			wantReached:     []accesstypes.Domain{"hilltop", "riverside"},
+			wantUnavailable: []accesstypes.Domain{"lakeside"},
 		},
 		{
-			name: "a session that views the application as someone else reaches as that session does, and is told of no closed tenant: the list is a person's own sign-in's",
+			name: "a session that views the application as someone else reaches as that session does, and is told of no tenant it cannot enter: the list is a person's own sign-in's",
 			declared: map[accesstypes.Domain]*signin.TenantDeclaration{
 				"lakeside": {Directories: []signin.Directory{lakeside}, DirectoryOnly: true},
 			},
@@ -154,7 +164,7 @@ func TestSessionPermissions_tenantDoor(t *testing.T) {
 				return &stubPermissions{user: user, digest: accesstypes.PermissionDigest{"documents": {accesstypes.Read: accesstypes.DigestGranted}}, domains: tt.seated}
 			}
 			reader := &declarationReader{declarations: tt.declared}
-			perms := SessionPermissions(sessionCtx("alice", tt.impersonation, tt.established), forUser, RolePrincipalsUnsupported, roster, reader.read)
+			perms := SessionPermissions(sessionCtx("alice", tt.impersonation, tt.established), forUser, RolePrincipalsUnsupported, roster, reader.read, nil)
 
 			reached, err := perms.Domains(context.Background())
 			if err != nil {
@@ -163,15 +173,15 @@ func TestSessionPermissions_tenantDoor(t *testing.T) {
 			if diff := cmp.Diff(tt.wantReached, reached, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("Domains() mismatch (-want +got):\n%s", diff)
 			}
-			closed, err := ClosedDomains(context.Background(), perms)
+			unavailable, err := UnavailableDomains(context.Background(), perms)
 			if err != nil {
-				t.Fatalf("ClosedDomains() error = %v", err)
+				t.Fatalf("UnavailableDomains() error = %v", err)
 			}
-			if diff := cmp.Diff(tt.wantClosed, closed, cmpopts.EquateEmpty()); diff != "" {
-				t.Errorf("ClosedDomains() mismatch (-want +got):\n%s", diff)
+			if diff := cmp.Diff(tt.wantUnavailable, unavailable, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("UnavailableDomains() mismatch (-want +got):\n%s", diff)
 			}
-			// A closed tenant answers the session as a tenant it holds nothing in.
-			for _, domain := range tt.wantClosed {
+			// A tenant the session cannot enter answers it as a tenant it holds nothing in.
+			for _, domain := range tt.wantUnavailable {
 				reaches, err := perms.Reaches(context.Background(), domain)
 				if err != nil {
 					t.Fatalf("Reaches(%s) error = %v", domain, err)
@@ -191,9 +201,10 @@ func TestSessionPermissions_tenantDoor(t *testing.T) {
 	}
 }
 
-// TestClosedDomains_otherPermissions pins that permissions SessionPermissions did not
-// compose, and an application that keeps no declarations, list no closed tenant.
-func TestClosedDomains_otherPermissions(t *testing.T) {
+// TestUnavailableDomains_otherPermissions pins that permissions SessionPermissions did
+// not compose, and an application that keeps no declarations, list no tenant as
+// unavailable.
+func TestUnavailableDomains_otherPermissions(t *testing.T) {
 	t.Parallel()
 
 	roster := func(context.Context) ([]accesstypes.Domain, error) {
@@ -224,28 +235,28 @@ func TestClosedDomains_otherPermissions(t *testing.T) {
 		{name: "permissions that are not a session's", perms: &stubPermissions{user: "alice", domains: []accesstypes.Domain{"lakeside"}}},
 		{
 			name:          "a session that acts as a role: its role holds a grant in a tenant this sign-in does not open, and the list is a person's own",
-			perms:         SessionPermissions(asRole, forUser, forRole, roleRoster, directoryOnly.read),
+			perms:         SessionPermissions(asRole, forUser, forRole, roleRoster, directoryOnly.read, nil),
 			wantUnreached: "tenant",
 		},
 		{
 			name:  "an application that keeps no declarations",
-			perms: SessionPermissions(sessionCtx("alice", nil, sessioninfo.AuthEvent{Method: sessioninfo.MethodPassword}), forUser, RolePrincipalsUnsupported, roster, nil),
+			perms: SessionPermissions(sessionCtx("alice", nil, sessioninfo.AuthEvent{Method: sessioninfo.MethodPassword}), forUser, RolePrincipalsUnsupported, roster, nil, nil),
 		},
 		{
 			name:  "an application without tenants",
-			perms: SessionPermissions(sessionCtx("alice", nil, sessioninfo.AuthEvent{Method: sessioninfo.MethodPassword}), forUser, RolePrincipalsUnsupported, nil, nil),
+			perms: SessionPermissions(sessionCtx("alice", nil, sessioninfo.AuthEvent{Method: sessioninfo.MethodPassword}), forUser, RolePrincipalsUnsupported, nil, nil, nil),
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			closed, err := ClosedDomains(context.Background(), tt.perms)
+			unavailable, err := UnavailableDomains(context.Background(), tt.perms)
 			if err != nil {
-				t.Fatalf("ClosedDomains() error = %v", err)
+				t.Fatalf("UnavailableDomains() error = %v", err)
 			}
-			if closed == nil || len(closed) != 0 {
-				t.Errorf("ClosedDomains() = %v, want an empty list, never nil", closed)
+			if unavailable == nil || len(unavailable) != 0 {
+				t.Errorf("UnavailableDomains() = %v, want an empty list, never nil", unavailable)
 			}
 			if tt.wantUnreached == "" {
 				return
@@ -259,4 +270,192 @@ func TestClosedDomains_otherPermissions(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestUnenteredDomains pins the capability plan's question for a method a row offers
+// only to a caller whose session enters the row's tenants: every tenant of the roster
+// the session does not reach, sorted, for every session the permissions
+// SessionPermissions composes answer, its own seats or not; none where every session
+// reaches every tenant, and none from permissions SessionPermissions did not compose.
+// Never nil.
+func TestUnenteredDomains(t *testing.T) {
+	t.Parallel()
+
+	const (
+		anvil   accesstypes.Domain = "anvil"
+		bastion accesstypes.Domain = "bastion"
+		cove    accesstypes.Domain = "cove"
+	)
+	password := sessioninfo.AuthEvent{Method: sessioninfo.MethodPassword}
+	mailedCode := sessioninfo.AuthEvent{Method: sessioninfo.MethodEmailCode}
+	workspace := sessioninfo.AuthEvent{Method: sessioninfo.MethodGoogle, Connection: "acme"}
+	impersonation := sessioninfo.AuthEvent{Method: sessioninfo.MethodImpersonation, Connection: "alice"}
+	asBob := &sessioninfo.Impersonation{Actor: "alice", Principal: accesstypes.UserPrincipal("bob")}
+	asBobMasked := &sessioninfo.Impersonation{Actor: "alice", Principal: accesstypes.UserPrincipal("bob"), Mask: accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.Read)}
+	// Of the roster's three tenants, bastion admits its own directory only. The reader
+	// counts its reads, so each case reads its own.
+	declared := func() *declarationReader {
+		return &declarationReader{declarations: map[accesstypes.Domain]*signin.TenantDeclaration{
+			bastion: {Directories: []signin.Directory{{Method: sessioninfo.MethodGoogle, Connection: "acme"}}, DirectoryOnly: true},
+		}}
+	}
+	roster := func(context.Context) ([]accesstypes.Domain, error) {
+		return []accesstypes.Domain{cove, bastion, anvil}, nil
+	}
+
+	tests := []struct {
+		name           string
+		ctx            context.Context
+		noRoster       bool
+		noDeclarations bool
+		// disabled are the tenants of the roster that are disabled, each with what it
+		// declares otherwise.
+		disabled []accesstypes.Domain
+		// holds are the tenants the person holds a grant in; super makes them a super
+		// administrator; administers are the tenants they administer.
+		holds       []accesstypes.Domain
+		super       bool
+		administers []accesstypes.Domain
+		want        []accesstypes.Domain
+	}{
+		{
+			name:  "a password session the directory-only tenant does not admit is given that tenant",
+			ctx:   sessionCtx("alice", nil, password),
+			holds: []accesstypes.Domain{anvil, bastion, cove},
+			want:  []accesstypes.Domain{bastion},
+		},
+		{
+			name: "so is one that holds no grant there: the list is the roster's, not the person's seats",
+			ctx:  sessionCtx("alice", nil, password),
+			want: []accesstypes.Domain{bastion},
+		},
+		{
+			name:  "a session through the tenant's directory is given none",
+			ctx:   sessionCtx("alice", nil, workspace),
+			holds: []accesstypes.Domain{bastion},
+			want:  []accesstypes.Domain{},
+		},
+		{
+			name:  "a super administrator is given none",
+			ctx:   sessionCtx("alice", nil, password),
+			holds: []accesstypes.Domain{anvil},
+			super: true,
+			want:  []accesstypes.Domain{},
+		},
+		{
+			name:        "the tenant's administrator with a password and a second factor is given none",
+			ctx:         sessionCtx("alice", nil, password, mailedCode),
+			holds:       []accesstypes.Domain{bastion},
+			administers: []accesstypes.Domain{bastion},
+			want:        []accesstypes.Domain{},
+		},
+		{
+			name:        "the same administrator without the second factor is given the tenant",
+			ctx:         sessionCtx("alice", nil, password),
+			holds:       []accesstypes.Domain{bastion},
+			administers: []accesstypes.Domain{bastion},
+			want:        []accesstypes.Domain{bastion},
+		},
+		{
+			name:  "a session that views the application as someone else is given the tenant, as the refusal asks of it",
+			ctx:   sessionCtx("bob", asBob, impersonation),
+			holds: []accesstypes.Domain{bastion},
+			want:  []accesstypes.Domain{bastion},
+		},
+		{
+			name:  "under a mask it is what the permissions under the mask answer",
+			ctx:   sessionCtx("bob", asBobMasked, impersonation),
+			holds: []accesstypes.Domain{bastion},
+			want:  []accesstypes.Domain{bastion},
+		},
+		{
+			// Being disabled is not a sign-in setting: what the session may not do there
+			// is the door's, and the rows offer what the tenant's settings admit.
+			name:     "a disabled tenant that is not directory only is not given to a password session",
+			ctx:      sessionCtx("alice", nil, password),
+			disabled: []accesstypes.Domain{anvil},
+			holds:    []accesstypes.Domain{anvil, bastion},
+			want:     []accesstypes.Domain{bastion},
+		},
+		{
+			name:     "a disabled directory-only tenant is given to a password session, as its settings say",
+			ctx:      sessionCtx("alice", nil, password),
+			disabled: []accesstypes.Domain{bastion},
+			holds:    []accesstypes.Domain{bastion},
+			want:     []accesstypes.Domain{bastion},
+		},
+		{
+			name:     "and not to a session through its directory",
+			ctx:      sessionCtx("alice", nil, workspace),
+			disabled: []accesstypes.Domain{bastion},
+			holds:    []accesstypes.Domain{bastion},
+			want:     []accesstypes.Domain{},
+		},
+		{
+			name:     "an application without tenants is given none",
+			ctx:      sessionCtx("alice", nil, password),
+			noRoster: true,
+			want:     []accesstypes.Domain{},
+		},
+		{
+			name:           "an application that keeps no declarations is given none",
+			ctx:            sessionCtx("alice", nil, password),
+			noDeclarations: true,
+			holds:          []accesstypes.Domain{bastion},
+			want:           []accesstypes.Domain{},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			forUser := func(user accesstypes.User) *stubPermissions {
+				return &stubPermissions{user: user, domains: tt.holds, global: tt.super, super: tt.super, administers: tt.administers}
+			}
+			forRole := func(accesstypes.Role) *stubRolePermissions {
+				return &stubRolePermissions{}
+			}
+			var tenants DomainRoster
+			if !tt.noRoster {
+				tenants = roster
+			}
+			var declarations TenantDeclarations
+			if !tt.noDeclarations {
+				reader := declared()
+				for _, domain := range tt.disabled {
+					declaration := reader.declarations[domain]
+					if declaration == nil {
+						declaration = &signin.TenantDeclaration{}
+					}
+					declaration.Disabled = true
+					reader.declarations[domain] = declaration
+				}
+				declarations = reader.read
+			}
+			perms := SessionPermissions(tt.ctx, forUser, forRole, tenants, declarations, nil)
+
+			got, err := unenteredDomains(context.Background(), perms)
+			if err != nil {
+				t.Fatalf("unenteredDomains() error = %v", err)
+			}
+			if got == nil {
+				t.Fatal("unenteredDomains() = nil, want a list, never nil")
+			}
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("unenteredDomains() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+
+	t.Run("permissions that are not a session's are given none", func(t *testing.T) {
+		t.Parallel()
+
+		got, err := unenteredDomains(context.Background(), &stubPermissions{user: "alice", domains: []accesstypes.Domain{bastion}})
+		if err != nil {
+			t.Fatalf("unenteredDomains() error = %v", err)
+		}
+		if got == nil || len(got) != 0 {
+			t.Errorf("unenteredDomains() = %v, want an empty list, never nil", got)
+		}
+	})
 }

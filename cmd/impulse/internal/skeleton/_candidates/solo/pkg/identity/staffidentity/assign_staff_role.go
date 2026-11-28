@@ -14,12 +14,11 @@ import (
 	"github.com/impulseframework/impulse/resource"
 )
 
-// AssignStaffRole gives a person of the Staff auth a role: in the global
-// scope, in one domain (Domain), or in every domain (EveryDomain). The person is named
-// by the id of their account, and an id no user holds is refused: a role is held by an
-// account. The role must exist where it is given. The person's next request is served
-// with the role. The Super Administrator role is given in the global scope alone, and by
-// a super administrator.
+// AssignStaffRole gives a person of the Staff auth a role, held for the whole
+// application: the application has no tenants, so the request names no place. The
+// person is named by the id of their account, and an id no user holds is refused: a
+// role is held by an account. The role must exist. The person's next request is served
+// with the role. The Super Administrator role is given by a super administrator.
 //
 // The role is given for a period where the request names one (StartsAt, EndsAt, each
 // optional): outside it the role grants nothing, and nothing is written when it begins
@@ -28,31 +27,38 @@ import (
 // stand until it is taken away; ending a role now is taking it away. The Super
 // Administrator role takes no period: there is always one.
 //
+// The role carries the reason the request gives (Reason), which is shown wherever the
+// person's roles are listed. It is replaced with the period: a role given again carries
+// the reason of the new request, and none where the request gives none.
+//
 // @rpc
 // @outlet(default)
 // @answers(204)
+// @class(access)
 type AssignStaffRole struct {
 	UserID impulse.UUID
-	// Role is the role the person is given. A grant's condition reads it as new.role, so a
-	// role file can limit which roles the grant's holder hands out.
+	// Role is the role the person is given, picked from the roles that exist where it is
+	// given that the caller could give there (StaffGivableRoles). A grant's condition
+	// reads it as new.role, so a role file can limit which roles the grant's holder hands
+	// out.
 	//
 	// @attribute(role)
-	Role        string `validate:"required"`
-	Domain      *string
-	EveryDomain bool
+	// @enumerate(StaffGivableRoles)
+	Role string `validate:"required"`
 	// StartsAt is the first instant it counts. Left out, it counts from now.
 	StartsAt *time.Time
 	// EndsAt is the first instant it no longer counts. Left out, it counts until it is
 	// taken away.
 	EndsAt *time.Time
+	// Reason says why the role is given: one line of plain text, kept with the role and
+	// shown wherever the person's roles are listed. Left out, the role carries none.
+	Reason *string
 }
 
 // Execute buffers the membership into the caller's transaction.
 func (m *AssignStaffRole) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error {
-	scope, err := identity.Scope(m.Domain, m.EveryDomain)
-	if err != nil {
-		return errors.Wrap(err, "identity.Scope()")
-	}
+	// The application has no tenants: every role is held for the whole application.
+	scope := accesstypes.GlobalPolicyScope()
 	period, err := identity.RequestPeriod(m.StartsAt, m.EndsAt)
 	if err != nil {
 		return errors.Wrap(err, "identity.RequestPeriod()")
@@ -60,7 +66,7 @@ func (m *AssignStaffRole) Execute(ctx context.Context, txn resource.ReadWriteTra
 	if err := client.manager.RequireUser(ctx, txn, m.UserID); err != nil {
 		return errors.Wrap(err, "identity.Manager.RequireUser()")
 	}
-	if err := client.manager.AssignRoleFor(ctx, txn, scope, m.UserID, accesstypes.Role(m.Role), period); err != nil {
+	if err := client.manager.AssignRoleFor(ctx, txn, scope, m.UserID, accesstypes.Role(m.Role), period, identity.RequestReason(m.Reason)); err != nil {
 		return errors.Wrap(err, "identity.Manager.AssignRoleFor()")
 	}
 

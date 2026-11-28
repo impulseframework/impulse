@@ -7,6 +7,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/tracer"
@@ -78,13 +79,49 @@ func UserID(user accesstypes.User) (userID impulse.UUID, ok bool) {
 // (access.ValidatePeriod). AssignRole gives the membership with no period. Nobody
 // lengthens their own holding: a caller who may give the role does not give their own
 // membership a period that lasts longer than the one it has, and someone else who may
-// give it does (refuseLongerForOneself).
-func (m *Manager) AssignRoleFor(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, role accesstypes.Role, period accesstypes.Period) error {
+// give it does (refuseLongerForOneself). Nor does the last administrator of a tenant's
+// own cut their role there short: a period of the caller's giving that takes their own
+// role away from now on, or from an instant sooner than the one it had, is refused as
+// the role's removal is, in the same words (refuseLastAdministrator).
+//
+// reason says why the role is given: one line of plain text, empty for none
+// (access.ValidateReason). It is kept with the membership and shown wherever the roles a
+// person holds are listed. A membership the person holds already is given the reason
+// handed in place of the one it had, with the period, so a role given again with no
+// reason carries none: nothing edits a reason by itself (reasons.go).
+func (m *Manager) AssignRoleFor(
+	ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, role accesstypes.Role, period accesstypes.Period, reason string,
+) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	if err := m.refuseImpersonatorAsSubject(ctx, userID, "give yourself a role"); err != nil {
+		return err
+	}
+	reason, err := access.ValidateReason(reason)
+	if err != nil {
+		return errors.Wrap(err, "access.ValidateReason()")
+	}
+
+	return m.assignRole(ctx, txn, scope, userID, role, &given{period: period, reason: reason, lengthens: false})
+}
+
+// given is what a membership is given with: the period it counts in and the reason it
+// is given for, as the rules left it. lengthens says the act may make the caller's own
+// membership last longer than it did, which only the taking of a role for a set time
+// does (TakeRole).
+type given struct {
+	period    accesstypes.Period
+	reason    string
+	lengthens bool
+}
+
+// assignRole buffers the membership under the rules of AssignRoleFor, with what it is
+// given with.
+func (m *Manager) assignRole(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, role accesstypes.Role, given *given) error {
+	period := given.period
 	if userID.IsNil() {
-		return httpio.NewBadRequestMessage("a role is given to a person: the user id is empty")
+		return httpio.NewBadRequestMessage("No person is named. Name the person the role is for.")
 	}
 	if err := access.ValidatePeriod(role, period); err != nil {
 		return errors.Wrap(err, "access.ValidatePeriod()")
@@ -93,8 +130,13 @@ func (m *Manager) AssignRoleFor(ctx context.Context, txn resource.ReadWriteTrans
 		return err
 	}
 	if role == accesstypes.SuperAdministrator && !scope.IsGlobal() {
-		return httpio.NewBadRequestMessagef("the %s role is held for the whole application alone, never in a %s or in every %s: give it with no %s named",
-			string(role), m.tenantWord, m.tenantWord, m.tenantWord)
+		const (
+			said  = "The %s role is held for the whole application alone, never in %s or in every %s. Give it with no %s named."
+			cause = "the %s role is held for the whole application alone, never in a %s or in every %s: give it with no %s named"
+		)
+
+		return httpio.NewBadRequestMessageWithErrorf(errors.Newf(cause, string(role), m.tenantWord, m.tenantWord, m.tenantWord),
+			said, roleInWords(role), withArticle(m.tenantWord), m.tenantWord, m.tenantWord)
 	}
 	key, err := m.access.UserManager().Membership(ctx, scope, User(userID), role, func(ctx context.Context, key access.RoleKey) (bool, error) {
 		held, err := m.store.HasRole(ctx, txn, &key)
@@ -108,7 +150,7 @@ func (m *Manager) AssignRoleFor(ctx context.Context, txn resource.ReadWriteTrans
 		return errors.Wrap(err, "access.UserManager.Membership()")
 	}
 	if role == accesstypes.SuperAdministrator {
-		if err := m.requireSuperAdministrator(ctx, txn, "gives the Super Administrator role"); err != nil {
+		if err := m.requireSuperAdministrator(ctx, txn, "gives the Super administrator role"); err != nil {
 			return err
 		}
 	}
@@ -122,12 +164,23 @@ func (m *Manager) AssignRoleFor(ctx context.Context, txn resource.ReadWriteTrans
 	if err != nil {
 		return errors.Wrap(err, "identity.Store.InsertMembership()")
 	}
-	changed, err := m.settleMembershipPeriod(ctx, txn, userID, &key, period, inserted, m.callerIs(ctx, userID))
+	changed, err := m.settleMembershipPeriod(ctx, txn, scope, userID, &key, given, inserted, m.callerIs(ctx, userID))
 	if err != nil {
 		return err
 	}
 	if !inserted && !changed {
 		return nil
+	}
+	// The row names the role where it is held, with the period and the reason the
+	// membership now has.
+	gave, err := m.accountSubject(ctx, txn, userID)
+	if err != nil {
+		return err
+	}
+	gave.Act, gave.Form, gave.RoleNames, gave.Period, gave.Reason = auditlog.ActRoleGiven, roleFormOf(ctx), []string{string(role)}, given.period, given.reason
+	gave.RoleScope, gave.TenantID = auditlog.ScopeOf(scope)
+	if err := m.record(ctx, txn, gave); err != nil {
+		return err
 	}
 
 	return m.policyChangesAtCommit(txn)
@@ -139,25 +192,28 @@ func (m *Manager) AssignRoleFor(ctx context.Context, txn resource.ReadWriteTrans
 // and the role need not exist any more: a membership of a role since deleted is removed
 // like any other.
 //
-// Two rules of the user management are held here. A person who removes a role from
-// themselves in a tenant is held to the rule on the tenant's last administrator
-// (refuseLastAdministrator). And a person left with no role anywhere and no place in a
-// group is deleted with their identity links and sessions in the same transaction
-// (deleteWithLastRole), whoever removed the role. The Super Administrator role has its own: it is taken away
-// by a caller who holds it, and never from the last holder who can sign in, whoever
-// asks (requireSuperAdministrator, refuseLastSuperAdministrator).
-// Where a person belongs to one tenant (WithOneTenantPerPerson) there is a third: the
+// A person who removes a role from themselves in a tenant is held to the rule on the
+// tenant's last administrator (refuseLastAdministrator). The Super Administrator role has
+// its own rule: it is taken away by a caller who holds it, and never from the last holder
+// who can sign in, whoever asks (requireSuperAdministrator, refuseLastSuperAdministrator).
+// Where a person belongs to one tenant (WithOneTenantPerPerson) there is another: the
 // last role a person holds outside the tenants stays while they hold roles in more than
-// one tenant (refuseLeavingSeveralTenants).
+// one tenant (refuseLeavingSeveralTenants). Where the role is the last thing the person
+// holds, the account stays, holding nothing.
 //
 // What the person holds is read as committed: a second removal for the same person in
-// one transaction does not see the first, as no read sees a buffered write, so the
-// account is deleted only when one call removes the last role. Remove one role of a
-// person per transaction.
+// one transaction does not see the first, as no read sees a buffered write. Remove one
+// role of a person per transaction.
+//
+// RoleRemovalWarning answers what a call would do, from the same judgment, and writes
+// nothing.
 func (m *Manager) RemoveRole(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, role accesstypes.Role) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	if err := m.refuseImpersonatorAsSubject(ctx, userID, "take a role from yourself"); err != nil {
+		return err
+	}
 	key := access.NewMembershipKey(scope, User(userID), role)
 	held, err := m.store.HasMembership(ctx, txn, &key)
 	if err != nil {
@@ -171,53 +227,24 @@ func (m *Manager) RemoveRole(ctx context.Context, txn resource.ReadWriteTransact
 }
 
 // removeMembership buffers the removal of a membership the person holds, under the
-// rules of RemoveRole, and has the permission engine told once the transaction has
-// committed. key is the membership, read as held by the caller.
+// rules of RemoveRole as its judgment holds them (judgeRoleRemoval), and has the
+// permission engine told once the transaction has committed. key is the membership, read
+// as held by the caller.
 func (m *Manager) removeMembership(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, key *access.MembershipKey) error {
-	// A membership whose period is over makes nobody a tenant's administrator, and its
-	// removal is not the directory-only tenant's to hold.
-	ended, err := m.membershipEnded(ctx, txn, userID, key)
+	if err := m.judgeRoleRemoval(ctx, txn, scope, userID, key); err != nil {
+		return err
+	}
+	took, err := m.accountSubject(ctx, txn, userID)
 	if err != nil {
-		return err
-	}
-	if !ended {
-		if err := m.requireEnteringToChange(ctx, scope, key.Role, nil); err != nil {
-			return err
-		}
-	}
-	switch {
-	case scope.IsGlobal() && key.Role == accesstypes.SuperAdministrator:
-		if err := m.requireSuperAdministrator(ctx, txn, "takes the Super Administrator role away"); err != nil {
-			return err
-		}
-		if err := m.refuseLastSuperAdministrator(ctx, txn, userID, "take the role from them"); err != nil {
-			return err
-		}
-	case m.callerIs(ctx, userID):
-		gone := &removal{user: key.User, role: key.Role, group: "", wholeGroup: false, unnamed: "you cannot remove a role from yourself", before: "remove your own"}
-		if err := m.refuseLastAdministrator(ctx, txn, scope, gone); err != nil {
-			return err
-		}
-	}
-	// What the person holds beside the membership: the roles of their own and the
-	// groups they are in. Where they belong is read from what has not ended (holds);
-	// the account is kept by every row that stands in the tables, ended or not (keeps).
-	all, err := m.holds(ctx, txn, userID)
-	if err != nil {
-		return err
-	}
-	if err := m.refuseLeavingSeveralTenants(all, key); err != nil {
-		return err
-	}
-	kept, err := m.keeps(ctx, txn, userID)
-	if err != nil {
-		return err
-	}
-	if err := m.deleteWithLastRole(ctx, txn, userID, kept, key); err != nil {
 		return err
 	}
 	if err := m.store.DeleteMembership(ctx, txn, key); err != nil {
 		return errors.Wrap(err, "identity.Store.DeleteMembership()")
+	}
+	took.Act, took.RoleNames = auditlog.ActRoleTaken, []string{string(key.Role)}
+	took.RoleScope, took.TenantID = auditlog.ScopeOf(scope)
+	if err := m.record(ctx, txn, took); err != nil {
+		return err
 	}
 
 	return m.policyChangesAtCommit(txn)
@@ -242,9 +269,9 @@ func (m *Manager) policyChangesAtCommit(txn resource.ReadWriteTransaction) error
 func Scope(domain *string, everyDomain bool) (accesstypes.PolicyScope, error) {
 	switch {
 	case domain != nil && everyDomain:
-		return accesstypes.PolicyScope{}, httpio.NewBadRequestMessage("a role is held in one domain or in every domain, not both: name the domain or set everyDomain")
+		return accesstypes.PolicyScope{}, httpio.NewBadRequestMessage("A role is held in one tenant or in every tenant, not both. Send domain or everyDomain, not the two together.")
 	case domain != nil && *domain == "":
-		return accesstypes.PolicyScope{}, httpio.NewBadRequestMessage("the domain is empty: name the domain the role is held in, or leave it out for the global scope")
+		return accesstypes.PolicyScope{}, httpio.NewBadRequestMessage("The tenant named is empty. Name the tenant the role is held in, or leave domain out to give the role for the whole application.")
 	case domain != nil:
 		return accesstypes.DomainPolicyScope(accesstypes.Domain(*domain)), nil
 	case everyDomain:

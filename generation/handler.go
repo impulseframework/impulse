@@ -6,6 +6,7 @@ import (
 	"log"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/ettle/strcase"
@@ -42,20 +43,8 @@ func (r *resourceGenerator) runHandlerGeneration() error {
 		return errors.Wrap(err, "generateDomainGuard()")
 	}
 
-	if err := r.generateTenants(); err != nil {
-		return errors.Wrap(err, "generateTenants()")
-	}
-
-	if err := r.generateTenantCreation(); err != nil {
-		return errors.Wrap(err, "generateTenantCreation()")
-	}
-
-	if err := r.generateDirectoryOnly(); err != nil {
-		return errors.Wrap(err, "generateDirectoryOnly()")
-	}
-
-	if err := r.generateDirectoryRole(); err != nil {
-		return errors.Wrap(err, "generateDirectoryRole()")
+	if err := r.generateTenantFiles(); err != nil {
+		return err
 	}
 
 	if err := r.generateDecoders(); err != nil {
@@ -75,6 +64,12 @@ func (r *resourceGenerator) runHandlerGeneration() error {
 	}
 	if err := r.generateLiveDerivations(); err != nil {
 		return errors.Wrap(err, "generateLiveDerivations()")
+	}
+	if err := r.generateNameViews(); err != nil {
+		return errors.Wrap(err, "generateNameViews()")
+	}
+	if err := r.generateNamedRowSources(); err != nil {
+		return errors.Wrap(err, "generateNamedRowSources()")
 	}
 
 	if err := r.generateFeatures(); err != nil {
@@ -118,6 +113,31 @@ func (r *resourceGenerator) runHandlerGeneration() error {
 	return nil
 }
 
+// generateTenantFiles emits the handler package's files of the tenant record, each where
+// the program serves it: the roster, the create-your-tenant route, the tenant's own
+// methods of its directory, and the read of its sign-in settings.
+func (r *resourceGenerator) generateTenantFiles() error {
+	steps := []struct {
+		name string
+		run  func() error
+	}{
+		{name: "generateTenants()", run: r.generateTenants},
+		{name: "generateTenantCreation()", run: r.generateTenantCreation},
+		{name: "generateDirectoryOnly()", run: r.generateDirectoryOnly},
+		{name: "generateDirectoryRole()", run: r.generateDirectoryRole},
+		{name: "generateDirectoryFactor()", run: r.generateDirectoryFactor},
+		{name: "generateDirectoryTake()", run: r.generateDirectoryTake},
+		{name: "generateTenantSignInSettings()", run: r.generateTenantSignInSettings},
+	}
+	for _, step := range steps {
+		if err := step.run(); err != nil {
+			return errors.Wrap(err, step.name)
+		}
+	}
+
+	return nil
+}
+
 // consolidatedPatchResources returns the resources served by the consolidated patch
 // handler. Domain-scoped resources participate with domain-embedded operation paths
 // (/{segment}/{domain}/{resource}/...); the tenant record (@tenant), whose route name is
@@ -155,6 +175,7 @@ func (r *resourceGenerator) generateDomainGuard() error {
 		LocalPackageImports: r.localPackageImports(),
 		ApplicationName:     r.applicationName,
 		ReceiverName:        r.receiverName,
+		Word:                strings.ToLower(r.domainWord.One),
 		ConcealedDomains:    r.concealedDomains,
 	}); err != nil {
 		return errors.Wrap(err, "writeFormattedGoFile()")
@@ -258,6 +279,8 @@ func (r *resourceGenerator) generateHomeDecoders(home *handlerHome) error {
 		ReceiverName:            home.receiverName,
 		RPCPackage:              f.rpcPackage,
 		RouterPackage:           r.router.Package(),
+		NameViews:               r.nameViewsOf(home),
+		NamedRowSources:         namedRowSourcesCall(home),
 		HasQueryDecoder:         f.hasQuery,
 		HasComputedQueryDecoder: f.hasComputed,
 		HasPatchDecoder:         f.hasPatch,
@@ -377,12 +400,13 @@ func (r *resourceGenerator) generateLive() error {
 
 // generateLiveDerivations writes the live derivations next to the resources, one file
 // per package holding published virtual or computed resources with that package's
-// LiveDerivations, one per auth whose generated management declares views (a tenant's
-// lists), in the auth's handlers package, and the handler package's assembly of them,
-// liveDerivations, which the generated handlers hand to every publish, an auth's
-// management's included. A package with no published resource gets no file, and the
-// stale sweep removes one an earlier run wrote: the computed package joins the sweep
-// here, by header, since nothing else writes into it.
+// LiveDerivations, one per auth whose generated management declares published resources
+// of its own (a tenant's lists, the lists of how a person signs in), in the auth's
+// handlers package, and the handler package's assembly of them, liveDerivations, which
+// the generated handlers hand to every publish, an auth's management's included. A
+// package with no published resource gets no file, and the stale sweep removes one an
+// earlier run wrote: the computed package joins the sweep here, by header, since nothing
+// else writes into it.
 func (r *resourceGenerator) generateLiveDerivations() error {
 	begin := time.Now()
 	if r.computed != "" {
@@ -394,7 +418,7 @@ func (r *resourceGenerator) generateLiveDerivations() error {
 	}
 	fileName := generatedGoFileName(liveDerivationsOutputName)
 	values := make([]string, 0, len(packages))
-	authViews := false
+	authRecords := false
 	for _, pkg := range packages {
 		destinationFilePath := filepath.Join(pkg.dir.Dir(), fileName)
 		data := &liveDerivationsPackageData{
@@ -404,7 +428,7 @@ func (r *resourceGenerator) generateLiveDerivations() error {
 			Resources:          pkg.Resources,
 		}
 		if pkg.instance != nil {
-			authViews = true
+			authRecords = true
 			data.Source = fmt.Sprintf("Auth(%q)", pkg.instance.importPath)
 			data.Auth = pkg.instance.auth
 			data.TypesQualifier = packageQualifier(pkg.dir, pkg.instance.resources)
@@ -417,10 +441,10 @@ func (r *resourceGenerator) generateLiveDerivations() error {
 	}
 	destinationFilePath := filepath.Join(r.handler.Dir(), fileName)
 	if err := r.writeFormattedGoFile(destinationFilePath, "liveDerivationsTemplate", liveDerivationsTemplate, &liveDerivationsAssemblyData{
-		Source:    r.resource.Dir(),
-		Package:   r.handler.Package(),
-		Values:    values,
-		AuthViews: authViews,
+		Source:      r.resource.Dir(),
+		Package:     r.handler.Package(),
+		Values:      values,
+		AuthRecords: authRecords,
 	}); err != nil {
 		return errors.Wrap(err, "writeFormattedGoFile()")
 	}
@@ -430,8 +454,45 @@ func (r *resourceGenerator) generateLiveDerivations() error {
 	// with the application's, handed to them where the application constructs them
 	// (identityDelegatesTemplate), so a view of the application's that reads the auth's
 	// tables is told of a change the auth's management commits. What the package may
-	// hold is the record of the instance's own views (a tenant's lists), one of the
-	// values the application's assembly merges.
+	// hold is the record of the instance's own published resources (a tenant's lists,
+	// the lists of how a person signs in), one of the values the application's assembly
+	// merges.
+	return nil
+}
+
+// generateNameViews writes the name views: one file per package holding views that
+// declare what their rows are known by (@name) with that package's NameViews, the
+// application's virtual resources package and the handlers package of each auth whose
+// generated management declares such views, and the handler package's merge of them,
+// nameViews, which the application's generated query decoders are handed. A package
+// with no such view gets no file, and the stale sweep removes one an earlier run wrote.
+func (r *resourceGenerator) generateNameViews() error {
+	begin := time.Now()
+	fileName := generatedGoFileName(nameViewsOutputName)
+	packages := r.nameViewsByPackage()
+	values := make([]string, 0, len(packages))
+	for _, pkg := range packages {
+		destinationFilePath := filepath.Join(pkg.dir.Dir(), fileName)
+		data := &nameViewsPackageData{Source: r.resource.Dir(), Package: pkg.dir.Package(), Views: pkg.Views}
+		if pkg.instance != nil {
+			data.Source = fmt.Sprintf("Auth(%q)", pkg.instance.importPath)
+		}
+		if err := r.writeFormattedGoFile(destinationFilePath, "nameViewsPackageTemplate", nameViewsPackageTemplate, data); err != nil {
+			return errors.Wrap(err, "writeFormattedGoFile()")
+		}
+		log.Printf("Generated name views file in %s: %s", time.Since(begin), destinationFilePath)
+		values = append(values, packageQualifier(r.handler, pkg.dir)+nameViewsValueName)
+	}
+	destinationFilePath := filepath.Join(r.handler.Dir(), fileName)
+	if err := r.writeFormattedGoFile(destinationFilePath, "nameViewsTemplate", nameViewsTemplate, &nameViewsAssemblyData{
+		Source:  r.resource.Dir(),
+		Package: r.handler.Package(),
+		Values:  values,
+	}); err != nil {
+		return errors.Wrap(err, "writeFormattedGoFile()")
+	}
+	log.Printf("Generated name views assembly in %s: %s", time.Since(begin), destinationFilePath)
+
 	return nil
 }
 
@@ -446,7 +507,7 @@ func (r *resourceGenerator) anyOutletServesSessions() bool {
 func (r *resourceGenerator) generateHandlers(res *resourceInfo) error {
 	handlerTypes := resourceEndpoints(res)
 
-	handlerData := make([][]byte, 0, len(handlerTypes)+len(res.Files)+1)
+	handlerData := make([][]byte, 0, len(handlerTypes)+len(res.Files)+2)
 	for _, handlerTyp := range handlerTypes {
 		data, err := r.handlerContent(handlerTyp, res)
 		if err != nil {
@@ -461,6 +522,16 @@ func (r *resourceGenerator) generateHandlers(res *resourceInfo) error {
 		data, err := r.acrossTenantsHandlerContent(res)
 		if err != nil {
 			return errors.Wrap(err, "acrossTenantsHandlerContent()")
+		}
+
+		handlerData = append(handlerData, data)
+	}
+	// A record's change history hangs under the read route, so its handler follows the
+	// resource's own.
+	if servesChangeHistory(res) {
+		data, err := r.changeHistoryHandlerContent(res)
+		if err != nil {
+			return errors.Wrap(err, "changeHistoryHandlerContent()")
 		}
 
 		handlerData = append(handlerData, data)
@@ -515,10 +586,13 @@ func (r *resourceGenerator) generateConsolidatedPatchHandler(outlet *routerOutle
 	var segmentCase *consolidatedCaseData
 	for _, res := range resources {
 		c := consolidatedCaseData{
-			resourceInfo:    res,
-			ResourcePackage: r.resource.Package(),
-			ReceiverName:    r.receiverName,
-			Clears:          r.tenantClears(res),
+			resourceInfo:             res,
+			ResourcePackage:          r.resource.Package(),
+			ReceiverName:             r.receiverName,
+			KindsFrom:                r.tenantKindSources(res),
+			RecordKinds:              r.recordKindsHanding(res),
+			RequiresDisabled:         r.tenantDisabledRequirement(res),
+			DirectoryRemovalRecorder: r.directoryRemovalRecorder(res),
 		}
 		switch {
 		case res.IsDomainScoped():
@@ -548,6 +622,7 @@ func (r *resourceGenerator) generateConsolidatedPatchHandler(outlet *routerOutle
 		DomainCases:         domainCases,
 		SegmentCase:         segmentCase,
 		HasTenant:           slices.ContainsFunc(resources, func(res *resourceInfo) bool { return res.SignalsTenants() }),
+		TakesRowsUnder:      slices.ContainsFunc(resources, func(res *resourceInfo) bool { return res.TakesRowsUnder() }),
 		DomainRouteSegment:  r.domainRouteSegment,
 		DomainPatternPrefix: domainPatternPrefix,
 		Package:             r.handler.Package(),
@@ -568,13 +643,16 @@ func (r *resourceGenerator) generateConsolidatedPatchHandler(outlet *routerOutle
 func (r *resourceGenerator) handlerContent(handler HandlerType, res *resourceInfo) ([]byte, error) {
 	home := r.homeOf(res.identity)
 	output, err := r.generateTemplateOutput("handler", handler.template(), handlerContentData{
-		ResourcePackage:         home.resources.Package(),
-		Resource:                res,
-		VirtualResourcesPackage: home.views.Package(),
-		ApplicationName:         home.applicationName,
-		ReceiverName:            home.receiverName,
-		Clears:                  r.tenantClears(res),
-		Home:                    home,
+		ResourcePackage:          home.resources.Package(),
+		Resource:                 res,
+		VirtualResourcesPackage:  home.views.Package(),
+		ApplicationName:          home.applicationName,
+		ReceiverName:             home.receiverName,
+		KindsFrom:                r.tenantKindSources(res),
+		RecordKinds:              r.recordKindsHanding(res),
+		RequiresDisabled:         r.tenantDisabledRequirement(res),
+		Home:                     home,
+		DirectoryRemovalRecorder: r.directoryRemovalRecorder(res),
 	})
 	if err != nil {
 		return nil, errors.Wrap(err, "generateTemplateOutput()")

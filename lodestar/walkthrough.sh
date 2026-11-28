@@ -2,7 +2,8 @@
 # Lodestar persona walkthrough: drives every persona's proof by curl through real
 # sessions (login, cookies, XSRF: the served stack, not the test router), plus the droid
 # channel under its bearer token and the client portal under its own prefix through the
-# simulated directory. Prints PASS/FAIL per check.
+# simulated directory. Prints PASS/FAIL per check and a summary line, and exits 1 when
+# a check failed.
 #
 # Run it against a FRESHLY bootstrapped stack (overmind start, or the Procfile's spanner +
 # server commands, both under -tags skipAuth) with the .envrc variables exported here
@@ -46,12 +47,16 @@ login() { # login <persona>: the crew's password method under the console prefix
   # POST echoes the token in the header, as the browser does.
   curl -s -L -c "$S/$p.jar" -b "$S/$p.jar" -o /dev/null "$API/user/session"
   curl -s -c "$S/$p.jar" -b "$S/$p.jar" -o /dev/null -H "X-XSRF-TOKEN: $(xsrf "$p")" -H 'Content-Type: application/json' \
-    -d "{\"username\":\"$p\",\"password\":\"lodestar\"}" "$API/user/password/login"
+    -d "{\"username\":\"$p\",\"password\":\"follow-the-lodestar-home\"}" "$API/user/password/login"
   second_factor "$p" "$API" "$p@fleet.example" "$LOG"
 }
 
-codes_mailed() { # codes_mailed <address> <log>: how many sign-in codes the log holds for the address
-  grep -ac "mail (not sent) to $1, subject \"Your Lodestar sign-in code is" "$2"
+# A code comes in one of two mails: the code an account signs in with, and the code that
+# accepts an invitation, which says so. Both end their subject with the code.
+CODE_SUBJECT='Your (Lodestar sign-in code|code to accept your invitation to Lodestar) is'
+
+codes_mailed() { # codes_mailed <address> <log>: how many codes the log holds for the address, a sign-in's or an invitation's
+  grep -acE "mail \(not sent\) to $1, subject \"$CODE_SUBJECT" "$2"
 }
 
 invitation_mailed() { # invitation_mailed <address> <log>: the last invitation the auths mailed to the address, its line of the log and the lines of its text
@@ -61,6 +66,44 @@ invitation_mailed() { # invitation_mailed <address> <log>: the last invitation t
   local address=$1 log=$2
   for _ in $(seq 1 100); do grep -aq "mail (not sent) to $address, subject \"You are invited to" "$log" && break; sleep 0.1; done
   grep -a -A 12 "mail (not sent) to $address, subject \"You are invited to" "$log" | tail -13
+}
+
+mailed_tokens_only_in_mail() { # mailed_tokens_only_in_mail <log>: for each kind of link the server mailed, PASS when no line of the log holds one of its tokens but the mail that carried it, FAIL counting the kind; then PASS when the four links the walkthrough followed are among them
+  # A mailed link is the login page's address, #, the kind, = and the token: invitation,
+  # verify, signUp, reset or address. A request line that held a token (a query, a path)
+  # would put it in every log the request passes through. A token is outside its mail
+  # where a line holds it and not #<kind>=<token>. The tokens and the lines that hold
+  # them are never printed.
+  local log=$1 pairs kind token n m lines outside expected missing=0
+  pairs=$(grep -aoE '#(invitation|verify|signUp|reset|address)=[A-Za-z0-9_-]+' "$log" | sort -u)
+  for kind in invitation verify signUp reset address; do
+    n=0 m=0 lines=
+    while IFS= read -r token; do
+      [ -n "$token" ] || continue
+      n=$((n + 1))
+      outside=$(grep -anF -- "$token" "$log" | grep -avF -- "#$kind=$token" | cut -d: -f1)
+      if [ -n "$outside" ]; then
+        m=$((m + 1))
+        lines="$lines$outside"$'\n'
+      fi
+    done < <(printf '%s\n' "$pairs" | grep -a "^#$kind=" | cut -d= -f2-)
+    [ "$n" -gt 0 ] || continue
+    if [ "$m" -eq 0 ]; then
+      echo "PASS  the $n $kind link(s) the server mailed: each token is in the server's log only where its mail is, and no request line holds one"
+    else
+      echo "FAIL  the $kind links the server mailed: $m of $n token(s) are in the server's log outside the mail, in $(printf '%s' "$lines" | sort -u | grep -c .) line(s)"; fails=$((fails + 1))
+    fi
+  done
+  for expected in "invitation=${DAWN_TOKEN:-}" "invitation=${FLINT_TOKEN:-}" "invitation=${GUS_TOKEN:-}" "verify=${ROOKIE_TOKEN:-}"; do
+    if [ -z "${expected#*=}" ] || ! printf '%s\n' "$pairs" | grep -aqxF -- "#$expected"; then
+      missing=$((missing + 1))
+    fi
+  done
+  if [ "$missing" -eq 0 ]; then
+    echo "PASS  the four links the walkthrough followed (three invitations and one address confirmation) are among them"
+  else
+    echo "FAIL  the four links the walkthrough followed are among them: $missing of 4 were not found as a mailed link in the server's log"; fails=$((fails + 1))
+  fi
 }
 
 second_factor() { # second_factor <persona> <api> <address> <log>: the sign-in code a sign-in waits for
@@ -81,7 +124,7 @@ second_factor() { # second_factor <persona> <api> <address> <log>: the sign-in c
       curl -s -c "$S/$p.jar" -b "$S/$p.jar" -o /dev/null -H "X-XSRF-TOKEN: $(xsrf "$p")" -X POST "$api/user/pending/code" ;;
   esac
   for _ in $(seq 1 100); do [ "$(codes_mailed "$address" "$log")" -gt "$before" ] && break; sleep 0.1; done
-  code=$(grep -a "mail (not sent) to $address, subject \"Your Lodestar sign-in code is" "$log" | tail -1 | sed -E 's/.*sign-in code is ([0-9]{3}) ([0-9]{3}).*/\1\2/')
+  code=$(grep -aE "mail \(not sent\) to $address, subject \"$CODE_SUBJECT" "$log" | tail -1 | sed -E 's/.* is ([0-9]{3}) ([0-9]{3}).*/\1\2/')
   curl -s -c "$S/$p.jar" -b "$S/$p.jar" -o /dev/null -H "X-XSRF-TOKEN: $(xsrf "$p")" -H 'Content-Type: application/json' \
     -d "{\"code\":\"$code\"}" "$api/user/pending/code/verify"
 }
@@ -227,7 +270,6 @@ GOVERNOR_ID=$(account governor)
 MARSHAL_ID=$(account marshal)
 CADET_ID=$(account cadet)
 PILOT_ID=$(account pilot)
-LEAD_ID=$(account lead)
 BOOKING_ID=$(account booking)
 ENGINEER_ID=$(account engineer)
 ADJUTANT_ID=$(account adjutant)
@@ -275,17 +317,17 @@ r=$(req marshal GET "$PORTAL/user-domains"); check "a crew session is a stranger
 
 # ---- the sectors a session reaches, the place switcher's list: user-domains ----
 # The list names every sector that seats the person: the sectors the session reaches, and,
-# marked closed with the reason, a sector that is directory only and whose directory is
+# listed as not available, with the reason, a sector that is directory only and whose directory is
 # not the one the person signed in through. A sector's sign-in settings restrict its own
-# door alone, so a closed sector closes no other.
-OPEN="[d['domain'] for d in rows if 'closed' not in d]"
-CLOSED="{d['domain']: d['closed'] for d in rows if 'closed' in d}"
+# door alone, so a sector that is directory only closes no other.
+OPEN="[d['domain'] for d in rows if 'unavailable' not in d]"
+UNAVAILABLE="{d['domain']: d['unavailable'] for d in rows if 'unavailable' in d}"
 BY_PASSWORD='Bastion admits only people who sign in through its own directory. You signed in with a password.'
 THROUGH_THE_FLEET='Bastion admits only people who sign in through its own directory. You signed in through Google Workspace example.'
 r=$(req cadet GET "$API/user-domains"); check "cadet's chart lights Anvil only" 200 "$r"
 assert_py "cadet's chart is Anvil alone" "$r" "[d['domain'] for d in rows] == ['$ANVIL_ID']"
 r=$(req archivist GET "$API/user-domains"); assert_py "archivist's chart lights the sectors that are not directory only: Bastion admits its people through its directory only, and a role held in every sector exempts nobody" "$r" "$OPEN == ['$ANVIL_ID','$CINDER_ID']"
-assert_py "and names Bastion closed to this sign-in, with the reason: she holds a seat there, and came by password" "$r" "$CLOSED == {'$BASTION_ID': '$BY_PASSWORD'}"
+assert_py "and lists Bastion as not available, with the reason: she holds a seat there, and came by password" "$r" "$UNAVAILABLE == {'$BASTION_ID': '$BY_PASSWORD'}"
 r=$(req marshal GET "$API/sectors/$CINDER_ID/missions"); check "Cinder is dark for the marshal: the concealed-sector guard answers 404 (opening it by its URL lands the console on the frame's refusal page, in these words)" 404 "$r"
 
 # ---- flight deck: per-persona boards, paged from the descriptor ----
@@ -358,13 +400,13 @@ r=$(req marshal GET "$API/briefing-templates?limit=all"); assert_py "read whole,
 r=$(req marshal GET "$API/briefing-templates?sort=name"); assert_py "a requested sort orders the briefing catalog by name" "$r" "[t['name'] for t in rows]==sorted(t['name'] for t in rows)"
 r=$(req dispatcher GET "$ANVIL/client-rosters/$HALVARD?columns=id,name,contactCount"); check "the client roster, a keyed view, serves a read: the dispatcher reads Halvard Freight's roster row" 200 "$r"
 assert_py "the roster row carries the picker's display columns" "$r" "rows['name']=='Halvard Freight' and rows['contactCount']==1"
-# The console's pickers read on the maximum each source declares, from the generated descriptor. The roster and the hangars declare one: a picker pages them (the first page with its count and its Link relations, never limit=all) and reads the chosen row by key, and the Ships page's Hangar column resolves a page's hangars with one in filter; the hull catalog declares none, so its picker and the Class column read it whole with limit=all. Demonstrates: picker.paged, picker.whole, column.referenced-in.
+# The console's pickers read on the maximum each source declares, from the generated descriptor. The roster and the hangars declare one: a picker pages them (the first page with its count and its Link relations, never limit=all) and reads the chosen row by key, and the Ships page's Hangar column reads each ship's hangar by name with the page of ships; the hull catalog declares none, so its picker reads it whole with limit=all. Demonstrates: picker.paged, picker.whole, column.name-field.
 page=$(curl -s -D "$S/roster.h" -L -b "$S/dispatcher.jar" -H "X-XSRF-TOKEN: $(xsrf dispatcher)" "$ANVIL/client-rosters?columns=id,name,contactCount&limit=2&count=true")
 if [ "$(echo "$page" | py "print(len(rows))")" = 2 ] && grep -qi '^Total-Count: 4' "$S/roster.h" && grep -qi '^Link:.*rel="next"' "$S/roster.h"; then echo "PASS  the roster picker's first page: two of four, the count, and a next relation"; else echo "FAIL  roster picker page: $(echo "$page" | head -c 200) $(tr '\n' ' ' < "$S/roster.h" | head -c 300)"; fails=$((fails+1)); fi
 r=$(req dispatcher GET "$ANVIL/client-rosters?columns=id,name&limit=all"); check "the roster is never read whole: limit=all is refused under its maximum" 400 "$r"
 r=$(req marshal GET "$ANVIL/hangars?columns=id,name,zone&count=true"); assert_py "the hangar picker's page lists Anvil's two hangars in their declared order" "$r" "[h['name'] for h in rows]==['Anvil Dock One','Quarantine Bay']"
 r=$(req marshal GET "$ANVIL/hangars/$DOCK_ONE?columns=id,name"); assert_py "the chosen hangar is read by key, whichever page the picker is on" "$r" "rows['name']=='Anvil Dock One'"
-r=$(req marshal GET "$ANVIL/hangars?filter=id:in:($DOCK_ONE,$QUARANTINE_BAY)&columns=id,name&limit=2"); assert_py "the Ships page's Hangar column resolves a page's hangars with one in filter" "$r" "sorted(h['name'] for h in rows)==['Anvil Dock One','Quarantine Bay']"
+r=$(req marshal GET "$ANVIL/ships?columns=id,hangarId,hangarName&limit=100"); assert_py "the Ships page's Hangar column reads each ship's hangar by name with the page of ships, no second request" "$r" "any(s.get('hangarName') for s in rows) and all(s.get('hangarName') in ('Anvil Dock One','Quarantine Bay') for s in rows if s.get('hangarId'))"
 r=$(req marshal GET "$API/ship-classes?columns=id,designation&limit=all"); assert_py "the class picker reads the hull catalog whole, id and designation alone" "$r" "len(rows)==4 and all(set(c)=={'id','designation'} for c in rows)"
 
 # ---- the flight deck's edges, dry runs first ----
@@ -442,8 +484,8 @@ r=$(dryrun lead POST "$ANVIL/complete-mission" "{\"missionId\":\"$CONVOY\"}"); c
 r=$(req lead POST "$ANVIL/complete-mission" "{\"missionId\":\"$CONVOY\"}"); check "lead completes Hammer's convoy (the method answers with the settlement)" 200 "$r"
 assert_py "the settlement is the fee less the booked expenses" "$r" "rows['fee']=='15000' and rows['expenses']=='1600' and rows['net']=='13400'"
 r=$(req marshal GET "$ANVIL/missions?limit=200"); assert_py "the convoy completed with its settlement posted through the Paymaster role" "$r" "next(m for m in rows if m['id']=='$CONVOY')['statusId']=='completed' and next(m for m in rows if m['id']=='$CONVOY')['settlement']=='13400'"
-r=$(req archivist GET "$ANVIL/ships-log-entries"); assert_py "the ship's log names 'lead (the id of her account) as role Paymaster' on the settlement, with the session it was posted from" "$r" "any(e['eventSource'].startswith('lead ($LEAD_ID) as role Paymaster, session ') and $UUID(e['eventSource'].rsplit(' ',1)[1]) for e in rows)"
-assert_py "an ordinary change is signed the same way, the person by username and account id and then the session: the marshal's hold of the convoy" "$r" "any(e['eventSource'].startswith('marshal ($MARSHAL_ID), session ') and $UUID(e['eventSource'].rsplit(' ',1)[1]) for e in rows)"
+r=$(req archivist GET "$ANVIL/missions/$CONVOY/changes"); assert_py "the convoy's history names lead and the RPC that posted the settlement, and no role" "$r" "any(e['source']=='lead, through the RPC CompleteMission' for e in rows['changes']) and all('Paymaster' not in e['source'] for e in rows['changes'])"
+assert_py "a change another method made names its own: the marshal's hold of the convoy" "$r" "any(e['source']=='marshal, through the RPC HoldMission' for e in rows['changes'])"
 
 # ---- dispatcher: the two-grant PATCH ----
 r=$(req dispatcher PATCH "$API/resources" "[{\"op\":\"patch\",\"path\":\"/sectors/$ANVIL_ID/missions/$QUARANTINE\",\"value\":{\"notes\":\"client called\",\"deadline\":\"$(days +87)\"}}]"); check "dispatcher extends a deadline and notes it" 200 "$r"
@@ -622,13 +664,14 @@ fi
 # desk's routes answer the router's own 404, its arm of the consolidated patch answers as an
 # unknown resource, the digest leaves the desk and the card's field out, and the field named in
 # a request is unknown. The adjutant, who holds FeatureAdministrator, reads the flags as the
-# dialog does (name, description, state, when it last changed and by whom), turns the flag on
-# through SetFeature, and the desk answers, the digest carries it, and Pax's card counts his
-# citations. A second server process on another port against the same emulators, built from
+# Feature flags page does (name, description, state, and who last turned the flag on or off
+# and when: nobody, for a flag only the deploy step has written), turns the flag on through
+# SetFeature, and the desk answers, the digest carries it, Pax's card counts his citations,
+# and the flag's history, which the page opens in a pop-up, lists the flip by her name. A second server process on another port against the same emulators, built from
 # this tree and started before the flip, serves the desk at its next request with no restart:
 # the flip is signaled on the features kind of the live service's signals document. Off again,
 # both refuse. The second process is skipped when the stack runs without the Firestore emulator
-# (the five-minute backstop alone would carry the flip then). Demonstrates: @feature, @feature.field.
+# (the five-minute backstop alone would carry the flip then). Demonstrates: @feature, @feature.field, feature.history.
 SECOND_PORT=${LODESTAR_SECOND_PORT:-8091}
 B2=http://127.0.0.1:$SECOND_PORT
 API2=$B2/console/api
@@ -644,7 +687,7 @@ login_second() { # login_second <persona>: the persona signed in on the second i
   rm -f "$S/$p.2.jar"
   curl -s -L -c "$S/$p.2.jar" -b "$S/$p.2.jar" -o /dev/null "$API2/user/session"
   curl -s -c "$S/$p.2.jar" -b "$S/$p.2.jar" -o /dev/null -H "X-XSRF-TOKEN: $(awk '$6=="crew-xsrf" {print $7}' "$S/$p.2.jar" | tail -1)" -H 'Content-Type: application/json' \
-    -d "{\"username\":\"$p\",\"password\":\"lodestar\"}" "$API2/user/password/login"
+    -d "{\"username\":\"$p\",\"password\":\"follow-the-lodestar-home\"}" "$API2/user/password/login"
   # The second instance mails the code itself, so it is read from that instance's log.
   second_factor "$p.2" "$API2" "$p@fleet.example" "$S/second.log"
 }
@@ -652,8 +695,11 @@ login adjutant
 r=$(req adjutant GET "$API/features"); check "the features route answers anyone signed in: nothing is on" 200 "$r"
 assert_py "the enabled set is empty" "$r" "rows=={'enabled':[]}"
 r=$(req cadet GET "$API/features"); assert_py "the cadet reads the same set with no grant on the flags" "$r" "rows=={'enabled':[]}"
-r=$(req adjutant GET "$API/feature-flags"); check "the adjutant lists the flags (List on FeatureFlags): the dialog's rows" 200 "$r"
-assert_py "one flag, commendations, off, with its description, stamped by the migration within the last day" "$r" "len(rows)==1 and rows[0]['name']=='commendations' and rows[0]['enabled'] is False and rows[0]['description'].startswith('Commendations lets headquarters cite a pilot') and 'MigrateFeatures' in rows[0]['updatedBy'] and $RECENT(rows[0]['updatedAt'])"
+r=$(req adjutant GET "$API/feature-flags"); check "the adjutant lists the flags (List on FeatureFlags): the Feature flags page's rows" 200 "$r"
+assert_py "one flag, commendations, off, with its description, flipped by nobody and never: the deploy step that declared it is no flip" "$r" "len(rows)==1 and rows[0]['name']=='commendations' and rows[0]['enabled'] is False and rows[0]['description'].startswith('Commendations lets headquarters cite a pilot') and rows[0]['updatedBy']=='' and rows[0]['updatedAt'] is None"
+r=$(req adjutant GET "$API/feature-flags?sort=updatedAt"); check "a sort on when a flag was last flipped is refused: the list works it out of the history and is not ordered by it" 400 "$r"
+r=$(req adjutant GET "$API/feature-flags/commendations/changes"); check "the flag's history, under the grant that lists the flags" 200 "$r"
+assert_py "nobody has flipped it: an empty list" "$r" "rows=={'changes':[],'more':False}"
 r=$(req adjutant GET "$API/commendations"); check "the desk is dark while the flag is off: the router's own 404" 404 "$r"
 r=$(req adjutant GET "$API/commendations/e0000000-0000-4000-8000-000000000001"); check "a seeded citation's read is not found either" 404 "$r"
 r=$(req adjutant PATCH "$API/resources" "[{\"op\":\"add\",\"path\":\"/commendations\",\"value\":{\"pilotId\":\"$PAX\",\"citation\":\"Filed while the desk is dark\"}}]"); check "the desk's arm of the consolidated patch answers as an unknown resource" 400 "$r"
@@ -664,6 +710,8 @@ assert_py "Pax's card carries no commendations field" "$r" "len(rows)==1 and 'co
 assert_py "the one card is his own, keyed by the id of his account, and named by the pilot's record" "$r" "rows[0]['userId']=='$PILOT_ID' and rows[0]['displayName']=='Pilot Pax'"
 r=$(req cadet POST "$API/set-feature" '{"name":"commendations","enabled":true}'); check "the cadet holds no Execute on SetFeature" 403 "$r"
 r=$(req cadet GET "$API/feature-flags"); check "nor List on the flags" 403 "$r"
+r=$(req cadet GET "$API/feature-flags/commendations/changes"); check "so a flag's history is refused too" 403 "$r"
+r=$(req adjutant GET "$API/feature-flags/nonesuch/changes"); check "the history of a flag the package does not declare is not found" 404 "$r"
 r=$(req adjutant POST "$API/set-feature" '{"name":"nonesuch","enabled":true}'); check "a flag the package does not declare is not found" 404 "$r"
 r=$(dryrun adjutant POST "$API/set-feature" '{"name":"commendations","enabled":true}'); check "a dry run of the flip runs the frame and rolls back" 200 "$r"
 r=$(req adjutant GET "$API/features"); assert_py "the dry run changed nothing" "$r" "rows=={'enabled':[]}"
@@ -678,7 +726,8 @@ r=$(req adjutant POST "$API/set-feature" '{"name":"commendations","enabled":true
 assert_py "the answer is the flag as written, stamped now" "$r" "rows['name']=='commendations' and rows['enabled'] is True and $RECENT(rows['updatedAt'])"
 r=$(req adjutant GET "$API/features"); assert_py "the features route lists it" "$r" "rows=={'enabled':['commendations']}"
 r=$(req adjutant GET "$API/feature-flags/commendations"); check "the flag read by name (Read on FeatureFlags)" 200 "$r"
-assert_py "on, stamped by the adjutant within the last day: what the dialog shows as on-since" "$r" "rows['enabled'] is True and rows['updatedBy'].startswith('adjutant ($ADJUTANT_ID), session ') and $RECENT(rows['updatedAt'])"
+assert_py "on, last flipped by the adjutant, by the name she signs in under, within the last day: what the page lists" "$r" "rows['enabled'] is True and rows['updatedBy']=='adjutant' and $RECENT(rows['updatedAt'])"
+r=$(req adjutant GET "$API/feature-flags/commendations/changes"); assert_py "the flag's history holds the one flip: turned on, by the adjutant, within the last day" "$r" "rows['more'] is False and [(c['enabled'],c['changedBy']) for c in rows['changes']]==[(True,'adjutant')] and $RECENT(rows['changes'][0]['changedAt'])"
 r=$(req adjutant GET "$API/commendations"); check "the desk answers at once on the instance that flipped" 200 "$r"
 assert_py "the seeded citations, newest first" "$r" "[c['citation'] for c in rows]==['Talked a drifting hauler crew through a cold restart','Brought the Kingfisher home on one engine','Held formation through the debris belt with a cracked canopy']"
 r=$(req adjutant GET "$API/commendations?filter=pilotId:eq:$PAX"); assert_py "Pax's two, off the index" "$r" "len(rows)==2 and all(c['pilotId']=='$PAX' for c in rows)"
@@ -696,6 +745,7 @@ if [ -n "$SECOND_PID" ]; then
   r=$(req adjutant.2 GET "$API2/features"); assert_py "its features route lists the flag" "$r" "rows=={'enabled':['commendations']}"
 fi
 r=$(req adjutant POST "$API/set-feature" '{"name":"commendations","enabled":false}'); check "the adjutant turns the desk off again" 200 "$r"
+r=$(req adjutant GET "$API/feature-flags/commendations/changes"); assert_py "the flag's history holds both flips, the newest first" "$r" "[(c['enabled'],c['changedBy']) for c in rows['changes']]==[(False,'adjutant'),(True,'adjutant')] and rows['changes'][0]['changedAt']>=rows['changes'][1]['changedAt']"
 r=$(req adjutant GET "$API/commendations"); check "the desk is dark again on the first instance" 404 "$r"
 r=$(req pilot GET "$API/pilot-cards?columns=userId,commendations"); check "and the card's field is unknown again" 400 "$r"
 if [ -n "$SECOND_PID" ]; then
@@ -765,7 +815,7 @@ fi
 # serves Dawn at its next request, its roster reloaded on the signal rather than at the
 # five-minute backstop.
 # Demonstrates: tenancy.run-time-tenant, tenancy.invited-tenant, tenancy.creator-seat.
-r=$(req surveyor GET "$API/user-domains"); assert_py "the surveyor's chart lights the charted sectors that are not directory only: SectorCrew held in every sector, and Bastion, directory only, named closed" "$r" "$OPEN == ['$ANVIL_ID','$CINDER_ID'] and $CLOSED == {'$BASTION_ID': '$BY_PASSWORD'}"
+r=$(req surveyor GET "$API/user-domains"); assert_py "the surveyor's chart lights the charted sectors that are not directory only: SectorCrew held in every sector, and Bastion, directory only, listed as not available" "$r" "$OPEN == ['$ANVIL_ID','$CINDER_ID'] and $UNAVAILABLE == {'$BASTION_ID': '$BY_PASSWORD'}"
 r=$(req surveyor GET "$API/sectors"); assert_py "Dawn is not on the chart yet: the sector list carries the three seeded sectors" "$r" "[s['name'] for s in rows]==['Anvil','Bastion','Cinder']"
 if [ -n "$SECOND_PID" ]; then
   login_second surveyor
@@ -817,7 +867,7 @@ r=$(req governor GET "$API/user-domains"); assert_py "the governor, marshal in e
 r=$(req governor GET "$DAWN/missions"); check "Dawn's flight deck answers the governor, empty" 200 "$r"
 r=$(req archivist GET "$API/user-domains"); assert_py "the archivist, held in every sector, sees Dawn" "$r" "$OPEN == sorted(['$ANVIL_ID','$CINDER_ID','$DAWN_ID'])"
 r=$(req client GET "$PORTAL/user-domains"); assert_py "cleo's portal lists Dawn at once: the directory's role is held in every sector, and every sector that is not directory only admits her however she signed in" "$r" "$OPEN == sorted(['$ANVIL_ID','$CINDER_ID','$DAWN_ID'])"
-assert_py "and names Bastion closed: it is directory only, and its directory is not the one she came through" "$r" "$CLOSED == {'$BASTION_ID': '$THROUGH_THE_FLEET'}"
+assert_py "and lists Bastion as not available: it is directory only, and its directory is not the one she came through" "$r" "$UNAVAILABLE == {'$BASTION_ID': '$THROUGH_THE_FLEET'}"
 r=$(req client GET "$PORTAL/sectors/$DAWN_ID/missions"); check "Dawn's tracker opens for her, empty" 200 "$r"
 if [ -n "$SECOND_PID" ]; then
   tries=0; for i in $(seq 1 40); do tries=$i; r=$(req surveyor.2 GET "$API2/sectors/$DAWN_ID/wings"); [ "${r##*$'\n'}" = 200 ] && break; sleep 0.25; done
@@ -854,7 +904,7 @@ r=$(req flint POST "$API/user/invitation" '{"token":"'"$FLINT_TOKEN"'"}'); check
 # she signed in through the crew auth's sign-up registration (any Google account, opened
 # to sign-up by the governor above: a person the auth has never seen becomes a crew login
 # holding no role and no sector) and names her own sector through the generated
-# create-sector route, which serves while a sign-in method of the auth is open,
+# create-sector route, which serves a session whose sign-in method is open to sign-up,
 # by the record's fields without its key (the route generates the id and answers it; a
 # body that names a key is refused), which writes the row, seats her as its marshal
 # (SectorMarshal, the roles the App names)
@@ -876,9 +926,9 @@ EMBER=$API/sectors/$EMBER_ID
 r=$(req pioneer GET "$API/user-domains"); assert_py "her chart lights Ember at once: seated as its marshal before the route answered" "$r" "[d['domain'] for d in rows] == ['$EMBER_ID']"
 r=$(req pioneer GET "$EMBER/missions"); check "Ember's flight deck answers her, empty" 200 "$r"
 assert_py "an empty flight deck: Ember is charted, not yet flown" "$r" "rows == []"
-r=$(req pioneer GET "$EMBER/sector-directories"); assert_py "Ember has no directory: she signed up with any Google account, a personal account, which is no organization's directory, and Ember admits her as it admits a password (tenancy.creator-directory)" "$r" "rows==[]"
+r=$(req pioneer GET "$EMBER/sector-directories"); assert_py "Ember has no directory: a sector charted by sign-up takes none, whichever way its maker signed in, and Ember admits her as it admits a password (tenancy.creator-directory)" "$r" "rows==[]"
 r=$(req pioneer GET "$API/user/session"); assert_py "her session names no directory for the Sign-in page to offer" "$r" "'directory' not in rows"
-r=$(req pioneer PATCH "$API/resources" '[{"op":"add","path":"/sectors/'"$EMBER_ID"'/sector-directories","value":{}}]'); check "her call to make the account she signed in with Ember's directory is refused" 409 "$r"
+r=$(req pioneer POST "$EMBER/take-sector-directory" '{}'); check "her call to make the account she signed in with Ember's directory, with the sector's own method, is refused" 409 "$r"
 assert_py "saying a personal Google account is not an organization's directory, and what to sign in with" "$r" "'A personal Google account is not an organization' in rows['message'] and 'Google Workspace or Microsoft Entra' in rows['message']"
 r=$(req pioneer POST "$API/create-sector" '{"name":"Ember Two","region":"Near frontier","established":"2226-10-21"}'); check "a second sector is refused her: one sector per person" 403 "$r"
 r=$(req surveyor GET "$API/sectors"); assert_py "the sector list carries Ember, in name order" "$r" "[s['name'] for s in rows]==['Anvil','Bastion','Cinder','Dawn','Ember']"
@@ -898,11 +948,11 @@ r=$(req client GET "$PORTAL/user-domains"); assert_py "cleo's portal lists Ember
 # persona) as its directory. A sector's sign-in settings restrict its own door alone: a
 # session reaches every sector that seats the person, except a sector that is directory
 # only and whose directory is not the one they signed in through, which stays on the chart
-# marked closed, with the reason. The sign-in rule (signin.TenantPolicy, on both auths)
+# listed as not available, with the reason. The sign-in rule (signin.TenantPolicy, on both auths)
 # reads the declaration in the sign-in's transaction, and the chart reads the roster's
 # copy, reloaded after every write, so a declaration decides the next request.
 # The rigger, by password, holding SectorCrew in Anvil and Bastion and no global role,
-# charts Anvil alone, with Bastion closed; the bosun, whose only sector is Bastion, is
+# charts Anvil alone, with Bastion not available; the bosun, whose only sector is Bastion, is
 # refused at sign-in naming the rule; the navigator, through the fleet's directory, charts
 # every sector that seats him and is not directory only, Anvil among them though the
 # directory is Cinder's. Nobody types a directory in: the governor, marshal in every sector
@@ -910,8 +960,9 @@ r=$(req client GET "$PORTAL/user-domains"); assert_py "cleo's portal lists Ember
 # that names a method and a connection is refused. The navigator, made a marshal and a
 # super administrator, is signed in through the Workspace: he is refused a second sector
 # for it and a second directory for Bastion, removes it from Cinder, makes it Anvil's with
-# a create that names no directory, and is refused removing Bastion's while Bastion is
-# directory only. The switch is the sector's own, a method in the sector's scope that its
+# the sector's own method, which names no directory, and is refused removing Bastion's
+# while Bastion is directory only. The switch is the sector's own, a method in the
+# sector's scope that its
 # marshal runs; the Sectors record, which headquarters writes, shows the flag and takes
 # no write of it. Turning it off is plain: the governor, a marshal in every sector, does
 # it by password, the rigger's chart lights Bastion and the bosun signs in. Turning it on
@@ -929,54 +980,55 @@ r=$(req client GET "$PORTAL/user-domains"); assert_py "cleo's portal lists Ember
 # navigator makes the Workspace Cinder's again, and the governor takes the roles back. A
 # super administrator, the governor, keeps every sector throughout: no sector's sign-in
 # settings shut him out. The directory's row
-# carries a default seat (SectorDirectory.DefaultSeat), the role a person is given at
-# their first sign-in through the directory: Cinder's named SectorCrew, which seated the
+# carries a default seat (SectorDirectory.DefaultSeat), the role a person is given when
+# they sign in through the directory and hold nothing in the sector, at every sign-in:
+# Cinder's named SectorCrew, which seated the
 # navigator; a row set from a sign-in names none until the governor names one, and he
 # clears it with an explicit null, the way the Sign-in page's picker does, under Update on
 # the row.
 # Demonstrates: tenancy.declaration, tenancy.directory-only, tenancy.default-seat.
 login rigger
 r=$(req rigger GET "$API/user-domains"); assert_py "the rigger's chart lights Anvil alone: Bastion admits its people through its directory only, and she came by password" "$r" "$OPEN == ['$ANVIL_ID']"
-assert_py "and names Bastion closed to this sign-in, with the reason: she holds a seat there" "$r" "$CLOSED == {'$BASTION_ID': '$BY_PASSWORD'}"
+assert_py "and lists Bastion as not available, with the reason: she holds a seat there" "$r" "$UNAVAILABLE == {'$BASTION_ID': '$BY_PASSWORD'}"
 r=$(req rigger GET "$API/sectors/$BASTION_ID/wings"); check "Bastion answers her as a sector that does not exist" 404 "$r"
 r=$(req rigger GET "$ANVIL/wings"); check "Anvil's wings answer her" 200 "$r"
 rm -f "$S/bosun.jar"; curl -s -L -c "$S/bosun.jar" -b "$S/bosun.jar" -o /dev/null "$API/user/session"
-r=$(curl -s -c "$S/bosun.jar" -b "$S/bosun.jar" -H "X-XSRF-TOKEN: $(xsrf bosun)" -H 'Content-Type: application/json' -d '{"username":"bosun","password":"lodestar"}' -w '\n%{http_code}' "$API/user/password/login")
+r=$(curl -s -c "$S/bosun.jar" -b "$S/bosun.jar" -H "X-XSRF-TOKEN: $(xsrf bosun)" -H 'Content-Type: application/json' -d '{"username":"bosun","password":"follow-the-lodestar-home"}' -w '\n%{http_code}' "$API/user/password/login")
 check "the bosun, whose only sector is Bastion, is refused at sign-in" 401 "$r"
 assert_py "naming the rule: directory_only" "$r" "rows['code']=='directory_only'"
 r=$(req governor POST "$API/assign-crew-role" '{"username":"navigator","role":"Pilot","everyDomain":true}'); check "a role is given to an account, named by its id: a body that names the person by username is refused" 400 "$r"
 r=$(req governor POST "$API/assign-crew-role" '{"userId":"f0000000-0000-4000-8000-0000000000ff","role":"Pilot","everyDomain":true}'); check "and an id no account holds is refused: a role is held by an account" 404 "$r"
 r=$(req governor POST "$API/assign-crew-role" "{\"userId\":\"$NAVIGATOR_ID\",\"role\":\"Pilot\",\"everyDomain\":true}"); check "the governor gives the navigator the Pilot role in every sector, by the id of his account" 204 "$r"
 r=$(req navigator GET "$API/user-domains"); assert_py "the navigator, through the fleet's directory, charts every sector that seats him and is not directory only: the directory is Cinder's, and Anvil, Dawn and Ember admit him however he signed in" "$r" "$OPEN == sorted(['$ANVIL_ID','$CINDER_ID','$DAWN_ID','$EMBER_ID'])"
-assert_py "and Bastion, directory only, is closed to a session that came through another sector's directory" "$r" "$CLOSED == {'$BASTION_ID': '$THROUGH_THE_FLEET'}"
+assert_py "and Bastion, directory only, is closed to a session that came through another sector's directory" "$r" "$UNAVAILABLE == {'$BASTION_ID': '$THROUGH_THE_FLEET'}"
 r=$(req navigator GET "$API/sectors/$BASTION_ID/wings"); check "Bastion answers him as a sector that does not exist" 404 "$r"
-r=$(req governor GET "$API/user-domains"); assert_py "the governor keeps every sector, Bastion among them by password, with none closed: a super administrator, whom no sector's sign-in settings shut out" "$r" "$OPEN == sorted(['$ANVIL_ID','$BASTION_ID','$CINDER_ID','$DAWN_ID','$EMBER_ID']) and $CLOSED == {}"
+r=$(req governor GET "$API/user-domains"); assert_py "the governor keeps every sector, Bastion among them by password, with none listed as not available: a super administrator, whom no sector's sign-in settings shut out" "$r" "$OPEN == sorted(['$ANVIL_ID','$BASTION_ID','$CINDER_ID','$DAWN_ID','$EMBER_ID']) and $UNAVAILABLE == {}"
 r=$(req governor GET "$ANVIL/sector-directories"); assert_py "Anvil has no directory: the fleet's Google Workspace is Cinder's, and a directory belongs to one sector" "$r" "rows==[]"
 r=$(req governor GET "$API/sectors/$CINDER_ID/sector-directories"); assert_py "Cinder's directory is the fleet's Google Workspace, example, and its row names SectorCrew as its default seat" "$r" "[(d['method'],d['connection'],d.get('defaultSeat')) for d in rows]==[('google','example','SectorCrew')]"
 CINDER_DIRECTORY=$(body "$r" | py "print(rows[0]['id'])")
 r=$(req governor GET "$API/sectors/$BASTION_ID/sector-directories"); assert_py "Bastion's directory is the persona provider of the test environments, with no default seat: a sector that is directory only has the directory it is only of" "$r" "[(d['method'],d['connection'],d.get('defaultSeat')) for d in rows]==[('oidc','persona',None)]"
 BASTION_DIRECTORY=$(body "$r" | py "print(rows[0]['id'])")
-MAKE_ANVILS='[{"op":"add","path":"/sectors/'"$ANVIL_ID"'/sector-directories","value":{}}]'
-r=$(req rigger PATCH "$API/resources" "$MAKE_ANVILS"); check "the rigger holds no Create on SectorDirectories" 403 "$r"
+TAKE_ANVILS="$ANVIL/take-sector-directory"
+r=$(req rigger POST "$TAKE_ANVILS" '{}'); check "the rigger holds no grant on the sector's method that takes its directory" 403 "$r"
 r=$(req governor GET "$API/user/session"); assert_py "the governor's session names no directory: he signed in with a password" "$r" "'directory' not in rows"
-r=$(req governor PATCH "$API/resources" "$MAKE_ANVILS"); check "the governor, marshal in every sector, is refused making a directory Anvil's: nobody types a directory in, and he is signed in through none" 409 "$r"
+r=$(req governor POST "$TAKE_ANVILS" '{}'); check "the governor, marshal in every sector, is refused making a directory Anvil's: nobody types a directory in, and he is signed in through none" 409 "$r"
 assert_py "and the refusal says how a directory is set" "$r" "'You are signed in with a password. A directory is set by signing in through it' in rows['message']"
-r=$(req governor PATCH "$API/resources" '[{"op":"add","path":"/sectors/'"$ANVIL_ID"'/sector-directories","value":{"method":"google","connection":"example"}}]'); check "a request that names a method and a connection is refused: the record takes neither" 400 "$r"
+r=$(req governor PATCH "$API/resources" '[{"op":"add","path":"/sectors/'"$ANVIL_ID"'/sector-directories","value":{"method":"google","connection":"example"}}]'); check "the record's own create, which names a method and a connection, is refused: the record takes neither, and a directory is taken by the sector's own method" 400 "$r"
 r=$(req navigator GET "$API/user/session"); assert_py "the navigator's session names the organization's directory he came through, which is what the Sign-in page offers to make the sector's" "$r" "rows['directory']=={'method':'google','connection':'example'}"
 r=$(req governor POST "$API/assign-crew-role" "{\"userId\":\"$NAVIGATOR_ID\",\"role\":\"SectorMarshal\",\"everyDomain\":true}"); check "the governor makes the navigator a marshal in every sector" 204 "$r"
-r=$(req navigator PATCH "$API/resources" "$MAKE_ANVILS"); check "the navigator, a marshal at Anvil, is refused making the fleet's Workspace Anvil's: it is Cinder's, and a directory belongs to one sector" 409 "$r"
+r=$(req navigator POST "$TAKE_ANVILS" '{}'); check "the navigator, a marshal at Anvil, is refused making the fleet's Workspace Anvil's: it is Cinder's, and a directory belongs to one sector" 409 "$r"
 assert_py "and the refusal says what to do" "$r" "'Google Workspace example already has a sector here, and a directory belongs to one sector' in rows['message'] and 'administrator to invite you' in rows['message']"
 r=$(req governor GET "$ANVIL/sector-directories"); assert_py "Anvil still has no directory" "$r" "rows==[]"
-r=$(req navigator PATCH "$API/resources" '[{"op":"add","path":"/sectors/'"$CINDER_ID"'/sector-directories","value":{}}]'); check "and refused making it Cinder's a second time: a sector has one directory" 409 "$r"
+r=$(req navigator POST "$API/sectors/$CINDER_ID/take-sector-directory" '{}'); check "and refused making it Cinder's a second time: a sector has one directory" 409 "$r"
 assert_py "since it is the sector's directory already" "$r" "'Google Workspace example is already this sector' in rows['message']"
 r=$(req governor POST "$API/assign-crew-role" "{\"userId\":\"$NAVIGATOR_ID\",\"role\":\"SuperAdministrator\"}"); check "the governor makes the navigator a super administrator, which only a super administrator gives: the one person who enters a sector whatever its sign-in settings say" 204 "$r"
 r=$(req navigator GET "$API/user-domains"); check "giving the role ends nothing: the session he holds, through the fleet's directory, answers as before" 200 "$r"
-assert_py "and that session is a super administrator's from then on: his chart lights every sector, Bastion among them, with none closed" "$r" "$OPEN == sorted(['$ANVIL_ID','$BASTION_ID','$CINDER_ID','$DAWN_ID','$EMBER_ID']) and $CLOSED == {}"
-r=$(req navigator PATCH "$API/resources" '[{"op":"add","path":"/sectors/'"$BASTION_ID"'/sector-directories","value":{}}]'); check "the navigator is refused making the Workspace Bastion's: Bastion has its directory, and a sector has one" 409 "$r"
-assert_py "and the refusal names the directory it has and what to do" "$r" "'This sector already has a directory, OpenID Connect provider persona. A sector has one directory: remove it first to set another.' in rows['message']"
+assert_py "and that session is a super administrator's from then on: his chart lights every sector, Bastion among them, with none listed as not available" "$r" "$OPEN == sorted(['$ANVIL_ID','$BASTION_ID','$CINDER_ID','$DAWN_ID','$EMBER_ID']) and $UNAVAILABLE == {}"
+r=$(req navigator POST "$API/sectors/$BASTION_ID/take-sector-directory" '{}'); check "the navigator is refused making the Workspace Bastion's: Bastion has its directory, and a sector has one" 409 "$r"
+assert_py "and the refusal names the directory it has and what to do" "$r" "'This sector already has a directory, OpenID Connect provider Persona. A sector has one directory: remove it first to set another.' in rows['message']"
 r=$(req navigator PATCH "$API/resources" "[{\"op\":\"remove\",\"path\":\"/sectors/$CINDER_ID/sector-directories/$CINDER_DIRECTORY\"}]"); check "the navigator removes Cinder's directory: the Workspace is free for another sector" 200 "$r"
 r=$(req governor GET "$API/sectors/$CINDER_ID/crew-sector-user-roles"); assert_py "the role the directory gave him at Cinder stands once the directory is removed" "$r" "'SectorCrew' in [h['role'] for h in rows if h['username']=='navigator']"
-r=$(req navigator PATCH "$API/resources" "$MAKE_ANVILS"); check "the navigator makes the directory he is signed in through Anvil's, with a create that names no directory" 200 "$r"
+r=$(req navigator POST "$TAKE_ANVILS" '{}'); check "the navigator makes the directory he is signed in through Anvil's, with the sector's own method, which names no directory" 200 "$r"
 r=$(req governor GET "$ANVIL/sector-directories"); assert_py "Anvil's directory is the fleet's Workspace, taken from his session, and its row names no default seat" "$r" "[(d['method'],d['connection'],d.get('defaultSeat')) for d in rows]==[('google','example',None)]"
 ANVIL_DIRECTORY=$(body "$r" | py "print(rows[0]['id'])")
 r=$(req rigger GET "$API/user-domains"); assert_py "a directory closes its sector to nobody: the rigger, by password, still charts Anvil" "$r" "$OPEN == ['$ANVIL_ID']"
@@ -991,27 +1043,27 @@ r=$(req governor GET "$API/sectors/$BASTION_ID/sector-directories"); assert_py "
 # do and saves nothing. While it is on, Bastion's list of its people says who it keeps
 # out, and the warning has nothing to turn on.
 KEPT_OUT="Has not signed in through this sector's directory, so cannot enter while this sector is directory only"
-r=$(req governor GET "$API/sectors/$BASTION_ID/crew-sector-users?limit=200"); assert_py "Bastion's list of its people keeps the rigger, whose row says she cannot enter while Bastion is directory only: the list is made from who holds a role there, not from who can sign in" "$r" "[u.get('cannotEnter') for u in rows if u['username']=='rigger']==[\"$KEPT_OUT\"]"
+r=$(req governor GET "$API/sectors/$BASTION_ID/crew-sector-users?limit=200"); assert_py "Bastion's list of its people keeps the rigger, whose row says she cannot enter while Bastion is directory only: the list keeps everyone who holds a role there, whether or not they can sign in" "$r" "[u.get('cannotEnter') for u in rows if u['username']=='rigger']==[\"$KEPT_OUT\"]"
 assert_py "the bosun's and the pilot's rows say so too, and the governor's, a super administrator, says nothing" "$r" "[u.get('cannotEnter') for u in rows if u['username'] in ('bosun','pilot')]==[\"$KEPT_OUT\",\"$KEPT_OUT\"] and [u.get('cannotEnter') for u in rows if u['username']=='governor']==[None]"
 MAKE_ONLY="$API/sectors/$BASTION_ID/make-sector-directory-only"
 END_ONLY="$API/sectors/$BASTION_ID/end-sector-directory-only"
-r=$(req governor GET "$API/sectors/$BASTION_ID/directory-only"); assert_py "the governor, a marshal in every sector, reads Bastion's switch in the sector: it is on" "$r" "rows=={'directoryOnly': True}"
+r=$(req governor GET "$API/sectors/$BASTION_ID/sign-in-settings"); assert_py "the governor, a marshal in every sector, reads Bastion's switch in the sector: it is on" "$r" "rows['directoryOnly'] is True"
 r=$(warning governor "$MAKE_ONLY" '{}'); check "asked what turning it on would do while it is on, the warning is refused: there is nothing to turn on" 409 "$r"
 assert_py "and says so, naming neither Bastion's directory nor its people" "$r" "rows['message']=='This sector is directory only already: only people who sign in through its directory enter it. There is nothing to turn on.'"
 r=$(warning governor "$END_ONLY" '{}'); check "turning it off declares no warning: a request for one is refused, and runs nothing" 400 "$r"
 r=$(req governor POST "$END_ONLY" '{}'); check "the governor turns Bastion's directory only off with the sector's method, which is plain and held to no rule: while the switch is on Bastion answers the people it admits, and no sector's sign-in settings shut a super administrator out (Execute on EndSectorDirectoryOnly in the sector)" 200 "$r"
-r=$(req governor GET "$API/sectors/$BASTION_ID/directory-only"); assert_py "and the switch reads off" "$r" "rows=={'directoryOnly': False}"
+r=$(req governor GET "$API/sectors/$BASTION_ID/sign-in-settings"); assert_py "and the switch reads off" "$r" "rows['directoryOnly'] is False"
 r=$(req governor PATCH "$API/resources" '[{"op":"patch","path":"/sectors/'"$BASTION_ID"'","value":{"directoryOnly":true}}]'); check "the Sectors record shows the flag and never writes it: a patch of the record that carries it is refused, a super administrator's included" 400 "$r"
-r=$(req governor GET "$API/sectors/$BASTION_ID/directory-only"); assert_py "and nothing was written" "$r" "rows=={'directoryOnly': False}"
-r=$(req rigger GET "$API/user-domains"); assert_py "the rigger's chart lights Bastion at once, with nothing closed" "$r" "$OPEN == ['$ANVIL_ID','$BASTION_ID'] and $CLOSED == {}"
+r=$(req governor GET "$API/sectors/$BASTION_ID/sign-in-settings"); assert_py "and nothing was written" "$r" "rows['directoryOnly'] is False"
+r=$(req rigger GET "$API/user-domains"); assert_py "the rigger's chart lights Bastion at once, with nothing listed as not available" "$r" "$OPEN == ['$ANVIL_ID','$BASTION_ID'] and $UNAVAILABLE == {}"
 r=$(req governor GET "$API/sectors/$BASTION_ID/crew-sector-users?limit=200"); assert_py "and no row of Bastion's people says anything while it is off" "$r" "all(u.get('cannotEnter') is None for u in rows)"
-r=$(curl -s -c "$S/bosun.jar" -b "$S/bosun.jar" -H "X-XSRF-TOKEN: $(xsrf bosun)" -H 'Content-Type: application/json' -d '{"username":"bosun","password":"lodestar"}' -w '\n%{http_code}' "$API/user/password/login")
+r=$(curl -s -c "$S/bosun.jar" -b "$S/bosun.jar" -H "X-XSRF-TOKEN: $(xsrf bosun)" -H 'Content-Type: application/json' -d '{"username":"bosun","password":"follow-the-lodestar-home"}' -w '\n%{http_code}' "$API/user/password/login")
 check "and the bosun's password is taken, the sign-in waiting for its code" 200 "$r"
 second_factor bosun "$API" bosun@fleet.example "$LOG"
 r=$(req bosun GET "$API/user/session"); assert_py "and the bosun signs in" "$r" "rows['authenticated'] and rows['username']=='bosun'"
 # Turning it on is held to its rules. The governor holds the grant and signed in with a
 # password: he is not signed in through Bastion's directory.
-NOT_THROUGH_IT='Directory only is turned on by a person who is signed in through this sector'"'"'s directory, OpenID Connect provider persona: that shows the directory works, and that you will not shut yourself out. You signed in with a password. Sign in through OpenID Connect provider persona and try again.'
+NOT_THROUGH_IT='Directory only is turned on by a person who is signed in through this sector'"'"'s directory, OpenID Connect provider Persona: that shows the directory works, and that you will not shut yourself out. You signed in with a password. Sign in through OpenID Connect provider Persona and try again.'
 r=$(warning governor "$MAKE_ONLY" '{}'); check "the governor asks what turning it on would do, and is refused: he is not signed in through Bastion's directory" 409 "$r"
 assert_py "in a sentence that says why, and what to do" "$r" "rows['message']==\"$NOT_THROUGH_IT\""
 r=$(req governor POST "$MAKE_ONLY" '{}'); check "and the method is refused the same way: turning directory only on takes a person signed in through the sector's directory" 409 "$r"
@@ -1045,7 +1097,7 @@ r=$(warning rookie "$MAKE_ONLY" '{}'); check "the rookie, Bastion's marshal and 
 assert_py "in a sentence that says why, and what to do" "$r" "rows['message']==\"$NO_PASSWORD\""
 r=$(dryrun rookie POST "$MAKE_ONLY" '{}'); check "the dry run is refused the same way" 409 "$r"
 r=$(req rookie POST "$MAKE_ONLY" '{}'); check "and so is the method" 409 "$r"
-r=$(req rookie POST "$API/user/first-password" '{"code":"000000","password":"lodestar"}'); check "no first password without the mailed code: none was asked for, and the password is refused" 409 "$r"
+r=$(req rookie POST "$API/user/first-password" '{"code":"000000","password":"follow-the-lodestar-home"}'); check "no first password without the mailed code: none was asked for, and the password is refused" 409 "$r"
 r=$(req rigger POST "$API/user/first-password/code"); check "an account that has a password is refused the code: the rigger changes hers with the one she has" 409 "$r"
 r=$(req rookie POST "$API/user/first-password/code"); check "the rookie asks for the code of a first password and is told his account has no confirmed address: the simulated provider vouched for him under his login name" 409 "$r"
 assert_py "in a sentence that says what to do" "$r" "rows['message'].startswith('Your account has no confirmed email address') and 'confirm it from the link we send you' in rows['message']"
@@ -1059,16 +1111,16 @@ first_codes=$(grep -ac "$FIRST_CODES" "$LOG")
 r=$(req rookie POST "$API/user/first-password/code"); check "the rookie asks again, and the code is mailed to the address he confirmed" 200 "$r"
 for _ in $(seq 1 100); do [ "$(grep -ac "$FIRST_CODES" "$LOG")" -gt "$first_codes" ] && break; sleep 0.1; done
 FIRST_CODE=$(grep -a "$FIRST_CODES" "$LOG" | tail -1 | sed -E 's/.*password is ([0-9]{3}) ([0-9]{3}).*/\1\2/')
-r=$(req rookie POST "$API/user/first-password" "{\"code\":\"$FIRST_CODE\",\"password\":\"lodestar\"}"); check "and chooses his password with it" 200 "$r"
+r=$(req rookie POST "$API/user/first-password" "{\"code\":\"$FIRST_CODE\",\"password\":\"follow-the-lodestar-home\"}"); check "and chooses his password with it" 200 "$r"
 r=$(req rookie GET "$API/user/session"); assert_py "his session stands, the one the persona provider opened: a first password ends no session" "$r" "rows['authenticated'] and rows['username']=='rookie' and rows['directory']=={'method':'oidc','connection':'persona'}"
 r=$(req rookie POST "$API/user/first-password/code"); check "and his account takes no second first password" 409 "$r"
 r=$(warning rookie "$MAKE_ONLY" '{}'); check "the rookie, signed in through Bastion's directory and with a password of his own, asks what turning it on would do" 200 "$r"
-assert_py "the server writes the words: who will be able to enter, that an administrator of the sector who has a password still gets in, how many seated there will not, and what the button says; the count takes in the portal's members, whom a marshal does not list, so the sentence says the names are the people he may list" "$r" "(lambda m: m is not None and int(m.group(1)) > len(rows['names']) and int(m.group(2)) == len(rows['names']))(__import__('re').fullmatch(r'Only people who sign in through persona will be able to enter this sector\. An administrator of this sector who has a password can still sign in with it and a code sent to their email\. (\d+) people seated here sign in another way and will lose access\. The (\d+) of them you may list are named here\.', rows['consequence'])) and rows['confirm']=='Admit only people who sign in through persona'"
+assert_py "the server writes the words: who will be able to enter, that an administrator of the sector who has a password still gets in, how many seated there will not, and what the button says; the count takes in the portal's members, whom a marshal does not list, so the sentence says the names are the people he may list" "$r" "(lambda m: m is not None and int(m.group(1)) > len(rows['names']) and int(m.group(2)) == len(rows['names']))(__import__('re').fullmatch(r'Only people who sign in through Persona will be able to enter this sector\. An administrator of this sector who has a password can still sign in with it and a code sent to their email\. (\d+) people seated here sign in another way and will lose access\. The (\d+) of them you may list are named here\.', rows['consequence'])) and rows['confirm']=='Admit only people who sign in through Persona'"
 assert_py "and names them to him as a list of their own, since a marshal lists the sector's people, each by name and sign-in name in the order of their sign-in names: the rigger, the bosun and the pilot among them, and neither the rookie, who signed in through the directory, nor the governor, a super administrator" "$r" "(lambda users: users==sorted(users) and {'rigger','bosun','pilot'} <= set(users) and not {'rookie','governor'} & set(users))([n.split(' (')[-1].rstrip(')') for n in rows['names']])"
 r=$(req rigger GET "$API/user-domains"); assert_py "asking writes nothing: the rigger still charts Bastion" "$r" "$OPEN == ['$ANVIL_ID','$BASTION_ID']"
 r=$(req rookie POST "$MAKE_ONLY" '{}'); check "the rookie turns Bastion's directory only on with the sector's method: he is its marshal, signed in through its directory" 200 "$r"
 r=$(req governor GET "$API/sectors/$BASTION_ID"); assert_py "and the Sectors record shows the flag" "$r" "rows['directoryOnly'] is True"
-r=$(req rigger GET "$API/user-domains"); assert_py "the rigger is kept out again at once, and her chart says why" "$r" "$OPEN == ['$ANVIL_ID'] and $CLOSED == {'$BASTION_ID': '$BY_PASSWORD'}"
+r=$(req rigger GET "$API/user-domains"); assert_py "the rigger is kept out again at once, and her chart says why" "$r" "$OPEN == ['$ANVIL_ID'] and $UNAVAILABLE == {'$BASTION_ID': '$BY_PASSWORD'}"
 # A sector's own marshal keeps a way in, so a sector whose directory has a problem can be
 # mended by the people who run it: the role held in Bastion itself, a password and the
 # code sent to the person's email. The rigger signed in that way; made a marshal of
@@ -1076,17 +1128,20 @@ r=$(req rigger GET "$API/user-domains"); assert_py "the rigger is kept out again
 # people says nothing, and the role taken back closes the door at her next request.
 RIGGER_ID=$(account rigger)
 r=$(req governor POST "$API/assign-crew-role" "{\"userId\":\"$RIGGER_ID\",\"role\":\"SectorMarshal\",\"domain\":\"$BASTION_ID\"}"); check "the governor makes the rigger a marshal of Bastion itself" 204 "$r"
-r=$(req rigger GET "$API/user-domains"); assert_py "the rigger's chart lights Bastion at her next request, with nothing closed: Bastion admits its own marshal by her password and the code" "$r" "$OPEN == ['$ANVIL_ID','$BASTION_ID'] and $CLOSED == {}"
-r=$(req rigger GET "$API/sectors/$BASTION_ID/directory-only"); assert_py "and she reads Bastion's switch, which she could turn off from the inside: it is on" "$r" "rows=={'directoryOnly': True}"
+r=$(req rigger GET "$API/user-domains"); assert_py "the rigger's chart lights Bastion at her next request, with nothing listed as not available: Bastion admits its own marshal by her password and the code" "$r" "$OPEN == ['$ANVIL_ID','$BASTION_ID'] and $UNAVAILABLE == {}"
+r=$(req rigger GET "$API/sectors/$BASTION_ID/sign-in-settings"); assert_py "and she reads Bastion's switch, which she could turn off from the inside: it is on" "$r" "rows['directoryOnly'] is True"
+r=$(req governor GET "$API/sectors/$BASTION_ID/sign-in-settings"); assert_py "the governor reads Bastion's sign-in settings, which say whether the sector vouches for its directory's second factor" "$r" "'secondFactor' in rows"
+r=$(warning governor "$API/sectors/$BASTION_ID/vouch-for-sector-directory-second-factor" '{}'); check "signed in with a password, the governor is refused the warning of vouching for Bastion's directory: only a person signed in through it may say so" 409 "$r"
+r=$(warning governor "$API/sectors/$DAWN_ID/vouch-for-sector-directory-second-factor" '{}'); check "and in Dawn, which has no directory, there is no directory to vouch for" 409 "$r"
 r=$(req governor GET "$API/sectors/$BASTION_ID/crew-sector-users?limit=200"); assert_py "Bastion's list of its people says nothing of her now, and still says the bosun cannot enter" "$r" "[u.get('cannotEnter') for u in rows if u['username']=='rigger']==[None] and [u.get('cannotEnter') for u in rows if u['username']=='bosun']==[\"$KEPT_OUT\"]"
 r=$(req governor POST "$API/remove-crew-role" "{\"userId\":\"$RIGGER_ID\",\"role\":\"SectorMarshal\",\"domain\":\"$BASTION_ID\"}"); check "the governor takes the marshal's role back from the rigger" 204 "$r"
-r=$(req rigger GET "$API/user-domains"); assert_py "and the door closes at her next request, not at her next sign-in" "$r" "$OPEN == ['$ANVIL_ID'] and $CLOSED == {'$BASTION_ID': '$BY_PASSWORD'}"
-r=$(req bosun GET "$API/user-domains"); assert_py "the bosun's chart goes dark: the session stands, and reaches no sector, with Bastion closed" "$r" "$OPEN == [] and $CLOSED == {'$BASTION_ID': '$BY_PASSWORD'}"
-r=$(req rookie GET "$API/user-domains"); assert_py "the rookie, through Bastion's directory, enters it, and every other sector however he signed in" "$r" "$OPEN == sorted(['$ANVIL_ID','$BASTION_ID','$CINDER_ID','$DAWN_ID','$EMBER_ID']) and $CLOSED == {}"
+r=$(req rigger GET "$API/user-domains"); assert_py "and the door closes at her next request, not at her next sign-in" "$r" "$OPEN == ['$ANVIL_ID'] and $UNAVAILABLE == {'$BASTION_ID': '$BY_PASSWORD'}"
+r=$(req bosun GET "$API/user-domains"); assert_py "the bosun's chart goes dark: the session stands, and reaches no sector, with Bastion not available" "$r" "$OPEN == [] and $UNAVAILABLE == {'$BASTION_ID': '$BY_PASSWORD'}"
+r=$(req rookie GET "$API/user-domains"); assert_py "the rookie, through Bastion's directory, enters it, and every other sector however he signed in" "$r" "$OPEN == sorted(['$ANVIL_ID','$BASTION_ID','$CINDER_ID','$DAWN_ID','$EMBER_ID']) and $UNAVAILABLE == {}"
 r=$(req rookie GET "$API/sectors/$BASTION_ID/missions"); check "Bastion's missions answer him" 200 "$r"
 r=$(req governor POST "$API/remove-crew-role" "{\"userId\":\"$ROOKIE_ID\",\"role\":\"SectorMarshal\",\"domain\":\"$BASTION_ID\"}"); check "the governor takes the marshal's role back from the rookie" 204 "$r"
 r=$(req navigator PATCH "$API/resources" "[{\"op\":\"remove\",\"path\":\"/sectors/$ANVIL_ID/sector-directories/$ANVIL_DIRECTORY\"}]"); check "the navigator removes Anvil's directory: Anvil is not directory only, and the Workspace is free again" 200 "$r"
-r=$(req navigator PATCH "$API/resources" '[{"op":"add","path":"/sectors/'"$CINDER_ID"'/sector-directories","value":{}}]'); check "the navigator makes the fleet's Workspace Cinder's directory again" 200 "$r"
+r=$(req navigator POST "$API/sectors/$CINDER_ID/take-sector-directory" '{}'); check "the navigator makes the fleet's Workspace Cinder's directory again, with the sector's own method" 200 "$r"
 r=$(req governor GET "$API/sectors/$CINDER_ID/sector-directories"); assert_py "a row set from a sign-in names no default seat: a stranger from the fleet's directory is admitted by invitation only until one is named" "$r" "[(d['method'],d['connection'],d.get('defaultSeat')) for d in rows]==[('google','example',None)]"
 CINDER_DIRECTORY=$(body "$r" | py "print(rows[0]['id'])")
 # How a sector admits its directory's people is the sector's own to say, with two more
@@ -1098,7 +1153,7 @@ r=$(req marshal POST "$OPEN_CINDER" '{"role":"SectorCrew"}'); check "Cinder does
 r=$(req governor PATCH "$API/resources" "[{\"op\":\"patch\",\"path\":\"/sectors/$CINDER_ID/sector-directories/$CINDER_DIRECTORY\",\"value\":{\"defaultSeat\":\"SectorCrew\"}}]"); check "the record's update does not take the default seat: it is named with the sector's method" 400 "$r"
 r=$(req governor POST "$OPEN_CINDER" '{"role":"Admiral"}'); check "a role that is not one of the sector's is refused" 400 "$r"
 r=$(warning governor "$OPEN_CINDER" '{"role":"SectorCrew"}'); check "the governor asks what opening Cinder to its directory with SectorCrew would do" 200 "$r"
-assert_py "the server writes the words: who will enter and with what role, and what the button says" "$r" "rows['consequence']=='Anyone who signs in through example will be able to enter this sector without an invitation and gets the role SectorCrew.' and rows['confirm']=='Open to people who sign in through example'"
+assert_py "the server writes the words: who will enter and with what role, and what the button says" "$r" "rows['consequence']=='Anyone who signs in through example will be able to enter this sector without an invitation and gets the role Sector crew.' and rows['confirm']=='Open to people who sign in through example'"
 r=$(req governor GET "$API/sectors/$CINDER_ID/sector-directories"); assert_py "asking wrote nothing: the row names no seat" "$r" "[d.get('defaultSeat') for d in rows]==[None]"
 r=$(req governor POST "$OPEN_CINDER" '{"role":"SectorCrew"}'); check "the governor opens Cinder to its directory's people, each given SectorCrew" 200 "$r"
 r=$(req governor GET "$API/sectors/$CINDER_ID/sector-directories"); assert_py "the row names SectorCrew" "$r" "[d.get('defaultSeat') for d in rows]==['SectorCrew']"
@@ -1107,12 +1162,32 @@ r=$(req governor GET "$API/sectors/$CINDER_ID/sector-directories"); assert_py "t
 r=$(req governor POST "$OPEN_CINDER" '{"role":"SectorCrew"}'); check "and opens it with SectorCrew again" 200 "$r"
 r=$(req governor GET "$API/sectors/$CINDER_ID/sector-directories"); assert_py "the row names SectorCrew" "$r" "[d.get('defaultSeat') for d in rows]==['SectorCrew']"
 r=$(req governor POST "$API/remove-crew-role" "{\"userId\":\"$NAVIGATOR_ID\",\"role\":\"SuperAdministrator\"}"); check "the governor takes the Super Administrator role back from the navigator" 204 "$r"
-r=$(req navigator GET "$API/user-domains"); assert_py "and Bastion is closed to the navigator again: he is no super administrator now and no marshal of Bastion's own signed in with a password, and every sector that is not directory only still admits him" "$r" "$OPEN == sorted(['$ANVIL_ID','$CINDER_ID','$DAWN_ID','$EMBER_ID']) and $CLOSED == {'$BASTION_ID': '$THROUGH_THE_FLEET'}"
+r=$(req navigator GET "$API/user-domains"); assert_py "and Bastion is closed to the navigator again: he is no super administrator now and no marshal of Bastion's own signed in with a password, and every sector that is not directory only still admits him" "$r" "$OPEN == sorted(['$ANVIL_ID','$CINDER_ID','$DAWN_ID','$EMBER_ID']) and $UNAVAILABLE == {'$BASTION_ID': '$THROUGH_THE_FLEET'}"
 
 # ---- squadrons config page: the array config's request ----
 # The Squadrons page's "Other squadrons in this sector" is an arrayConfig over the same resource, its listFilter excluding the page's row by the indexed key; Squadrons declares a maximum, so the library asks one server page (the key column alone, with the count) and draws each row by the iterated config. Demonstrates: config.array.
 r=$(req marshal GET "$ANVIL/squadrons?columns=id&filter=id:ne:$HAMMER&count=true"); check "the other squadrons in Anvil: one server page of the squadrons that are not Hammer" 200 "$r"
 assert_py "the page holds Tongs alone, its key and nothing else" "$r" "[s['id'] for s in rows]==['$TONGS'] and all(set(s)=={'id'} for s in rows)"
+
+# ---- the Hangars page: a create in a dialog, a pass held by a group ----
+# The Hangars page is a list of the open sector drawn from its config, and its create opens in a dialog, as every list's does: Add a hangar opens the form over the list, the form sends its one add to the hangars' own route (Hangar is left off the consolidated patch, so the new id comes back under ids), and the list reads its rows again. A hangar's own page lists its passes, each holder by name: a pass holds its group's id, and the Group column resolves the ids on the page against the sector's groups with one in filter. The Bay keepers, a group kept in Anvil, hold the seeded pass to run the Quarantine Bay, and the sentry, who is in the group, holds no pass and flies with no squadron, has the bay through them alone. Add a pass is the page's second dialog: a pass with no holder is refused in words the dialog shows, and one given to the group picked from the sector's groups opens the new hangar to the sentry at his next request. Demonstrates: list.create-dialog, @subjectSet.on-groups.
+login sentry
+r=$(req sentry GET "$ANVIL/hangars"); assert_py "the sentry's hangars are the bay alone: no pass names him and he flies with no squadron, and the Bay keepers, his group, hold a pass to run it" "$r" "[h['name'] for h in rows]==['Quarantine Bay']"
+r=$(req marshal PATCH "$ANVIL/hangars" '[{"op":"add","path":"/","value":{"name":"Anvil Dock Two","zone":"dock"}}]'); check "the marshal adds a hangar through the dialog: the form's one add, on the hangars' own route" 200 "$r"
+DOCK_TWO=$(body "$r" | py "print(rows['ids'][0])")
+r=$(req marshal GET "$ANVIL/hangars?columns=id,name,zone&count=true"); assert_py "the list reads its rows again, and the new hangar is on it in its place" "$r" "[(h['id'],h['name']) for h in rows]==[('$DOCK_ONE','Anvil Dock One'),('$DOCK_TWO','Anvil Dock Two'),('$QUARANTINE_BAY','Quarantine Bay')]"
+r=$(req marshal GET "$ANVIL/hangar-passes?filter=hangarId:eq:$QUARANTINE_BAY&columns=id,userId,squadronId,groupId,levelId,expiresAt"); check "the bay's page lists the bay's passes" 200 "$r"
+assert_py "one of them names a group and nobody else, at the run level" "$r" "[(p.get('userId'),p.get('squadronId'),p['levelId']) for p in rows if p.get('groupId')]==[(None,None,'run')]"
+BAY_KEEPERS=$(body "$r" | py "print([p['groupId'] for p in rows if p.get('groupId')][0])")
+r=$(req marshal GET "$ANVIL/crew-sector-groups?filter=id:in:($BAY_KEEPERS)&columns=id,name&limit=1"); assert_py "and the Group column draws it by name: the page's group ids resolved against the sector's groups with one in filter" "$r" "[g['name'] for g in rows]==['Bay keepers']"
+r=$(req marshal GET "$ANVIL/crew-sector-groups?columns=id,name"); assert_py "the group picker on a pass offers the sector's groups, the Bay keepers among them under the id the pass holds" "$r" "any(g['id']=='$BAY_KEEPERS' and g['name']=='Bay keepers' for g in rows)"
+r=$(req marshal PATCH "$API/resources" "[{\"op\":\"add\",\"path\":\"/sectors/$ANVIL_ID/hangar-passes\",\"value\":{\"hangarId\":\"$DOCK_TWO\",\"levelId\":\"visit\"}}]"); check "a pass with no holder is refused" 400 "$r"
+assert_py "in words the Add a pass dialog shows as they are" "$r" "'a pass needs a holder: choose a person, a squadron or a group' in rows['message']"
+r=$(req marshal PATCH "$API/resources" "[{\"op\":\"add\",\"path\":\"/sectors/$ANVIL_ID/hangar-passes\",\"value\":{\"hangarId\":\"$DOCK_TWO\",\"groupId\":\"$BAY_KEEPERS\",\"levelId\":\"visit\"}}]"); check "the marshal adds a pass through the dialog: the Bay keepers visit the new dock" 200 "$r"
+r=$(req marshal GET "$ANVIL/hangar-passes?filter=hangarId:eq:$DOCK_TWO&columns=id,userId,squadronId,groupId,levelId,expiresAt"); assert_py "the new dock's page lists the pass, held by the group" "$r" "[(p.get('userId'),p.get('squadronId'),p.get('groupId'),p['levelId']) for p in rows]==[(None,None,'$BAY_KEEPERS','visit')]"
+r=$(req sentry GET "$ANVIL/hangars"); assert_py "and the new dock is the sentry's at his next request, through the group" "$r" "[h['name'] for h in rows]==['Anvil Dock Two','Quarantine Bay']"
+r=$(req sentry PATCH "$ANVIL/hangars" "[{\"op\":\"patch\",\"path\":\"/$DOCK_TWO\",\"value\":{\"zone\":\"apron\"}}]"); check "the sentry is refused re-zoning the new dock: the group visits it" 403 "$r"
+r=$(req sentry PATCH "$ANVIL/hangars" "[{\"op\":\"patch\",\"path\":\"/$QUARANTINE_BAY\",\"value\":{\"zone\":\"quarantine\"}}]"); check "and writes the bay's zone: the group runs it" 200 "$r"
 
 # ---- salvage hold: the nullable walk, the receipt ----
 page=$(curl -s -D "$S/hold.h" -L -b "$S/supercargo.jar" -H "X-XSRF-TOKEN: $(xsrf supercargo)" "$ANVIL/consignments?limit=4")
@@ -1140,7 +1215,7 @@ r=$(req cadet GET "$API/permission-digest?domain=$ANVIL_ID"); assert_py "cadet's
 r=$(req cadet PATCH "$API/resources" '[{"op":"add","path":"/sectors/'"$ANVIL_ID"'/distress-calls","value":{"summary":"Debris on the approach","severity":2}}]'); check "cadet files a two-field call" 200 "$r"
 r=$(req cadet GET "$ANVIL/distress-calls?limit=100"); assert_py "the cadet's call log holds her own calls alone, the seeded one and the one just filed: filedBy = subject compares the id of her account, which the seed wrote and the server stamped" "$r" "sorted(c['summary'] for c in rows)==['Debris field reported on the approach lane','Debris on the approach']"
 r=$(req marshal GET "$ANVIL/distress-calls?limit=100"); assert_py "the marshal's log says who filed the new call by the id of the cadet's account, with her username beside it for the page" "$r" "[(c['filedByUserId'],c['filedByName']) for c in rows if c['summary']=='Debris on the approach']==[('$CADET_ID','cadet')]"
-# The Update envelope speaks for every field the caller may write, projected or not: the marshal's grant covers the write-only transcript, which no read returns, and the envelope on a seeded call names it, so the Calls page's edit form draws its blank input. Demonstrates: field.write-only.
+# The Update envelope speaks for every field the caller may write, projected or not: the marshal's grant covers the write-only transcript, which no read returns, and the envelope on a seeded call names it, so the call log's edit form draws its blank input. Demonstrates: field.write-only.
 r=$(req marshal GET "$ANVIL/distress-calls/$BEACON_CALL?capabilities=Update"); assert_py "the marshal's Update envelope on a seeded call names the write-only transcript the read never returns" "$r" "'transcript' in rows['zzCapabilities']['Update'] and 'transcript' not in rows and rows['zzCapabilities']['Update']==sorted(rows['zzCapabilities']['Update'])"
 
 # ---- droid channel ----
@@ -1166,7 +1241,7 @@ else
 fi
 
 # ---- portal ----
-r=$(req client GET "$PORTAL/user-domains"); assert_py "cleo's portal lists every sector that is not directory only, Dawn and Ember charted above among them, and names Bastion closed: the directory's domain role is held in every sector" "$r" "$OPEN == sorted(['$ANVIL_ID','$CINDER_ID','$DAWN_ID','$EMBER_ID']) and $CLOSED == {'$BASTION_ID': '$THROUGH_THE_FLEET'}"
+r=$(req client GET "$PORTAL/user-domains"); assert_py "cleo's portal lists every sector that is not directory only, Dawn and Ember charted above among them, and lists Bastion as not available: the directory's domain role is held in every sector" "$r" "$OPEN == sorted(['$ANVIL_ID','$CINDER_ID','$DAWN_ID','$EMBER_ID']) and $UNAVAILABLE == {'$BASTION_ID': '$THROUGH_THE_FLEET'}"
 r=$(req client GET "$PORTAL/sectors/$ANVIL_ID/missions?capabilities=Execute&limit=200"); check "cleo tracks Halvard's missions" 200 "$r"
 assert_py "portal width excludes assignedSquadronId/notes/settlement" "$r" "rows and all('assignedSquadronId' not in m and 'settlement' not in m for m in rows)"
 assert_py "Stand down lights only on her company's open, claimed, or on-hold rows" "$r" "all(('StandDownMission' in m['zzCapabilities']['Execute']) == (m['statusId'] in ('open','claimed','on_hold')) for m in rows)"
@@ -1178,47 +1253,187 @@ r=$(req client PATCH "$PORTAL/resources" '[{"op":"add","path":"/sectors/'"$ANVIL
 r=$(req client GET "$PORTAL/sectors/$ANVIL_ID/distress-calls?limit=100"); assert_py "cleo's portal lists her own calls alone, the seeded five and the one just filed: filedBy = subject compares the id of her account in the members auth" "$r" "len(rows)==6 and 'Hauler drifting' in [c['summary'] for c in rows] and all('filedByUserId' not in c for c in rows)"
 r=$(req marshal GET "$ANVIL/distress-calls?limit=100"); assert_py "the console says a client filed it: the id of her members account, which is no crew account's, and her username beside it" "$r" "[(c['filedByUserId'],c['filedByName']) for c in rows if c['summary']=='Hauler drifting']==[('$CLIENT_ID','client')]"
 r=$(req client GET "$PORTAL/sectors/$ANVIL_ID/refits"); check "refits are not a portal member" 404 "$r"
-r=$(req client GET "$PORTAL/sectors/$ANVIL_ID/client-statements"); check "cleo reads her company's statement (the portal-only manual resource)" 200 "$r"
-assert_py "the statement carries the stand-down of her company's mission" "$r" "any(l['missionId']=='$QUARANTINE' for l in rows)"
-r=$(req marshal GET "$ANVIL/client-statements"); check "the statement is not mounted on the console" 404 "$r"
+r=$(req client GET "$PORTAL/sectors/$ANVIL_ID/missions/$QUARANTINE/changes"); check "cleo reads the history of her company's mission on the portal" 200 "$r"
+assert_py "the history carries her stand-down of it" "$r" "any(f['field']=='statusId' and f['new']=='stood_down' for e in rows['changes'] for f in e['fields'])"
 
-# ---- ship's log ----
-r=$(req archivist GET "$ANVIL/ships-log-entries"); check "archivist reads the ship's log" 200 "$r"
-assert_py "the hail is in the log as a touch" "$r" "any(e['tableName']=='Ships' and list((e.get('changeSet') or {}).keys())==['UpdatedAt'] for e in rows)"
-r=$(req cadet GET "$ANVIL/ships-log-entries"); check "cadet holds no log grant" 403 "$r"
+# ---- a ship's history ----
+r=$(req marshal GET "$ANVIL/ships/$KINGFISHER/changes"); check "the marshal reads the Kingfisher's history" 200 "$r"
+assert_py "the hail is in it as a touch: a record that changed the update time alone" "$r" "any([f['field'] for f in e['fields']]==['updatedAt'] for e in rows['changes'])"
+r=$(req cadet GET "$ANVIL/ships/$KINGFISHER/changes"); check "the cadet, who may not read the ships, may not read a ship's history" 403 "$r"
 
 # ---- bulletin ----
 r=$(req marshal POST "$API/issue-bulletin" '{"announcement":"All hands: drill at 0600"}'); check "bulletin officer issues a bulletin" 200 "$r"
 r=$(req cadet POST "$API/issue-bulletin" '{"announcement":"unauthorized"}'); check "cadet refused the bulletin" 403 "$r"
 
-# ---- impersonation: view as, act as, the watch desk ----
+# ---- impersonation: view as a person, act as a person, act as a role, the watch desk ----
+# Impersonation is granted with a mask. The console declares three kinds, each with the
+# grant that allows it and the widest mask that grant gives: view (ViewAsUser, reading
+# only), act (ActAsUser, everything except the credential actions) and role (AssumeRole).
+# A request may ask for less than its kind gives, never for more: more is refused, not
+# trimmed, and nothing is started.
+#
 # A view-as session names the person to view as by the id of their account, which is how
 # the permission store names a person, and the session library refuses a principal that
 # is no id. What a person reads stays a name: the session answers the cadet's username,
-# the watch desk lists both people by username, and a change written under a role is
-# signed with the actor's username and the id of their account.
-r=$(req marshal POST "$API/impersonate" '{"kind":"user","principal":"cadet","reason":"walkthrough"}'); check "a view-as session names the person by the id of their account: a username as the principal is refused" 400 "$r"
+# the watch desk (the list of the crew auth's impersonation records) names the actor by
+# username and reads the cadet's from the account the record names by id, and a change
+# written under a role is signed with the actor's username and the id of their account.
+r=$(req marshal POST "$API/impersonate" '{"kind":"view","principal":"cadet","reason":"walkthrough"}'); check "a view-as session names the person by the id of their account: a username as the principal is refused" 400 "$r"
 r=$(req marshal GET "$API/user/session"); assert_py "and the console is still Maren's" "$r" "rows['username']=='marshal' and not rows.get('impersonation')"
-r=$(req marshal POST "$API/impersonate" "{\"kind\":\"user\",\"principal\":\"$CADET_ID\",\"reason\":\"walkthrough\"}"); check "marshal mints a view-as session, as the cadet's account" 200 "$r"
+r=$(req marshal POST "$API/impersonate" "{\"kind\":\"view\",\"principal\":\"$CADET_ID\",\"reason\":\"walkthrough\",\"mask\":[\"List\",\"Read\",\"Execute\"]}"); check "a view is reading only at most: a request for more than the grant gives is refused, not trimmed" 403 "$r"
+r=$(req marshal POST "$API/impersonate" "{\"kind\":\"act\",\"principal\":\"$CADET_ID\",\"reason\":\"walkthrough\"}"); check "the grant to view is not the grant to act: the marshal holds view-as alone" 403 "$r"
+r=$(req marshal GET "$API/user/session"); assert_py "and neither refusal started anything" "$r" "rows['username']=='marshal' and not rows.get('impersonation')"
+r=$(req marshal POST "$API/impersonate" "{\"kind\":\"view\",\"principal\":\"$CADET_ID\",\"reason\":\"walkthrough\"}"); check "marshal mints a view-as session, as the cadet's account" 200 "$r"
+assert_py "and is told what the session may do" "$r" "rows['mask']=='reading only'"
 MINTED=$(body "$r" | py "print(rows['sessionId'])")
 r=$(req marshal GET "$API/user/session"); assert_py "the console is now Cass's" "$r" "rows['username']=='cadet' and rows['impersonation']['actor']=='marshal'"
 r=$(req marshal GET "$ANVIL/missions?capabilities=Execute&limit=200"); assert_py "every edge unlit under the mask" "$r" "rows and all(not m['zzCapabilities']['Execute'] for m in rows)"
 r=$(req marshal POST "$ANVIL/claim-mission" "{\"missionId\":\"$HAULER\",\"squadronId\":\"$TONGS\"}"); check "a forged write on the read-only session is stopped at the door by EnforceReadOnlyMask" 403 "$r"
-r=$(req marshal POST "$API/impersonate" "{\"kind\":\"user\",\"principal\":\"$PILOT_ID\"}"); check "chaining is refused" 403 "$r"
-r=$(req governor GET "$API/impersonations"); check "the governor's watch desk lists the live sessions" 200 "$r"
-assert_py "the minted session is listed with its two-hour cap, both people by username: the desk reads the cadet's name from the account the record names by id" "$r" "any(s['sessionId']=='$MINTED' and s['actor']=='marshal' and s['kind']=='user' and s['principal']=='cadet' for s in rows)"
-r=$(req cadet GET "$API/impersonations"); check "the cadet may not operate the desk" 403 "$r"
+r=$(req marshal POST "$API/impersonate" "{\"kind\":\"view\",\"principal\":\"$PILOT_ID\"}"); check "chaining is refused" 403 "$r"
+r=$(req governor GET "$API/crew-session-impersonations?limit=200"); check "the governor's watch desk lists the sessions held as someone else" 200 "$r"
+assert_py "the minted session is listed, still open, with its mask in words: the marshal by username, the cadet by the username the record keeps, beside the id of the account" "$r" "any(s['sessionId']=='$MINTED' and s['actorUsername']=='marshal' and s['principalKind']=='User' and s['principalUserId']=='$CADET_ID' and s['principalUsername']=='cadet' and s['mask']=='reading only' and not s.get('endedAt') for s in rows)"
+r=$(req governor GET "$API/crew-session-users?limit=200"); assert_py "and the list of the crew's accounts answers that id as the cadet's" "$r" "any(u['id']=='$CADET_ID' and u['username']=='cadet' for u in rows)"
+r=$(req cadet GET "$API/crew-session-impersonations"); check "the cadet may not operate the desk" 403 "$r"
 r=$(req marshal POST "$API/impersonate/end" '{}'); assert_py "marshal returns to self" "$r" "rows['restored'] is True"
 r=$(req marshal GET "$API/user/session"); assert_py "the console is Maren's again, no record" "$r" "rows['username']=='marshal' and not rows.get('impersonation')"
-r=$(req marshal POST "$API/impersonate" "{\"kind\":\"user\",\"principal\":\"$CADET_ID\",\"reason\":\"to be revoked\"}"); check "marshal mints another view-as session" 200 "$r"
+r=$(req marshal POST "$API/impersonate" "{\"kind\":\"view\",\"principal\":\"$CADET_ID\",\"reason\":\"to be revoked\"}"); check "marshal mints another view-as session" 200 "$r"
 MINTED=$(body "$r" | py "print(rows['sessionId'])")
-r=$(req governor DELETE "$API/impersonations/$MINTED"); check "the governor revokes it from the watch desk" 204 "$r"
+r=$(req cadet POST "$API/end-crew-session-impersonation" "{\"sessionId\":\"$MINTED\"}"); check "the cadet may not revoke it" 403 "$r"
+r=$(req governor POST "$API/end-crew-session-impersonation" "{\"sessionId\":\"$MINTED\"}"); check "the governor revokes it from the watch desk" 204 "$r"
 r=$(req marshal GET "$ANVIL/missions"); check "the revoked console's next request is refused" 401 "$r"
+r=$(req governor GET "$API/crew-session-impersonations/$MINTED"); assert_py "the desk keeps the record, ended as revoked" "$r" "rows['endedAt'] and rows['endReason']=='Revoked'"
 login marshal
+# Act as a person: the governor holds the StandIn role, the grant to act (ActAsUser), and
+# acts as the marshal. The session does what the marshal may do, except the actions
+# classed credential and the actions classed access. The generator classes access the
+# writes of the records that decide what a person may do (a pilot's registry row, a
+# certification, a client's contact, a place in a squadron, a hangar pass, and a
+# squadron's own row, which says which wing its members are in), so the mask names none
+# of them to refuse it: the session cannot change how anyone signs in or who may do
+# what, and its digest leaves those out, so no page offers them. The kind keeps one of
+# those records out of the class, the hangar passes, which a person who stands in for an
+# administrator hands out, and the mask says so in its words. An account disabled,
+# enabled or deleted carries no class: that is work a person who stands in for an
+# administrator does, so the session disables and enables an account as the marshal may.
+#
+# The refusal is shown on a person the marshal's own grant reaches, so it is the mask's
+# and not her roles': her sector's credential methods stop at a person whose account the
+# sector does not manage, and Anvil, which has no directory, manages no seeded person's
+# (each holds a role somewhere else), so she first invites one into Anvil, who accepts
+# with a password of their own and is then a person whose account Anvil manages, and runs
+# the method herself, as a dry run.
+r=$(req marshal GET "$API/permission-digest?domain=$ANVIL_ID"); assert_py "the marshal's own digest carries her sector's credential methods" "$r" "'Execute' in rows.get('RequireCrewSectorPasswordChange',{}) and 'Execute' in rows.get('SetCrewSectorUserEmail',{})"
+r=$(req marshal POST "$ANVIL/invite-crew-sector-user" '{"email":"gus@example.com","roles":["Cadet"]}'); check "the marshal invites a person into Anvil" 200 "$r"
+GUS_TOKEN=$(invitation_mailed gus@example.com "$LOG" | grep -ao 'invitation=[A-Za-z0-9_-]*' | head -1 | cut -d= -f2)
+curl -s -L -c "$S/gus.jar" -b "$S/gus.jar" -o /dev/null "$API/user/session"
+r=$(req gus POST "$API/user/invitation" '{"token":"'"$GUS_TOKEN"'"}'); check "the invited person follows the mailed link" 200 "$r"
+r=$(req gus POST "$API/user/invitation/sign-up" '{"username":"gus","password":"orbit-and-anchor"}'); check "and signs up with a password of their own" 200 "$r"
+second_factor gus "$API" gus@example.com "$LOG"
+r=$(req marshal GET "$ANVIL/crew-sector-user-roles"); assert_py "Anvil's list of the roles held carries the new person, whom Anvil holds alone" "$r" "[h['role'] for h in rows if h['username']=='gus']==['Cadet']"
+GUS_ID=$(body "$r" | py "print([h['userId'] for h in rows if h['username']=='gus'][0])")
+r=$(dryrun marshal POST "$ANVIL/set-crew-sector-user-email" "{\"userId\":\"$GUS_ID\",\"email\":\"gus.new@example.com\"}"); check "the marshal herself may set that person's address: her dry run would commit" 200 "$r"
+ACT_MASK='everything except access actions (still allowed: writing HangarPasses) and credential actions'
+r=$(req governor POST "$API/impersonate" "{\"kind\":\"act\",\"principal\":\"$MARSHAL_ID\",\"reason\":\"walkthrough\"}"); check "governor mints a session that acts as the marshal" 200 "$r"
+assert_py "and is told what the session may do" "$r" "rows['mask']=='$ACT_MASK'"
+ACTING=$(body "$r" | py "print(rows['sessionId'])")
+r=$(req governor GET "$API/user/session"); assert_py "the console is Maren's, and its record carries the mask" "$r" "rows['username']=='marshal' and rows['impersonation']['actor']=='governor' and rows['impersonation']['refusedClasses']==['access','credential'] and rows['impersonation']['maskWords']=='$ACT_MASK'"
+r=$(req governor POST "$API/issue-bulletin" '{"announcement":"Relief watch: drill moved to 0700"}'); check "acting as the marshal, a write of hers lands" 200 "$r"
+r=$(req governor POST "$ANVIL/set-crew-sector-user-email" "{\"userId\":\"$GUS_ID\",\"email\":\"gus.new@example.com\"}"); check "the same credential action on the same person is refused the session that acts as her: the mask refuses it, where her own roles allow it" 403 "$r"
+r=$(req marshal POST "$ANVIL/set-crew-sector-user-email" "{\"userId\":\"$GUS_ID\",\"email\":\"gus.new@example.com\"}"); check "and the marshal, in a session of her own, sets the address" 200 "$r"
+r=$(req governor POST "$ANVIL/assign-crew-sector-role" "{\"userId\":\"$GUS_ID\",\"role\":\"Pilot\"}"); check "an action that changes who may do what is refused the session too: the mask refuses the class access" 403 "$r"
+r=$(req governor PATCH "$API/resources" "[{\"op\":\"add\",\"path\":\"/sectors/$ANVIL_ID/squadron-memberships/$TONGS/$GUS_ID\",\"value\":{}}]"); check "and so is a write of a record that decides what a person may do, a place in a squadron: the record's writes are classed access" 403 "$r"
+r=$(req governor POST "$ANVIL/disable-crew-sector-user" "{\"userId\":\"$GUS_ID\"}"); check "an account disabled carries no class: the session that acts as her disables the person's account, as she may" 204 "$r"
+r=$(req governor POST "$ANVIL/enable-crew-sector-user" "{\"userId\":\"$GUS_ID\"}"); check "and enables it again" 204 "$r"
+r=$(req governor GET "$API/permission-digest?domain=$ANVIL_ID"); assert_py "the session's digest leaves the credential and the access methods out and keeps their neighbors, the account's switches among them" "$r" "'RequireCrewSectorPasswordChange' not in rows and 'SetCrewSectorUserEmail' not in rows and 'AssignCrewSectorRole' not in rows and 'Execute' in rows.get('SetCrewSectorUserName',{}) and 'Execute' in rows.get('DisableCrewSectorUser',{}) and 'Execute' in rows.get('EnableCrewSectorUser',{})"
+r=$(req marshal GET "$API/crew-session-impersonations?limit=200"); assert_py "the watch desk says what the session may do, in words" "$r" "any(s['sessionId']=='$ACTING' and s['actorUsername']=='governor' and s['principalUserId']=='$MARSHAL_ID' and s['mask']=='$ACT_MASK' for s in rows)"
+r=$(req governor POST "$API/impersonate/end" '{}'); assert_py "governor returns to self" "$r" "rows['restored'] is True"
+
+# The act kind keeps the writes of hangar passes, so a person who stands in for the
+# marshal hands out a pass. Whom a pass reaches is then held by the rule that nobody is
+# the subject of what they do while they act as someone else. A pass names a person or a
+# squadron, and a pass given to a squadron is given to everyone who flies with it: the
+# rule asks whether the real person behind the session flies with it, by the squadron
+# set's own declaration. The pilot flies with Tongs. The governor gives him the grant to
+# act as a person and the grant to act as a role. Acting as the marshal he gives a pass
+# to another person and to a squadron he does not fly with, and takes both back; he is
+# refused a pass for himself, a pass for Tongs, and a change to the pass Tongs holds. A
+# request may drop the kind's exception and may never add one. Under a role, where no
+# mask stands in front, the same rule holds the row his wings are read through: he does
+# not move Tongs to another wing, he renames it, and he moves a squadron he does not
+# fly with.
+# Demonstrates: impersonation.never-the-subject, impersonation.grant-mask.
+r=$(req governor POST "$API/assign-crew-role" "$(role "$PILOT_ID" StandIn)"); check "the governor gives the pilot the grant to act as a person" 204 "$r"
+r=$(req governor POST "$API/assign-crew-role" "$(role "$PILOT_ID" CommandStaff)"); check "and the grant to act as a role" 204 "$r"
+login pilot
+give_pass() { echo "[{\"op\":\"add\",\"path\":\"/sectors/$ANVIL_ID/hangar-passes\",\"value\":{\"hangarId\":\"$QUARANTINE_BAY\",\"$1\":\"$2\",\"levelId\":\"visit\"}}]"; } # give_pass <userId|squadronId> <id>: a visiting pass to the Quarantine Bay, as one operation of the consolidated patch
+move() { echo "[{\"op\":\"patch\",\"path\":\"/sectors/$ANVIL_ID/squadrons/$1\",\"value\":{\"wingId\":\"$2\"}}]"; } # move <squadron> <wing>
+TONGS_PASS=61000000-0000-4000-8000-000000000001   # the pass Tongs runs Anvil Dock One by
+ACTING_AS='You are acting as someone else, so you cannot'
+r=$(req pilot POST "$API/impersonate" "{\"kind\":\"act\",\"principal\":\"$MARSHAL_ID\",\"reason\":\"walkthrough\"}"); check "the pilot mints a session that acts as the marshal" 200 "$r"
+assert_py "whose mask keeps the writes of hangar passes" "$r" "rows['mask']=='$ACT_MASK'"
+r=$(req pilot PATCH "$API/resources" "$(give_pass userId "$CADET_ID")"); check "acting as the marshal, he gives the cadet a pass: the kind keeps the record's writes out of the class access" 200 "$r"
+r=$(req pilot PATCH "$API/resources" "$(give_pass squadronId "$HAMMER")"); check "and gives one to Hammer, a squadron he does not fly with" 200 "$r"
+r=$(req pilot PATCH "$API/resources" "$(give_pass userId "$PILOT_ID")"); check "a pass for his own account is refused" 403 "$r"
+assert_py "he is told that he is acting as someone else" "$r" "'$ACTING_AS add your own hangar pass record.' in json.dumps(rows)"
+r=$(req pilot PATCH "$API/resources" "$(give_pass squadronId "$TONGS")"); check "so is a pass for Tongs, which he flies with: a pass given to a squadron is given to its people" 403 "$r"
+assert_py "for the same reason" "$r" "'$ACTING_AS add a hangar pass record for one of your own squadrons.' in json.dumps(rows)"
+r=$(req pilot PATCH "$API/resources" "[{\"op\":\"patch\",\"path\":\"/sectors/$ANVIL_ID/hangar-passes/$TONGS_PASS\",\"value\":{\"levelId\":\"visit\"}}]"); check "and so is a change to the pass Tongs holds" 403 "$r"
+assert_py "for the same reason" "$r" "'$ACTING_AS change a hangar pass record of one of your own squadrons.' in json.dumps(rows)"
+r=$(req pilot GET "$ANVIL/hangar-passes"); assert_py "the two passes he gave are there, and the pass Tongs holds is as it was" "$r" "len([p for p in rows if p['hangarId']=='$QUARANTINE_BAY' and p['levelId']=='visit' and (p.get('userId')=='$CADET_ID' or p.get('squadronId')=='$HAMMER')])==2 and [p['levelId'] for p in rows if p['id']=='$TONGS_PASS']==['run']"
+for given in $(body "$r" | py "print(' '.join(p['id'] for p in rows if p['hangarId']=='$QUARANTINE_BAY' and p['levelId']=='visit' and (p.get('userId')=='$CADET_ID' or p.get('squadronId')=='$HAMMER')))"); do
+  r=$(req pilot PATCH "$API/resources" "[{\"op\":\"remove\",\"path\":\"/sectors/$ANVIL_ID/hangar-passes/$given\"}]"); check "he takes a pass he gave back: the kind keeps a removal with the other writes" 200 "$r"
+done
+r=$(req pilot POST "$API/impersonate/end" '{}'); assert_py "the pilot returns to self" "$r" "rows['restored'] is True"
+r=$(req pilot POST "$API/impersonate" "{\"kind\":\"act\",\"principal\":\"$MARSHAL_ID\",\"reason\":\"walkthrough\",\"refuseClasses\":[\"access\"]}"); check "a request may drop the exception: it names the class access and keeps nothing out of it" 200 "$r"
+assert_py "and the session's mask keeps no pass" "$r" "rows['mask']=='everything except access actions and credential actions'"
+r=$(req pilot PATCH "$API/resources" "$(give_pass userId "$CADET_ID")"); check "that session is refused the cadet's pass" 403 "$r"
+assert_py "by its mask, which answers before the rule is asked" "$r" "'$ACTING_AS' not in json.dumps(rows)"
+r=$(req pilot POST "$API/impersonate/end" '{}'); assert_py "the pilot returns to self" "$r" "rows['restored'] is True"
+r=$(req pilot POST "$API/impersonate" "{\"kind\":\"act\",\"principal\":\"$MARSHAL_ID\",\"reason\":\"walkthrough\",\"refuseClasses\":[\"access\"],\"exceptWrites\":[\"Pilots\"]}"); check "a request never adds an exception its kind does not give: it is refused, not trimmed" 403 "$r"
+r=$(req pilot GET "$API/user/session"); assert_py "and nothing was started" "$r" "rows['username']=='pilot' and not rows.get('impersonation')"
+r=$(req pilot POST "$API/impersonate" '{"kind":"role","principal":"SectorMarshal","reason":"walkthrough"}'); check "the pilot acts as the Sector Marshal role, a kind with no mask" 200 "$r"
+r=$(req pilot GET "$API/user/session"); assert_py "the session's record names him as the actor, the person the rule asks about" "$r" "rows['impersonation']['actor']=='pilot'"
+r=$(req pilot PATCH "$API/resources" "[{\"op\":\"add\",\"path\":\"/sectors/$ANVIL_ID/wings\",\"value\":{\"name\":\"Reserve Wing\"}}]"); check "he adds a wing to Anvil" 200 "$r"
+r=$(req pilot GET "$ANVIL/wings")
+RESERVE=$(body "$r" | py "print([w['id'] for w in rows if w['name']=='Reserve Wing'][0])")
+FORGE=$(body "$r" | py "print([w['id'] for w in rows if w['name']=='Forge Wing'][0])")
+r=$(req pilot PATCH "$API/resources" "$(move "$TONGS" "$RESERVE")"); check "Tongs moved to the new wing is refused: the wings he is in are read through the row of the squadron he flies with" 403 "$r"
+assert_py "he is told that he is acting as someone else" "$r" "'$ACTING_AS change the wing id of the squadron record that decides your own wings.' in json.dumps(rows)"
+r=$(req pilot PATCH "$API/resources" "$(give_pass squadronId "$TONGS")"); check "the pass for Tongs is refused under a role as it is under the mask" 403 "$r"
+assert_py "for the same reason as before" "$r" "'$ACTING_AS add a hangar pass record for one of your own squadrons.' in json.dumps(rows)"
+r=$(req pilot PATCH "$API/resources" "[{\"op\":\"patch\",\"path\":\"/sectors/$ANVIL_ID/squadrons/$TONGS\",\"value\":{\"name\":\"Tongs Reforged\"}}]"); check "Tongs renamed goes through: a change that leaves the wing alone moves nobody's standing, so the rule is not asked" 200 "$r"
+r=$(req pilot PATCH "$API/resources" "[{\"op\":\"patch\",\"path\":\"/sectors/$ANVIL_ID/squadrons/$TONGS\",\"value\":{\"name\":\"Tongs\"}}]"); check "and it takes its name back" 200 "$r"
+r=$(req pilot PATCH "$API/resources" "$(move "$HAMMER" "$RESERVE")"); check "Hammer, which he does not fly with, moves to the new wing" 200 "$r"
+r=$(req pilot PATCH "$API/resources" "$(move "$HAMMER" "$FORGE")"); check "and back to the Forge Wing" 200 "$r"
+r=$(req pilot PATCH "$API/resources" "[{\"op\":\"remove\",\"path\":\"/sectors/$ANVIL_ID/wings/$RESERVE\"}]"); check "the new wing is removed, and Anvil is as it was" 200 "$r"
+r=$(req pilot POST "$API/impersonate/end" '{}'); assert_py "the pilot returns to self" "$r" "rows['restored'] is True"
+
+# Nobody is the subject of what they do while they act as someone else. The marshal
+# holds CommandStaff, the grant to act as a role, and acts as Headquarters, the role that
+# gives the crew's roles and manages the accounts no sector manages. The kind is
+# unmasked, so the session holds everything headquarters may do, and is refused each of
+# those things on the marshal's own account: the rule is the identity library's, and
+# reads the session's record, not its mask. The same act on anyone else goes through, and
+# her own row is still read.
+r=$(req marshal POST "$API/impersonate" '{"kind":"role","principal":"Headquarters","reason":"walkthrough"}'); check "the marshal acts as the Headquarters role" 200 "$r"
+assert_py "with no mask" "$r" "rows['mask']=='everything'"
+r=$(req marshal POST "$API/assign-crew-role" "{\"userId\":\"$MARSHAL_ID\",\"role\":\"StandIn\"}"); check "acting as headquarters, she is refused a role given to her own account" 403 "$r"
+assert_py "and told that she is acting as someone else, so she cannot give herself a role" "$r" "rows['message']=='You are acting as someone else, so you cannot give yourself a role.'"
+curl -s -L -c "$S/stranger.jar" -b "$S/stranger.jar" -o /dev/null "$API/user/session"
+r=$(curl -s -w '\n%{http_code}' -c "$S/stranger.jar" -b "$S/stranger.jar" -H "X-XSRF-TOKEN: $(xsrf stranger)" -H 'Content-Type: application/json' \
+  -d '{"username":"marshal","password":"not the password"}' "$API/user/password/login"); check "a wrong password for the marshal, from a browser of nobody's, is counted under her name" 401 "$r"
+r=$(req marshal POST "$API/unlock-crew-sign-in" '{"name":"marshal"}'); check "nor does she unlock her own sign-in" 403 "$r"
+assert_py "for the same reason" "$r" "rows['message']=='You are acting as someone else, so you cannot unlock your own sign-in.'"
+r=$(req marshal PATCH "$API/resources" '[{"op":"patch","path":"/pilots/30000000-0000-4000-8000-000000000002","value":{"clearance":5}}]'); check "nor write her own row of the pilots' registry, which her clearance is read from: the record's generated write asks the same rule" 403 "$r"
+assert_py "for the same reason" "$r" "'You are acting as someone else, so you cannot change your own pilot record.' in json.dumps(rows)"
+r=$(dryrun marshal POST "$API/assign-crew-role" "{\"userId\":\"$CADET_ID\",\"role\":\"StandIn\"}"); check "the same role given to another person would go through: the dry run would commit" 200 "$r"
+r=$(req marshal GET "$API/crew-session-users/$MARSHAL_ID"); check "her own row is still read" 200 "$r"
+r=$(req marshal GET "$API/crew-session-impersonations"); assert_py "the generated list of impersonation records says each session's mask in words" "$r" "any(s['sessionId']=='$ACTING' and s['mask']=='$ACT_MASK' for s in rows) and any(s['mask']=='everything' and s['endedAt'] is None for s in rows) and any(s['mask']=='reading only' for s in rows)"
+r=$(req marshal POST "$API/impersonate/end" '{}'); assert_py "the marshal returns to self" "$r" "rows['restored'] is True"
 r=$(req governor POST "$API/impersonate" '{"kind":"role","principal":"Dispatcher","reason":"walkthrough"}'); check "governor assumes the Dispatcher role" 200 "$r"
 r=$(req governor PATCH "$API/resources" "[{\"op\":\"patch\",\"path\":\"/sectors/$ANVIL_ID/missions/$COURIER\",\"value\":{\"deadline\":\"$(days +88)\"}}]"); check "deadline extended under the role (grant B, on hold is not terminal)" 200 "$r"
 r=$(req governor PATCH "$API/resources" "[{\"op\":\"patch\",\"path\":\"/sectors/$ANVIL_ID/missions/$CORVID\",\"value\":{\"assignedSquadronId\":\"$HAMMER\"}}]"); check "assignment refused on a claimed mission: subject is Greer, not a dispatcher" 403 "$r"
-r=$(req archivist GET "$ANVIL/ships-log-entries"); assert_py "the log names 'governor (the id of his account) as role Dispatcher', with the session" "$r" "any(e['eventSource'].startswith('governor ($GOVERNOR_ID) as role Dispatcher, session ') and $UUID(e['eventSource'].rsplit(' ',1)[1]) for e in rows)"
+r=$(req marshal GET "$ANVIL/missions/$COURIER/changes"); assert_py "the courier's history names 'governor, acting as the role Dispatcher'" "$r" "any(e['source']=='governor, acting as the role Dispatcher' for e in rows['changes'])"
 
 # ---- the overdue flip ----
 if [ "${LODESTAR_SKIP_FLIP:-}" != 1 ]; then
@@ -1231,5 +1446,10 @@ if [ "${LODESTAR_SKIP_FLIP:-}" != 1 ]; then
   check "overseer reassigns the claimed mission once overdue (deadline < now flipped)" 200 "$r"
 fi
 
+# Every request of the run is behind this: no line of the server's log holds a mailed
+# link's token but the mail that carried it, whichever kind of link it is and whether or
+# not the walkthrough followed it.
+mailed_tokens_only_in_mail "$LOG"
+
 echo
-if [ "$fails" -eq 0 ]; then echo "ALL CHECKS PASSED"; else echo "$fails CHECK(S) FAILED"; fi
+if [ "$fails" -eq 0 ]; then echo "ALL CHECKS PASSED"; else echo "$fails CHECK(S) FAILED"; exit 1; fi

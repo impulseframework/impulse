@@ -1,6 +1,7 @@
 package generation
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/impulseframework/impulse/accesstypes"
@@ -115,7 +116,11 @@ type consolidatedPatchData struct {
 	// HasTenant says the tenant record or the directories record is among the cases:
 	// the dispatcher then reloads the roster after a commit that wrote either, and
 	// signals the tenants kind.
-	HasTenant           bool
+	HasTenant bool
+	// TakesRowsUnder says a case's delete may take rows under its record
+	// (resourceInfo.TakesRowsUnder): the dispatcher keeps the rows its deletes took
+	// where one left rows under its record, and answers 202 with them.
+	TakesRowsUnder      bool
 	DomainRouteSegment  string
 	DomainPatternPrefix string // "/stations/{stationID}" — the chi pattern the descent case prefix-matches
 	Package             string
@@ -137,10 +142,20 @@ type consolidatedCaseData struct {
 	DomainPatternPrefix string // "" for global cases
 	ResourcePackage     string
 	ReceiverName        string
-	// Clears are the application's accessors of the identity clients the tenant
-	// record's delete clears the tenant through (tenantClears); empty on every other
-	// case.
-	Clears []string
+	// KindsFrom are the application's accessors of the identity clients whose kinds the
+	// tenant record's delete is handed, what each auth holds for the tenant
+	// (tenantKindSources); empty on every other case.
+	KindsFrom []string
+	// RecordKinds is what the delete of a record a role can be held on is handed, the
+	// roles each auth holds on it (recordKindsHanding); nil on every other case.
+	RecordKinds *recordKindsHanding
+	// RequiresDisabled is what the tenant record's delete asks of the tenant before its
+	// removal is buffered (tenantDisabledRequirement); nil on every other case.
+	RequiresDisabled *tenantDisabledRequirement
+	// DirectoryRemovalRecorder is the application's accessor of the identity client whose
+	// audit log the directories record's delete records the removal in
+	// (directoryRemovalRecorder); empty on every other case.
+	DirectoryRemovalRecorder string
 }
 
 func (d *consolidatedPatchData) typeImports() []fixerImport {
@@ -158,10 +173,20 @@ type handlerContentData struct {
 	VirtualResourcesPackage string
 	ApplicationName         string
 	ReceiverName            string
-	// Clears are the application's accessors of the identity clients the tenant
-	// record's delete clears the tenant through (tenantClears); empty on every other
-	// resource.
-	Clears []string
+	// KindsFrom are the application's accessors of the identity clients whose kinds the
+	// tenant record's delete is handed, what each auth holds for the tenant
+	// (tenantKindSources); empty on every other resource.
+	KindsFrom []string
+	// RecordKinds is what the delete of a record a role can be held on is handed, the
+	// roles each auth holds on it (recordKindsHanding); nil on every other resource.
+	RecordKinds *recordKindsHanding
+	// RequiresDisabled is what the tenant record's delete asks of the tenant before its
+	// removal is buffered (tenantDisabledRequirement); nil on every other resource.
+	RequiresDisabled *tenantDisabledRequirement
+	// DirectoryRemovalRecorder is the application's accessor of the identity client whose
+	// audit log the directories record's delete records the removal in
+	// (directoryRemovalRecorder); empty on every other resource.
+	DirectoryRemovalRecorder string
 	// Home is where the handler is written, nil for the application's handler package:
 	// it says what the handler hands to every publish (handlerHome.LiveDerivations).
 	Home *handlerHome
@@ -199,6 +224,18 @@ type collectionFileData struct {
 	Source  string
 	Package string
 	Data    resource.CollectionData
+}
+
+// Classes lists the classes the collection's actions carry, each with the constant the
+// collection file declares for it. The names were checked when the data was computed
+// (computeCollectionData), so a clash, which would fail there, leaves none here.
+func (d *collectionFileData) Classes() []actionClassConstant {
+	constants, err := actionClassConstants(&d.Data)
+	if err != nil {
+		return nil
+	}
+
+	return constants
 }
 
 type routerFileData struct {
@@ -455,6 +492,9 @@ type domainGuardData struct {
 	LocalPackageImports string
 	ApplicationName     string
 	ReceiverName        string
+	// Word is what the guard's 404 calls one tenant: the tenant record's label where it
+	// declares one, else its name in words, in lower case ("sector", "ship class").
+	Word string
 	// ConcealedDomains adds the caller's foothold (HasGrants) to the guard's question
 	// after the roster and the session's reach, collapsing "unauthorized" into
 	// "nonexistent" (WithConcealedDomains).
@@ -472,6 +512,14 @@ type decodersFileData struct {
 	// RouterPackage qualifies the generated collection the query decoders render
 	// conditional grants against.
 	RouterPackage string
+	// NameViews is the views the query decoders are handed, which a name that points
+	// into a view is read from: the application's merged nameViews, an auth's own
+	// package's NameViews, or nil where the auth's package declares none.
+	NameViews string
+	// NamedRowSources is the call that answers the named-row sources the decoders a write
+	// can come through are handed: the application's namedRowSources, which merges each
+	// auth's, or an auth's own NamedRowSources.
+	NamedRowSources string
 	// The Has* fields emit each constructor only when a generated handler calls it,
 	// so an application carries no constructor its code does not use.
 	HasQueryDecoder         bool
@@ -538,6 +586,11 @@ type authzCase struct {
 	// as if the domain did not exist: 404 from the route guard, 400 from the
 	// consolidated dispatcher's operation-path descent.
 	DeniedStatus string
+	// OutsideTenantGuard marks a case for a route the tenant guard does not wrap: a
+	// route of a resource that is not domain scoped, the tenant record's history (below
+	// its read, under the tenant's key) among them. Concealed domains leave its denied
+	// case the plain refusal.
+	OutsideTenantGuard bool
 	// Headers are request headers the case sends (the dry-run header).
 	Headers []authzHeader
 	// Open marks a route anyone signed in may call: the case carries no grant and
@@ -632,6 +685,25 @@ type tsConstantsData struct {
 	// generated methods.
 	ManualMethods []accesstypes.Resource
 	PIIMap        map[accesstypes.Resource]map[accesstypes.Tag]bool
+	// NameFields are each resource's name fields, which the field-name constants are
+	// written for beside its registered tags.
+	NameFields tsNameFields
+}
+
+// tsNameFields are each resource's name fields by JSON name, in field order. A name
+// field registers no tag, since a name takes no grant of its own, so the field-name
+// constants read them from here.
+type tsNameFields map[accesstypes.Resource][]accesstypes.Tag
+
+// FieldNameTags are the names a resource's field-name constants are written for: its
+// registered tags, then its name fields.
+func (n tsNameFields) FieldNameTags(res accesstypes.Resource, tags []accesstypes.Tag) []accesstypes.Tag {
+	names := n[res]
+	if len(names) == 0 {
+		return tags
+	}
+
+	return append(slices.Clone(tags), names...)
 }
 
 type tsResourcesData struct {

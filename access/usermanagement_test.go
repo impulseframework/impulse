@@ -18,7 +18,7 @@ func seededManager(t *testing.T) (*userManager, *fakeStore) {
 	ctx := context.Background()
 
 	store := newFakeStore()
-	m := newUserManager(newStoreManager(store), nil, testEngine(t, store, nil), nil)
+	m := newUserManager(newStoreManager(store), nil, testEngine(t, store, nil), nil, fixtureCollection)
 
 	for _, seed := range []struct {
 		scope accesstypes.PolicyScope
@@ -619,7 +619,7 @@ func Test_userManager_AddRole_nameGrammar(t *testing.T) {
 	if !httpio.HasBadRequest(err) {
 		t.Fatalf("AddRole() error = %v, want a bad request", err)
 	}
-	want := "role Tenant_Administrator: a role name is letters and digits starting with a capital letter, such as Administrator or TenantAdministrator; the scope is never part of the name"
+	want := "The name \"Tenant_Administrator\" cannot be used for a role. A role's name is letters and digits and starts with a capital letter, such as Administrator or TenantAdministrator."
 	if got := httpio.Message(err); got != want {
 		t.Errorf("AddRole() message = %q, want %q", got, want)
 	}

@@ -25,6 +25,10 @@ type Tables struct {
 	// it is open to sign-up, and the role a person who signs up through it is given. A
 	// method with no row is invite only.
 	SignInMethods string
+	// SignInSettings holds what an administrator chose for the whole Auth: whether
+	// everyone is asked for a second factor, and how long a remembered browser skips the
+	// code. With no row the second factor is required.
+	SignInSettings string
 	// MailLinks holds the invitations, address verifications and sign-ups the Auth
 	// mails, FactorCodes the sign-in codes it mails, and TrustedDevices the browsers
 	// people asked to be remembered after a code.
@@ -40,6 +44,9 @@ type Tables struct {
 	// (sessionstorage.NewAuthEventsTable, sessionstorage.NewImpersonationTable).
 	AuthEvents     string
 	Impersonations string
+	// AuditRecords holds the auth's audit log: one row for each act that changes an
+	// account, who holds what, or how people sign in (the auditlog package).
+	AuditRecords string
 }
 
 // DefaultTables answers the library's own names, the ones an Auth reads and writes when
@@ -52,6 +59,7 @@ func DefaultTables() Tables {
 		PendingSignIns: dbtype.PendingSignInsTable,
 		SignInAttempts: dbtype.SignInAttemptsTable,
 		SignInMethods:  dbtype.SignInMethodsTable,
+		SignInSettings: dbtype.SignInSettingsTable,
 		MailLinks:      dbtype.MailLinksTable,
 		FactorCodes:    dbtype.FactorCodesTable,
 		TrustedDevices: dbtype.TrustedDevicesTable,
@@ -59,6 +67,7 @@ func DefaultTables() Tables {
 		DeviceCodes:    dbtype.DeviceCodesTable,
 		AuthEvents:     dbtype.AuthEventsTable,
 		Impersonations: dbtype.ImpersonationsTable,
+		AuditRecords:   dbtype.AuditRecordsTable,
 	}
 }
 
@@ -70,8 +79,8 @@ func DefaultTables() Tables {
 func TablesWithPrefix(prefix string) (Tables, error) {
 	tables := DefaultTables()
 	for _, name := range []*string{
-		&tables.Sessions, &tables.Users, &tables.Identities, &tables.PendingSignIns, &tables.SignInAttempts, &tables.SignInMethods, &tables.MailLinks,
-		&tables.FactorCodes, &tables.TrustedDevices, &tables.Tokens, &tables.DeviceCodes, &tables.AuthEvents, &tables.Impersonations,
+		&tables.Sessions, &tables.Users, &tables.Identities, &tables.PendingSignIns, &tables.SignInAttempts, &tables.SignInMethods, &tables.SignInSettings, &tables.MailLinks,
+		&tables.FactorCodes, &tables.TrustedDevices, &tables.Tokens, &tables.DeviceCodes, &tables.AuthEvents, &tables.Impersonations, &tables.AuditRecords,
 	} {
 		*name = prefix + *name
 		if err := dbtype.ValidateTableName(*name); err != nil {

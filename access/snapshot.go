@@ -24,6 +24,13 @@ type snapshot struct {
 	fields    []map[string]uint16 // by resource ID: field name -> bit position
 	loadedAt  time.Time
 
+	// collection is what the release declares, and scopes the scope it holds
+	// each resource in, by resource ID. A check reads them for one thing: the
+	// fields a grant of all of a resource's fields does not reach
+	// (allFieldsLeaveOut).
+	collection PermissionCollection
+	scopes     []accesstypes.PermissionScope
+
 	// Policy is held in three places and read in two. global is the global
 	// partition. every is what reaches every tenant domain: the release's
 	// domain default roles, the custom roles held in every domain, and the
@@ -55,11 +62,6 @@ type snapshot struct {
 	// recordsHash identifies the snapshot's source content; the heartbeat
 	// skips recompiling when a fresh read matches it.
 	recordsHash [sha256.Size]byte
-
-	// writeGen is the engine's local write generation observed BEFORE the
-	// store read this snapshot was compiled from: any local write up to and
-	// including that generation is guaranteed to be reflected here.
-	writeGen int64
 
 	// since and until bound the instants the snapshot answers for. It is
 	// compiled from the assignments that count at one instant, and the same
@@ -441,16 +443,24 @@ func (s *snapshot) roleHasGrants(scope accesstypes.Scope, role accesstypes.Role)
 
 // userDigest returns user's structural grant enumeration within scope: every
 // resource and field the user's grants reach, each mapping permission to
-// granted (an unconditional cover exists) or conditional (only conditional
-// grants cover it). Denied targets are absent — the digest is fail-closed by
-// construction — and nothing folds: no facts are consulted, so the answer is
-// a pure function of the snapshot.
+// granted (an unconditional cover exists), conditional on time (only
+// conditional grants cover it, and every one of their conditions reads the
+// time of the request alone), conditional (only conditional grants cover
+// it, and one of their conditions reads more) or, for a field, conditional
+// with its resource (conditional, under the very grants that cover the
+// resource, which nothing covers outright). Denied targets are absent —
+// the digest is fail-closed by construction — and nothing folds: no facts are
+// consulted, the conditions' text is classified, so the answer is a pure
+// function of the snapshot.
 //
-// Two grant shapes have no enumerable name and are deliberately outside the
-// digest: scope-wide grants (they attach to no resource) and the coverage an
-// all-fields grant extends to fields the snapshot has never seen named (the
-// enumeration lists the known field vocabulary; a check still answers for
-// the unnamed field itself).
+// Two grant shapes have no enumerable name and are outside the digest:
+// scope-wide grants (they attach to no resource) and the coverage an
+// all-fields grant extends to a field that neither the release's collection
+// lists nor any grant names. The enumeration lists the known field
+// vocabulary: every field the collection lists for the resource, under any
+// permission, and every field a kept grant names, so a grant on all fields is
+// told field by field and a page reads a field's own entry as the whole
+// answer for it. A check still answers for an unnamed field itself.
 func (s *snapshot) userDigest(scope accesstypes.Scope, user accesstypes.User) accesstypes.PermissionDigest {
 	return s.digest(s.userGrants(scope, user))
 }
@@ -484,23 +494,64 @@ func (s *snapshot) digest(grants grantMap) accesstypes.PermissionDigest {
 		case fs.endpoint:
 			set(accesstypes.Resource(base), perm, accesstypes.DigestGranted)
 		case fs.cond != nil && len(fs.cond.endpoint) > 0:
-			set(accesstypes.Resource(base), perm, accesstypes.DigestConditional)
+			set(accesstypes.Resource(base), perm, s.conditionalState(fs.cond.endpoint))
 		}
 		for field, i := range s.fields[resID] {
-			var state accesstypes.DigestState
-			switch {
-			case fs.all || fs.bit(i):
-				state = accesstypes.DigestGranted
-			case fs.cond != nil && (len(fs.cond.all) > 0 || len(fs.cond.fields[i]) > 0):
-				state = accesstypes.DigestConditional
-			default:
+			name := accesstypes.Resource(base).ResourceWithTag(accesstypes.Tag(field))
+			reached := !s.allFieldsLeaveOut(permID, resID, name)
+			if (reached && fs.all) || fs.bit(i) {
+				set(name, perm, accesstypes.DigestGranted)
+
 				continue
 			}
-			set(accesstypes.Resource(base).ResourceWithTag(accesstypes.Tag(field)), perm, state)
+			if fs.cond == nil {
+				continue
+			}
+			// The terms decide hands the fold for the field: the all-fields
+			// grant's where it reaches the field, and the field's own.
+			var terms condTerms
+			if reached {
+				terms = fs.cond.all
+			}
+			terms = terms.union(fs.cond.fields[i])
+			if len(terms) > 0 {
+				set(name, perm, s.fieldConditionalState(fs, terms))
+			}
 		}
 	}
 
 	return digest
+}
+
+// fieldConditionalState answers the digest state of a field only conditional
+// grants cover, from the condition terms that cover it: conditional with its
+// resource where those terms are, as a set, the very ones that cover the
+// resource and nothing covers the resource without a condition, so the field is
+// seen on every row of the resource the subject is shown; otherwise as
+// conditionalState answers. It is structure, as the other states are: two sets
+// of terms that fold to one text for some caller stay conditional, so a page
+// offers less than the server answers, never more.
+func (s *snapshot) fieldConditionalState(fs *fieldSet, terms condTerms) accesstypes.DigestState {
+	state := s.conditionalState(terms)
+	if state == accesstypes.DigestConditional && !fs.endpoint && slices.Equal(terms, fs.cond.endpoint) {
+		return accesstypes.DigestConditionalWithResource
+	}
+
+	return state
+}
+
+// conditionalState answers the digest state of a target only conditional
+// grants cover, from the condition terms that cover it: conditional on time
+// when every one of the conditions reads the time of the request alone, so a
+// check settles the target whole, and conditional when one reads more.
+func (s *snapshot) conditionalState(terms condTerms) accesstypes.DigestState {
+	for _, id := range terms {
+		if !condition.TimeOnly(s.compiled[id]) {
+			return accesstypes.DigestConditional
+		}
+	}
+
+	return accesstypes.DigestConditionalOnTime
 }
 
 // userPermissions enumerates user's effective permissions within scope by
@@ -615,7 +666,9 @@ func (s *snapshot) roleGrants(scope accesstypes.Scope, role accesstypes.Role) gr
 // in the snapshot tests) missed. A conditional
 // field cover is the union of the single-field terms and the all-fields
 // terms; a field unknown to the snapshot is covered only by all-fields
-// grants, mirroring the unconditional implication rule.
+// grants, mirroring the unconditional implication rule. A field an all-fields
+// grant does not reach (allFieldsLeaveOut) is covered by a grant that names
+// it, or by none.
 func (s *snapshot) decide(grants grantMap, permID uint16, resource accesstypes.Resource) resourceDecision {
 	if grants == nil {
 		return resourceDecision{}
@@ -649,7 +702,8 @@ func (s *snapshot) decide(grants grantMap, permID uint16, resource accesstypes.R
 			terms = fs.cond.all
 		}
 	default:
-		if fs.all {
+		reached := !s.allFieldsLeaveOut(permID, resID, resource)
+		if reached && fs.all {
 			return resourceDecision{granted: true}
 		}
 		i, known := s.fields[resID][field]
@@ -657,7 +711,9 @@ func (s *snapshot) decide(grants grantMap, permID uint16, resource accesstypes.R
 			return resourceDecision{granted: true}
 		}
 		if fs.cond != nil {
-			terms = fs.cond.all
+			if reached {
+				terms = fs.cond.all
+			}
 			if known {
 				terms = terms.union(fs.cond.fields[i])
 			}
@@ -677,6 +733,22 @@ func (s *snapshot) decide(grants grantMap, permID uint16, resource accesstypes.R
 	return resourceDecision{conditions: conditions, exprs: exprs}
 }
 
+// allFieldsLeaveOut reports whether a grant of the permission on all of a
+// resource's fields ("Resource.*") does not reach the field named, a
+// Resource.field name: Update is not given on a field the release marks
+// immutable, by a grant that names the field (misplacedGrant) or by one that
+// names them all, whoever wrote the grant and whenever. The all-fields grant is
+// an implication, never bits, and reaches fields no grant names, so the
+// release's collection is asked about the one field at the check. Nothing a
+// subject holds is taken away by it: the grant never held the field.
+func (s *snapshot) allFieldsLeaveOut(permID, resID uint16, field accesstypes.Resource) bool {
+	if s.permNames[permID] != accesstypes.Update {
+		return false
+	}
+
+	return s.collection.IsResourceImmutable(s.scopes[resID], field)
+}
+
 // newSnapshot compiles the release's default roles and the store's records
 // into an immutable snapshot, and reports what the store holds that this
 // release cannot use as written: a grant it skipped (SkippedGrant), a custom
@@ -685,9 +757,10 @@ func (s *snapshot) decide(grants grantMap, permID uint16, resource accesstypes.R
 // (SkippedGroupRole), and memberships naming a role that is neither a default
 // nor a custom role in their scope, which grant nothing (OrphanedMembership),
 // a person's own and the ones a group gives alike. The
-// findings are sorted for a stable report. defaults and collection may be
-// nil: no default roles, and grant names unchecked. The snapshot holds the
-// assignments that count at loadedAt (newSnapshotAt).
+// findings are sorted for a stable report. defaults may be nil: no default
+// roles. collection is what the release declares, which every grant's names are
+// held to. The snapshot holds the assignments that count at loadedAt
+// (newSnapshotAt).
 func newSnapshot(records *policy.Records, defaults *defaultRoles, collection PermissionCollection, loadedAt time.Time) (*snapshot, []policyFinding, error) {
 	return newSnapshotAt(records, defaults, collection, loadedAt, loadedAt)
 }
@@ -707,13 +780,14 @@ func newSnapshotAt(records *policy.Records, defaults *defaultRoles, collection P
 		domains:     make(map[accesstypes.Domain]*scopePolicy),
 		loadedAt:    loadedAt,
 		recordsHash: records.Hash(),
+		collection:  collection,
 	}
 
 	customs, storeGrants, findings := definedRoles(records, defaults)
-	all := make([]policy.Grant, 0, len(defaults.allGrants())+len(storeGrants))
-	all = append(all, defaults.allGrants()...)
-	all = append(all, storeGrants...)
-	grants, skipped, err := s.intern(all, collection)
+	// The roles held on records are the release's roles, compiled for what a record
+	// reaches (snapshot_records.go).
+	heldGrants, heldMemberships, heldFindings := compileRecordRoles(records, defaults, collection)
+	grants, skipped, err := s.intern(slices.Concat(defaults.allGrants(), heldGrants), storeGrants, collection, defaults.authName())
 	if err != nil {
 		return nil, nil, err
 	}
@@ -726,6 +800,8 @@ func newSnapshotAt(records *policy.Records, defaults *defaultRoles, collection P
 	findings = append(findings, skippedRoles...)
 	memberships, orphaned := resolvedMemberships(folded, defaults, customs)
 	findings = append(findings, orphaned...)
+	memberships = append(memberships, heldMemberships...)
+	findings = append(findings, heldFindings...)
 	sortFindings(findings)
 	var timed bool
 	memberships, s.since, s.until, timed = countingAt(memberships, at)
@@ -784,11 +860,12 @@ func countingAt(memberships []policy.Membership, at time.Time) (kept []policy.Me
 // custom role whose name a default of its kind has is shadowed — the default
 // wins, so the custom role's grants are left out and its members hold the
 // default's grants — and is reported; the rest are the custom roles the
-// snapshot defines, keyed by where they are held. A role with grants is
-// defined where its grants are held whether or not its row came back: the
-// stores keep a grant under its role row, so this only widens the set for
-// records built by hand. It returns the store's grants less the shadowed
-// roles'.
+// snapshot defines, keyed by where they are held. A grant under a default
+// role's name is left out, and the role reported, whether or not its row came
+// back: the stores keep a grant under its role row, so one with no row is a
+// record built by hand, and a default role's grants are the release's alone. A
+// custom role with grants is defined where its grants are held whether or not
+// its row came back. It returns the store's grants less the shadowed roles'.
 func definedRoles(records *policy.Records, defaults *defaultRoles) (customs map[policy.Role]bool, grants []policy.Grant, findings []policyFinding) {
 	customs = make(map[policy.Role]bool, len(records.Roles))
 	shadowed := make(map[policy.Role]bool)
@@ -805,12 +882,15 @@ func definedRoles(records *policy.Records, defaults *defaultRoles) (customs map[
 	for _, g := range records.Grants {
 		if g.Subject.Kind == policy.SubjectRole {
 			role := policy.Role{Scope: g.Scope, Name: accesstypes.Role(g.Subject.Name)}
-			if shadowed[role] {
+			if defaults.exists(role.Scope, role.Name) {
+				if !shadowed[role] {
+					shadowed[role] = true
+					findings = append(findings, &ShadowedRole{Scope: role.Scope, Role: role.Name})
+				}
+
 				continue
 			}
-			if !defaults.exists(role.Scope, role.Name) {
-				customs[role] = true
-			}
+			customs[role] = true
 		}
 		grants = append(grants, g)
 	}
@@ -897,80 +977,69 @@ func groupByScope(grants []policy.Grant, memberships []policy.Membership) (globa
 
 // intern assigns dense IDs to permissions and resources and bit positions to
 // each resource's named fields, and compiles the distinct condition texts. It
-// returns the grants the snapshot holds and the ones it skipped. IDs are
-// uint16 by design; overflowing one would silently truncate and grant the
-// wrong permissions, so it fails the load instead.
+// is given the grants of the roles the release declares and the grants the
+// policy store holds, and returns the ones the snapshot holds and the ones it
+// skipped. IDs are uint16 by design; overflowing one would silently truncate
+// and grant the wrong permissions, so it fails the load instead.
 //
 // A grant the running release cannot use is skipped, not fatal: one bad row
 // in the store must not stop authorization for everyone, freeze a running
 // instance on a stale snapshot, or keep a new instance from becoming ready. A
 // skipped grant is denied, since a permission the snapshot does not hold is
-// not held. Three things make a grant unusable: when the collection is known,
-// a permission, resource or field the release does not declare; a condition
-// text that does not parse, so a check never meets an unparseable condition;
-// and a row-referencing condition (a binding-name attribute or new. reference)
-// on a scope-wide grant, which has no row for it to see; only row-free
-// conditions (environment and subject attributes) are valid there, folding at
-// check time (design plan §05, revised 2026-08-31).
-func (s *snapshot) intern(grants []policy.Grant, collection PermissionCollection) ([]policy.Grant, []*SkippedGrant, error) {
+// not held. What makes a grant unusable is grantRule.unusable's to say:
+//
+//   - A permission, resource or field the release's collection does not list
+//     (unlistedName), a scope-wide grant's permission among them.
+//   - A condition text that does not parse, so a check never meets an
+//     unparseable condition.
+//   - A condition on a scope-wide grant that no scope-wide check could settle:
+//     one that reads a row (a binding-name attribute or a new. reference),
+//     since the grant has no row for it to see; one that compares now with a
+//     subject value, which only the database compares; and one whose time the
+//     check cannot read, said as the role file's validation says it of a grant
+//     on a resource (validateConditionTypes). Only a condition about the time
+//     of the request is valid there, folding at check time.
+//   - For a grant a role holds on a resource in the store, anything else the
+//     write that adds the grant is refused for (grantRule.refusal): a resource
+//     of another scope than the role's, Update on what the release marks
+//     immutable, a condition that reads what the release does not declare or
+//     that the permission cannot be judged by, and a condition that reads a set
+//     of the people of another auth than auth, the one the engine's role file
+//     was handed over for. So a check never meets a stored condition it cannot
+//     resolve, and a grant no request could use is no foothold where its role
+//     is held.
+func (s *snapshot) intern(released, stored []policy.Grant, collection PermissionCollection, auth string) ([]policy.Grant, []*SkippedGrant, error) {
+	rule := newGrantRule(collection, auth)
+	declared := declaredFields(rule.listed)
 	exprs := make(map[string]condition.Expr)
-	kept := make([]policy.Grant, 0, len(grants))
-	var skipped []*SkippedGrant
-	for _, g := range grants {
-		if collection != nil {
-			if err := unusableName(collection, &g); err != nil {
-				skipped = append(skipped, newSkippedGrant(&g, err))
-
-				continue
-			}
+	parse := func(text string) (condition.Expr, error) {
+		if expr, ok := exprs[text]; ok {
+			return expr, nil
 		}
-		if g.Condition != "" {
-			expr, ok := exprs[g.Condition]
-			if !ok {
-				if len(exprs) >= math.MaxUint16 {
-					return nil, nil, errors.Newf("too many distinct conditions to compile: limit %d", math.MaxUint16)
-				}
-				var err error
-				expr, err = condition.Parse(g.Condition)
-				if err != nil {
-					skipped = append(skipped, newSkippedGrant(&g, errors.Wrap(err, "the condition does not parse")))
+		expr, err := parseStoredCondition(text)
+		if err != nil {
+			return nil, err
+		}
+		exprs[text] = expr
 
-					continue
-				}
-				exprs[g.Condition] = expr
-			}
-			if g.Resource == "" && !condition.RowFree(expr) {
-				skipped = append(skipped, newSkippedGrant(&g, errors.New("a row-referencing condition on a scope-wide grant: a grant attached to no resource has no row for it to see")))
+		return expr, nil
+	}
 
-				continue
-			}
+	kept := make([]policy.Grant, 0, len(released)+len(stored))
+	var skipped []*SkippedGrant
+	for i, g := range slices.Concat(released, stored) {
+		if reason := rule.unusable(&g, i >= len(released), parse); reason != nil {
+			skipped = append(skipped, newSkippedGrant(&g, reason))
+
+			continue
+		}
+		if err := s.internNames(&g, collection, declared); err != nil {
+			return nil, nil, err
 		}
 		kept = append(kept, g)
-		if _, ok := s.perms[g.Perm]; !ok {
-			if len(s.perms) >= math.MaxUint16 {
-				return nil, nil, errors.Newf("too many permissions to compile: limit %d", math.MaxUint16)
-			}
-			s.perms[g.Perm] = uint16(len(s.perms)) //nolint:gosec // bounded by the guard above
-			s.permNames = append(s.permNames, g.Perm)
-		}
-		resID, ok := s.resources[g.Resource]
-		if !ok {
-			if len(s.resources) >= math.MaxUint16 {
-				return nil, nil, errors.Newf("too many resources to compile: limit %d", math.MaxUint16)
-			}
-			resID = uint16(len(s.resources)) //nolint:gosec // bounded by the guard above
-			s.resources[g.Resource] = resID
-			s.resourceNames = append(s.resourceNames, g.Resource)
-			s.fields = append(s.fields, make(map[string]uint16))
-		}
-		if g.Field != "" && g.Field != "*" {
-			if _, ok := s.fields[resID][g.Field]; !ok {
-				if len(s.fields[resID]) >= math.MaxUint16 {
-					return nil, nil, errors.Newf("too many fields on resource %q to compile: limit %d", g.Resource, math.MaxUint16)
-				}
-				s.fields[resID][g.Field] = uint16(len(s.fields[resID])) //nolint:gosec // bounded by the guard above
-			}
-		}
+	}
+	if len(exprs) > math.MaxUint16 {
+		return nil, nil, errors.Newf("too many distinct conditions to compile: limit %d", math.MaxUint16)
 	}
 
 	// Condition IDs sort by text so term sets — and the texts a decision
@@ -983,6 +1052,80 @@ func (s *snapshot) intern(grants []policy.Grant, collection PermissionCollection
 	}
 
 	return kept, skipped, nil
+}
+
+// declaredFields is the fields the release declares for each resource, under
+// any permission, from the collection's List (listed): the part of each dotted
+// name after its last dot, each field once, sorted. A name with no field, or
+// the all-fields "*", gives none.
+func declaredFields(listed map[accesstypes.Permission][]accesstypes.Resource) map[string][]string {
+	declared := make(map[string][]string)
+	for _, names := range listed {
+		for _, name := range names {
+			res, field := splitResourceField(string(name))
+			if field == "" || field == "*" {
+				continue
+			}
+			declared[res] = append(declared[res], field)
+		}
+	}
+	for res, fields := range declared {
+		slices.Sort(fields)
+		declared[res] = slices.Compact(fields)
+	}
+
+	return declared
+}
+
+// internNames gives a kept grant's permission, resource and field their IDs,
+// each the first time the load meets it. A resource met for the first time
+// takes the fields the release declares for it, so an all-fields grant is
+// enumerated over them. declared is those fields by resource (declaredFields).
+func (s *snapshot) internNames(g *policy.Grant, collection PermissionCollection, declared map[string][]string) error {
+	if _, ok := s.perms[g.Perm]; !ok {
+		if len(s.perms) >= math.MaxUint16 {
+			return errors.Newf("too many permissions to compile: limit %d", math.MaxUint16)
+		}
+		s.perms[g.Perm] = uint16(len(s.perms)) //nolint:gosec // bounded by the guard above
+		s.permNames = append(s.permNames, g.Perm)
+	}
+	resID, ok := s.resources[g.Resource]
+	if !ok {
+		if len(s.resources) >= math.MaxUint16 {
+			return errors.Newf("too many resources to compile: limit %d", math.MaxUint16)
+		}
+		resID = uint16(len(s.resources)) //nolint:gosec // bounded by the guard above
+		s.resources[g.Resource] = resID
+		s.resourceNames = append(s.resourceNames, g.Resource)
+		s.fields = append(s.fields, make(map[string]uint16, len(declared[g.Resource])))
+		s.scopes = append(s.scopes, collection.Scope(accesstypes.Resource(g.Resource)))
+		for _, field := range declared[g.Resource] {
+			if err := s.internField(resID, g.Resource, field); err != nil {
+				return err
+			}
+		}
+	}
+	if g.Field != "" && g.Field != "*" {
+		if err := s.internField(resID, g.Resource, g.Field); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// internField gives a field of the resource with ID resID its ID, the first
+// time the load meets it. resource is the resource's name, for the error.
+func (s *snapshot) internField(resID uint16, resource, field string) error {
+	if _, ok := s.fields[resID][field]; ok {
+		return nil
+	}
+	if len(s.fields[resID]) >= math.MaxUint16 {
+		return errors.Newf("too many fields on resource %q to compile: limit %d", resource, math.MaxUint16)
+	}
+	s.fields[resID][field] = uint16(len(s.fields[resID])) //nolint:gosec // bounded by the guard above
+
+	return nil
 }
 
 func (s *snapshot) compileScope(grants []policy.Grant, memberships []policy.Membership) *scopePolicy {

@@ -25,6 +25,8 @@ import (
 
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/session/cookie"
+	"github.com/impulseframework/impulse/session/internal/util"
+	"github.com/impulseframework/impulse/session/internal/vouch"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
@@ -47,7 +49,13 @@ type Registration[Tx any] struct {
 	// tenants); the name is the application's, such as "azure" or "lakeside-entra".
 	Name string
 	// Method names the method; it is the identity's method and the session's auth
-	// event's.
+	// event's. It is the Name of the method Build builds, and the Method of every
+	// identity the method verifies: the core refuses a registration whose two names
+	// differ, and a sign-in whose identity is under another. It is never the name of a
+	// step the core records itself (sessioninfo.MethodEmailCode, MethodTrustedDevice,
+	// an attestation's, a tenant's word (sessioninfo.MethodVouchedByTenant)), which the
+	// core refuses at registration: a method of an application's own takes a name of
+	// its own, such as "partner".
 	Method sessioninfo.AuthMethod
 	// AccountRule is the application's own rule for an identity of the method that is
 	// not linked to any user yet, nil for none, which leaves every such identity to the
@@ -98,7 +106,8 @@ type StateCookies interface {
 
 // Method is a registered external method as the core drives it.
 type Method struct {
-	// Name is the method's name.
+	// Name is the method's name: its registration's Method, and the Method of every
+	// identity it verifies.
 	Name sessioninfo.AuthMethod
 	// LoginURL is where refused and pending sign-ins are sent.
 	LoginURL func() string
@@ -136,6 +145,17 @@ type Method struct {
 	// person's password is removed on the strength of it. It is nil when the method
 	// cannot tell one connection from another, which admits.
 	AdmitsConnection func(connection string) bool
+	// NamedByLabel reports that the name the method gives its one organization
+	// (Audience.Organizations, ConnectionName) is the registration's own key for it and
+	// no name its people know: the OpenID Connect method's is the connection the
+	// application registered the provider under, or the host of its issuer. Where the
+	// login page gives such a registration a label, the Auth says the organization by
+	// the label instead, in the words that say whom the method admits
+	// (session.AuthAPI.SignInMethods) and where a directory is named to a person
+	// (session.AuthAPI.DirectoryName). The connection stays what the links carry, and
+	// the audience is compared by its identities as before, which such a method gives
+	// (Audience.Identities).
+	NamedByLabel bool
 	// ConnectionName answers the name the registration gives the organization behind a
 	// connection, in words a person knows: the application's name for a listed
 	// Microsoft Entra tenant, a Google Workspace's name or the domain of one admitted
@@ -146,6 +166,14 @@ type Method struct {
 	// It is nil when the method names no connection. The Auth answers a directory's
 	// name from it (session.AuthAPI.DirectoryName).
 	ConnectionName func(connection string) string
+	// AddressAuthority is the library's mark on the one method whose word that an
+	// address is verified the core keeps (sessioninfo.Identity.EmailVerified): Google's,
+	// which session/google builds. The core knows Google's method by this mark and never
+	// by its name. Only the session library can make a mark, so a method an
+	// application builds leaves the field as it is, the zero value, which is no mark:
+	// the core then takes the flag off every identity the method verifies, whatever the
+	// method is named.
+	AddressAuthority vouch.Mark
 }
 
 // Verified is the result of a method's completed round trip.
@@ -192,15 +220,20 @@ func Register[Tx any](core Core[Tx], reg *Registration[Tx]) Handlers {
 	return core.RegisterExternal(reg)
 }
 
-// AddressDomain is the domain of an email address, lowercased: what follows its last
-// @, or "" when it has none. A method's AdmitsAddress judges an address by it.
+// AddressDomain is the domain of an email address with its ASCII letters lowercased:
+// what follows its last @, or "" when it has none. A method's AdmitsAddress judges an
+// address by it, and Google's method tells an address of Google's own mail by it. Only
+// ASCII letters are lowercased: Unicode lowercases some letters from outside ASCII to
+// ASCII ones (the dotted capital I, U+0130, to i; the Kelvin sign, U+212A, to k), and a
+// domain written with one is another domain than the ASCII one it would then read as,
+// so it is left as it was written and equals no ASCII domain.
 func AddressDomain(email string) string {
 	i := strings.LastIndex(email, "@")
 	if i < 0 {
 		return ""
 	}
 
-	return strings.ToLower(email[i+1:])
+	return util.LowerASCII(email[i+1:])
 }
 
 // RoleNames returns names, or an empty list for nil. A role-synchronizing method always

@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestLastOwner_anAdministratorLeavesOnceAnotherRemains proves the last-owner rules on
@@ -18,9 +19,11 @@ import (
 // whole application that is not that one goes freely, since a super administrator gives
 // it back, as does TenantAdministrator held in every tenant; in a tenant an invitation
 // made, whose first sign-in made the invited person its administrator, that person is
-// refused giving the role up as its last holder and gives it up once the administrator
-// holds it in every tenant again; and once the member is a super administrator beside
-// them, the administrator gives that up too. So an operator brings a customer's tenant in
+// refused giving the role up as its last holder, and still refused while the
+// administrator holds it in every tenant, which makes nobody an administrator of the
+// tenant's own, and gives it up once the member holds it in the tenant too; and once the
+// member is a super administrator beside them, the administrator gives that up too. So an
+// operator brings a customer's tenant in
 // by inviting its first administrator and leaves, and neither the application nor a
 // tenant is left with nobody to give the next role. Every
 // method names its person by the id of their account, and the rule knows the caller by
@@ -32,7 +35,7 @@ func TestLastOwner_anAdministratorLeavesOnceAnotherRemains(t *testing.T) {
 	s := newServed(ctx, t)
 	admin := signedIn(ctx, t, s, adminUser)
 	adminID := staffUserID(ctx, t, admin, adminUser)
-	const lastSuperAdministrator = "you are the last super administrator who can sign in: give another person the Super Administrator role before you remove your own"
+	const lastSuperAdministrator = "You are the last super administrator who can sign in. Give another person the Super administrator role before you remove your own."
 
 	// The last holder of the Super Administrator role is refused, in the rule's words.
 	status, body := admin.do(ctx, http.MethodPost, "/api/remove-staff-role", roleOf(adminID, "SuperAdministrator", false))
@@ -73,21 +76,31 @@ func TestLastOwner_anAdministratorLeavesOnceAnotherRemains(t *testing.T) {
 	}
 
 	// In a tenant: the invitation's first sign-in made the invited person west's
-	// administrator, and with no holder in every tenant left, they are its last one,
-	// refused in the tenant's words; once the administrator holds the role in every
-	// tenant again, they give up west's own.
+	// administrator, and they are its last one, refused in the tenant's words. The
+	// administrator holding the role in every tenant again changes nothing: a holder in
+	// every tenant is no administrator of the tenant's own, the one a tenant that admits
+	// its people through its directory only still lets in. Once the member holds the
+	// role in west itself, the founder gives up their own.
 	west, founder := makeTenant(ctx, t, s, admin, "West", "founder")
 	founderID := staffUserID(ctx, t, admin, "founder")
 	westRole := "/api/tenants/" + west + "/remove-staff-tenant-role"
+	const lastAdministrator = "You are the last administrator of this tenant. Give another person the role before you remove your own."
 	status, body = founder.do(ctx, http.MethodPost, westRole, tenantRoleOf(founderID, "TenantAdministrator"))
-	if status != http.StatusForbidden || !strings.Contains(string(body), "you are the last administrator of this tenant: give another person the role before you remove your own") {
+	if status != http.StatusForbidden || !strings.Contains(string(body), lastAdministrator) {
 		t.Fatalf("the founder giving up West's role as its one holder: status %d, want 403 naming the rule: %s", status, body)
 	}
 	if status, body := admin.do(ctx, http.MethodPost, "/api/assign-staff-role", roleOf(adminID, "TenantAdministrator", true)); status != http.StatusNoContent {
 		t.Fatalf("the administrator taking TenantAdministrator in every tenant again: status %d: %s", status, body)
 	}
+	status, body = founder.do(ctx, http.MethodPost, westRole, tenantRoleOf(founderID, "TenantAdministrator"))
+	if status != http.StatusForbidden || !strings.Contains(string(body), lastAdministrator) {
+		t.Fatalf("the founder giving up West's role while the administrator holds it in every tenant alone: status %d, want 403 naming the rule: %s", status, body)
+	}
+	if status, body := admin.do(ctx, http.MethodPost, "/api/assign-staff-role", []byte(`{"userId":"`+s.memberID+`","role":"TenantAdministrator","domain":"`+west+`"}`)); status != http.StatusNoContent {
+		t.Fatalf("giving the member the role in West: status %d: %s", status, body)
+	}
 	if status, body := founder.do(ctx, http.MethodPost, westRole, tenantRoleOf(founderID, "TenantAdministrator")); status != http.StatusNoContent {
-		t.Fatalf("the founder giving up West's role while the administrator holds it in every tenant: status %d, want 204: %s", status, body)
+		t.Fatalf("the founder giving up West's role once the member holds it there: status %d, want 204: %s", status, body)
 	}
 
 	// Another holder given the role, the administrator gives it up.
@@ -100,6 +113,123 @@ func TestLastOwner_anAdministratorLeavesOnceAnotherRemains(t *testing.T) {
 	member := signedIn(ctx, t, s, memberUser)
 	if roles := globalRolesOf(ctx, t, member, adminID); slices.Contains(roles, "SuperAdministrator") {
 		t.Errorf("the administrator's roles once they gave it up = %v, want SuperAdministrator gone", roles)
+	}
+}
+
+// TestLastOwner_theLastAdministratorsOwnPeriod proves on the served stack that the rule
+// on a tenant's last administrator judges the dates a person gives their own role as it
+// judges the role's removal, and counts what is in force today and nothing else. The
+// founder of a tenant an invitation made is its one administrator: they are refused a
+// start that has not come and an end on their own role, in the words that refuse them
+// its removal, since either would leave the tenant with no administrator of its own;
+// once the member holds the role in the tenant too, the founder gives their own an end.
+// And a role that has ended makes nobody an administrator: the administrator holds the
+// role in a second tenant for a few seconds and takes it from that tenant's founder, and
+// once it has ended removes their own, though nobody administers the tenant any more.
+func TestLastOwner_theLastAdministratorsOwnPeriod(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	s := newServed(ctx, t)
+	admin := signedIn(ctx, t, s, adminUser)
+	adminID := staffUserID(ctx, t, admin, adminUser)
+	west, founder := makeTenant(ctx, t, s, admin, "West", "founder")
+	founderID := staffUserID(ctx, t, admin, "founder")
+	const lastAdministrator = "You are the last administrator of this tenant. Give another person the role before you remove your own."
+
+	// The last administrator gives their own role a start a year ahead, which takes it
+	// away today, and then an end an hour ahead, which takes it away then.
+	now := time.Now().UTC().Truncate(time.Second)
+	for name, period := range map[string]map[string]any{
+		"a start that has not come": {"startsAt": now.Add(365 * 24 * time.Hour)},
+		"an end":                    {"endsAt": now.Add(time.Hour)},
+	} {
+		given := map[string]any{"userId": founderID, "role": "TenantAdministrator"}
+		for field, at := range period {
+			given[field] = at
+		}
+		status, body := tenantPost(ctx, founder, west, "assign-staff-tenant-role", given)
+		if status != http.StatusForbidden || !strings.Contains(string(body), lastAdministrator) {
+			t.Fatalf("the founder giving their own role %s as West's one administrator: status %d, want 403 naming the rule: %s", name, status, body)
+		}
+	}
+	if roles := tenantRolesOf(ctx, t, founder, west, "founder"); !slices.Contains(roles, "TenantAdministrator") {
+		t.Fatalf("the founder's roles in West after the refusals = %v, want TenantAdministrator kept", roles)
+	}
+
+	// Another person administers West: the founder's own role takes an end.
+	if status, body := admin.do(ctx, http.MethodPost, "/api/assign-staff-role", []byte(`{"userId":"`+s.memberID+`","role":"TenantAdministrator","domain":"`+west+`"}`)); status != http.StatusNoContent {
+		t.Fatalf("giving the member the role in West: status %d: %s", status, body)
+	}
+	ending := map[string]any{"userId": founderID, "role": "TenantAdministrator", "endsAt": now.Add(time.Hour)}
+	if status, body := tenantPost(ctx, founder, west, "assign-staff-tenant-role", ending); status != http.StatusNoContent {
+		t.Fatalf("the founder giving their own role an end once the member holds it in West: status %d, want 204: %s", status, body)
+	}
+
+	// A role that has ended: the administrator holds East's for a few seconds and is
+	// left its one holder, and removes it once it is over.
+	east, _ := makeTenant(ctx, t, s, admin, "East", "eastfounder")
+	eastFounderID := staffUserID(ctx, t, admin, "eastfounder")
+	ends := time.Now().UTC().Add(3 * time.Second)
+	brief, err := json.Marshal(map[string]any{"userId": adminID, "role": "TenantAdministrator", "domain": east, "endsAt": ends})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status, body := admin.do(ctx, http.MethodPost, "/api/assign-staff-role", brief); status != http.StatusNoContent {
+		t.Fatalf("the administrator taking East's role for a few seconds: status %d: %s", status, body)
+	}
+	inEast := []byte(`{"userId":"` + eastFounderID + `","role":"TenantAdministrator","domain":"` + east + `"}`)
+	if status, body := admin.do(ctx, http.MethodPost, "/api/remove-staff-role", inEast); status != http.StatusNoContent {
+		t.Fatalf("the administrator taking East's role from its founder: status %d: %s", status, body)
+	}
+	// Nothing is written when a period is over: the role ends by the clock.
+	if wait := time.Until(ends); wait > 0 {
+		time.Sleep(wait + 200*time.Millisecond)
+	}
+	own := []byte(`{"userId":"` + adminID + `","role":"TenantAdministrator","domain":"` + east + `"}`)
+	if status, body := admin.do(ctx, http.MethodPost, "/api/remove-staff-role", own); status != http.StatusNoContent {
+		t.Fatalf("the administrator removing their own role in East once it has ended: status %d, want 204: %s", status, body)
+	}
+}
+
+// TestLastOwner_aDisabledAdministratorDoesNotCount proves on the served stack that a
+// tenant's administrator is a person who can sign in. A tenant an invitation made has
+// two administrators of its own, its founder and a second person the tenant holds alone.
+// The founder disables the second person's account, which the role file lets a tenant's
+// administrator do to the tenant's own people, and is then refused giving up their own
+// role, in the rule's words: the tenant would be left to an account nobody can use. Once
+// the founder enables the account again it counts, and the founder gives the role up.
+func TestLastOwner_aDisabledAdministratorDoesNotCount(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	s := newServed(ctx, t)
+	admin := signedIn(ctx, t, s, adminUser)
+	quay, founder := makeTenant(ctx, t, s, admin, "Quay", "quayfounder")
+	founderID := staffUserID(ctx, t, admin, "quayfounder")
+	secondID := staffAccount(ctx, t, s, "quaysecond", "The second of Quay")
+	const lastAdministrator = "You are the last administrator of this tenant. Give another person the role before you remove your own."
+
+	if status, body := admin.do(ctx, http.MethodPost, "/api/assign-staff-role", []byte(`{"userId":"`+secondID+`","role":"TenantAdministrator","domain":"`+quay+`"}`)); status != http.StatusNoContent {
+		t.Fatalf("giving the second person the role in Quay: status %d: %s", status, body)
+	}
+	if status, body := tenantPost(ctx, founder, quay, "disable-staff-tenant-user", map[string]any{"userId": secondID}); status != http.StatusNoContent {
+		t.Fatalf("the founder disabling Quay's second administrator: status %d, want 204: %s", status, body)
+	}
+	own := map[string]any{"userId": founderID, "role": "TenantAdministrator"}
+	status, body := tenantPost(ctx, founder, quay, "remove-staff-tenant-role", own)
+	if status != http.StatusForbidden || !strings.Contains(string(body), lastAdministrator) {
+		t.Fatalf("the founder giving up the role while Quay's other administrator is disabled: status %d, want 403 naming the rule: %s", status, body)
+	}
+	if roles := tenantRolesOf(ctx, t, founder, quay, "quayfounder"); !slices.Contains(roles, "TenantAdministrator") {
+		t.Fatalf("the founder's roles in Quay after the refusal = %v, want TenantAdministrator kept", roles)
+	}
+
+	if status, body := tenantPost(ctx, founder, quay, "enable-staff-tenant-user", map[string]any{"userId": secondID}); status != http.StatusNoContent {
+		t.Fatalf("the founder enabling Quay's second administrator: status %d, want 204: %s", status, body)
+	}
+	if status, body := tenantPost(ctx, founder, quay, "remove-staff-tenant-role", own); status != http.StatusNoContent {
+		t.Fatalf("the founder giving up the role once Quay's other administrator can sign in: status %d, want 204: %s", status, body)
 	}
 }
 

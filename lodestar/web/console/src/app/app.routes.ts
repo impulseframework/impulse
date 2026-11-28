@@ -9,18 +9,24 @@ import {
   outsideGuard,
   refusedRoute,
 } from '@impulseframework/resource-angular/auth-frame';
-import { identityRoutes } from '@impulseframework/resource-angular/identity-pages';
+import { featureFlagsRoute } from '@impulseframework/resource-angular/feature-flags';
+import { identityRoutes, tenantsRoute } from '@impulseframework/resource-angular/identity-pages';
 import { resourceRoutes } from '@impulseframework/resource-angular/resource-route-generator';
-import { sectorRoute, watchDeskRoute } from '@components/sector/sector.routes';
+import { sectorRoute } from '@components/sector/sector.routes';
 import { clientsConfig } from './configs/clients.config';
 import { commendationsConfig } from './configs/commendations.config';
+import { consignmentsConfig } from './configs/consignments.config';
+import { crewSessionImpersonationsConfig } from './configs/crewSessionImpersonations.config';
 import { distressCallsConfig } from './configs/distressCalls.config';
+import { expenseManifestsConfig } from './configs/expenseManifests.config';
+import { hangarsConfig } from './configs/hangars.config';
+import { sectorsPage } from './configs/issue-bulletin.config';
 import { missionDocumentsConfig } from './configs/missionDocuments.config';
 import { missionsConfig } from './configs/missions.config';
 import { missionsEverySectorConfig } from './configs/missionsEverySector.config';
 import { squadronsConfig } from './configs/squadrons.config';
 import { pilotsConfig, sectorPilotsConfig } from './configs/pilots.config';
-import { sectorsConfig } from './configs/sectors.config';
+import { sectorHazardBoardsConfig } from './configs/sectorHazardBoards.config';
 import { shipClassesConfig } from './configs/shipClasses.config';
 import { shipsConfig } from './configs/ships.config';
 import { standingOrdersConfig } from './configs/standingOrders.config';
@@ -105,7 +111,10 @@ export const routes: Routes = [
           //
           // Demonstrates: @feature.
           resourceRoutes(commendationsConfig, resourceMeta),
-          resourceRoutes(sectorsConfig, resourceMeta),
+          // The library's tenants page over the crew's list of sectors, at the record's own
+          // address (`sectors`, a sector at `sectors/<id>`), with the options the menu file
+          // passes (sectorsPage).
+          tenantsRoute(apiDescriptor, resourceMeta, sectorsPage),
           // The missions of every sector the person reaches, on one page: Missions declares
           // @listAcrossTenants, so its list is also served without the sector's segment, and
           // the config says acrossTenants. resourceRoutes mounts the list alone, with no row
@@ -128,39 +137,56 @@ export const routes: Routes = [
           // The clients' accounts, the same pages over the other auth's management: the
           // console serves it because the generator program says the console manages the
           // members auth (Manages). A directory writes the members' roles at every sign-in, so
-          // the description names no method that gives or takes a role, creates an account or
-          // invites one, and the pages draw none.
+          // the description names no method that gives or takes a role or invites a person,
+          // and the pages draw none.
           //
           // Demonstrates: auth.generated-identity, auth.identity-pages.
           ...identityRoutes(apiDescriptor, resourceMeta, { auth: 'Members', scope: 'global' }),
-          // The watch desk lists every live impersonation in the service: a page of
-          // Headquarters.
-          watchDeskRoute(),
-          // The person's account, API keys and About pages: the library's, in every place.
+          // The watch desk: the sessions people hold as someone else across the service,
+          // the library's list over the crew auth's generated impersonation records, each
+          // open one with Revoke. A page of Headquarters, with no row page.
+          resourceRoutes(crewSessionImpersonationsConfig, resourceMeta),
+          // The feature flags: the library's list page over the flags Lodestar declares,
+          // each with who last turned it on or off, a History button and, for the adjutant,
+          // the menu that turns it on or off. A page of Headquarters.
+          //
+          // Demonstrates: feature.history.
+          featureFlagsRoute(resourceMeta),
+          // The person's account and API keys pages: the library's, in every place.
           ...frameRoutes(),
         ],
       },
       // The sector segment, sectors/:sectorID, mirroring the API's: every sector-scoped
       // page lives under it. The config-driven pages in the sector are registered by
       // resourceRoutes at the route their configs name, sectors/:sectorID/<page>, and
-      // mounted under the segment with the decks; the Documents and Calls pages among
-      // them carry the field shapes a form never types (bytes, an object) and the
-      // write-only transcript, beside the hand-written call log, and the Pilots page is
-      // served here a second time, where a pilot's assignments in the sector show.
+      // mounted under the segment with the decks; the Documents page and the call log
+      // among them carry the field shapes a form never types (bytes, an object) and the
+      // write-only transcript, the salvage hold and the hazard board are the library's
+      // lists like them, and the Pilots page is served here a second time, where a
+      // pilot's assignments in the sector show.
       sectorRoute([
         resourceRoutes(sectorPilotsConfig, resourceMeta),
         resourceRoutes(missionsConfig, resourceMeta),
         resourceRoutes(shipsConfig, resourceMeta),
+        // The hangars and, on a hangar's page, its passes: who the hangar is open to, a
+        // person, a squadron or one of the sector's groups.
+        resourceRoutes(hangarsConfig, resourceMeta),
         resourceRoutes(squadronsConfig, resourceMeta),
         resourceRoutes(missionDocumentsConfig, resourceMeta),
+        resourceRoutes(consignmentsConfig, resourceMeta),
         resourceRoutes(distressCallsConfig, resourceMeta),
+        // The hazard board's rows have a compound key (a ship's one subsystem): the list
+        // route alone, no row route.
+        resourceRoutes(sectorHazardBoardsConfig, resourceMeta),
+        // The expense manifests: the list route alone, no row route.
+        resourceRoutes(expenseManifestsConfig, resourceMeta),
         // The sector's people and its invitations, with a person's row page (the roles
         // held here and the identities under it): the tenant's side of the same generated
         // management, built by the library from the same description. The Sector Marshal
-        // sees Disable on a person the sector holds alone and no such entry on a person
-        // who also holds a role elsewhere: the role file's condition on the method's
-        // grant decides, row by row, and no page repeats it. The Marshal's grant on the
-        // method that gives a role carries a condition on the role given
+        // sees Disable on a person whose account the sector manages and no such entry on
+        // a person whose account it does not manage: the role file's condition on the
+        // method's grant decides, row by row, and no page repeats it. The Marshal's grant
+        // on the method that gives a role carries a condition on the role given
         // (new.role != 'SectorMarshal' in pkg/auth/crew/roles.json), so the dialog
         // rehearses the call with a dry run when a role is picked.
         //

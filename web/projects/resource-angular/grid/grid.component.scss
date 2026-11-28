@@ -4,20 +4,62 @@
 }
 
 .impulse-grid-host {
-  // The box the cut-short tooltip's anchor is positioned in.
+  // The box the cut-short tooltip's anchor is positioned in. It clips what it holds and is
+  // never scrolled, by a script or by the browser bringing something into view: the frame
+  // inside it is what scrolls.
   position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
+  // Never taller than the room its page has, which the library's frame measures and hands
+  // down (or an application sets around a list it draws outside the frame): a list with
+  // more rows than fit scrolls inside its own frame, under its headings and over its
+  // pager. With nothing set, a list is as tall as its rows. The bound is the list's whole
+  // box, its border inside it, so the room the frame hands down is the room the list takes.
+  max-height: var(--impulse-list-max-height, none);
+  box-sizing: border-box;
   border: 1px solid var(--mat-sys-outline-variant, #e0e0e0);
   border-radius: 4px;
-  overflow: hidden;
+  overflow: clip;
 }
 
+// What the frame fills and the loading overlay is laid over: the overlay covers what is in
+// view however far the frame is scrolled, down or sideways, and nothing outside the list.
+.impulse-grid-view {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  isolation: isolate;
+}
+
+// The frame the table scrolls in, down and, where its columns do not fit, sideways: the
+// table is never narrower than its columns at their narrowest (the component sets its
+// min-width), so a frame narrower than that scrolls, and the page around it never does.
 .impulse-grid-scroll {
   position: relative;
   flex: 1;
   overflow: auto;
+  // What is stacked inside the frame (a row's controls, the held columns, the header) is
+  // stacked among itself, and never over or under the page around it.
+  isolation: isolate;
+}
+
+// A list that is held back, because its columns have not been read (its first load, a
+// font its page asked for that is on its way, or a moment in which something around it
+// draws it at no size), is not drawn: nothing of its headings, its rows and its pager, and
+// no scrollbar for a width it will not keep. What it holds takes its room all the same, so
+// the list is where it will be, and as tall, before it is drawn and after. It lasts until
+// the list has loaded and, where a font is on its way, until the font arrives or the wait
+// for it runs out (the component's FONT_WAIT).
+.impulse-grid-host.held-back > .impulse-grid-view > .impulse-grid-scroll {
+  visibility: hidden;
+  overflow: hidden;
+}
+
+.impulse-grid-host.held-back > .impulse-grid-pager {
+  visibility: hidden;
 }
 
 .impulse-grid-table {
@@ -38,19 +80,25 @@
     border-bottom: 1px solid var(--mat-sys-outline-variant, #eee);
   }
 
+  // The component gives the two their widths, which it also places the held columns by.
   .select-col {
-    width: 48px;
     padding: 4px 8px;
   }
 
   .expand-col {
-    width: 40px;
     padding: 4px 8px;
   }
 
   .action-col {
     padding: 4px 8px;
     overflow: visible;
+  }
+
+  // A column whose words wrap (wraps): its cells are drawn over as many lines as their
+  // words take, and the row grows to fit; a word longer than the column breaks.
+  td.wraps {
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
 }
 
@@ -62,8 +110,10 @@
   padding: 8px;
 }
 
-// The filter form is wider than Material's 280px menu cap. The panel renders in the
-// document-level overlay container, so this component style must cross encapsulation.
+// The filter form is wider than Material's 280px menu cap, and no wider than the window
+// less a margin: on a window narrower than the form the form's controls go onto more
+// lines (.filter-menu-content). The panel renders in the document-level overlay container,
+// so this component style must cross encapsulation.
 ::ng-deep .mat-mdc-menu-panel.impulse-grid-filter-menu {
   width: max-content;
   max-width: calc(100vw - 32px);
@@ -77,6 +127,20 @@
   left: 0;
   width: 0;
   height: 0;
+  pointer-events: none;
+}
+
+// A length of a hundred pixels that is laid out with the list and never seen. How long
+// the browser draws it, against the hundred, is how much something around the list draws
+// it smaller or larger than it is laid out (a dialog that grows open), and every width the
+// component reads off the list is brought back by that.
+.scale-rule {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100px;
+  height: 0;
+  visibility: hidden;
   pointer-events: none;
 }
 
@@ -146,11 +210,18 @@
   }
 }
 
+// The order things are stacked in inside the frame, from the bottom: a row's cells and the
+// controls in them (a link button is the highest, at 3), the columns held at the left
+// edge, the header, the header's held cells where the two meet.
+$held-layer: 4;
+$header-layer: 5;
+$held-header-layer: 6;
+
 .impulse-grid-header-row {
   th {
     position: sticky;
     top: 0;
-    z-index: 1;
+    z-index: $header-layer;
     background-color: var(--mat-sys-surface-container, #f5f5f5);
     border-bottom: 1px solid var(--mat-sys-outline-variant, #e0e0e0);
     font-weight: 600;
@@ -178,6 +249,11 @@
     color: inherit;
     text-align: left;
     cursor: pointer;
+  }
+
+  // The header of a table whose rows come in one fixed order: words, nothing to press.
+  .header-words {
+    cursor: default;
   }
 
   .col-header {
@@ -234,10 +310,16 @@
   }
 }
 
+// The filter form: the operator, the value's control, then Apply and Clear, on one line
+// where the window has the room. On a narrower window a control that does not fit goes
+// onto the next line at its own width: none is squeezed and none runs past the menu's
+// edge. The padding counts inside the width, so the form is never wider than its menu.
 .filter-menu-content {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
+  box-sizing: border-box;
   padding: 8px 12px;
   width: max-content;
   max-width: 100%;
@@ -258,13 +340,52 @@
     width: 118px;
   }
 
-  .filter-operator {
+  // A date and its time of day stay side by side, and go one under the other only on a
+  // window too narrow for the two.
+  .filter-date-time {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .filter-operator,
+  .filter-choice {
     font: inherit;
     font-size: 13px;
     padding: 4px;
+    max-width: 100%;
     border: 1px solid var(--mat-sys-outline-variant, #e0e0e0);
     border-radius: 4px;
     background: var(--mat-sys-surface, #fff);
+  }
+
+  // The names of a field's fixed values, each with its tick, one under another: a long
+  // set scrolls inside the menu, so Apply and Clear stay where they are. The list is as
+  // wide as its longest name; a name longer than the menu goes onto a second line.
+  .filter-choices {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 200px;
+    overflow-y: auto;
+    font-size: 13px;
+  }
+
+  .filter-choice-option {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+
+    input {
+      flex: none;
+    }
+  }
+
+  // Apply and Clear go onto the next line together, never one without the other.
+  .filter-actions {
+    display: flex;
+    gap: 6px;
   }
 }
 
@@ -282,21 +403,142 @@
   }
 }
 
+// A list whose columns do not fit its frame scrolls sideways in it, and the first column
+// stays at the left edge, with the select and expand columns where the list has them, so
+// a person always sees which row they are on. The component says when (the class on the
+// frame) and where each held column stays (the lengths it sets there). Every rule names
+// the frame's own table, rows and cells, child by child: a list inside an expanded row
+// is another list, held or not by its own frame.
+.holds-first-column {
+  // What the keyboard's focus lands on is brought into view beside the held columns, not
+  // under them.
+  scroll-padding-left: var(--impulse-grid-held-width, 0);
+
+  > .impulse-grid-table {
+    // A border drawn between collapsed cells belongs to the table and stays where the
+    // table drew it; a cell's own border moves with the cell. So while a column is held
+    // every cell carries its own lines, and the held column keeps its edge over what
+    // scrolls under it.
+    border-collapse: separate;
+    border-spacing: 0;
+
+    > thead > tr,
+    > tbody > tr {
+      > .select-col,
+      > .expand-col,
+      > .first-col {
+        position: sticky;
+        z-index: $held-layer;
+      }
+
+      > .select-col {
+        left: 0;
+      }
+
+      > .expand-col {
+        left: var(--impulse-grid-expand-left, 0);
+      }
+
+      > .first-col {
+        left: var(--impulse-grid-first-left, 0);
+      }
+    }
+
+    > thead > tr {
+      > .select-col,
+      > .expand-col,
+      > .first-col {
+        z-index: $held-header-layer;
+      }
+    }
+
+    // A row's cells are drawn over whatever the list sits on: nothing of their own, or a
+    // tint the page shows through. A held cell has other cells scrolling under it, so it
+    // is drawn whole: on the color the list sits on, which the component reads off the
+    // page (the theme's surface where it finds none), with the same tints mixed into it,
+    // so a held cell is the color of the rest of its row at rest, under the pointer and
+    // selected.
+    > tbody > .impulse-row {
+      > .select-col,
+      > .expand-col,
+      > .first-col {
+        background-color: var(--impulse-grid-ground, var(--mat-sys-surface, #fff));
+      }
+
+      &:nth-child(even) {
+        > .select-col,
+        > .expand-col,
+        > .first-col {
+          background-color: var(--mat-sys-surface-container-low, #fafafa);
+        }
+      }
+
+      &:hover {
+        > .select-col,
+        > .expand-col,
+        > .first-col {
+          background-color: color-mix(
+            in srgb,
+            var(--mat-sys-on-surface, #000) 4%,
+            var(--impulse-grid-ground, var(--mat-sys-surface, #fff))
+          );
+        }
+      }
+
+      &.selected {
+        > .select-col,
+        > .expand-col,
+        > .first-col {
+          background-color: color-mix(
+            in srgb,
+            var(--mat-sys-primary, #1976d2) 8%,
+            var(--impulse-grid-ground, var(--mat-sys-surface, #fff))
+          );
+        }
+      }
+    }
+  }
+}
+
+// What a row that is one cell across the table says (the empty list's message, an
+// expanded row's detail): as wide as its cell, or as the frame while the table is wider
+// than its frame (the component sets the width), where it stays in view while the columns
+// scroll. The cell leaves its padding and its clipping to it, since a cell that clips is
+// what its own content would stay in place against.
+.impulse-grid-across {
+  position: sticky;
+  left: 0;
+  box-sizing: border-box;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .virtual-scroll-spacer td {
   padding: 0;
   border: none;
 }
 
-.no-records-row td {
+.no-records-row > td {
   text-align: center;
-  padding: 20px;
+  padding: 0;
+  overflow: visible;
   color: var(--mat-sys-on-surface-variant, rgba(0, 0, 0, 0.6));
+
+  > .impulse-grid-across {
+    padding: 20px;
+  }
 }
 
-.detail-row td {
-  padding: 16px;
+// The row's own cell, not the cells of a list drawn inside it.
+.detail-row > td {
+  padding: 0;
+  overflow: visible;
   white-space: normal;
   background-color: var(--mat-sys-surface, #fff);
+
+  > .impulse-grid-across {
+    padding: 16px;
+  }
 }
 
 .expand-toggle,
@@ -311,15 +553,19 @@
   align-items: center;
   justify-content: center;
   background-color: color-mix(in srgb, var(--mat-sys-surface, #fff) 60%, transparent);
-  z-index: 2;
+  z-index: 1;
 }
 
+// The rows the page spans and, at the far end, the buttons that turn it: on one line
+// while they fit, and the buttons under the words, still at the far end, in a frame too
+// narrow for both. Nothing of the pager is ever cut off by the list's edge.
 .impulse-grid-pager {
   flex: 0 0 auto;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 0 12px;
   border-top: 1px solid var(--mat-sys-outline-variant, #e0e0e0);
   padding: 4px 12px;
 }
@@ -330,10 +576,14 @@
   white-space: nowrap;
 }
 
+// The buttons wrap among themselves in a frame narrower than the three of them.
 .pager-buttons {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   align-items: center;
-  gap: 4px;
+  gap: 0 4px;
+  margin-left: auto;
 }
 
 .filter-trigger-wrap {
@@ -367,4 +617,84 @@ a[mat-icon-button] {
 
 .data-col .cell-no {
   color: var(--mat-sys-on-surface-variant);
+}
+
+// A cell whose text is cut short is a stop of the Tab key, where its whole text is
+// offered. The line that marks the focus is drawn inside the cell: outside it, the cells
+// beside it and the frame's edge would cut it.
+.impulse-row > td:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--mat-sys-primary, #1976d2) 50%, transparent);
+  outline-offset: -2px;
+}
+
+/* A list drawn a line each: every item on a line of its own, cut short like any cell. */
+.data-col .cell-line {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+// The words of a column that opens its row, drawn as the row's link: inline and with no
+// room of its own around it, so the cell is measured by the text's own line as any cell of
+// words is, and cut short with it.
+.data-col a.cell-link {
+  display: inline;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  color: var(--mat-sys-primary, #1976d2);
+  text-decoration: none;
+
+  &:hover,
+  &:focus-visible {
+    text-decoration: underline;
+  }
+
+  &:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--mat-sys-primary, #1976d2) 50%, transparent);
+    outline-offset: 1px;
+  }
+}
+
+/* An entry that says what a row shows in a method's place: readable, and plainly not a button. */
+.row-action.row-action-says {
+  opacity: 1;
+  color: var(--mat-sys-on-surface-variant);
+  white-space: normal;
+  height: auto;
+  line-height: 1.4;
+  padding-block: 8px;
+}
+
+// On paper nothing scrolls and nothing is pressed, and a list is as long as its rows. A
+// browser repeats the heading row on every page the rows run onto, and what it lays out as
+// a column of boxes that share a height (the list on the screen) is given no room for the
+// rows it repeats: the pager would lie over the last row. So the list is laid out as
+// blocks, one under the other, and nothing of it is cut off or kept for a scroll.
+@media print {
+  :host {
+    height: auto;
+  }
+
+  .impulse-grid-host {
+    display: block;
+    height: auto;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .impulse-grid-view {
+    display: block;
+  }
+
+  .impulse-grid-scroll {
+    overflow: visible;
+  }
+
+  // Chrome draws nothing of a button's words in a heading row it repeats. A heading is not
+  // pressed on paper: its button gives up its box, and the words are drawn as the heading's
+  // own, on the first page and on every page after it.
+  .header-cell .header-label {
+    display: contents;
+  }
 }

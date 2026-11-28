@@ -8,25 +8,24 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
-	"github.com/impulseframework/impulse/identity"
+	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/resource"
 )
 
 type (
-	// CreateStaffGroup creates a group of people of the Staff auth: kept for
-	// the whole application, or in one domain (Domain), where it is then managed and
-	// holds roles alone. A group kept for the whole application holds roles wherever a
-	// person can.
+	// CreateStaffGroup creates a group of people of the Staff auth, kept for
+	// the whole application: the application has no tenants, so the request names no
+	// place.
 	// The name is what people know the group by, one group's where the group is kept,
 	// and the description says who is in it. A new group has no member and holds no
 	// role. It answers the new group's id.
 	//
 	// @rpc
 	// @outlet(default)
+	// @class(access)
 	CreateStaffGroup struct {
 		Name        string `validate:"required"`
 		Description string `validate:"required"`
-		Domain      *string
 	}
 	// CreateStaffGroupResult answers the new group's id.
 	CreateStaffGroupResult struct {
@@ -36,11 +35,8 @@ type (
 
 // Execute buffers the new group into the caller's transaction.
 func (m *CreateStaffGroup) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*CreateStaffGroupResult, error) {
-	scope, err := identity.Scope(m.Domain, false)
-	if err != nil {
-		return nil, errors.Wrap(err, "identity.Scope()")
-	}
-	id, err := client.manager.CreateGroup(ctx, txn, scope, m.Name, m.Description)
+	// The application has no tenants: every group is kept for the whole application.
+	id, err := client.manager.CreateGroup(ctx, txn, accesstypes.GlobalPolicyScope(), m.Name, m.Description)
 	if err != nil {
 		return nil, errors.Wrap(err, "identity.Manager.CreateGroup()")
 	}

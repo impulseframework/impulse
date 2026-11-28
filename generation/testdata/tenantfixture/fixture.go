@@ -8,6 +8,8 @@
 package tenantfixture
 
 import (
+	"time"
+
 	"cloud.google.com/go/civil"
 
 	"github.com/impulseframework/impulse"
@@ -18,13 +20,15 @@ import (
 // in a grouped type block like real project sources do.
 type (
 	// Sector is the well-formed tenant record: global, table-backed, one key, an id its
-	// create path generates.
+	// create path generates, and the column that says a sector is disabled.
 	//
 	// @resource
 	// @tenant
 	Sector struct {
 		ID   impulse.UUID `spanner:"Id"`
 		Name string       `spanner:"Name"`
+		// @tenantDisabled
+		Disabled bool `spanner:"Disabled"`
 	}
 
 	// Berth is tenant-scoped: served under the record's segment.
@@ -127,6 +131,8 @@ type (
 		Motto   *string      `spanner:"Motto"`
 		Opened  civil.Date   `spanner:"Opened"`
 		Derived string       `spanner:"Derived" conditions:"output_only"`
+		// @tenantDisabled
+		Disabled bool `spanner:"Disabled"`
 	}
 
 	// Colony is a second tenant record with a create-your-colony route where it serves.
@@ -182,6 +188,8 @@ type (
 		Passphrase *resource.Secret `spanner:"Passphrase" conditions:"secret"`
 		Cipher     *string          `spanner:"Cipher"     conditions:"input_only"`
 		Sealed     string           `spanner:"Sealed"     conditions:"output_only"`
+		// @tenantDisabled
+		Disabled bool `spanner:"Disabled"`
 	}
 
 	// Keep is a tenant record whose create requires a secret: its column takes no NULL
@@ -193,6 +201,8 @@ type (
 		ID         impulse.UUID    `spanner:"Id"`
 		Name       string          `spanner:"Name"`
 		Passphrase resource.Secret `spanner:"Passphrase" conditions:"secret"`
+		// @tenantDisabled
+		Disabled bool `spanner:"Disabled"`
 	}
 
 	// Redoubt is a tenant record whose create requires a write-only field.
@@ -203,6 +213,8 @@ type (
 		ID     impulse.UUID `spanner:"Id"`
 		Name   string       `spanner:"Name"`
 		Cipher string       `spanner:"Cipher" conditions:"input_only"`
+		// @tenantDisabled
+		Disabled bool `spanner:"Disabled"`
 	}
 
 	// Province passes the shape without its key.
@@ -240,16 +252,58 @@ type (
 		Name string       `spanner:"Name"`
 		// @directoryOnly
 		DirectoryOnly bool `spanner:"DirectoryOnly"`
+		// @tenantDisabled
+		Disabled bool `spanner:"Disabled"`
 	}
 
 	// HarborDirectory is the well-formed directories record: tenant-scoped through the
 	// bare @domain column, which holds the harbor's id, with its method and connection
-	// columns and the default seat a stranger it vouches for gets at their first sign-in.
+	// columns, the default seat a stranger it vouches for gets at their first sign-in,
+	// and the harbor's word that its directory asks its people for a second factor of
+	// its own.
 	//
 	// @resource
 	// @permissionScope(domain)
 	// @tenantDirectory
 	HarborDirectory struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @domain
+		HarborID impulse.UUID `spanner:"HarborId"`
+		// @directoryMethod
+		Method string `spanner:"Method"`
+		// @directoryConnection
+		Connection string `spanner:"Connection"`
+		// @directoryDefaultSeat
+		DefaultSeat *string `spanner:"DefaultSeat"`
+		// @directorySecondFactor
+		AsksSecondFactor bool `spanner:"AsksSecondFactor"`
+	}
+
+	// Landing is a well-formed directories record with the harbor's word for its
+	// directory's second factor and without the default seat column.
+	//
+	// @resource
+	// @permissionScope(domain)
+	// @tenantDirectory
+	Landing struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @domain
+		HarborID impulse.UUID `spanner:"HarborId"`
+		// @directoryMethod
+		Method string `spanner:"Method"`
+		// @directoryConnection
+		Connection string `spanner:"Connection"`
+		// @directorySecondFactor
+		AsksSecondFactor bool `spanner:"AsksSecondFactor"`
+	}
+
+	// Mole is a well-formed directories record with the default seat column and without
+	// the harbor's word for its directory's second factor.
+	//
+	// @resource
+	// @permissionScope(domain)
+	// @tenantDirectory
+	Mole struct {
 		ID impulse.UUID `spanner:"Id"`
 		// @domain
 		HarborID impulse.UUID `spanner:"HarborId"`
@@ -410,6 +464,56 @@ type (
 		Rank string `spanner:"Rank"`
 	}
 
+	// Gangway declares @directorySecondFactor on a resource that is not the directories
+	// record.
+	//
+	// @resource
+	// @permissionScope(domain)
+	Gangway struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @domain
+		HarborID impulse.UUID `spanner:"HarborId"`
+		// @directorySecondFactor
+		Vouched bool `spanner:"Vouched"`
+	}
+
+	// Capstan is a directories record whose word for its directory's second factor is a
+	// string.
+	//
+	// @resource
+	// @permissionScope(domain)
+	// @tenantDirectory
+	Capstan struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @domain
+		HarborID impulse.UUID `spanner:"HarborId"`
+		// @directoryMethod
+		Method string `spanner:"Method"`
+		// @directoryConnection
+		Connection string `spanner:"Connection"`
+		// @directorySecondFactor
+		Vouched string `spanner:"Vouched"`
+	}
+
+	// Cleat is a directories record declaring @directorySecondFactor on two columns.
+	//
+	// @resource
+	// @permissionScope(domain)
+	// @tenantDirectory
+	Cleat struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @domain
+		HarborID impulse.UUID `spanner:"HarborId"`
+		// @directoryMethod
+		Method string `spanner:"Method"`
+		// @directoryConnection
+		Connection string `spanner:"Connection"`
+		// @directorySecondFactor
+		Vouched bool `spanner:"Vouched"`
+		// @directorySecondFactor
+		Asks bool `spanner:"Asks"`
+	}
+
 	// Pier declares @directoryOnly on a resource that is not the tenant record.
 	//
 	// @resource
@@ -508,6 +612,8 @@ type (
 		ID impulse.UUID `spanner:"Id"`
 		// @tenantName
 		Name string `spanner:"Name"`
+		// @tenantDisabled
+		Disabled bool `spanner:"Disabled"`
 	}
 
 	// Reef marks a name on a resource that is not the tenant record.
@@ -541,11 +647,129 @@ type (
 		Title *string `spanner:"Title"`
 	}
 
+	// Cove marks when a cove was made (@tenantSince) on a timestamp the database writes.
+	//
+	// @resource
+	// @tenant
+	Cove struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @tenantSince
+		MadeAt time.Time `spanner:"MadeAt" conditions:"output_only"`
+		// @tenantDisabled
+		Disabled bool `spanner:"Disabled"`
+	}
+
+	// Creek marks when a creek was made on a nullable timestamp.
+	//
+	// @resource
+	// @tenant
+	Creek struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @tenantSince
+		Opened *time.Time `spanner:"Opened"`
+		// @tenantDisabled
+		Disabled bool `spanner:"Disabled"`
+	}
+
+	// Strait marks when it was made on a resource that is not the tenant record.
+	//
+	// @resource
+	Strait struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @tenantSince
+		MadeAt time.Time `spanner:"MadeAt"`
+	}
+
+	// Delta marks when a delta was made on a date, which is no timestamp.
+	//
+	// @resource
+	// @tenant
+	Delta struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @tenantSince
+		Founded civil.Date `spanner:"Founded"`
+	}
+
+	// Fjord marks when a fjord was made on a string.
+	//
+	// @resource
+	// @tenant
+	Fjord struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @tenantSince
+		Made string `spanner:"Made"`
+	}
+
+	// Sound marks two columns as when a sound was made.
+	//
+	// @resource
+	// @tenant
+	Sound struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @tenantSince
+		MadeAt time.Time `spanner:"MadeAt"`
+		// @tenantSince
+		ChartedAt *time.Time `spanner:"ChartedAt"`
+	}
+
 	// Shoal declares a label the screen cannot show as written.
 	//
 	// @resource
 	// @tenant(label: "Shoal's")
 	Shoal struct {
 		ID impulse.UUID `spanner:"Id"`
+	}
+
+	// Haven is a tenant record that marks the column saying a haven is disabled
+	// (@tenantDisabled): its people are shut out while its records stay.
+	//
+	// @resource
+	// @tenant
+	Haven struct {
+		ID   impulse.UUID `spanner:"Id"`
+		Name string       `spanner:"Name"`
+		// @tenantDisabled
+		Disabled bool `spanner:"Disabled"`
+	}
+
+	// Skerry marks whether it is disabled on a resource that is not the tenant record.
+	//
+	// @resource
+	Skerry struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @tenantDisabled
+		Disabled bool `spanner:"Disabled"`
+	}
+
+	// Inlet marks whether it is disabled on a string column.
+	//
+	// @resource
+	// @tenant
+	Inlet struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @tenantDisabled
+		Disabled string `spanner:"Disabled"`
+	}
+
+	// Weir is a tenant record that marks no column saying a weir is disabled, which
+	// every tenant record carries.
+	//
+	// @resource
+	// @tenant
+	Weir struct {
+		ID   impulse.UUID `spanner:"Id"`
+		Name string       `spanner:"Name"`
+	}
+
+	// Estuary marks two columns as saying it is disabled.
+	//
+	// @resource
+	// @tenant
+	Estuary struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @tenantDisabled
+		Disabled bool `spanner:"Disabled"`
+		// @tenantDisabled
+		Shut bool `spanner:"Shut"`
 	}
 )

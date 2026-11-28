@@ -1,6 +1,6 @@
 import { computed, inject, Injectable, resource, ResourceRef, Signal } from '@angular/core';
 import { injectApi } from '@app/api/api';
-import { Permissions, Resources } from '@app/service/zz_gen_constants';
+import { Permissions } from '@app/service/zz_gen_constants';
 import { Api, DomainApi } from '@app/service/zz_gen_api';
 import { ResourceScopes } from '@app/service/zz_gen_resources';
 import { Frame, TenantService } from '@impulseframework/resource-angular/auth-frame';
@@ -9,14 +9,15 @@ import {
   ApiError,
   Domain,
   DomainClient,
+  EveryQuery,
   Listable,
   ListQuery,
   Method,
   Page,
   Permission,
+  PermissionDigestState,
   Resource,
   ResourceDescriptor,
-  ResourceHandle,
 } from '@impulseframework/resource';
 
 /** The generated client bound to one sector: its resources and RPC methods. */
@@ -62,21 +63,6 @@ interface GlobalRead<Row> {
 }
 
 /**
- * ShipsLogEntry is one change-tracking event from the hand-written
- * /console/api/sectors/{sectorID}/ships-log-entries surface. The resource is registered
- * manually (@manualAddResource(List, domain)) so no generated row type exists; the
- * shape mirrors app.shipsLogEntry's wire struct.
- */
-export interface ShipsLogEntry {
-  tableName: string;
-  rowId: string;
-  sequence: number;
-  eventTime: Date;
-  eventSource: string;
-  changeSet: Record<string, unknown> | null;
-}
-
-/**
  * SectorService binds the generated API client to the sector a deck is open in, and holds
  * the rules the decks follow.
  *
@@ -111,25 +97,6 @@ export class SectorService {
   // when a digest loads, then asks the client for the answer.
   private permissions = storeSignal(this.api.permissions.snapshot);
 
-  /**
-   * The ship's log is a manually registered, sector-scoped resource (no struct, no
-   * generated handle): the client's escape hatch describes it once per sector.
-   */
-  shipsLog(sector: string): ResourceHandle<ShipsLogEntry, [], 'list'> {
-    return this.api.define<ShipsLogEntry, [], 'list'>(
-      {
-        resource: Resources.ShipsLogEntries,
-        property: 'shipsLogEntries',
-        route: 'ships-log-entries',
-        scope: 'domain',
-        consolidated: false,
-        keys: [],
-        operations: ['list'],
-      },
-      sector as Domain,
-    );
-  }
-
   /** The sector the deck is open in, the frame's (the tenant guard's alone to write); empty outside the sector segment. */
   readonly current = this.tenants.current;
 
@@ -142,6 +109,29 @@ export class SectorService {
     const current = this.current();
     return current ? this.api.permissions.domainName(current as Domain) : this.frame.outside.label;
   });
+
+  /**
+   * Whether the session's grants are known: the application's digest has loaded, and the
+   * open sector's where a sector is open. Until then every permission question answers
+   * no, so a page that drew from the answers would say "not for you" and take it back.
+   */
+  readonly known = computed(() => {
+    this.permissions();
+    const sector = (this.current() || undefined) as Domain | undefined;
+    return this.api.permissions.hasDigest() && (!sector || this.api.permissions.hasDigest(sector));
+  });
+
+  /**
+   * Whether a page knows what it will draw: the grants are known, and none of the lists
+   * it reads is still on its way for the first time. A page holds itself back until then
+   * and draws whole, so nothing is drawn and then taken away: no refusal before the
+   * grants are in, no "nothing here" before the rows are, no count before the total. A
+   * list read again after a change keeps what it showed while it is read, so it stays
+   * settled; a list the grants do not allow asks nothing and is settled as it stands.
+   */
+  settled(...lists: ResourceRef<unknown>[]): boolean {
+    return this.known() && lists.every((list) => list.status() !== 'loading');
+  }
 
   /** The client bound to the open sector; undefined while none is open. */
   readonly sector = computed<SectorApi | undefined>(() => {
@@ -168,8 +158,13 @@ export class SectorService {
     return this.state(permission, target) !== undefined;
   }
 
-  /** The digest state — granted, conditional, or undefined — for the service card. */
-  state(permission: Permission, target: Resource | Method): 'granted' | 'conditional' | undefined {
+  /**
+   * The digest state for the service card: granted, conditional (the server judges it row
+   * by row), conditionalOnTime (the server settles it from the time of the request),
+   * conditionalWithResource (a field's, held under its resource's own condition), or
+   * undefined.
+   */
+  state(permission: Permission, target: Resource | Method): PermissionDigestState | undefined {
     this.permissions();
     const sector = (this.current() || undefined) as Domain | undefined;
     const scope = this.scopeOf(target);
@@ -180,7 +175,7 @@ export class SectorService {
       return this.api.permissions.state({ resource: target, permission });
     }
     // A target the generated metadata does not place (the manual registrations:
-    // ShipsLogEntries is sector-scoped, ViewAsUser and AssumeRole are global) is asked
+    // ViewAsUser and AssumeRole are global) is asked
     // in the open sector's digest first and the global digest second. A grant sits
     // in exactly one of them, and absence from both still fails closed.
     return (
@@ -205,12 +200,14 @@ export class SectorService {
 
   /**
    * The digest state for one field of a domain resource under a permission: granted
-   * when an unconditional grant covers the field, conditional when only a
-   * condition-limited grant does (the condition's text never reaches the browser, so a
-   * form can say "the server judges this" and nothing more precise), undefined when
-   * no grant reaches it. Demonstrates: capability-envelope.
+   * when an unconditional grant covers the field, conditionalOnTime when only
+   * condition-limited grants do and every one of their conditions reads the time of the
+   * request alone, conditional when one of them reads more, conditionalWithResource when
+   * they are the very grants that hold the resource (the condition's text never
+   * reaches the browser, so a form can say "the server judges this" and nothing more
+   * precise), undefined when no grant reaches it. Demonstrates: capability-envelope.
    */
-  fieldState(permission: Permission, resource: Resource, field: string): 'granted' | 'conditional' | undefined {
+  fieldState(permission: Permission, resource: Resource, field: string): PermissionDigestState | undefined {
     this.permissions();
     const domain = (this.current() || undefined) as Domain | undefined;
     if (!domain) return undefined;
@@ -249,24 +246,68 @@ export class SectorService {
   }
 
   /**
+   * saidBy is the refusal a list met as a person reads it: the server's own words, and
+   * never a status code. A refusal that came with no words says so.
+   */
+  saidBy(ref: ResourceRef<unknown>): string | undefined {
+    const err = ref.error();
+    if (!err) return undefined;
+    return serverWords(err);
+  }
+
+  /**
    * sectorList derives a deck's list from the open sector: `select` picks the
    * handle off the sector-bound client, the loader re-runs when the sector changes,
    * sits idle while none is open, and never asks for a list the digest says the
-   * user cannot read. After a mutation, call .reload() on the affected lists. A deck
-   * that wants every row of a resource with no maximum page size passes
-   * `{ limit: 'all' }`; a resource with a maximum is read a page at a time (sectorPage).
+   * user cannot read. After a mutation, call .reload() on the affected lists. It reads
+   * one page, the resource's default where the query names no limit: a deck that draws
+   * every row reads with sectorEvery, and one that pages with sectorPage.
    */
   sectorList<Row>(select: (sector: SectorApi) => ListHandle<Row>, query?: ListQuery<Row>): ResourceRef<Row[]> {
     return resource({
-      params: () => {
-        this.permissions();
-        const sector = this.sector();
-        const handle = sector ? select(sector) : undefined;
-        return { handle: handle && handle.can(Permissions.List) ? handle : undefined };
-      },
+      params: this.grantedSector(select),
       loader: ({ params }) => (params.handle ? params.handle.list(query) : Promise.resolve([])),
       defaultValue: [],
     });
+  }
+
+  /**
+   * sectorEvery is sectorList for a deck that draws every row of a resource, a board and
+   * not a list: the hangar deck's bays hold every refit of the sector, however many there
+   * are. The rows are read by the client's own reader of every row (a handle's `every`):
+   * one request where the resource declares no maximum page size, a page of the maximum
+   * at a time to the end where it declares one, and the deck gets the rows once, all of
+   * them. The read is asked again when the sector or the answer to the List question
+   * changes, and not when a digest arrives that changes neither, so a deck that is drawn
+   * stays drawn.
+   */
+  sectorEvery<Row>(select: (sector: SectorApi) => ListHandle<Row>, query?: EveryQuery<Row>): ResourceRef<Row[]> {
+    return resource({
+      params: this.grantedSector(select),
+      loader: ({ params }) => (params.handle ? params.handle.every(query) : Promise.resolve([])),
+      defaultValue: [],
+    });
+  }
+
+  /**
+   * everyRow reads every row a query names of a resource that is read a page at a time:
+   * the largest page the resource allows, then each next page the server names, until
+   * there is none. It is for a list its filter keeps small (one mission's sorties), where
+   * the sector's newest page would leave some of them out; a whole resource is still read
+   * a page at a time (sectorPage). Where the digest does not grant List it asks nothing
+   * and answers no rows.
+   */
+  async everyRow<Row>(handle: ListHandle<Row>, query: ListQuery<Row>): Promise<Row[]> {
+    if (!handle.can(Permissions.List)) {
+      return [];
+    }
+    let page: Page<Row> = await handle.page({ ...query, limit: handle.descriptor.page?.max });
+    const rows = [...page.rows];
+    while (page.next) {
+      page = await page.next();
+      rows.push(...page.rows);
+    }
+    return rows;
   }
 
   /**
@@ -281,14 +322,31 @@ export class SectorService {
     query?: ListQuery<Row>,
   ): ResourceRef<Page<Row> | undefined> {
     return resource({
-      params: () => {
+      params: this.grantedSector(select),
+      loader: ({ params }) => (params.handle ? params.handle.page(query) : Promise.resolve(undefined)),
+    });
+  }
+
+  /**
+   * The selected handle of the open sector while the digest grants List on it, else none:
+   * a sector reader's params. They are a computed that counts the same handle as the same
+   * value, as a global reader's are (grantedGlobal), so a digest that lands again with the
+   * same answer reads nothing: the sector's digest is loaded again each time the sector is
+   * entered, and a list that read again for it would empty and refill under the person's
+   * eyes. A sector change, a grant given and a grant taken away are each a new answer.
+   */
+  private grantedSector<Row>(
+    select: (sector: SectorApi) => ListHandle<Row>,
+  ): Signal<{ handle: ListHandle<Row> | undefined }> {
+    return computed(
+      () => {
         this.permissions();
         const sector = this.sector();
         const handle = sector ? select(sector) : undefined;
         return { handle: handle && handle.can(Permissions.List) ? handle : undefined };
       },
-      loader: ({ params }) => (params.handle ? params.handle.page(query) : Promise.resolve(undefined)),
-    });
+      { equal: (a, b) => a.handle === b.handle },
+    );
   }
 
   /**
@@ -340,4 +398,23 @@ export class SectorService {
       { equal: (a, b) => a?.handle === b?.handle && JSON.stringify(a?.query) === JSON.stringify(b?.query) },
     );
   }
+}
+
+/**
+ * What the server said of a request it refused, as a person reads it: its own message,
+ * and never a status code. The client words a refusal that came with no message as
+ * "HTTP 409", which says nothing to a person, so that one says the server gave no reason.
+ */
+export function serverWords(err: unknown): string {
+  if (err instanceof ApiError) {
+    const body: unknown = err.body;
+    if (body && typeof body === 'object' && 'message' in body && typeof body.message === 'string' && body.message) {
+      return body.message;
+    }
+    if (typeof body === 'string' && body !== '') {
+      return body;
+    }
+    return 'The server gave no reason.';
+  }
+  return err instanceof Error ? err.message : String(err);
 }

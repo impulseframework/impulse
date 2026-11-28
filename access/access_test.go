@@ -1,6 +1,7 @@
 package access
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -20,7 +21,7 @@ func TestNew(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := New(newFakeStore())
+			got, err := New(newFakeStore(), fixtureCollection)
 			if err != nil {
 				t.Error(err)
 			}
@@ -45,7 +46,7 @@ func TestClient_CheckUser_returnsDecision(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 
-	client, err := New(newFakeStore())
+	client, err := New(newFakeStore(), fixtureCollection)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -115,7 +116,7 @@ func TestClient_CheckUserResources_returnsDecisions(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 
-	client, err := New(newFakeStore())
+	client, err := New(newFakeStore(), fixtureCollection)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -197,7 +198,7 @@ func TestClient_CheckUserResources_conditionalDecision(t *testing.T) {
 	ctx := t.Context()
 
 	store := newFakeStore()
-	client, err := New(store)
+	client, err := New(store, fixtureCollection)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -225,7 +226,7 @@ func TestClient_CheckUserResources_conditionalDecision(t *testing.T) {
 			t.Fatalf("InsertGrant(%v) error = %v", g, err)
 		}
 	}
-	if err := store.InsertUserRole(ctx, tenant1.PolicyScope(), "erin", "Editor", accesstypes.Period{}); err != nil {
+	if err := store.InsertUserRole(ctx, tenant1.PolicyScope(), "erin", "Editor", accesstypes.Period{}, "", nil); err != nil {
 		t.Fatalf("InsertUserRole() error = %v", err)
 	}
 
@@ -271,7 +272,7 @@ func TestClient_CheckUserResources_unknownTenantFailsClosed(t *testing.T) {
 	ctx := t.Context()
 
 	store := newFakeStore()
-	client, err := New(store)
+	client, err := New(store, fixtureCollection)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -314,18 +315,68 @@ func TestClient_CheckUserResources_unknownTenantFailsClosed(t *testing.T) {
 	}
 }
 
+// TestClient_CheckResources_moreThanOneDot pins that a check asked about a
+// name with more than one dot is refused with an error naming it, before
+// anything is read, and answers about none of the names in the call: a dot
+// separates a resource from one of its fields, so such a name names nothing.
+func TestClient_CheckResources_moreThanOneDot(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	client, err := New(newFakeStore(), fixtureCollection)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Client.Close() error = %v", err)
+		}
+	})
+
+	tenant1 := accesstypes.DomainScope("tenant1")
+	manager := client.UserManager()
+	if err := manager.AddRole(ctx, tenant1.PolicyScope(), "Editor", aDescription); err != nil {
+		t.Fatalf("AddRole() error = %v", err)
+	}
+	if err := manager.AddRolePermissionResources(ctx, tenant1.PolicyScope(), "Editor", "Read", "employees", "employees.name"); err != nil {
+		t.Fatalf("AddRolePermissionResources() error = %v", err)
+	}
+	if err := manager.AddRoleUsers(ctx, tenant1.PolicyScope(), "Editor", "erin"); err != nil {
+		t.Fatalf("AddRoleUsers() error = %v", err)
+	}
+
+	const want = `resource "employees.name.first": a name a check is asked about holds at most one dot. A dot separates a resource from one of its fields (Resource.field), so a name with more than one names nothing. Ask about the resource, or about one field of it`
+	env := accesstypes.NewEnvironment()
+
+	decisions, err := client.CheckUserResources(ctx, env, "erin", tenant1, "Read", "employees", "employees.name.first")
+	if err == nil || !strings.HasSuffix(err.Error(), want) {
+		t.Errorf("CheckUserResources() error = %v, want one ending in %q", err, want)
+	}
+	if decisions != nil {
+		t.Errorf("CheckUserResources() = %v, want no decisions beside the error", decisions)
+	}
+
+	decisions, err = client.CheckRoleResources(ctx, env, "Editor", tenant1, "Read", "employees", "employees.name.first")
+	if err == nil || !strings.HasSuffix(err.Error(), want) {
+		t.Errorf("CheckRoleResources() error = %v, want one ending in %q", err, want)
+	}
+	if decisions != nil {
+		t.Errorf("CheckRoleResources() = %v, want no decisions beside the error", decisions)
+	}
+}
+
 // TestClient_CheckUser_conditionFolding pins the scope-wide folding path: a
 // row-free condition on a scope-wide grant folds against the request's
-// Environment to a definite Granted or Denied, an absent referenced
-// attribute is a check error, and a row-free condition needing data (a
-// subject attribute) is a check error too — this path has nowhere to
-// evaluate it.
+// Environment to a definite Granted or Denied, and an absent referenced
+// attribute is a check error. A condition that compares the time to a subject
+// value is left out when the policy loads, since this path has nowhere to
+// compare it, so the check denies as for a person with no grant.
 func TestClient_CheckUser_conditionFolding(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 
 	store := newFakeStore()
-	client, err := New(store)
+	client, err := New(store, fixtureCollection)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -345,7 +396,7 @@ func TestClient_CheckUser_conditionFolding(t *testing.T) {
 	if err := store.InsertGrant(ctx, tenant1.PolicyScope(), "Chief", "Export", "", "", "now < subject.shiftEnd"); err != nil {
 		t.Fatalf("InsertGrant() error = %v", err)
 	}
-	if err := store.InsertUserRole(ctx, tenant1.PolicyScope(), "erin", "Chief", accesstypes.Period{}); err != nil {
+	if err := store.InsertUserRole(ctx, tenant1.PolicyScope(), "erin", "Chief", accesstypes.Period{}, "", nil); err != nil {
 		t.Fatalf("InsertUserRole() error = %v", err)
 	}
 
@@ -377,10 +428,10 @@ func TestClient_CheckUser_conditionFolding(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "condition needing data no scope-wide check can reach is a check error",
-			env:     accesstypes.EnvironmentAt(window),
-			perm:    "Export",
-			wantErr: true,
+			name: "a condition that compares the time to a subject value is left out at the load, so the check denies",
+			env:  accesstypes.EnvironmentAt(window),
+			perm: "Export",
+			want: accesstypes.Denied(),
 		},
 	}
 
@@ -409,7 +460,7 @@ func TestClient_CheckRole_returnsDecision(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 
-	client, err := New(newFakeStore())
+	client, err := New(newFakeStore(), fixtureCollection)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -477,7 +528,7 @@ func TestClient_CheckRoleResources_returnsDecisions(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 
-	client, err := New(newFakeStore())
+	client, err := New(newFakeStore(), fixtureCollection)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -552,7 +603,7 @@ func TestClient_CheckRoleResources_conditionalDecision(t *testing.T) {
 	ctx := t.Context()
 
 	store := newFakeStore()
-	client, err := New(store)
+	client, err := New(store, fixtureCollection)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -616,15 +667,16 @@ func TestClient_CheckRoleResources_conditionalDecision(t *testing.T) {
 
 // TestClient_CheckRole_conditionFolding pins the scope-wide folding path for
 // a role: a row-free condition folds against the request's Environment to a
-// definite Granted or Denied, an absent referenced attribute is a check
-// error, and a condition needing data — a subject attribute — is a check
-// error too. The facts of a role check carry the instant and nothing else.
+// definite Granted or Denied, and an absent referenced attribute is a check
+// error. A condition that compares the time to a subject value is left out
+// when the policy loads, so the check denies. The facts of a role check carry
+// the instant and nothing else.
 func TestClient_CheckRole_conditionFolding(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 
 	store := newFakeStore()
-	client, err := New(store)
+	client, err := New(store, fixtureCollection)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -673,10 +725,10 @@ func TestClient_CheckRole_conditionFolding(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "condition needing data no scope-wide check can reach is a check error",
-			env:     accesstypes.EnvironmentAt(window),
-			perm:    "Export",
-			wantErr: true,
+			name: "a condition that compares the time to a subject value is left out at the load, so the check denies",
+			env:  accesstypes.EnvironmentAt(window),
+			perm: "Export",
+			want: accesstypes.Denied(),
 		},
 	}
 

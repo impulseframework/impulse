@@ -26,20 +26,31 @@ func (CrewSectorUser) DefaultConfig() resource.Config {
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; crewSectorUserReadSets holds one Set per read operation.
 type crewSectorUserRead struct {
-	ID                     impulse.UUID `json:"id"                     perm:"-"`
-	DomainID               string       `json:"domainId"`
-	Username               string       `json:"username"`
-	Name                   *string      `json:"name"`
-	Email                  *string      `json:"email"`
-	EmailVerifiedAt        *time.Time   `json:"emailVerifiedAt"`
-	Disabled               bool         `json:"disabled"`
-	PasswordChangeRequired bool         `json:"passwordChangeRequired"`
-	CreatedAt              time.Time    `json:"createdAt"`
-	LastSignInAt           *time.Time   `json:"lastSignInAt"`
-	HeldElsewhere          bool         `json:"heldElsewhere"`
-	HeldGlobally           bool         `json:"heldGlobally"`
-	OutsideDirectory       bool         `json:"outsideDirectory"`
-	CannotEnter            *string      `json:"cannotEnter"`
+	ID                        impulse.UUID `json:"id"                        perm:"-"`
+	DomainID                  string       `json:"domainId"`
+	Username                  string       `json:"username"`
+	Name                      *string      `json:"name"`
+	DisplayName               string       `json:"displayName"`
+	Email                     *string      `json:"email"`
+	EmailVerifiedAt           *time.Time   `json:"emailVerifiedAt"`
+	Disabled                  bool         `json:"disabled"`
+	PasswordChangeRequired    bool         `json:"passwordChangeRequired"`
+	CreatedAt                 time.Time    `json:"createdAt"`
+	LastSignInAt              *time.Time   `json:"lastSignInAt"`
+	Roles                     []string     `json:"roles"`
+	RecordsHeld               int64        `json:"recordsHeld"`
+	RecordsHeldKind           string       `json:"recordsHeldKind"`
+	RecordHeldName            string       `json:"recordHeldName"`
+	LockedUntil               *time.Time   `json:"lockedUntil"`
+	HeldElsewhere             bool         `json:"heldElsewhere"`
+	HeldGlobally              bool         `json:"heldGlobally"`
+	HeldHere                  bool         `json:"heldHere"`
+	HeldInEveryTenant         bool         `json:"heldInEveryTenant"`
+	ManagedHere               bool         `json:"managedHere"`
+	ManagedByAnotherDirectory bool         `json:"managedByAnotherDirectory"`
+	OutsideDirectory          bool         `json:"outsideDirectory"`
+	CannotEnter               *string      `json:"cannotEnter"`
+	AdministratorWithPassword bool         `json:"administratorWithPassword"`
 }
 
 var crewSectorUserReadSets resource.SetCache[CrewSectorUser, crewSectorUserRead]
@@ -152,16 +163,27 @@ func (c *CrewSectorUserColumns) All() *CrewSectorUserColumns {
 		"DomainID",
 		"Username",
 		"Name",
+		"DisplayName",
 		"Email",
 		"EmailVerifiedAt",
 		"Disabled",
 		"PasswordChangeRequired",
 		"CreatedAt",
 		"LastSignInAt",
+		"Roles",
+		"RecordsHeld",
+		"RecordsHeldKind",
+		"RecordHeldName",
+		"LockedUntil",
 		"HeldElsewhere",
 		"HeldGlobally",
+		"HeldHere",
+		"HeldInEveryTenant",
+		"ManagedHere",
+		"ManagedByAnotherDirectory",
 		"OutsideDirectory",
 		"CannotEnter",
+		"AdministratorWithPassword",
 	}
 
 	return c
@@ -187,6 +209,12 @@ func (c *CrewSectorUserColumns) Username() *CrewSectorUserColumns {
 
 func (c *CrewSectorUserColumns) Name() *CrewSectorUserColumns {
 	c.fields = append(c.fields, "Name")
+
+	return c
+}
+
+func (c *CrewSectorUserColumns) DisplayName() *CrewSectorUserColumns {
+	c.fields = append(c.fields, "DisplayName")
 
 	return c
 }
@@ -227,6 +255,36 @@ func (c *CrewSectorUserColumns) LastSignInAt() *CrewSectorUserColumns {
 	return c
 }
 
+func (c *CrewSectorUserColumns) Roles() *CrewSectorUserColumns {
+	c.fields = append(c.fields, "Roles")
+
+	return c
+}
+
+func (c *CrewSectorUserColumns) RecordsHeld() *CrewSectorUserColumns {
+	c.fields = append(c.fields, "RecordsHeld")
+
+	return c
+}
+
+func (c *CrewSectorUserColumns) RecordsHeldKind() *CrewSectorUserColumns {
+	c.fields = append(c.fields, "RecordsHeldKind")
+
+	return c
+}
+
+func (c *CrewSectorUserColumns) RecordHeldName() *CrewSectorUserColumns {
+	c.fields = append(c.fields, "RecordHeldName")
+
+	return c
+}
+
+func (c *CrewSectorUserColumns) LockedUntil() *CrewSectorUserColumns {
+	c.fields = append(c.fields, "LockedUntil")
+
+	return c
+}
+
 func (c *CrewSectorUserColumns) HeldElsewhere() *CrewSectorUserColumns {
 	c.fields = append(c.fields, "HeldElsewhere")
 
@@ -239,6 +297,30 @@ func (c *CrewSectorUserColumns) HeldGlobally() *CrewSectorUserColumns {
 	return c
 }
 
+func (c *CrewSectorUserColumns) HeldHere() *CrewSectorUserColumns {
+	c.fields = append(c.fields, "HeldHere")
+
+	return c
+}
+
+func (c *CrewSectorUserColumns) HeldInEveryTenant() *CrewSectorUserColumns {
+	c.fields = append(c.fields, "HeldInEveryTenant")
+
+	return c
+}
+
+func (c *CrewSectorUserColumns) ManagedHere() *CrewSectorUserColumns {
+	c.fields = append(c.fields, "ManagedHere")
+
+	return c
+}
+
+func (c *CrewSectorUserColumns) ManagedByAnotherDirectory() *CrewSectorUserColumns {
+	c.fields = append(c.fields, "ManagedByAnotherDirectory")
+
+	return c
+}
+
 func (c *CrewSectorUserColumns) OutsideDirectory() *CrewSectorUserColumns {
 	c.fields = append(c.fields, "OutsideDirectory")
 
@@ -247,6 +329,12 @@ func (c *CrewSectorUserColumns) OutsideDirectory() *CrewSectorUserColumns {
 
 func (c *CrewSectorUserColumns) CannotEnter() *CrewSectorUserColumns {
 	c.fields = append(c.fields, "CannotEnter")
+
+	return c
+}
+
+func (c *CrewSectorUserColumns) AdministratorWithPassword() *CrewSectorUserColumns {
+	c.fields = append(c.fields, "AdministratorWithPassword")
 
 	return c
 }
@@ -275,6 +363,10 @@ func (p CrewSectorUserQueryPartialClause) Username() CrewSectorUserQueryIdent[st
 	return CrewSectorUserQueryIdent[string]{Ident: resource.NewIdent[string]("Username", p.partialClause, true)}
 }
 
+func (p CrewSectorUserQueryPartialClause) DisplayName() CrewSectorUserQueryIdent[string] {
+	return CrewSectorUserQueryIdent[string]{Ident: resource.NewIdent[string]("DisplayName", p.partialClause, false)}
+}
+
 func (p CrewSectorUserQueryPartialClause) HeldElsewhere() CrewSectorUserQueryIdent[bool] {
 	return CrewSectorUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("HeldElsewhere", p.partialClause, true)}
 }
@@ -283,8 +375,28 @@ func (p CrewSectorUserQueryPartialClause) HeldGlobally() CrewSectorUserQueryIden
 	return CrewSectorUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("HeldGlobally", p.partialClause, true)}
 }
 
+func (p CrewSectorUserQueryPartialClause) HeldHere() CrewSectorUserQueryIdent[bool] {
+	return CrewSectorUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("HeldHere", p.partialClause, true)}
+}
+
+func (p CrewSectorUserQueryPartialClause) HeldInEveryTenant() CrewSectorUserQueryIdent[bool] {
+	return CrewSectorUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("HeldInEveryTenant", p.partialClause, true)}
+}
+
+func (p CrewSectorUserQueryPartialClause) ManagedHere() CrewSectorUserQueryIdent[bool] {
+	return CrewSectorUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("ManagedHere", p.partialClause, true)}
+}
+
+func (p CrewSectorUserQueryPartialClause) ManagedByAnotherDirectory() CrewSectorUserQueryIdent[bool] {
+	return CrewSectorUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("ManagedByAnotherDirectory", p.partialClause, true)}
+}
+
 func (p CrewSectorUserQueryPartialClause) OutsideDirectory() CrewSectorUserQueryIdent[bool] {
 	return CrewSectorUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("OutsideDirectory", p.partialClause, true)}
+}
+
+func (p CrewSectorUserQueryPartialClause) AdministratorWithPassword() CrewSectorUserQueryIdent[bool] {
+	return CrewSectorUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("AdministratorWithPassword", p.partialClause, true)}
 }
 
 type CrewSectorUserQueryClause struct {
@@ -369,6 +481,10 @@ func (c *crewSectorUserSort) Name() *CrewSectorUserSort {
 	return c.addField("Name")
 }
 
+func (c *crewSectorUserSort) DisplayName() *CrewSectorUserSort {
+	return c.addField("DisplayName")
+}
+
 func (c *crewSectorUserSort) Email() *CrewSectorUserSort {
 	return c.addField("Email")
 }
@@ -393,6 +509,26 @@ func (c *crewSectorUserSort) LastSignInAt() *CrewSectorUserSort {
 	return c.addField("LastSignInAt")
 }
 
+func (c *crewSectorUserSort) Roles() *CrewSectorUserSort {
+	return c.addField("Roles")
+}
+
+func (c *crewSectorUserSort) RecordsHeld() *CrewSectorUserSort {
+	return c.addField("RecordsHeld")
+}
+
+func (c *crewSectorUserSort) RecordsHeldKind() *CrewSectorUserSort {
+	return c.addField("RecordsHeldKind")
+}
+
+func (c *crewSectorUserSort) RecordHeldName() *CrewSectorUserSort {
+	return c.addField("RecordHeldName")
+}
+
+func (c *crewSectorUserSort) LockedUntil() *CrewSectorUserSort {
+	return c.addField("LockedUntil")
+}
+
 func (c *crewSectorUserSort) HeldElsewhere() *CrewSectorUserSort {
 	return c.addField("HeldElsewhere")
 }
@@ -401,12 +537,32 @@ func (c *crewSectorUserSort) HeldGlobally() *CrewSectorUserSort {
 	return c.addField("HeldGlobally")
 }
 
+func (c *crewSectorUserSort) HeldHere() *CrewSectorUserSort {
+	return c.addField("HeldHere")
+}
+
+func (c *crewSectorUserSort) HeldInEveryTenant() *CrewSectorUserSort {
+	return c.addField("HeldInEveryTenant")
+}
+
+func (c *crewSectorUserSort) ManagedHere() *CrewSectorUserSort {
+	return c.addField("ManagedHere")
+}
+
+func (c *crewSectorUserSort) ManagedByAnotherDirectory() *CrewSectorUserSort {
+	return c.addField("ManagedByAnotherDirectory")
+}
+
 func (c *crewSectorUserSort) OutsideDirectory() *CrewSectorUserSort {
 	return c.addField("OutsideDirectory")
 }
 
 func (c *crewSectorUserSort) CannotEnter() *CrewSectorUserSort {
 	return c.addField("CannotEnter")
+}
+
+func (c *crewSectorUserSort) AdministratorWithPassword() *CrewSectorUserSort {
+	return c.addField("AdministratorWithPassword")
 }
 
 type CrewSectorUserSort struct {

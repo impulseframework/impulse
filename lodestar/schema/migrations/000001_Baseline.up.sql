@@ -4,14 +4,34 @@
 -- what a later migration had dropped is gone. Schema changes from here append files after
 -- this one.
 
+-- The change history: one record for every create, update and delete of a tracked row.
+-- The key puts a row's records together, newest first, so reading a page of one record's
+-- history reads that page and nothing else. The statement is the resource package's
+-- (resource.DataChangeEventsDDL); impulse check holds the two together.
 CREATE TABLE DataChangeEvents (
   TableName STRING(MAX) NOT NULL,
   RowId STRING(MAX) NOT NULL,
-  Sequence INT64 NOT NULL,
   EventTime TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp=true),
-  EventSource STRING(MAX) NOT NULL,
+  Sequence INT64 NOT NULL,
+  Operation STRING(MAX) NOT NULL,
   ChangeSet JSON,
-) PRIMARY KEY (TableName, RowId, Sequence, EventTime);
+  TenantId STRING(MAX),
+  Auth STRING(MAX),
+  ActorUserId STRING(MAX),
+  ActorUsername STRING(MAX),
+  PrincipalUserId STRING(MAX),
+  PrincipalUsername STRING(MAX),
+  PrincipalRole STRING(MAX),
+  SessionId STRING(MAX),
+  Process STRING(MAX),
+  Rpc STRING(MAX),
+) PRIMARY KEY (TableName, RowId, EventTime DESC, Sequence DESC);
+
+-- How long change records are kept: Spanner removes a record once it is older than this
+-- many days. The table's two statements are the library's own
+-- (resource.DataChangeEventsDDL(resource.SpannerDBType, resource.KeepChangeHistoryDays(365))),
+-- which a test pins.
+ALTER TABLE DataChangeEvents ADD ROW DELETION POLICY (OLDER_THAN(EventTime, INTERVAL 365 DAY));
 
 -- The pipeline's migration guard reads this database's migration version through the
 -- migrations_reader database role, which holds select on the migrations table alone,
@@ -28,49 +48,65 @@ GRANT SELECT ON TABLE SchemaMigrations TO ROLE migrations_reader;
 CREATE TABLE CrewSessionUsers (
   Id                 STRING(36) NOT NULL,
   Username           STRING(MAX) NOT NULL,
-  NormalizedUsername STRING(MAX) AS (NORMALIZE_AND_CASEFOLD(Username)) STORED,
+  -- The form a username is unique in and looked up by. A username with an @ in it reads
+  -- as an email address and is matched as the library compares two addresses: its ASCII
+  -- capital letters lowercased and every other character as written (LOWER over BYTES
+  -- treats its argument as ASCII), so two addresses the library tells apart are two
+  -- usernames. Any other username is matched in Unicode's normalization and case folding,
+  -- and normalized once more after the folding: the folding of a normalized name is not
+  -- always normalized, and without that a capital written in two code points and its
+  -- small letter in one would be two names.
+  NormalizedUsername STRING(MAX) AS (IF(STRPOS(Username, '@') > 0, CAST(LOWER(CAST(Username AS BYTES)) AS STRING), NORMALIZE(NORMALIZE_AND_CASEFOLD(Username)))) STORED,
   -- The person's name, as people read it ("Gale Reyes"); null for none. It identifies
   -- nobody: the username does. A directory's sign-in or an invitation fills it only
   -- where the person holds none, so the person's own change stands.
   Name               STRING(MAX),
-  -- The look the person chose for the pages: light or dark, and one of the palettes the
-  -- application offers, by its id; null for none chosen. The person's own pages write
-  -- it and nothing else does, so it follows them to every browser they sign in from.
+  -- The look the person chose for the pages: light, dark or as their device is set
+  -- ('device'), and one of the palettes the application offers, by its id; null for none
+  -- chosen. The person's own pages write it and nothing else does, so it follows them to
+  -- every browser they sign in from.
   LookScheme         STRING(MAX),
   LookPalette        STRING(MAX),
   PasswordHash       STRING(MAX),
   Disabled           BOOL NOT NULL DEFAULT (FALSE),
-  -- An operator set the password (a first password, a reset): the person changes it
-  -- before anything else is served (the session library's forced change).
+  -- An administrator required a new password of the person: they choose it before
+  -- anything else is served (the session library's forced change).
   PasswordChangeRequired BOOL NOT NULL DEFAULT (FALSE),
   -- The database's time at the insert and at the latest sign-in (null before the
   -- first); the session library writes both as commit timestamps.
   CreatedAt          TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   LastSignInAt       TIMESTAMP OPTIONS (allow_commit_timestamp = true),
   CONSTRAINT CK_CrewSessionUsersId CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-  CONSTRAINT CK_CrewSessionUsersLookScheme CHECK (LookScheme IN ('light', 'dark')),
+  CONSTRAINT CK_CrewSessionUsersLookScheme CHECK (LookScheme IN ('light', 'dark', 'device')),
   -- The crew's email addresses, in two states. Email is the address as the person gave
-  -- it, NormalizedEmail the form uniqueness and lookups use, and EmailVerifiedAt the
-  -- database's time at which the person proved they read the mailbox by following a link
-  -- sent to it; null while the address is unverified. An address is trusted for nothing
+  -- it, NormalizedEmail the form uniqueness and lookups use (the address with its ASCII
+  -- capital letters lowercased and every other character as written, which is how the
+  -- library compares two addresses), and EmailVerifiedAt the database's time at which the
+  -- person proved they read the mailbox by following a link sent to it; null while the
+  -- address is unverified. An address is trusted for nothing
   -- until it is verified: code that sends a link may use an unverified address, code that
   -- relies on one requires the time. An operator may put an address on a user by hand,
   -- unverified, which reserves it: uniqueness holds among every address held, verified or
   -- not. No address is required, and the address is held apart from the username (the
   -- session library's SessionUserEmail migration, under the auth's prefix).
   Email STRING(MAX),
-  NormalizedEmail STRING(MAX) AS (NORMALIZE_AND_CASEFOLD(Email)) STORED,
+  NormalizedEmail STRING(MAX) AS (CAST(LOWER(CAST(Email AS BYTES)) AS STRING)) STORED,
   EmailVerifiedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
 ) PRIMARY KEY(Id);
 
 CREATE UNIQUE INDEX CrewSessionUsersByNormalizedUsername ON CrewSessionUsers(NormalizedUsername);
 
 -- The crew's sessions: the session library's Auth sessions (session.Auth), one table for
--- every sign-in method registered on the Crew auth. A session belongs to a user, and
--- deleting the user deletes its sessions; UserId is null only for a role-principal
+-- every sign-in method registered on the Crew auth. A session names its user and is not
+-- held to it by a foreign key: a deleted user's sessions are ended in code, and their rows
+-- stay until the timed removal takes them. UserId is null only for a role-principal
 -- impersonation. ProviderSessionId is the identity provider's session id when the
 -- method reports one, for front-channel logout, and ProviderSessionIssuer the issuer it
--- belongs to: a provider's session id is unique only within its issuer. Every column that records when
+-- belongs to: a provider's session id is unique only within its issuer. Browser is the
+-- name of the browser a session was signed in from ("Chrome on Android"), worked out from
+-- the request's User-Agent header when the session is made, null where it was not
+-- recognized. It tells a person's sessions apart on their account page and decides
+-- nothing. Every column that records when
 -- something happened is written with the database's commit time, never the
 -- application's clock, which allow_commit_timestamp permits.
 CREATE TABLE CrewSessions (
@@ -81,10 +117,10 @@ CREATE TABLE CrewSessions (
     AuthenticatedAt   TIMESTAMP OPTIONS (allow_commit_timestamp = true),
     ProviderSessionId STRING(MAX),
     ProviderSessionIssuer STRING(MAX),
+    Browser           STRING(MAX),
     CreatedAt         TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     UpdatedAt         TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     CONSTRAINT CK_CrewSessionsId CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-    CONSTRAINT FK_CrewSessions_CrewSessionUsers FOREIGN KEY (UserId) REFERENCES CrewSessionUsers (Id) ON DELETE CASCADE,
 ) PRIMARY KEY (Id);
 
 CREATE INDEX CrewSessions_Expired_idx
@@ -94,6 +130,10 @@ CREATE INDEX CrewSessions_Expired_idx
 CREATE INDEX CrewSessionsByUserId ON CrewSessions(UserId);
 
 CREATE INDEX CrewSessionsByProviderSessionId ON CrewSessions(ProviderSessionId);
+
+-- A session's row is removed 30 days after its last activity (UpdatedAt): Spanner deletes
+-- it in the background, with its auth events. A session in use is never removed.
+ALTER TABLE CrewSessions ADD ROW DELETION POLICY (OLDER_THAN(UpdatedAt, INTERVAL 30 DAY));
 
 -- A sector's key is an id the create path generates, never a word a person types: it is
 -- written into every row the sector owns and is the domain of every role held in it, so
@@ -105,10 +145,16 @@ CREATE TABLE Sectors (
   Name STRING(MAX) NOT NULL,
   Region STRING(MAX) NOT NULL,
   Established DATE NOT NULL,
+  -- When the sector was charted: the time of the commit that made the row, written by the
+  -- record's create and never changed. The crew's list of sectors says it as Since.
+  ChartedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   -- The sector's people enter through its directory only: no other sign-in reaches a
   -- sector whose flag is true, a password included. Half of what the sector declares
   -- about who may enter it; the other half is its row of SectorDirectories.
   DirectoryOnly BOOL NOT NULL DEFAULT (FALSE),
+  -- The sector is disabled: its crew are shut out while its records stay, and nobody
+  -- enters it but a super administrator. A sector is disabled before it is deleted.
+  Disabled BOOL NOT NULL DEFAULT (FALSE),
 
   CONSTRAINT CK_Sectors_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
 ) PRIMARY KEY (Id);
@@ -123,14 +169,18 @@ CREATE UNIQUE INDEX SectorsByName ON Sectors(Name);
 -- when the sector is charted or when its marshal, signed in through it, makes it the
 -- sector's. A sector has one directory and a directory belongs to one sector, which the
 -- two unique indexes below hold.
--- DefaultSeat names the role a person is given in the sector at their first sign-in
--- through the directory; NULL says the sector admits them by invitation only.
+-- DefaultSeat names the role a person is given in the sector when they sign in through
+-- the directory and hold nothing in the sector, at every sign-in; NULL says the sector
+-- admits them by invitation only.
+-- AsksSecondFactor says the sector's marshal has said the directory asks its people for a
+-- second factor of its own, so a sign-in through it is not asked for the mailed code.
 CREATE TABLE SectorDirectories (
   Id STRING(36) NOT NULL,
   SectorId STRING(36) NOT NULL,
   Method STRING(16) NOT NULL,
   Connection STRING(MAX) NOT NULL,
   DefaultSeat STRING(64),
+  AsksSecondFactor BOOL NOT NULL DEFAULT (FALSE),
 
   CONSTRAINT CK_SectorDirectories_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
   CONSTRAINT CK_SectorDirectories_Method CHECK (Method IN ('google', 'azure', 'workos', 'oidc')),
@@ -140,6 +190,17 @@ CREATE TABLE SectorDirectories (
 CREATE UNIQUE INDEX SectorDirectoriesBySectorId ON SectorDirectories(SectorId);
 CREATE UNIQUE INDEX SectorDirectoriesByMethodConnection ON SectorDirectories(Method, Connection);
 
+-- The rows of a table that carries a sector's key are the sector's own, so they go with
+-- it: the delete of a sector takes each one in code, through its resource's own delete,
+-- in the transaction that deletes the sector, so its change event is written. No foreign
+-- key and no interleave of these tables says ON DELETE CASCADE: rows are deleted in code
+-- only, and impulse check refuses the rule (no-delete-cascade). A table that reaches its
+-- sector through another row goes the same way. A record deleted by itself takes what its
+-- resource declares (@deleteCascade): a wing its squadrons with their memberships and
+-- passes, a hangar its passes and its ships with their refits and tasks, a refit its
+-- tasks, a mission its sorties, their expenses and its documents, a sortie its expenses.
+-- A record that declares nothing (a ship, a squadron) is refused while rows are under it,
+-- until they are deleted or moved. A sector's directory goes the same way as the rest.
 CREATE TABLE Wings (
   Id STRING(36) NOT NULL,
   SectorId STRING(36) NOT NULL,
@@ -157,49 +218,65 @@ CREATE INDEX WingsByName ON Wings(Name);
 CREATE TABLE MembersSessionUsers (
   Id                 STRING(36) NOT NULL,
   Username           STRING(MAX) NOT NULL,
-  NormalizedUsername STRING(MAX) AS (NORMALIZE_AND_CASEFOLD(Username)) STORED,
+  -- The form a username is unique in and looked up by. A username with an @ in it reads
+  -- as an email address and is matched as the library compares two addresses: its ASCII
+  -- capital letters lowercased and every other character as written (LOWER over BYTES
+  -- treats its argument as ASCII), so two addresses the library tells apart are two
+  -- usernames. Any other username is matched in Unicode's normalization and case folding,
+  -- and normalized once more after the folding: the folding of a normalized name is not
+  -- always normalized, and without that a capital written in two code points and its
+  -- small letter in one would be two names.
+  NormalizedUsername STRING(MAX) AS (IF(STRPOS(Username, '@') > 0, CAST(LOWER(CAST(Username AS BYTES)) AS STRING), NORMALIZE(NORMALIZE_AND_CASEFOLD(Username)))) STORED,
   -- The person's name, as people read it ("Gale Reyes"); null for none. It identifies
   -- nobody: the username does. A directory's sign-in or an invitation fills it only
   -- where the person holds none, so the person's own change stands.
   Name               STRING(MAX),
-  -- The look the person chose for the pages: light or dark, and one of the palettes the
-  -- application offers, by its id; null for none chosen. The person's own pages write
-  -- it and nothing else does, so it follows them to every browser they sign in from.
+  -- The look the person chose for the pages: light, dark or as their device is set
+  -- ('device'), and one of the palettes the application offers, by its id; null for none
+  -- chosen. The person's own pages write it and nothing else does, so it follows them to
+  -- every browser they sign in from.
   LookScheme         STRING(MAX),
   LookPalette        STRING(MAX),
   PasswordHash       STRING(MAX),
   Disabled           BOOL NOT NULL DEFAULT (FALSE),
-  -- An operator set the password (a first password, a reset): the person changes it
-  -- before anything else is served (the session library's forced change).
+  -- An administrator required a new password of the person: they choose it before
+  -- anything else is served (the session library's forced change).
   PasswordChangeRequired BOOL NOT NULL DEFAULT (FALSE),
   -- The database's time at the insert and at the latest sign-in (null before the
   -- first); the session library writes both as commit timestamps.
   CreatedAt          TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   LastSignInAt       TIMESTAMP OPTIONS (allow_commit_timestamp = true),
   CONSTRAINT CK_MembersSessionUsersId CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-  CONSTRAINT CK_MembersSessionUsersLookScheme CHECK (LookScheme IN ('light', 'dark')),
+  CONSTRAINT CK_MembersSessionUsersLookScheme CHECK (LookScheme IN ('light', 'dark', 'device')),
   -- The members' email addresses, in two states. Email is the address as the person gave
-  -- it, NormalizedEmail the form uniqueness and lookups use, and EmailVerifiedAt the
-  -- database's time at which the person proved they read the mailbox by following a link
-  -- sent to it; null while the address is unverified. An address is trusted for nothing
+  -- it, NormalizedEmail the form uniqueness and lookups use (the address with its ASCII
+  -- capital letters lowercased and every other character as written, which is how the
+  -- library compares two addresses), and EmailVerifiedAt the database's time at which the
+  -- person proved they read the mailbox by following a link sent to it; null while the
+  -- address is unverified. An address is trusted for nothing
   -- until it is verified: code that sends a link may use an unverified address, code that
   -- relies on one requires the time. An operator may put an address on a user by hand,
   -- unverified, which reserves it: uniqueness holds among every address held, verified or
   -- not. No address is required, and the address is held apart from the username (the
   -- session library's SessionUserEmail migration, under the auth's prefix).
   Email STRING(MAX),
-  NormalizedEmail STRING(MAX) AS (NORMALIZE_AND_CASEFOLD(Email)) STORED,
+  NormalizedEmail STRING(MAX) AS (CAST(LOWER(CAST(Email AS BYTES)) AS STRING)) STORED,
   EmailVerifiedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
 ) PRIMARY KEY(Id);
 
 CREATE UNIQUE INDEX MembersSessionUsersByNormalizedUsername ON MembersSessionUsers(NormalizedUsername);
 
 -- The members's sessions: the session library's Auth sessions (session.Auth), one table for
--- every sign-in method registered on the Members auth. A session belongs to a user, and
--- deleting the user deletes its sessions; UserId is null only for a role-principal
+-- every sign-in method registered on the Members auth. A session names its user and is not
+-- held to it by a foreign key: a deleted user's sessions are ended in code, and their rows
+-- stay until the timed removal takes them. UserId is null only for a role-principal
 -- impersonation. ProviderSessionId is the identity provider's session id when the
 -- method reports one, for front-channel logout, and ProviderSessionIssuer the issuer it
--- belongs to: a provider's session id is unique only within its issuer. Every column that records when
+-- belongs to: a provider's session id is unique only within its issuer. Browser is the
+-- name of the browser a session was signed in from ("Chrome on Android"), worked out from
+-- the request's User-Agent header when the session is made, null where it was not
+-- recognized. It tells a person's sessions apart on their account page and decides
+-- nothing. Every column that records when
 -- something happened is written with the database's commit time, never the
 -- application's clock, which allow_commit_timestamp permits.
 CREATE TABLE MembersSessions (
@@ -210,10 +287,10 @@ CREATE TABLE MembersSessions (
     AuthenticatedAt   TIMESTAMP OPTIONS (allow_commit_timestamp = true),
     ProviderSessionId STRING(MAX),
     ProviderSessionIssuer STRING(MAX),
+    Browser           STRING(MAX),
     CreatedAt         TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     UpdatedAt         TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     CONSTRAINT CK_MembersSessionsId CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-    CONSTRAINT FK_MembersSessions_MembersSessionUsers FOREIGN KEY (UserId) REFERENCES MembersSessionUsers (Id) ON DELETE CASCADE,
 ) PRIMARY KEY (Id);
 
 CREATE INDEX MembersSessions_Expired_idx
@@ -223,6 +300,10 @@ CREATE INDEX MembersSessions_Expired_idx
 CREATE INDEX MembersSessionsByUserId ON MembersSessions(UserId);
 
 CREATE INDEX MembersSessionsByProviderSessionId ON MembersSessions(ProviderSessionId);
+
+-- A session's row is removed 30 days after its last activity (UpdatedAt): Spanner deletes
+-- it in the background, with its auth events. A session in use is never removed.
+ALTER TABLE MembersSessions ADD ROW DELETION POLICY (OLDER_THAN(UpdatedAt, INTERVAL 30 DAY));
 
 CREATE TABLE MissionStatuses (
   Id STRING(64) NOT NULL,
@@ -296,6 +377,11 @@ CREATE TABLE ShipClasses (
   RoleId STRING(64) NOT NULL,
   Tonnage INT64 NOT NULL,
   Hardened BOOL NOT NULL,
+  -- InService records whether the yards still build this hull. A class enters the catalog in
+  -- service and leaves it only when somebody says so, so the column declares the yes itself: a
+  -- row that names no value is in service, the generator carries the default into the browser
+  -- metadata, and the console's form starts the box checked with nothing written in its config.
+  InService BOOL NOT NULL DEFAULT (TRUE),
 
   CONSTRAINT CK_ShipClasses_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
   CONSTRAINT FK_ShipClasses_RoleId FOREIGN KEY (RoleId) REFERENCES ShipRoles(Id),
@@ -314,6 +400,10 @@ CREATE TABLE Pilots (
 ) PRIMARY KEY (Id);
 
 CREATE UNIQUE INDEX PilotsByUserId ON Pilots(UserId);
+
+-- A list that shows a pilot by name (a squadron's roster, the commendations desk) is
+-- filtered by that name through this index.
+CREATE INDEX PilotsByDisplayName ON Pilots(DisplayName);
 
 CREATE TABLE ClientContacts (
   Id STRING(36) NOT NULL,
@@ -354,6 +444,7 @@ CREATE TABLE Squadrons (
   -- column back to NULL. Spanner cannot index an ARRAY column, so the field carries no
   -- allow_filter and no list filters or sorts by it.
   Callsigns ARRAY<STRING(16)>,
+  Name_Search TOKENLIST AS (TOKENIZE_SUBSTRING(Name, relative_search_types => ['value_prefix', 'value_suffix'])) HIDDEN,
 ) PRIMARY KEY (Id);
 
 CREATE INDEX SquadronsByName ON Squadrons(Name);
@@ -381,26 +472,32 @@ CREATE TABLE Hangars (
   Name_Lower STRING(MAX) AS (LOWER(Name)) STORED,
 ) PRIMARY KEY (Id);
 
--- HangarPasses: who a hangar is open to. A pass names a person or a squadron, never both,
--- at a level (visit, or run) and until it expires; no expiry is a standing pass. The two
--- subject sets the resource struct declares read this table: the hangars open to the
--- requester and the hangars the requester runs, each through a pass in their own name or
--- in the name of a squadron they fly with. A pass goes with its hangar and with its
--- squadron.
+-- HangarPasses: who a hangar is open to. A pass names one holder, a person, a squadron or
+-- a group of the crew, at a level (visit, or run) and until it expires; no expiry is a
+-- standing pass. The two subject sets the resource struct declares read this table: the
+-- hangars open to the requester and the hangars the requester runs, each through a pass
+-- in their own name, in the name of a squadron they fly with or in the name of a group
+-- they are in. A pass goes with its hangar and with the wing of its squadron, in code
+-- (Hangar and Wing declare it). The foreign key to CrewGroups is added below that table.
+-- A squadron that holds a pass is not deleted until the pass is. Its foreign key to its
+-- hangar holds the sector beside the hangar's id, so a pass never names another sector's
+-- hangar. The holder check counts the three columns and takes exactly one; an empty
+-- UserId names nobody and is not counted.
 CREATE TABLE HangarPasses (
   Id STRING(36) NOT NULL,
   SectorId STRING(36) NOT NULL,
   HangarId STRING(36) NOT NULL,
   UserId STRING(36),
   SquadronId STRING(36),
+  GroupId STRING(36),
   LevelId STRING(64) NOT NULL,
   ExpiresAt TIMESTAMP,
 
   CONSTRAINT CK_HangarPasses_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-  CONSTRAINT CK_HangarPasses_Holder CHECK ((UserId IS NULL) != (SquadronId IS NULL)),
+  CONSTRAINT CK_HangarPasses_Holder CHECK (IF(UserId IS NULL OR UserId = '', 0, 1) + IF(SquadronId IS NULL, 0, 1) + IF(GroupId IS NULL, 0, 1) = 1),
   CONSTRAINT FK_HangarPasses_SectorId FOREIGN KEY (SectorId) REFERENCES Sectors(Id),
-  CONSTRAINT FK_HangarPasses_HangarId FOREIGN KEY (HangarId) REFERENCES Hangars(Id) ON DELETE CASCADE,
-  CONSTRAINT FK_HangarPasses_SquadronId FOREIGN KEY (SquadronId) REFERENCES Squadrons(Id) ON DELETE CASCADE,
+  CONSTRAINT FK_HangarPasses_HangarIdSectorId FOREIGN KEY (HangarId, SectorId) REFERENCES Hangars(Id, SectorId),
+  CONSTRAINT FK_HangarPasses_SquadronId FOREIGN KEY (SquadronId) REFERENCES Squadrons(Id),
   CONSTRAINT FK_HangarPasses_LevelId FOREIGN KEY (LevelId) REFERENCES PassLevels(Id),
 ) PRIMARY KEY (Id);
 
@@ -410,6 +507,8 @@ CREATE TABLE HangarPasses (
 CREATE INDEX HangarPassesBySectorIdUserIdHangarId ON HangarPasses(SectorId, UserId, HangarId);
 
 CREATE INDEX HangarPassesBySectorIdSquadronIdHangarId ON HangarPasses(SectorId, SquadronId, HangarId);
+
+CREATE INDEX HangarPassesBySectorIdGroupIdHangarId ON HangarPasses(SectorId, GroupId, HangarId);
 
 -- The list's own order: a sector's passes by hangar.
 CREATE INDEX HangarPassesBySectorIdHangarId ON HangarPasses(SectorId, HangarId);
@@ -437,7 +536,7 @@ CREATE TABLE Ships (
   CargoBays ARRAY<INT64> NOT NULL DEFAULT (ARRAY<INT64>[]),
   -- TransponderKey is the key a ship's transponder signs its answers with: a secret. The
   -- resource declares it conditions:"secret" and types it resource.Secret, so it is
-  -- written and never served, the ship's log names a change of it without the value, and
+  -- written and never served, its change record names a change of it without the value, and
   -- the column holds it encrypted: BYTES, with room for the 64 bytes a key may be and the
   -- 42 sealing adds (the version of the application secret that sealed it, the random
   -- number drawn for the write, and the check).
@@ -479,8 +578,8 @@ CREATE TABLE Missions (
   -- The hazard scale is 1..5. The create validator (MissionCreateValidator) answers the rule
   -- as 400 naming the field before anything is buffered; the update path has no validator,
   -- so this constraint is what refuses an update to hazard 9, at commit, and the library
-  -- answers the refusal as 400 in the resource's name. It is the demo's only CHECK a request
-  -- can reach: the others guard server-minted ids.
+  -- answers the refusal as 400 in a sentence that says the mission in words. It is the demo's
+  -- only CHECK a request can reach: the others guard server-minted ids.
   CONSTRAINT CK_Missions_Hazard CHECK (Hazard BETWEEN 1 AND 5),
   -- Missions: the title as text and the deadline as a date (YYYYMMDD in UTC, the zone the
   -- day is read in: a timestamp's token column names its zone, since the database's
@@ -541,7 +640,7 @@ CREATE TABLE RefitTasks (
   CONSTRAINT FK_RefitTasks_Id FOREIGN KEY (Id) REFERENCES Refits(Id),
   PhotoKey STRING(36),
 ) PRIMARY KEY (Id, TaskNumber),
-  INTERLEAVE IN PARENT Refits ON DELETE CASCADE;
+  INTERLEAVE IN PARENT Refits;
 
 CREATE TABLE Consignments (
   Id STRING(36) NOT NULL,
@@ -597,7 +696,39 @@ CREATE TABLE DistressCalls (
   Position JSON,
 ) PRIMARY KEY (Id);
 
-CREATE UNIQUE INDEX DistressCallsByCaseNumber ON DistressCalls(CaseNumber);
+CREATE UNIQUE INDEX DistressCallsBySectorIdCaseNumber ON DistressCalls(SectorId, CaseNumber);
+
+-- DistressRelays: a message passed along about a distress call, and the answers to it. A
+-- relay names its call by the case number an operator reads out, a column of DistressCalls
+-- that is not its key, and an answer names the relay it answers, a row of this same table.
+-- A case number is unique within a sector (DistressCallsBySectorIdCaseNumber), and the
+-- relay's foreign key to its call holds the sector beside the case number, so a relay never
+-- names another sector's call. An answer's foreign key to the relay it answers holds the
+-- sector beside that relay's id in the same way, so an answer never names another
+-- sector's relay.
+-- Neither foreign key carries a delete rule: a call's delete takes its relays, and a
+-- relay's delete its answers, in code (the two resource structs declare it).
+CREATE TABLE DistressRelays (
+  Id STRING(36) NOT NULL,
+  SectorId STRING(36) NOT NULL,
+  CaseNumber STRING(MAX) NOT NULL,
+  AnswersRelayId STRING(36),
+  Message STRING(MAX) NOT NULL,
+  -- RelayedByName is the username of whoever passed the message along, as it was then.
+  RelayedByName STRING(320) NOT NULL,
+  RelayedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+
+  CONSTRAINT CK_DistressRelays_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
+  CONSTRAINT FK_DistressRelays_SectorId FOREIGN KEY (SectorId) REFERENCES Sectors(Id),
+  CONSTRAINT FK_DistressRelays_SectorIdCaseNumber FOREIGN KEY (SectorId, CaseNumber) REFERENCES DistressCalls(SectorId, CaseNumber),
+  CONSTRAINT FK_DistressRelays_AnswersRelayIdSectorId FOREIGN KEY (AnswersRelayId, SectorId) REFERENCES DistressRelays(Id, SectorId),
+) PRIMARY KEY (Id);
+
+-- A call's page lists its relays by the case number, and a sector's relays list in the
+-- order they were passed along: each with the sector bound first.
+CREATE INDEX DistressRelaysBySectorIdCaseNumber ON DistressRelays(SectorId, CaseNumber);
+
+CREATE INDEX DistressRelaysBySectorIdRelayedAt ON DistressRelays(SectorId, RelayedAt);
 
 CREATE TABLE MissionDocuments (
   Id STRING(36) NOT NULL,
@@ -643,6 +774,7 @@ CREATE TABLE CrewSessionImpersonations (
     SourceSessionId  STRING(36),
     PrincipalKind    STRING(16) NOT NULL,
     PrincipalUserId  STRING(MAX),
+    PrincipalUsername STRING(MAX),
     PrincipalRole    STRING(MAX),
     Mask             STRING(MAX),
     Reason           STRING(MAX),
@@ -661,6 +793,12 @@ CREATE INDEX CrewSessionImpersonations_ActorUsername_idx
 CREATE INDEX CrewSessionImpersonations_PrincipalUserId_idx
     ON CrewSessionImpersonations
     (PrincipalUserId, StartedAt DESC);
+
+-- The Watch desk's As column is filtered by this index. Nothing in the session library
+-- reads it.
+CREATE INDEX CrewSessionImpersonations_PrincipalUsername_idx
+    ON CrewSessionImpersonations
+    (PrincipalUsername, StartedAt DESC);
 
 -- Tenant-leading indexes for the bare-tenant resources that list in a declared order:
 -- each list reads its page off the index instead of sorting the sector's partition.
@@ -706,6 +844,7 @@ CREATE TABLE CrewUserRoles (
   UserId STRING(320) NOT NULL,
   StartsAt TIMESTAMP,
   EndsAt TIMESTAMP,
+  Reason STRING(MAX),
   CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   CONSTRAINT CrewUserRolesKind CHECK (Kind IN ('global', 'domain', 'every')),
 ) PRIMARY KEY (Kind, Axis, DomainId, Role, UserId);
@@ -743,6 +882,10 @@ CREATE TABLE CrewGroups (
 
 CREATE UNIQUE INDEX CrewGroupsByName ON CrewGroups (Kind, Axis, DomainId, Name);
 
+-- A hangar pass may name a group as its holder. The foreign key keeps a pass from naming
+-- a group that is gone.
+ALTER TABLE HangarPasses ADD CONSTRAINT FK_HangarPasses_GroupId FOREIGN KEY (GroupId) REFERENCES CrewGroups (Id);
+
 CREATE TABLE CrewGroupMembers (
   GroupId STRING(36) NOT NULL,
   UserId STRING(320) NOT NULL,
@@ -769,6 +912,35 @@ CREATE TABLE CrewGroupRoles (
 
 CREATE INDEX CrewGroupRolesByScope ON CrewGroupRoles (Kind, Axis, DomainId, Role);
 
+CREATE TABLE CrewRecordUserRoles (
+  Axis STRING(128) NOT NULL,
+  DomainId STRING(128) NOT NULL,
+  Resource STRING(128) NOT NULL,
+  RecordId STRING(MAX) NOT NULL,
+  Role STRING(128) NOT NULL,
+  UserId STRING(320) NOT NULL,
+  StartsAt TIMESTAMP,
+  EndsAt TIMESTAMP,
+  CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+) PRIMARY KEY (Axis, DomainId, Resource, RecordId, Role, UserId);
+
+CREATE INDEX CrewRecordUserRolesByUserId ON CrewRecordUserRoles (UserId, Axis, DomainId);
+
+CREATE TABLE CrewRecordGroupRoles (
+  Axis STRING(128) NOT NULL,
+  DomainId STRING(128) NOT NULL,
+  Resource STRING(128) NOT NULL,
+  RecordId STRING(MAX) NOT NULL,
+  Role STRING(128) NOT NULL,
+  GroupId STRING(36) NOT NULL,
+  StartsAt TIMESTAMP,
+  EndsAt TIMESTAMP,
+  CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+  CONSTRAINT CrewRecordGroupRolesGroup FOREIGN KEY (GroupId) REFERENCES CrewGroups (Id),
+) PRIMARY KEY (Axis, DomainId, Resource, RecordId, Role, GroupId);
+
+CREATE INDEX CrewRecordGroupRolesByGroupId ON CrewRecordGroupRoles (GroupId);
+
 CREATE TABLE MembersRoles (
   Kind STRING(16) NOT NULL,
   Axis STRING(128) NOT NULL,
@@ -787,6 +959,7 @@ CREATE TABLE MembersUserRoles (
   UserId STRING(320) NOT NULL,
   StartsAt TIMESTAMP,
   EndsAt TIMESTAMP,
+  Reason STRING(MAX),
   CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   CONSTRAINT MembersUserRolesKind CHECK (Kind IN ('global', 'domain', 'every')),
 ) PRIMARY KEY (Kind, Axis, DomainId, Role, UserId);
@@ -848,6 +1021,51 @@ CREATE TABLE MembersGroupRoles (
 
 CREATE INDEX MembersGroupRolesByScope ON MembersGroupRoles (Kind, Axis, DomainId, Role);
 
+CREATE TABLE MembersRecordUserRoles (
+  Axis STRING(128) NOT NULL,
+  DomainId STRING(128) NOT NULL,
+  Resource STRING(128) NOT NULL,
+  RecordId STRING(MAX) NOT NULL,
+  Role STRING(128) NOT NULL,
+  UserId STRING(320) NOT NULL,
+  StartsAt TIMESTAMP,
+  EndsAt TIMESTAMP,
+  CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+) PRIMARY KEY (Axis, DomainId, Resource, RecordId, Role, UserId);
+
+CREATE INDEX MembersRecordUserRolesByUserId ON MembersRecordUserRoles (UserId, Axis, DomainId);
+
+CREATE TABLE MembersRecordGroupRoles (
+  Axis STRING(128) NOT NULL,
+  DomainId STRING(128) NOT NULL,
+  Resource STRING(128) NOT NULL,
+  RecordId STRING(MAX) NOT NULL,
+  Role STRING(128) NOT NULL,
+  GroupId STRING(36) NOT NULL,
+  StartsAt TIMESTAMP,
+  EndsAt TIMESTAMP,
+  CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+  CONSTRAINT MembersRecordGroupRolesGroup FOREIGN KEY (GroupId) REFERENCES MembersGroups (Id),
+) PRIMARY KEY (Axis, DomainId, Resource, RecordId, Role, GroupId);
+
+CREATE INDEX MembersRecordGroupRolesByGroupId ON MembersRecordGroupRoles (GroupId);
+
+-- The delete tokens: one row for each delete a person was asked about and may go ahead
+-- with, written when the question passes and deleted with the record. The statements are
+-- the library's own (resource.DeleteTokensDDL(resource.SpannerDBType)), which a test pins.
+CREATE TABLE DeleteTokens (
+  Id STRING(MAX) NOT NULL,
+  TableName STRING(MAX) NOT NULL,
+  RowKey STRING(MAX) NOT NULL,
+  SessionId STRING(MAX) NOT NULL,
+  PrincipalUser STRING(MAX),
+  PrincipalRole STRING(MAX),
+  CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp=true),
+  ExpiresAt TIMESTAMP NOT NULL,
+) PRIMARY KEY (Id);
+
+ALTER TABLE DeleteTokens ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 1 DAY));
+
 -- The feature flags: one row per flag the resources package declares (a resource.Feature
 -- constant), written by the deploy's resource.MigrateFeatures and flipped by SetFeature;
 -- FeatureFlagChanges records every flip in the same commit. The statements are the
@@ -864,7 +1082,15 @@ CREATE TABLE FeatureFlagChanges (
   Name STRING(64) NOT NULL,
   ChangedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   Enabled BOOL NOT NULL,
-  ChangedBy STRING(MAX) NOT NULL,
+  Auth STRING(MAX),
+  ActorUserId STRING(MAX),
+  ActorUsername STRING(MAX),
+  PrincipalUserId STRING(MAX),
+  PrincipalUsername STRING(MAX),
+  PrincipalRole STRING(MAX),
+  SessionId STRING(MAX),
+  Process STRING(MAX),
+  Rpc STRING(MAX),
 ) PRIMARY KEY (Name, ChangedAt);
 
 -- Commendations is the commendations desk: a citation on a pilot's record for a sortie
@@ -976,6 +1202,10 @@ CREATE UNIQUE INDEX CrewSessionPendingSignInsByTokenHash ON CrewSessionPendingSi
 
 CREATE INDEX CrewSessionPendingSignInsByExpiresAt ON CrewSessionPendingSignIns(ExpiresAt);
 
+-- A pending sign-in's row is removed one day after it expired (ExpiresAt), consumed or
+-- not: Spanner deletes it in the background, with its sign-in codes.
+ALTER TABLE CrewSessionPendingSignIns ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 1 DAY));
+
 -- The members's identity links: which provider subject is which person. A Members session
 -- user holds one row per registration they have signed in through (the Google
 -- registration's subject under its method and connection), keyed uniquely so a
@@ -1062,6 +1292,10 @@ CREATE UNIQUE INDEX MembersSessionPendingSignInsByTokenHash ON MembersSessionPen
 
 CREATE INDEX MembersSessionPendingSignInsByExpiresAt ON MembersSessionPendingSignIns(ExpiresAt);
 
+-- A pending sign-in's row is removed one day after it expired (ExpiresAt), consumed or
+-- not: Spanner deletes it in the background, with its sign-in codes.
+ALTER TABLE MembersSessionPendingSignIns ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 1 DAY));
+
 -- The crew's sign-in attempts: the password method's attempt limiter counts the failed
 -- attempts on one name, known or not, within a window, and the lock those failures
 -- earned (the session library's SessionSignInAttempts migration, under the auth's
@@ -1071,14 +1305,21 @@ CREATE INDEX MembersSessionPendingSignInsByExpiresAt ON MembersSessionPendingSig
 -- Failures reached the limit, and the name is refused until then. A success, an MFA
 -- completion or a password change deletes the row. The mail the auth sends is counted
 -- here too, under the address. UpdatedAt takes the commit time; WindowEndsAt and
--- LockedUntil are deadlines, written as given.
+-- LockedUntil are deadlines, written as given. EndsAt is the moment the row stops
+-- counting: the end of its window or of its lock, whichever is later, worked out by the
+-- database.
 CREATE TABLE CrewSessionSignInAttempts (
     Name         STRING(MAX) NOT NULL,
     Failures     INT64 NOT NULL,
     WindowEndsAt TIMESTAMP NOT NULL,
     LockedUntil  TIMESTAMP,
     UpdatedAt    TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+    EndsAt       TIMESTAMP AS (GREATEST(WindowEndsAt, IFNULL(LockedUntil, WindowEndsAt))) STORED,
 ) PRIMARY KEY (Name);
+
+-- A sign-in attempts row is removed one day after it stopped counting (EndsAt). A lock that
+-- still holds is never removed, however long it lasts.
+ALTER TABLE CrewSessionSignInAttempts ADD ROW DELETION POLICY (OLDER_THAN(EndsAt, INTERVAL 1 DAY));
 
 -- The crew's sign-in methods: what an administrator chose, in the running application,
 -- for one sign-in method of the auth, keyed by the name the method is registered under
@@ -1090,14 +1331,85 @@ CREATE TABLE CrewSessionSignInAttempts (
 -- role such a person is given with their account, and holds nothing here, where a person
 -- who signs up charts a sector of their own. A method with
 -- no row is invite only, so the table starts empty and every method starts invite only.
--- UpdatedAt takes the commit time.
+-- SelfServiceReset, read on the password method's row alone, says a person may ask at
+-- the sign-in page for a link that resets their own password; it starts false, and with
+-- no row nobody may. UpdatedAt takes the commit time.
 CREATE TABLE CrewSessionSignInMethods (
-    Name        STRING(MAX) NOT NULL,
-    OpenSignUp  BOOL NOT NULL,
-    OpenedFor   STRING(MAX),
-    DefaultRole STRING(MAX),
-    UpdatedAt   TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+    Name             STRING(MAX) NOT NULL,
+    OpenSignUp       BOOL NOT NULL,
+    OpenedFor        STRING(MAX),
+    DefaultRole      STRING(MAX),
+    SelfServiceReset BOOL NOT NULL DEFAULT (false),
+    UpdatedAt        TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
 ) PRIMARY KEY (Name);
+
+-- The crew's sign-in settings: what an administrator chose, in the running application,
+-- for the whole auth (the session library's SessionSignInSettings migration, under the
+-- auth's prefix). The table holds at most one row, under the one name it takes ('auth').
+-- RequireSecondFactor says everyone is asked for a second factor when they sign in, and
+-- RememberBrowserDays for how many days a browser a person asked to be remembered skips
+-- the code, 0 for browsers that are not remembered. With no row the second factor is
+-- required and a browser is remembered for 30 days, so the table starts empty. UpdatedAt
+-- takes the commit time.
+CREATE TABLE CrewSessionSignInSettings (
+    Name                STRING(MAX) NOT NULL,
+    RequireSecondFactor BOOL NOT NULL,
+    RememberBrowserDays INT64 NOT NULL,
+    UpdatedAt           TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+    CONSTRAINT CK_CrewSessionSignInSettingsName CHECK (Name = 'auth'),
+) PRIMARY KEY (Name);
+
+-- The crew's audit log: one row for each act that changes an account, who holds what, or
+-- how people sign in (the session library's SessionAuditRecords migration, under the
+-- auth's prefix). A row holds parts and no sentence: when, the act by its fixed name, who
+-- acted, whom or what it was done to, the tenant it was done in, the role, the group, the
+-- old and new value and the period where the act has them, and the reason where there was
+-- one. Each name is kept as it was when the act happened, beside its id. No row holds a
+-- password, a token, a code or a link. Rows are written by the library alone and never
+-- changed. An application that keeps them for a period adds the row deletion policy the
+-- auditlog package gives (Spanner); on PostgreSQL the store removes them as it writes.
+CREATE TABLE CrewSessionAuditRecords (
+  Id STRING(36) NOT NULL,
+  CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+  Act STRING(MAX) NOT NULL,
+  Form STRING(MAX),
+  Auth STRING(MAX),
+  ActorUserId STRING(MAX),
+  ActorUsername STRING(MAX),
+  PrincipalUserId STRING(MAX),
+  PrincipalUsername STRING(MAX),
+  PrincipalRole STRING(MAX),
+  SessionId STRING(MAX),
+  Process STRING(MAX),
+  Rpc STRING(MAX),
+  Directory STRING(MAX),
+  SubjectKind STRING(MAX) NOT NULL,
+  SubjectId STRING(MAX) NOT NULL,
+  SubjectName STRING(MAX),
+  TenantId STRING(MAX),
+  TenantName STRING(MAX),
+  RoleName STRING(MAX),
+  OtherRoleNames ARRAY<STRING(MAX)>,
+  RoleScope STRING(MAX),
+  RecordKind STRING(MAX),
+  RecordId STRING(MAX),
+  RecordWord STRING(MAX),
+  RecordName STRING(MAX),
+  GroupId STRING(MAX),
+  GroupName STRING(MAX),
+  OldValue STRING(MAX),
+  NewValue STRING(MAX),
+  PeriodStart TIMESTAMP,
+  PeriodEnd TIMESTAMP,
+  SeatingTenantId STRING(MAX),
+  SeatingTenantName STRING(MAX),
+  Reason STRING(MAX),
+  CONSTRAINT CK_CrewSessionAuditRecordsId CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
+) PRIMARY KEY (Id);
+
+CREATE INDEX CrewSessionAuditRecordsByCreatedAt ON CrewSessionAuditRecords(CreatedAt DESC);
+
+CREATE NULL_FILTERED INDEX CrewSessionAuditRecordsByTenant ON CrewSessionAuditRecords(TenantId, CreatedAt DESC);
 
 CREATE UNIQUE NULL_FILTERED INDEX CrewSessionUsersByNormalizedEmail ON CrewSessionUsers(NormalizedEmail);
 
@@ -1108,19 +1420,29 @@ CREATE UNIQUE INDEX CrewSessionUsersByUsername ON CrewSessionUsers(Username) STO
 
 -- The crew's mail links: the single-use links the auth mails (the session library's
 -- SessionMailLinks migration, under the auth's prefix). A row is one link: an invitation
--- to an address, carrying the sector and the roles its acceptance seats and who sent it,
+-- to an address, carrying the roles its acceptance gives, the place they are held in
+-- (TenantId for one sector, EveryTenant for every sector, neither for the whole
+-- application: the acceptance gives each role there and nowhere else) and who sent it,
 -- or, for an invitation that brings an organization in, the sector its first sign-in
 -- makes (NewTenant, a JSON document: the sector's name, whether it is entered through its
 -- directory only, and its details; null on every other link);
 -- the verification of an address a signed-in person adds (UserId names the account,
 -- Email the address); a sign-up a person starts by giving their address; or the code a
 -- signed-in person who has no password is mailed to choose their first one (UserId
--- names the account, and the row keeps the code's hash where a link keeps its token's).
+-- names the account, and the row keeps the code's hash where a link keeps its token's);
+-- the link that resets a password (UserId names the account, Email the confirmed
+-- address it was mailed to); or the confirmation of an address an administrator set
+-- for a person (UserId names the account, Email the new address).
 -- The mail carries an opaque token and the row keeps its hash; the row is accepted only
 -- while it is live, not expired and not consumed, and is consumed by a conditional
--- update so one link completes once. A revoked invitation is consumed by hand. A
--- verification link and a first-password code go with their user. CreatedAt and
--- ConsumedAt take the commit time; ExpiresAt is the library's deadline, written as given.
+-- update so one link completes once. A revoked invitation is consumed by hand, and a
+-- link whose message could not be mailed is consumed where the mail failed, with
+-- MailFailedAt set: it tells such a link from one that was followed or withdrawn. A
+-- link that was taken back is consumed too, with WithdrawnAt set: it tells a
+-- withdrawal from an acceptance. A verification link, a first-password code, a reset
+-- link and an address confirmation go with their user. CreatedAt, ConsumedAt,
+-- MailFailedAt and WithdrawnAt take the commit time; ExpiresAt is the library's
+-- deadline, written as given.
 CREATE TABLE CrewSessionMailLinks (
     Id         STRING(36) NOT NULL,
     TokenHash  BYTES(32) NOT NULL,
@@ -1129,14 +1451,17 @@ CREATE TABLE CrewSessionMailLinks (
     Name       STRING(MAX),
     UserId     STRING(36),
     TenantId   STRING(MAX),
+    EveryTenant BOOL NOT NULL DEFAULT (false),
     RoleNames  ARRAY<STRING(MAX)>,
     NewTenant  STRING(MAX),
     InvitedByUserId STRING(36),
     CreatedAt  TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     ExpiresAt  TIMESTAMP NOT NULL,
     ConsumedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
+    MailFailedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
+    WithdrawnAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
     CONSTRAINT CK_CrewSessionMailLinksId CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-    CONSTRAINT CK_CrewSessionMailLinksKind CHECK (Kind IN ('invitation', 'verification', 'sign-up', 'first-password')),
+    CONSTRAINT CK_CrewSessionMailLinksKind CHECK (Kind IN ('invitation', 'verification', 'sign-up', 'first-password', 'password-reset', 'address-change')),
     CONSTRAINT FK_CrewSessionMailLinks_CrewSessionUsers FOREIGN KEY (UserId) REFERENCES CrewSessionUsers (Id) ON DELETE CASCADE,
 ) PRIMARY KEY (Id);
 
@@ -1144,10 +1469,14 @@ CREATE UNIQUE INDEX CrewSessionMailLinksByTokenHash ON CrewSessionMailLinks(Toke
 
 CREATE INDEX CrewSessionMailLinksByKind ON CrewSessionMailLinks(Kind, ConsumedAt, ExpiresAt);
 
--- A sector's links, newest first, with the columns a sector's list of its invitations
--- shows: a page of that list reads its own rows from the index and nothing else. A link
--- that names no sector is not in it.
-CREATE NULL_FILTERED INDEX CrewSessionMailLinksByTenantId ON CrewSessionMailLinks(TenantId, Kind, CreatedAt DESC) STORING (Email, Name, RoleNames, InvitedByUserId, ExpiresAt, ConsumedAt);
+-- A sector's links, newest first, with every column of the table a sector's list of its
+-- invitations reads: a page of that list reads its own rows from the index and no row of
+-- the table. The name of an invitation's sender comes from the users table, by the
+-- sender's id. A link that names no sector is not in it.
+CREATE NULL_FILTERED INDEX CrewSessionMailLinksByTenantId ON CrewSessionMailLinks(TenantId, Kind, CreatedAt DESC) STORING (Email, Name, RoleNames, InvitedByUserId, ExpiresAt, ConsumedAt, MailFailedAt, WithdrawnAt);
+
+-- A mail link's row is removed 30 days after the link expired (ExpiresAt), used or not.
+ALTER TABLE CrewSessionMailLinks ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY));
 
 -- The members' sign-in attempts: the password method's attempt limiter counts the failed
 -- attempts on one name, known or not, within a window, and the lock those failures
@@ -1158,14 +1487,21 @@ CREATE NULL_FILTERED INDEX CrewSessionMailLinksByTenantId ON CrewSessionMailLink
 -- Failures reached the limit, and the name is refused until then. A success, an MFA
 -- completion or a password change deletes the row. The mail the auth sends is counted
 -- here too, under the address. UpdatedAt takes the commit time; WindowEndsAt and
--- LockedUntil are deadlines, written as given.
+-- LockedUntil are deadlines, written as given. EndsAt is the moment the row stops
+-- counting: the end of its window or of its lock, whichever is later, worked out by the
+-- database.
 CREATE TABLE MembersSessionSignInAttempts (
     Name         STRING(MAX) NOT NULL,
     Failures     INT64 NOT NULL,
     WindowEndsAt TIMESTAMP NOT NULL,
     LockedUntil  TIMESTAMP,
     UpdatedAt    TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+    EndsAt       TIMESTAMP AS (GREATEST(WindowEndsAt, IFNULL(LockedUntil, WindowEndsAt))) STORED,
 ) PRIMARY KEY (Name);
+
+-- A sign-in attempts row is removed one day after it stopped counting (EndsAt). A lock that
+-- still holds is never removed, however long it lasts.
+ALTER TABLE MembersSessionSignInAttempts ADD ROW DELETION POLICY (OLDER_THAN(EndsAt, INTERVAL 1 DAY));
 
 -- The members' sign-in methods: what an administrator chose, in the running application,
 -- for one sign-in method of the auth, keyed by the name the method is registered under
@@ -1177,14 +1513,85 @@ CREATE TABLE MembersSessionSignInAttempts (
 -- role such a person is given with their account, and holds nothing here, where a person
 -- who signs up charts a sector of their own. A method with
 -- no row is invite only, so the table starts empty and every method starts invite only.
--- UpdatedAt takes the commit time.
+-- SelfServiceReset, read on the password method's row alone, says a person may ask at
+-- the sign-in page for a link that resets their own password; it starts false, and with
+-- no row nobody may. UpdatedAt takes the commit time.
 CREATE TABLE MembersSessionSignInMethods (
-    Name        STRING(MAX) NOT NULL,
-    OpenSignUp  BOOL NOT NULL,
-    OpenedFor   STRING(MAX),
-    DefaultRole STRING(MAX),
-    UpdatedAt   TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+    Name             STRING(MAX) NOT NULL,
+    OpenSignUp       BOOL NOT NULL,
+    OpenedFor        STRING(MAX),
+    DefaultRole      STRING(MAX),
+    SelfServiceReset BOOL NOT NULL DEFAULT (false),
+    UpdatedAt        TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
 ) PRIMARY KEY (Name);
+
+-- The members' sign-in settings: what an administrator chose, in the running application,
+-- for the whole auth (the session library's SessionSignInSettings migration, under the
+-- auth's prefix). The table holds at most one row, under the one name it takes ('auth').
+-- RequireSecondFactor says everyone is asked for a second factor when they sign in, and
+-- RememberBrowserDays for how many days a browser a person asked to be remembered skips
+-- the code, 0 for browsers that are not remembered. With no row the second factor is
+-- required and a browser is remembered for 30 days, so the table starts empty. UpdatedAt
+-- takes the commit time.
+CREATE TABLE MembersSessionSignInSettings (
+    Name                STRING(MAX) NOT NULL,
+    RequireSecondFactor BOOL NOT NULL,
+    RememberBrowserDays INT64 NOT NULL,
+    UpdatedAt           TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+    CONSTRAINT CK_MembersSessionSignInSettingsName CHECK (Name = 'auth'),
+) PRIMARY KEY (Name);
+
+-- The members's audit log: one row for each act that changes an account, who holds what,
+-- or how people sign in (the session library's SessionAuditRecords migration, under the
+-- auth's prefix). A row holds parts and no sentence: when, the act by its fixed name, who
+-- acted, whom or what it was done to, the tenant it was done in, the role, the group, the
+-- old and new value and the period where the act has them, and the reason where there was
+-- one. Each name is kept as it was when the act happened, beside its id. No row holds a
+-- password, a token, a code or a link. Rows are written by the library alone and never
+-- changed. An application that keeps them for a period adds the row deletion policy the
+-- auditlog package gives (Spanner); on PostgreSQL the store removes them as it writes.
+CREATE TABLE MembersSessionAuditRecords (
+  Id STRING(36) NOT NULL,
+  CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+  Act STRING(MAX) NOT NULL,
+  Form STRING(MAX),
+  Auth STRING(MAX),
+  ActorUserId STRING(MAX),
+  ActorUsername STRING(MAX),
+  PrincipalUserId STRING(MAX),
+  PrincipalUsername STRING(MAX),
+  PrincipalRole STRING(MAX),
+  SessionId STRING(MAX),
+  Process STRING(MAX),
+  Rpc STRING(MAX),
+  Directory STRING(MAX),
+  SubjectKind STRING(MAX) NOT NULL,
+  SubjectId STRING(MAX) NOT NULL,
+  SubjectName STRING(MAX),
+  TenantId STRING(MAX),
+  TenantName STRING(MAX),
+  RoleName STRING(MAX),
+  OtherRoleNames ARRAY<STRING(MAX)>,
+  RoleScope STRING(MAX),
+  RecordKind STRING(MAX),
+  RecordId STRING(MAX),
+  RecordWord STRING(MAX),
+  RecordName STRING(MAX),
+  GroupId STRING(MAX),
+  GroupName STRING(MAX),
+  OldValue STRING(MAX),
+  NewValue STRING(MAX),
+  PeriodStart TIMESTAMP,
+  PeriodEnd TIMESTAMP,
+  SeatingTenantId STRING(MAX),
+  SeatingTenantName STRING(MAX),
+  Reason STRING(MAX),
+  CONSTRAINT CK_MembersSessionAuditRecordsId CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
+) PRIMARY KEY (Id);
+
+CREATE INDEX MembersSessionAuditRecordsByCreatedAt ON MembersSessionAuditRecords(CreatedAt DESC);
+
+CREATE NULL_FILTERED INDEX MembersSessionAuditRecordsByTenant ON MembersSessionAuditRecords(TenantId, CreatedAt DESC);
 
 CREATE UNIQUE NULL_FILTERED INDEX MembersSessionUsersByNormalizedEmail ON MembersSessionUsers(NormalizedEmail);
 
@@ -1195,19 +1602,29 @@ CREATE UNIQUE INDEX MembersSessionUsersByUsername ON MembersSessionUsers(Usernam
 
 -- The members' mail links: the single-use links the auth mails (the session library's
 -- SessionMailLinks migration, under the auth's prefix). A row is one link: an invitation
--- to an address, carrying the sector and the roles its acceptance seats and who sent it,
+-- to an address, carrying the roles its acceptance gives, the place they are held in
+-- (TenantId for one sector, EveryTenant for every sector, neither for the whole
+-- application: the acceptance gives each role there and nowhere else) and who sent it,
 -- or, for an invitation that brings an organization in, the sector its first sign-in
 -- makes (NewTenant, a JSON document: the sector's name, whether it is entered through its
 -- directory only, and its details; null on every other link);
 -- the verification of an address a signed-in person adds (UserId names the account,
 -- Email the address); a sign-up a person starts by giving their address; or the code a
 -- signed-in person who has no password is mailed to choose their first one (UserId
--- names the account, and the row keeps the code's hash where a link keeps its token's).
+-- names the account, and the row keeps the code's hash where a link keeps its token's);
+-- the link that resets a password (UserId names the account, Email the confirmed
+-- address it was mailed to); or the confirmation of an address an administrator set
+-- for a person (UserId names the account, Email the new address).
 -- The mail carries an opaque token and the row keeps its hash; the row is accepted only
 -- while it is live, not expired and not consumed, and is consumed by a conditional
--- update so one link completes once. A revoked invitation is consumed by hand. A
--- verification link and a first-password code go with their user. CreatedAt and
--- ConsumedAt take the commit time; ExpiresAt is the library's deadline, written as given.
+-- update so one link completes once. A revoked invitation is consumed by hand, and a
+-- link whose message could not be mailed is consumed where the mail failed, with
+-- MailFailedAt set: it tells such a link from one that was followed or withdrawn. A
+-- link that was taken back is consumed too, with WithdrawnAt set: it tells a
+-- withdrawal from an acceptance. A verification link, a first-password code, a reset
+-- link and an address confirmation go with their user. CreatedAt, ConsumedAt,
+-- MailFailedAt and WithdrawnAt take the commit time; ExpiresAt is the library's
+-- deadline, written as given.
 CREATE TABLE MembersSessionMailLinks (
     Id         STRING(36) NOT NULL,
     TokenHash  BYTES(32) NOT NULL,
@@ -1216,14 +1633,17 @@ CREATE TABLE MembersSessionMailLinks (
     Name       STRING(MAX),
     UserId     STRING(36),
     TenantId   STRING(MAX),
+    EveryTenant BOOL NOT NULL DEFAULT (false),
     RoleNames  ARRAY<STRING(MAX)>,
     NewTenant  STRING(MAX),
     InvitedByUserId STRING(36),
     CreatedAt  TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     ExpiresAt  TIMESTAMP NOT NULL,
     ConsumedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
+    MailFailedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
+    WithdrawnAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
     CONSTRAINT CK_MembersSessionMailLinksId CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-    CONSTRAINT CK_MembersSessionMailLinksKind CHECK (Kind IN ('invitation', 'verification', 'sign-up', 'first-password')),
+    CONSTRAINT CK_MembersSessionMailLinksKind CHECK (Kind IN ('invitation', 'verification', 'sign-up', 'first-password', 'password-reset', 'address-change')),
     CONSTRAINT FK_MembersSessionMailLinks_MembersSessionUsers FOREIGN KEY (UserId) REFERENCES MembersSessionUsers (Id) ON DELETE CASCADE,
 ) PRIMARY KEY (Id);
 
@@ -1231,10 +1651,14 @@ CREATE UNIQUE INDEX MembersSessionMailLinksByTokenHash ON MembersSessionMailLink
 
 CREATE INDEX MembersSessionMailLinksByKind ON MembersSessionMailLinks(Kind, ConsumedAt, ExpiresAt);
 
--- A sector's links, newest first, with the columns a sector's list of its invitations
--- shows: a page of that list reads its own rows from the index and nothing else. A link
--- that names no sector is not in it.
-CREATE NULL_FILTERED INDEX MembersSessionMailLinksByTenantId ON MembersSessionMailLinks(TenantId, Kind, CreatedAt DESC) STORING (Email, Name, RoleNames, InvitedByUserId, ExpiresAt, ConsumedAt);
+-- A sector's links, newest first, with every column of the table a sector's list of its
+-- invitations reads: a page of that list reads its own rows from the index and no row of
+-- the table. The name of an invitation's sender comes from the users table, by the
+-- sender's id. A link that names no sector is not in it.
+CREATE NULL_FILTERED INDEX MembersSessionMailLinksByTenantId ON MembersSessionMailLinks(TenantId, Kind, CreatedAt DESC) STORING (Email, Name, RoleNames, InvitedByUserId, ExpiresAt, ConsumedAt, MailFailedAt, WithdrawnAt);
+
+-- A mail link's row is removed 30 days after the link expired (ExpiresAt), used or not.
+ALTER TABLE MembersSessionMailLinks ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY));
 
 -- The crew's tokens: the bearer credentials of the droids outlet (the session library's
 -- SessionTokens migration, under the auth's prefix). A row is one credential: an
@@ -1274,6 +1698,11 @@ CREATE INDEX CrewSessionTokensByUser ON CrewSessionTokens(UserId, RevokedAt, Exp
 
 CREATE INDEX CrewSessionTokensByFamilyId ON CrewSessionTokens(FamilyId, RevokedAt);
 
+-- A token's row is removed 30 days after the token expired (ExpiresAt), revoked or not. A
+-- refresh token that was rotated stays until then, so one presented again before it
+-- expires is still caught as a reuse.
+ALTER TABLE CrewSessionTokens ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY));
+
 -- The crew's device codes: the device authorizations command-line clients start for
 -- the droids outlet (RFC 8628; the session library's SessionDeviceCodes migration,
 -- under the auth's prefix). The client holds the opaque device code and the row keeps
@@ -1304,12 +1733,18 @@ CREATE UNIQUE INDEX CrewSessionDeviceCodesByHash ON CrewSessionDeviceCodes(Devic
 
 CREATE INDEX CrewSessionDeviceCodesByUserCode ON CrewSessionDeviceCodes(UserCode, ExpiresAt);
 
+-- A device code's row is removed one day after the code expired (ExpiresAt), whether it
+-- was approved, denied or never decided.
+ALTER TABLE CrewSessionDeviceCodes ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 1 DAY));
+
 -- The crew's second factor (the session library's SessionFactors migration, under the
 -- auth's prefix): the sign-in codes and the trusted devices. A factor code is one code
 -- mailed for a pending sign-in (PendingId): the mail carries the code and the row keeps
 -- its hash; the row is live while it is not consumed and not expired, Attempts counts the
 -- wrong codes entered against it, and a new code for the same pending sign-in consumes
--- the earlier one. A trusted device is a browser a crew member asked to be remembered
+-- the earlier one. A code mailed for an invitation names it (InvitationId) and accepts
+-- that one alone; every other code names none. A trusted device is a browser a crew
+-- member asked to be remembered
 -- after a code (UserId): the browser holds an opaque token in the crew-trusted cookie and
 -- the row keeps its hash; it stands in for the factor while it is not revoked and not
 -- expired, and headquarters revokes every browser of a person's from the user-management
@@ -1325,6 +1760,7 @@ CREATE TABLE CrewSessionFactorCodes (
     CreatedAt  TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     ExpiresAt  TIMESTAMP NOT NULL,
     ConsumedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
+    InvitationId STRING(36),
     CONSTRAINT CK_CrewSessionFactorCodesId CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
     CONSTRAINT FK_CrewSessionFactorCodes_CrewSessionPendingSignIns FOREIGN KEY (PendingId) REFERENCES CrewSessionPendingSignIns (Id) ON DELETE CASCADE,
 ) PRIMARY KEY (Id);
@@ -1347,6 +1783,9 @@ CREATE UNIQUE INDEX CrewSessionTrustedDevicesByTokenHash ON CrewSessionTrustedDe
 
 CREATE INDEX CrewSessionTrustedDevicesByUser ON CrewSessionTrustedDevices(UserId, RevokedAt);
 
+-- A trusted device's row is removed 30 days after it expired (ExpiresAt), revoked or not.
+ALTER TABLE CrewSessionTrustedDevices ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY));
+
 -- The members' second factor (the session library's SessionFactors migration, under the
 -- auth's prefix): the sign-in codes mailed for a pending sign-in and the browsers a
 -- member asked to be remembered after one, shaped as the crew's
@@ -1362,6 +1801,7 @@ CREATE TABLE MembersSessionFactorCodes (
     CreatedAt  TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     ExpiresAt  TIMESTAMP NOT NULL,
     ConsumedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
+    InvitationId STRING(36),
     CONSTRAINT CK_MembersSessionFactorCodesId CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
     CONSTRAINT FK_MembersSessionFactorCodes_MembersSessionPendingSignIns FOREIGN KEY (PendingId) REFERENCES MembersSessionPendingSignIns (Id) ON DELETE CASCADE,
 ) PRIMARY KEY (Id);
@@ -1384,14 +1824,19 @@ CREATE UNIQUE INDEX MembersSessionTrustedDevicesByTokenHash ON MembersSessionTru
 
 CREATE INDEX MembersSessionTrustedDevicesByUser ON MembersSessionTrustedDevices(UserId, RevokedAt);
 
+-- A trusted device's row is removed 30 days after it expired (ExpiresAt), revoked or not.
+ALTER TABLE MembersSessionTrustedDevices ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY));
+
 CREATE SEARCH INDEX ClientsSearch ON Clients(Name_Search, ContactName_Search, ContactEmail_Search);
 
 CREATE SEARCH INDEX ClientContactsSearch ON ClientContacts(DisplayName_Search) STORING (ClientId);
 
+CREATE SEARCH INDEX SquadronsSearch ON Squadrons(Name_Search);
+
 CREATE SEARCH INDEX MissionsSearch ON Missions(Title_Search, Deadline_Search) PARTITION BY SectorId;
 
--- The mission board's box also reaches Clients' index, and comes back to the missions
--- through ClientId: the key set costs the matches only with this index.
+-- A filter by the client's name, on the missions and on the mission board, comes back to
+-- the missions through ClientId: this index answers it.
 CREATE INDEX MissionsBySectorIdClientId ON Missions(SectorId, ClientId);
 
 CREATE INDEX HangarsBySectorIdNameLower ON Hangars(SectorId, Name_Lower);

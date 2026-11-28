@@ -10,6 +10,8 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/lodestar/pkg/resources"
 	"github.com/impulseframework/impulse/lodestar/pkg/router"
@@ -48,7 +50,12 @@ import (
 // a code sent to their email. Everyone else is counted, and
 // a person is named only to a caller who may list them: one who holds List on the
 // sector's list of that auth's people and, on no condition, on the fields of it that name
-// a person.
+// a person. Where an auth has a password method, the client also reads the sector's
+// administrators who have a password (DirectoryAdministrators) and the invitations not
+// yet accepted that give a role that administers a sector (DirectoryInvitations), and the
+// warning carries a note that counts each, naming the administrators to the same caller
+// and the invitations to one who may list the sector's invitations and the fields of
+// them that name one.
 //
 // The flag is written through the record's update patch, so its change event is written
 // with it; this instance's roster rereads what the sector declares once the transaction
@@ -76,7 +83,9 @@ func (a *App) EndSectorDirectoryOnly() http.HandlerFunc {
 
 // sectorDirectoryOnly is the frame of the two methods that turn a sector's
 // directory-only switch: method is the one served, as grants name it, and only the way
-// it turns the switch.
+// it turns the switch. The switch turned is recorded in the audit log of the auth
+// whose people the directories record's outlets sign in
+// (CrewIdentity().RecordTenantSignIn), in the same transaction.
 func sectorDirectoryOnly(a *App, method accesstypes.Resource, only bool) http.HandlerFunc {
 	// Neither method takes anything in its body: the route names the sector.
 	type request struct{}
@@ -85,7 +94,12 @@ func sectorDirectoryOnly(a *App, method accesstypes.Resource, only bool) http.Ha
 	// The rules' sentences say the sector's directory as each auth's sign-in
 	// registrations call it, never by its connection, and the rules ask each auth's
 	// client whether the caller has a password.
-	rules := NewSectorDirectoryRules().NamedBy(a.CrewIdentity().DirectoryName, a.MembersIdentity().DirectoryName).PasswordsBy(a.CrewIdentity().CallerPassword, a.MembersIdentity().CallerPassword)
+	rules := NewSectorDirectoryRules().NamedBy(a.CrewIdentity().DirectoryName, a.MembersIdentity().DirectoryName).PasswordsBy(a.CrewIdentity().CallerPassword, a.MembersIdentity().CallerPassword).CountedBy(resource.DirectoryPeople{Label: "Crew", List: "CrewSectorUsers", Fields: []accesstypes.Tag{"username", "name"}, Seated: a.CrewIdentity().SeatedCount, Outsiders: a.CrewIdentity().DirectoryOutsiders, AdministratorsEnter: a.CrewIdentity().AdministratorsEnterWithPassword, Administrators: a.CrewIdentity().DirectoryAdministrators, InvitationList: "CrewSectorInvitations", InvitationFields: []accesstypes.Tag{"email", "name"}, Invitations: a.CrewIdentity().DirectoryInvitations}, resource.DirectoryPeople{Label: "Members", List: "MembersSectorUsers", Fields: []accesstypes.Tag{"username", "name"}, Seated: a.MembersIdentity().SeatedCount, Outsiders: a.MembersIdentity().DirectoryOutsiders, AdministratorsEnter: a.MembersIdentity().AdministratorsEnterWithPassword}).SecondFactorsBy(a.CrewIdentity().AuthSecondFactor, a.MembersIdentity().AuthSecondFactor)
+	// act is what the auth's audit log records of the method served.
+	act := auditlog.ActDirectoryOnlyOff
+	if only {
+		act = auditlog.ActDirectoryOnlyOn
+	}
 
 	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
@@ -100,6 +114,7 @@ func sectorDirectoryOnly(a *App, method accesstypes.Resource, only bool) http.Ha
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		ctx = resource.WithCaller(ctx, caller)
+		ctx = resource.WithRPC(ctx, method)
 
 		// A request that asks for the method's warning (X-Warning: true) is decoded
 		// and checked as the call is. Turning the switch on answers its warning in
@@ -119,7 +134,7 @@ func sectorDirectoryOnly(a *App, method accesstypes.Resource, only bool) http.Ha
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewNotFoundMessage("This sector does not exist."))
 		}
-		eventSource := resource.UserEvent(ctx)
+		eventSource := eventsource.UserEvent(ctx)
 
 		ctx, touched := resource.CollectTouchedRows(ctx)
 		dryRun, err := resource.IsDryRun(r)
@@ -128,10 +143,7 @@ func sectorDirectoryOnly(a *App, method accesstypes.Resource, only bool) http.Ha
 		}
 		if err := a.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 			if asksWarning {
-				said, err := rules.DirectoryOnlyWarning(ctx, txn, domain,
-					resource.DirectoryPeople{List: "CrewSectorUsers", Fields: []accesstypes.Tag{"username", "name"}, Outsiders: a.CrewIdentity().DirectoryOutsiders, AdministratorsEnter: a.CrewIdentity().AdministratorsEnterWithPassword()},
-					resource.DirectoryPeople{List: "MembersSectorUsers", Fields: []accesstypes.Tag{"username", "name"}, Outsiders: a.MembersIdentity().DirectoryOutsiders, AdministratorsEnter: a.MembersIdentity().AdministratorsEnterWithPassword()},
-				)
+				said, err := rules.DirectoryOnlyWarning(ctx, txn, domain)
 				if err != nil {
 					return errors.Wrap(err, "resource.TenantDirectoryRules.DirectoryOnlyWarning()")
 				}
@@ -147,6 +159,9 @@ func sectorDirectoryOnly(a *App, method accesstypes.Resource, only bool) http.Ha
 			}
 			if err := resources.NewSectorUpdatePatch(id).SetDirectoryOnly(only).Buffer(ctx, txn, eventSource); err != nil {
 				return errors.Wrap(err, "resources.SectorUpdatePatch.Buffer()")
+			}
+			if err := a.CrewIdentity().RecordTenantSignIn(ctx, txn, domain, act, ""); err != nil {
+				return errors.Wrap(err, "CrewIdentity().RecordTenantSignIn()")
 			}
 			if dryRun {
 				return resource.ErrDryRun
@@ -176,13 +191,4 @@ func sectorDirectoryOnly(a *App, method accesstypes.Resource, only bool) http.Ha
 
 		return httpio.NewEncoder(w).Ok(nil)
 	})
-}
-
-// DirectoryOnly serves a sector's directory-only switch as it stands, GET
-// <prefix>/sectors/{sectorID}/directory-only: what the sector's Sign-in page shows the person
-// who may turn it, who does not read the global Sector record. It is asked under the
-// grant of either method that turns it, Execute on MakeSectorDirectoryOnly or on EndSectorDirectoryOnly in the
-// sector, and writes nothing (resource.DirectoryOnlyStateHandler).
-func (a *App) DirectoryOnly() http.HandlerFunc {
-	return resource.DirectoryOnlyStateHandler(a.ResourceClient(), NewSectorDirectoryRules().NamedBy(a.CrewIdentity().DirectoryName, a.MembersIdentity().DirectoryName), a.UserPermissions, router.Domain, "MakeSectorDirectoryOnly", "EndSectorDirectoryOnly")
 }

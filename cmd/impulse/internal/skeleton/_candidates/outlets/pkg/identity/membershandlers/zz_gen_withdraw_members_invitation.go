@@ -42,6 +42,10 @@ func (h *Handlers) WithdrawMembersInvitation() http.HandlerFunc {
 		// write or a read against the caller (Enforce) evaluates the same checker,
 		// scope, and decision instant.
 		ctx = resource.WithCaller(ctx, gate.Caller())
+		// The method's name rides the context too: who made a change
+		// (eventsource.UserEvent) reads it there, so every change record the body writes
+		// names the method.
+		ctx = resource.WithRPC(ctx, "WithdrawMembersInvitation")
 
 		p := (*membersidentity.WithdrawMembersInvitation)(params)
 
@@ -71,22 +75,12 @@ func (h *Handlers) WithdrawMembersInvitation() http.HandlerFunc {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		if err := h.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-			// Declared target: locate the row within the tenancy predicate
-			// before the body runs.
-			row, err := membersresources.NewMembersSessionMailLinkQuery().
-				AddColumns(membersresources.NewMembersSessionMailLinkColumns().ID()).
-				SetID(p.InvitationID).
-				Read(ctx, txn)
-			if err != nil {
-				return errors.Wrap(err, "membersresources.MembersSessionMailLinkQuery.Read()")
-			}
-			if row == nil {
-				return httpio.NewNotFoundMessagef("MembersSessionMailLink %s does not exist", p.InvitationID)
-			}
-
-			// A row-referencing condition on the caller's Execute grant
-			// evaluates against the located row, in this transaction.
-			if err := gate.Enforce(ctx, txn, resource.ExecuteTarget{Resource: "MembersSessionMailLinks", Label: "MembersSessionMailLink", PKColumns: []string{"Id"}}, p.InvitationID); err != nil {
+			// Declared target: a row of the MembersListedMailLink view.
+			// A view's row is one row of its query, so the gate locates it by
+			// the key and judges any row-referencing condition on the caller's
+			// Execute grant against it, in one SELECT over that query in this
+			// transaction. No row there is NotFound.
+			if err := gate.EnforceView(ctx, txn, resource.ExecuteTarget{Resource: "MembersListedMailLinks", Label: "MembersListedMailLink", PKColumns: []string{"Id"}, View: membersresources.MembersListedMailLink{}}, p.InvitationID); err != nil {
 				return err
 			}
 			if err := p.Execute(ctx, txn, h.RPCClient()); err != nil {
@@ -102,7 +96,7 @@ func (h *Handlers) WithdrawMembersInvitation() http.HandlerFunc {
 				return httpio.NewEncoder(w).Ok(nil)
 			}
 
-			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "spanner.Client.ReadWriteTransaction()"))
+			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "resource.Client.ExecuteFunc()"))
 		}
 
 		live.Publish(ctx, w, h.LiveService(), h.liveDerivations, "", touched)

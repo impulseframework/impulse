@@ -20,14 +20,19 @@ func TestAuth(t *testing.T) {
 	t.Parallel()
 
 	drivertest.RunAuth(t, &drivertest.AuthHarness{
-		New:                newAuthInstance,
-		CountAuthEvents:    countAuthEvents,
-		DeleteSession:      deleteSession,
-		Recorded:           recorded,
-		Record:             record,
-		PendingConsumedAt:  pendingConsumedAt,
-		MailLinkConsumedAt: mailLinkConsumedAt,
-		ClockLead:          emulatorClockLead,
+		New:                   newAuthInstance,
+		CountAuthEvents:       countAuthEvents,
+		DeleteSession:         deleteSession,
+		Recorded:              recorded,
+		Record:                record,
+		PendingConsumedAt:     pendingConsumedAt,
+		MailLinkConsumedAt:    mailLinkConsumedAt,
+		MailLinkMailFailedAt:  mailLinkMailFailedAt,
+		MailLinkWithdrawnAt:   mailLinkWithdrawnAt,
+		AttemptsEndsAt:        attemptsEndsAt,
+		RequirePasswordChange: requirePasswordChange,
+		AuditRows:             auditRows,
+		ClockLead:             emulatorClockLead,
 	})
 }
 
@@ -48,7 +53,10 @@ func authSources(schema drivertest.AuthSchema) []string {
 	}
 }
 
-func newAuthInstance(ctx context.Context, t *testing.T, schema drivertest.AuthSchema, cfg drivertest.AuthConfig) *drivertest.AuthInstance {
+func newAuthInstance(
+	ctx context.Context, t *testing.T, schema drivertest.AuthSchema,
+	cfg drivertest.AuthConfig, //nolint:gocritic // hugeParam: drivertest.AuthHarness.New takes the config as a value; every case writes it as a literal
+) *drivertest.AuthInstance {
 	t.Helper()
 
 	conn, err := prepareDatabase(ctx, t, authSources(schema)...)
@@ -79,14 +87,21 @@ func newAuthInstance(ctx context.Context, t *testing.T, schema drivertest.AuthSc
 		})
 	}
 
-	drivertest.SeedSignInMethod(ctx, t, d, cfg)
+	drivertest.SeedSignInMethod(ctx, t, d, &cfg)
+	drivertest.SeedSignInSettings(ctx, t, d, schema, &cfg)
 
 	return &drivertest.AuthInstance{
 		Driver: d, Raw: conn.Client,
-		SignIn:        drivertest.NewSignIn(d, cfg, func(txn *spanner.ReadWriteTransaction) drivertest.HookTx { return hookTx{txn} }),
-		Accept:        drivertest.NewAccept(d, cfg, func(txn *spanner.ReadWriteTransaction) drivertest.HookTx { return hookTx{txn} }),
-		LinkConfirmed: drivertest.NewLinkConfirmed(d, cfg, func(txn *spanner.ReadWriteTransaction) drivertest.HookTx { return hookTx{txn} }),
-		SignUp:        drivertest.NewSignUp(d, cfg, func(txn *spanner.ReadWriteTransaction) drivertest.HookTx { return hookTx{txn} }),
+		SignIn:        drivertest.NewSignIn(d, &cfg, func(txn *spanner.ReadWriteTransaction) drivertest.HookTx { return hookTx{txn} }),
+		SignInByCode:  drivertest.NewSignInByCode(d, &cfg, func(txn *spanner.ReadWriteTransaction) drivertest.HookTx { return hookTx{txn} }),
+		SignUpInvited: drivertest.NewSignUpInvited(d, &cfg, func(txn *spanner.ReadWriteTransaction) drivertest.HookTx { return hookTx{txn} }),
+		Accept:        drivertest.NewAccept(d, &cfg, func(txn *spanner.ReadWriteTransaction) drivertest.HookTx { return hookTx{txn} }),
+		LinkConfirmed: drivertest.NewLinkConfirmed(d, &cfg, func(txn *spanner.ReadWriteTransaction) drivertest.HookTx { return hookTx{txn} }),
+		SignUp:        drivertest.NewSignUp(d, &cfg, func(txn *spanner.ReadWriteTransaction) drivertest.HookTx { return hookTx{txn} }),
+		Addresses:     drivertest.NewAddresses(d),
+
+		ConfirmAddressByLink: drivertest.NewConfirmAddressByLink(d),
+		SignInSettingsIn:     drivertest.NewSignInSettingsIn(d),
 	}
 }
 
@@ -133,6 +148,17 @@ func deleteSession(ctx context.Context, t *testing.T, raw any, sessionID impulse
 	})
 	if err != nil {
 		t.Fatalf("ReadWriteTransaction() error = %v", err)
+	}
+}
+
+// requirePasswordChange sets the user's password change mark directly, as an
+// application's account management writes it.
+func requirePasswordChange(ctx context.Context, t *testing.T, raw any, userID impulse.UUID) {
+	t.Helper()
+
+	mark := spanner.Update("SessionUsers", []string{"Id", "PasswordChangeRequired"}, []any{userID.String(), true})
+	if _, err := client(t, raw).Apply(ctx, []*spanner.Mutation{mark}); err != nil {
+		t.Fatalf("Apply() error = %v", err)
 	}
 }
 
@@ -218,4 +244,49 @@ func mailLinkConsumedAt(ctx context.Context, t *testing.T, raw any, tokenHash []
 	}
 
 	return &consumedAt.Time
+}
+
+func mailLinkMailFailedAt(ctx context.Context, t *testing.T, raw any, tokenHash []byte) *time.Time {
+	t.Helper()
+
+	stmt := spanner.NewStatement("SELECT MailFailedAt FROM SessionMailLinks WHERE TokenHash = @tokenHash")
+	stmt.Params["tokenHash"] = tokenHash
+	var failedAt spanner.NullTime
+	if err := client(t, raw).Single().Query(ctx, stmt).Do(func(r *spanner.Row) error { return r.Column(0, &failedAt) }); err != nil {
+		t.Fatalf("Query() error = %v", err)
+	}
+	if !failedAt.Valid {
+		return nil
+	}
+
+	return &failedAt.Time
+}
+
+func mailLinkWithdrawnAt(ctx context.Context, t *testing.T, raw any, tokenHash []byte) *time.Time {
+	t.Helper()
+
+	stmt := spanner.NewStatement("SELECT WithdrawnAt FROM SessionMailLinks WHERE TokenHash = @tokenHash")
+	stmt.Params["tokenHash"] = tokenHash
+	var withdrawnAt spanner.NullTime
+	if err := client(t, raw).Single().Query(ctx, stmt).Do(func(r *spanner.Row) error { return r.Column(0, &withdrawnAt) }); err != nil {
+		t.Fatalf("Query() error = %v", err)
+	}
+	if !withdrawnAt.Valid {
+		return nil
+	}
+
+	return &withdrawnAt.Time
+}
+
+func attemptsEndsAt(ctx context.Context, t *testing.T, raw any, name string) time.Time {
+	t.Helper()
+
+	stmt := spanner.NewStatement("SELECT EndsAt FROM SessionSignInAttempts WHERE Name = @name")
+	stmt.Params["name"] = name
+	var endsAt time.Time
+	if err := client(t, raw).Single().Query(ctx, stmt).Do(func(r *spanner.Row) error { return r.Column(0, &endsAt) }); err != nil {
+		t.Fatalf("Query() error = %v", err)
+	}
+
+	return endsAt
 }

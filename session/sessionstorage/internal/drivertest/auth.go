@@ -10,6 +10,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/securehash"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/session/internal/signinflow"
@@ -27,18 +28,19 @@ type AuthDriver interface {
 	User(ctx context.Context, id impulse.UUID) (*dbtype.SessionUser, error)
 	UserByUserName(ctx context.Context, username string) (*dbtype.SessionUser, error)
 	Users(ctx context.Context) ([]*dbtype.SessionUser, error)
-	ReplaceUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash, changeRequired bool) error
 	UpgradeUserPasswordHash(ctx context.Context, id impulse.UUID, proven, hash *securehash.Hash) error
-	ChangeUserPassword(ctx context.Context, id impulse.UUID, proven, hash *securehash.Hash) error
-	SetFirstUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash) error
-	DeactivateUser(ctx context.Context, id impulse.UUID) error
-	DeleteUser(ctx context.Context, id impulse.UUID) error
+	ChangeUserPassword(ctx context.Context, id impulse.UUID, proven, hash *securehash.Hash, record *auditlog.Record) error
+	SetFirstUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash, record *auditlog.Record) error
+	DeactivateUser(ctx context.Context, id impulse.UUID, record *auditlog.Record) error
+	ActivateUser(ctx context.Context, id impulse.UUID, record *auditlog.Record) error
+	DeleteUser(ctx context.Context, id impulse.UUID, record *auditlog.Record) error
 	Identity(ctx context.Context, method sessioninfo.AuthMethod, connection, subject string) (*dbtype.SessionIdentity, error)
 	IdentitiesByUser(ctx context.Context, userID impulse.UUID) ([]*dbtype.SessionIdentity, error)
+	IdentityByID(ctx context.Context, identityID impulse.UUID) (*dbtype.SessionIdentity, error)
 	LinkIdentity(ctx context.Context, userID impulse.UUID, identity *sessioninfo.Identity, tenant string) (*dbtype.SessionIdentity, error)
-	UnlinkIdentity(ctx context.Context, identityID impulse.UUID, signsIn func(method sessioninfo.AuthMethod, connection string) bool) error
-	RemoveUserPassword(ctx context.Context, userID impulse.UUID, standing []impulse.UUID) error
-	RemoveProvenUserPassword(ctx context.Context, userID impulse.UUID, proven *securehash.Hash, standing []impulse.UUID) error
+	UnlinkIdentity(ctx context.Context, identityID impulse.UUID, signsIn func(method sessioninfo.AuthMethod, connection string) bool, record *auditlog.Record) error
+	RemoveUserPassword(ctx context.Context, userID impulse.UUID, standing []impulse.UUID, record *auditlog.Record) error
+	RemoveProvenUserPassword(ctx context.Context, userID impulse.UUID, proven *securehash.Hash, standing []impulse.UUID, record *auditlog.Record) error
 	DestroyUserSessions(ctx context.Context, userID impulse.UUID) error
 	TouchUserSignIn(ctx context.Context, userID impulse.UUID) error
 	DestroySessionsByProviderSessionID(ctx context.Context, issuer, providerSessionID string) error
@@ -54,7 +56,14 @@ type AuthDriver interface {
 	// at a table that is not there.
 	SetSignInMethodsTableName(name string) error
 	SignInMethods(ctx context.Context) ([]*dbtype.SignInMethod, error)
-	SetSignInMethod(ctx context.Context, m *dbtype.SignInMethod) error
+	SetSignInMethod(ctx context.Context, m *dbtype.SignInMethod, record *auditlog.Record) error
+	SetSelfServiceReset(ctx context.Context, method string, on bool, record *auditlog.Record) error
+	// SetSignInSettingsTableName renames the sign-in settings table; the suite points it
+	// at a table that is not there.
+	SetSignInSettingsTableName(name string) error
+	SignInSettings(ctx context.Context) (*dbtype.SignInSettings, error)
+	SetRequireSecondFactor(ctx context.Context, on bool, record *auditlog.Record) error
+	SetRememberBrowserDays(ctx context.Context, days int64, record *auditlog.Record) error
 	// SetSignInAttemptsTableName renames the sign-in attempts table; the suite points
 	// it at a table that is not there.
 	SetSignInAttemptsTableName(name string) error
@@ -63,32 +72,33 @@ type AuthDriver interface {
 	SetSessionTableName(name string) error
 	SetUsernameIsEmail(same bool)
 	UserByEmail(ctx context.Context, email string) (*dbtype.SessionUser, error)
-	SetUserEmail(ctx context.Context, id impulse.UUID, email *string) error
-	SetUserUsername(ctx context.Context, id impulse.UUID, newUsername string) error
+	SetUserEmail(ctx context.Context, id impulse.UUID, email *string, record *auditlog.Record) error
+	SetUserUsername(ctx context.Context, id impulse.UUID, newUsername string, record *auditlog.Record) error
 	VerifyUserEmail(ctx context.Context, id impulse.UUID, email string) error
-	ClaimVerifiedEmail(ctx context.Context, id impulse.UUID, email string) (bool, error)
+	ClaimVerifiedEmail(ctx context.Context, id impulse.UUID, email string, record *auditlog.Record) (bool, error)
 	SetUserName(ctx context.Context, id impulse.UUID, name *string) error
 	ClaimUserName(ctx context.Context, id impulse.UUID, name string) (bool, error)
 	SetUserLook(ctx context.Context, id impulse.UUID, look sessioninfo.Look) error
-	InsertMailLink(ctx context.Context, l *dbtype.MailLink) error
+	InsertMailLink(ctx context.Context, l *dbtype.MailLink, record *auditlog.Record) error
 	MailLinkByToken(ctx context.Context, tokenHash []byte, now time.Time) (*dbtype.MailLink, error)
 	LiveMailLinks(ctx context.Context, kind dbtype.MailLinkKind, now time.Time) ([]*dbtype.MailLink, error)
 	ConsumeMailLink(ctx context.Context, tokenHash []byte, now time.Time) error
-	RevokeMailLink(ctx context.Context, id impulse.UUID, now time.Time) error
+	RevokeMailLink(ctx context.Context, id impulse.UUID, now time.Time, record *auditlog.Record) error
+	FailMailLink(ctx context.Context, id impulse.UUID, now time.Time) error
 	SetTokensTableName(name string) error
 	SetDeviceCodesTableName(name string) error
-	InsertToken(ctx context.Context, t *dbtype.Token) error
+	InsertToken(ctx context.Context, t *dbtype.Token, record *auditlog.Record) error
 	TokenByHash(ctx context.Context, tokenHash []byte, now time.Time) (*dbtype.Token, error)
 	TokensByUser(ctx context.Context, userID impulse.UUID, now time.Time) ([]*dbtype.Token, error)
 	TouchToken(ctx context.Context, id impulse.UUID, now time.Time) error
-	RevokeUserToken(ctx context.Context, userID, id impulse.UUID, now time.Time, reason dbtype.TokenRevocation) error
-	RevokeUserTokens(ctx context.Context, userID impulse.UUID, reason dbtype.TokenRevocation) error
+	RevokeUserToken(ctx context.Context, userID, id impulse.UUID, now time.Time, reason dbtype.TokenRevocation, record *auditlog.Record) error
+	RevokeUserTokens(ctx context.Context, userID impulse.UUID, reason dbtype.TokenRevocation, record *auditlog.Record) error
 	ExchangeRefreshToken(ctx context.Context, tokenHash []byte, now time.Time, access, refresh *dbtype.Token) error
 	InsertDeviceCode(ctx context.Context, d *dbtype.DeviceCode) error
 	DeviceCodeByUserCode(ctx context.Context, userCode string, now time.Time) (*dbtype.DeviceCode, error)
 	ApproveDeviceCode(ctx context.Context, id, userID impulse.UUID, now time.Time) error
 	DenyDeviceCode(ctx context.Context, id impulse.UUID, now time.Time) error
-	RedeemDeviceCode(ctx context.Context, deviceCodeHash []byte, now time.Time, interval time.Duration, access, refresh *dbtype.Token) (*dbtype.DeviceCode, dbtype.DeviceCodeStatus, error)
+	RedeemDeviceCode(ctx context.Context, deviceCodeHash []byte, now time.Time, interval time.Duration, access, refresh *dbtype.Token, record *auditlog.Record) (*dbtype.DeviceCode, dbtype.DeviceCodeStatus, error)
 	// TokenState and DeviceCodeState read a row whatever its state: the suite's look
 	// at what the live reads no longer return.
 	TokenState(ctx context.Context, tokenHash []byte) (*dbtype.Token, error)
@@ -100,13 +110,18 @@ type AuthDriver interface {
 	RecordFactorCodeAttempt(ctx context.Context, id impulse.UUID, now time.Time) (int, error)
 	ConsumeFactorCode(ctx context.Context, id impulse.UUID, now time.Time) error
 	InsertTrustedDevice(ctx context.Context, d *dbtype.TrustedDevice) error
-	TrustedDeviceByToken(ctx context.Context, tokenHash []byte, now time.Time) (*dbtype.TrustedDevice, error)
+	TrustedDeviceByToken(ctx context.Context, tokenHash []byte, now, rememberedAfter time.Time) (*dbtype.TrustedDevice, error)
 	TouchTrustedDevice(ctx context.Context, id impulse.UUID, now time.Time) error
 	RevokeTrustedDevice(ctx context.Context, tokenHash []byte, now time.Time) error
-	RevokeTrustedDevices(ctx context.Context, userID impulse.UUID) error
+	RevokeTrustedDevices(ctx context.Context, userID impulse.UUID, record *auditlog.Record) error
 	// FactorCodeState and TrustedDeviceState read a row whatever its state.
 	FactorCodeState(ctx context.Context, id impulse.UUID) (*dbtype.FactorCode, error)
 	TrustedDeviceState(ctx context.Context, tokenHash []byte) (*dbtype.TrustedDevice, error)
+	TrustedDeviceCount(ctx context.Context, userID impulse.UUID, now, rememberedAfter time.Time) (int, error)
+	OwnSessions(ctx context.Context, userID impulse.UUID, activeSince time.Time) ([]*dbtype.OwnSession, error)
+	DestroyOtherOwnSessions(ctx context.Context, userID, keep impulse.UUID, activeSince time.Time) (int, error)
+	DestroySession(ctx context.Context, sessionID impulse.UUID) error
+	UpdateSessionActivity(ctx context.Context, sessionID impulse.UUID) error
 }
 
 // AuthSchema names the migration set an users database is prepared with.
@@ -153,6 +168,11 @@ type AuthConfig struct {
 	AuthEvents bool
 	// Impersonation attaches the SessionImpersonations table.
 	Impersonation bool
+	// ConfirmAddress has the instance's SignIn hold a person who comes through a
+	// directory that does not vouch for their address until a code confirms one, as an
+	// Auth does for every registration but the deployment's own provider of seeded
+	// accounts (signinflow.Rules.ConfirmAddress).
+	ConfirmAddress bool
 	// Accounts is what the library's standard rule finds chosen for the instance's
 	// sign-in method (MethodName), applied when Resolve is nil or answers
 	// signin.Standard; NoStandardRule for none.
@@ -160,6 +180,9 @@ type AuthConfig struct {
 	// SeededUsers is the registration's declaration that its provider's names are the
 	// application's own (signin.Registration.SeededUsers).
 	SeededUsers bool
+	// NoPassword has the instance's SignIn run as under an Auth that registers no
+	// password method (signinflow.Rules.NoPassword).
+	NoPassword bool
 	// Admits is whom the instance's sign-in method admits now, as its registration
 	// fixes it; the zero value is MethodAudience. A scenario of a registration that
 	// code changed after an administrator opened it names another audience here and
@@ -184,10 +207,32 @@ type AuthConfig struct {
 	// inside the transaction that consumes the invitation, which the harness adapts to
 	// the driver's transaction; nil for none. See signinflow.InvitationAcceptor.
 	Accept func(ctx context.Context, tx HookTx, userID impulse.UUID, username string, inv *sessioninfo.Invitation) (committed func(ctx context.Context), err error)
-	// Admission is what a tenanted application gives a person's first sign-in through
-	// a tenant's directory; nil for none.
+	// Admission is what a tenanted application gives a person who signs in through a
+	// tenant's directory; nil for none.
 	Admission *DirectoryAdmission
+	// Settings is the sign-in settings row the instance starts with, which the harness
+	// writes with SeedSignInSettings before the instance is used. The zero value asks
+	// nobody for a second factor, so a sign-in the rules let through gets its session.
+	Settings SettingsRow
+	// RememberedBrowser has the instance's SignIn run with a trusted-device check that
+	// says yes for everyone: the browser signing in is one the person asked to be
+	// remembered (signinflow.Rules.TrustedDevice).
+	RememberedBrowser bool
 }
+
+// SettingsRow is the row of the sign-in settings table an instance starts with.
+type SettingsRow uint8
+
+const (
+	// NotRequiredRow is a row that asks nobody for a second factor: what every case
+	// that is not about the setting starts with.
+	NotRequiredRow SettingsRow = iota
+	// NoSettingsRow is no row, which asks everyone for a second factor: what an Auth
+	// starts with.
+	NoSettingsRow
+	// RequiredRow is a row that asks everyone for a second factor.
+	RequiredRow
+)
 
 // MethodName is the name an instance's sign-in method is registered under: the key of
 // its row in the sign-in methods table.
@@ -264,7 +309,7 @@ func openedFor(audience signin.Audience) *string {
 // the driver; a harness calls it once its driver is built. The row is opened for the
 // audience the method has. It writes nothing for any other choice, so an invite-only
 // instance runs with no row.
-func SeedSignInMethod(ctx context.Context, t *testing.T, d AuthDriver, cfg AuthConfig) {
+func SeedSignInMethod(ctx context.Context, t *testing.T, d AuthDriver, cfg *AuthConfig) {
 	t.Helper()
 
 	if cfg.Accounts != Open {
@@ -275,7 +320,7 @@ func SeedSignInMethod(ctx context.Context, t *testing.T, d AuthDriver, cfg AuthC
 	if cfg.DefaultRole != "" {
 		m.DefaultRole = &cfg.DefaultRole
 	}
-	if err := d.SetSignInMethod(ctx, m); err != nil {
+	if err := d.SetSignInMethod(ctx, m, nil); err != nil {
 		t.Fatalf("SetSignInMethod() error = %v", err)
 	}
 }
@@ -292,11 +337,6 @@ type DirectoryAdmission struct {
 	// an application that reads none: the rule on a first link made on a name alone
 	// asks it.
 	OnlyIn func(ctx context.Context, tx HookTx, userID impulse.UUID, tenant accesstypes.Domain) (bool, error)
-	// Seeded reports whether the account is the deployment's own seed for the
-	// registration named, nil for an application that recognizes none: the same rule
-	// asks it, of the first administrator of an Auth whose people sign in through a
-	// directory.
-	Seeded func(userID impulse.UUID, username, registration string) bool
 }
 
 // AuthInstance is a driver over a freshly prepared users database, with the
@@ -310,6 +350,17 @@ type AuthInstance struct {
 	// the proof of the password the sign-in rests on; none is the sign-in no password
 	// proved.
 	SignIn func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest, proven ...dbtype.PasswordProof) (impulse.UUID, error)
+	// SignInByCode establishes the session of a request that enters the account's own
+	// mailed code, as SignIn does: claim is the address the code confirms, as the Auth
+	// reads it off the account when the code is checked. The harness builds it with
+	// NewSignInByCode.
+	SignInByCode func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest, claim *dbtype.CodeAddress) (impulse.UUID, error)
+	// SignUpInvited establishes the session of a sign-up with a password through an
+	// invitation, as SignIn does, for the sign-in that enters the code mailed to the
+	// invited address: account is the account the sign-up makes (the rules'
+	// NewAccount), and proven the proof of the password the sign-up chose. The harness
+	// builds it with NewSignUpInvited.
+	SignUpInvited func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest, account *dbtype.InsertSessionUser, proven dbtype.PasswordProof) (impulse.UUID, error)
 	// Accept accepts inv for userID by hand, as the Auth does for a person already
 	// signed in, with the configured acceptor. The harness builds it with NewAccept.
 	Accept func(ctx context.Context, userID impulse.UUID, username, email string, inv *sessioninfo.Invitation) error
@@ -322,12 +373,38 @@ type AuthInstance struct {
 	// instance's method, consuming the mail link linkID, with the configured sign-up
 	// hook. The harness builds it with NewSignUp.
 	SignUp func(ctx context.Context, user *dbtype.InsertSessionUser, linkID impulse.UUID) (impulse.UUID, error)
+	// Addresses reads and claims an address as the sign-in flow does, each in a
+	// transaction of the driver's. The harness builds it with NewAddresses.
+	Addresses Addresses
+	// ConfirmAddressByLink confirms an address by its mail link as the Auth does when a
+	// person's own link or an administrator's link is followed: the flow's one
+	// transaction over the driver. The harness builds it with NewConfirmAddressByLink.
+	ConfirmAddressByLink func(ctx context.Context, c *signinflow.AddressConfirmation, record *auditlog.Record) (*signinflow.ConfirmedAddress, error)
+	// SignInSettingsIn reads the sign-in settings row as a sign-in's transaction reads
+	// it, in a transaction of the driver's. The harness builds it with
+	// NewSignInSettingsIn.
+	SignInSettingsIn func(ctx context.Context) (*dbtype.SignInSettings, error)
+}
+
+// NewConfirmAddressByLink returns an instance's ConfirmAddressByLink over d: the flow's
+// confirmation of an address by its mail link.
+func NewConfirmAddressByLink[Tx any](
+	d signinflow.Driver[Tx],
+) func(ctx context.Context, c *signinflow.AddressConfirmation, record *auditlog.Record) (*signinflow.ConfirmedAddress, error) {
+	return func(ctx context.Context, c *signinflow.AddressConfirmation, record *auditlog.Record) (*signinflow.ConfirmedAddress, error) {
+		confirmed, err := signinflow.ConfirmAddressByLink(ctx, d, c, record)
+		if err != nil {
+			return nil, errors.Wrap(err, "signinflow.ConfirmAddressByLink()")
+		}
+
+		return confirmed, nil
+	}
 }
 
 // NewSignUp returns an instance's SignUp over d: the flow's password sign-up through
 // MethodName with cfg's sign-up hook, given the driver's transaction through adapt.
 func NewSignUp[Tx any](
-	d signinflow.Driver[Tx], cfg AuthConfig, adapt func(tx Tx) HookTx,
+	d signinflow.Driver[Tx], cfg *AuthConfig, adapt func(tx Tx) HookTx,
 ) func(ctx context.Context, user *dbtype.InsertSessionUser, linkID impulse.UUID) (impulse.UUID, error) {
 	seat := adaptSignUp(cfg, adapt)
 
@@ -342,7 +419,7 @@ func NewSignUp[Tx any](
 }
 
 // adaptSignUp is cfg's sign-up hook over the driver's transaction, nil for none.
-func adaptSignUp[Tx any](cfg AuthConfig, adapt func(tx Tx) HookTx) signinflow.SignUpSeater[Tx] {
+func adaptSignUp[Tx any](cfg *AuthConfig, adapt func(tx Tx) HookTx) signinflow.SignUpSeater[Tx] {
 	if cfg.SignUp == nil {
 		return nil
 	}
@@ -364,9 +441,9 @@ func oneProof(proven []dbtype.PasswordProof) dbtype.PasswordProof {
 // NewLinkConfirmed returns an instance's LinkConfirmed over d: the flow's confirmed
 // link with cfg's admission, each hook given the driver's transaction through adapt.
 func NewLinkConfirmed[Tx any](
-	d signinflow.Driver[Tx], cfg AuthConfig, adapt func(tx Tx) HookTx,
+	d signinflow.Driver[Tx], cfg *AuthConfig, adapt func(tx Tx) HookTx,
 ) func(ctx context.Context, userID impulse.UUID, username string, identity *sessioninfo.Identity, tenant string, proven ...dbtype.PasswordProof) error {
-	directories, seat, _, _ := adaptAdmission(cfg, adapt)
+	directories, seat, _ := adaptAdmission(cfg, adapt)
 
 	return func(ctx context.Context, userID impulse.UUID, username string, identity *sessioninfo.Identity, tenant string, proven ...dbtype.PasswordProof) error {
 		if err := signinflow.LinkConfirmed(ctx, d, userID, username, identity, tenant, directories, seat, oneProof(proven)); err != nil {
@@ -381,10 +458,10 @@ func NewLinkConfirmed[Tx any](
 // reader, the seater and the reader of whether a tenant is all a person holds, each nil
 // for none.
 func adaptAdmission[Tx any](
-	cfg AuthConfig, adapt func(tx Tx) HookTx,
-) (signin.DirectoryReader[Tx], signinflow.DirectorySeater[Tx], signinflow.OnlyInTenant[Tx], signinflow.SeededAccount) {
+	cfg *AuthConfig, adapt func(tx Tx) HookTx,
+) (signin.DirectoryReader[Tx], signinflow.DirectorySeater[Tx], signinflow.OnlyInTenant[Tx]) {
 	if cfg.Admission == nil {
-		return nil, nil, nil, nil
+		return nil, nil, nil
 	}
 	lookup := cfg.Admission.Directories
 	directories := func(ctx context.Context, tx Tx, directory signin.Directory) ([]signin.DeclaredDirectory, error) {
@@ -403,13 +480,13 @@ func adaptAdmission[Tx any](
 		}
 	}
 
-	return directories, seat, onlyIn, cfg.Admission.Seeded
+	return directories, seat, onlyIn
 }
 
 // NewAccept returns an instance's Accept over d: the flow's acceptance with cfg's
 // acceptor, given the driver's transaction through adapt.
 func NewAccept[Tx any](
-	d signinflow.Driver[Tx], cfg AuthConfig, adapt func(tx Tx) HookTx,
+	d signinflow.Driver[Tx], cfg *AuthConfig, adapt func(tx Tx) HookTx,
 ) func(ctx context.Context, userID impulse.UUID, username, email string, inv *sessioninfo.Invitation) error {
 	accept := adaptAccept(cfg, adapt)
 
@@ -423,7 +500,7 @@ func NewAccept[Tx any](
 }
 
 // adaptAccept is cfg's acceptor over the driver's transaction, nil for none.
-func adaptAccept[Tx any](cfg AuthConfig, adapt func(tx Tx) HookTx) signinflow.InvitationAcceptor[Tx] {
+func adaptAccept[Tx any](cfg *AuthConfig, adapt func(tx Tx) HookTx) signinflow.InvitationAcceptor[Tx] {
 	if cfg.Accept == nil {
 		return nil
 	}
@@ -436,8 +513,46 @@ func adaptAccept[Tx any](cfg AuthConfig, adapt func(tx Tx) HookTx) signinflow.In
 // NewSignIn returns an instance's SignIn over d: the sign-in flow with cfg's account
 // rules and policy, each given the driver's transaction through adapt.
 func NewSignIn[Tx any](
-	d signinflow.Driver[Tx], cfg AuthConfig, adapt func(tx Tx) HookTx,
+	d signinflow.Driver[Tx], cfg *AuthConfig, adapt func(tx Tx) HookTx,
 ) func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest, proven ...dbtype.PasswordProof) (impulse.UUID, error) {
+	signIn := newSignIn(d, cfg, adapt)
+
+	return func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest, proven ...dbtype.PasswordProof) (impulse.UUID, error) {
+		return signIn(ctx, insert, req, oneProof(proven), nil, nil)
+	}
+}
+
+// NewSignInByCode returns an instance's SignInByCode over d: NewSignIn's flow, for a
+// sign-in that enters the account's own mailed code and carries the address it confirms.
+func NewSignInByCode[Tx any](
+	d signinflow.Driver[Tx], cfg *AuthConfig, adapt func(tx Tx) HookTx,
+) func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest, claim *dbtype.CodeAddress) (impulse.UUID, error) {
+	signIn := newSignIn(d, cfg, adapt)
+
+	return func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest, claim *dbtype.CodeAddress) (impulse.UUID, error) {
+		return signIn(ctx, insert, req, nil, claim, nil)
+	}
+}
+
+// NewSignUpInvited returns an instance's SignUpInvited over d: NewSignIn's flow, for the
+// sign-in that completes a sign-up through an invitation and carries the account it
+// makes.
+func NewSignUpInvited[Tx any](
+	d signinflow.Driver[Tx], cfg *AuthConfig, adapt func(tx Tx) HookTx,
+) func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest, account *dbtype.InsertSessionUser, proven dbtype.PasswordProof) (impulse.UUID, error) {
+	signIn := newSignIn(d, cfg, adapt)
+
+	return func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest, account *dbtype.InsertSessionUser, proven dbtype.PasswordProof) (impulse.UUID, error) {
+		return signIn(ctx, insert, req, proven, nil, account)
+	}
+}
+
+// newSignIn is the flow NewSignIn, NewSignInByCode and NewSignUpInvited run over d:
+// proof, claim and account are the rules' Proven, CodeAddress and NewAccount, nil for
+// none.
+func newSignIn[Tx any](
+	d signinflow.Driver[Tx], cfg *AuthConfig, adapt func(tx Tx) HookTx,
+) func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest, proof dbtype.PasswordProof, claim *dbtype.CodeAddress, account *dbtype.InsertSessionUser) (impulse.UUID, error) {
 	var rule signin.AccountRule[Tx]
 	switch {
 	case cfg.Resolve != nil:
@@ -454,17 +569,24 @@ func NewSignIn[Tx any](
 			return cfg.Policy(ctx, adapt(tx), req)
 		}
 	}
-	directories, seat, onlyIn, seeded := adaptAdmission(cfg, adapt)
+	var trusted signinflow.TrustedDeviceCheck
+	if cfg.RememberedBrowser {
+		trusted = func(context.Context, impulse.UUID) (bool, error) {
+			return true, nil
+		}
+	}
+	directories, seat, onlyIn := adaptAdmission(cfg, adapt)
 	accept := adaptAccept(cfg, adapt)
 	signUp := adaptSignUp(cfg, adapt)
-	return func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest, proven ...dbtype.PasswordProof) (impulse.UUID, error) {
+	return func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest, proof dbtype.PasswordProof, claim *dbtype.CodeAddress, account *dbtype.InsertSessionUser) (impulse.UUID, error) {
 		id, err := impulse.NewUUID()
 		if err != nil {
 			return impulse.NilUUID, errors.Wrap(err, "impulse.NewUUID()")
 		}
 		rules := signinflow.Rules[Tx]{
 			Account: rule, Method: MethodName, Audience: cfg.audience(), SeededUsers: cfg.SeededUsers, Policy: policy, Accept: accept, SignUp: signUp,
-			Directories: directories, Seat: seat, OnlyIn: onlyIn, Seeded: seeded, OneOrganization: cfg.Admits.Audience().OneOrganization(), Proven: oneProof(proven),
+			Directories: directories, Seat: seat, OnlyIn: onlyIn, Proven: proof, NoPassword: cfg.NoPassword,
+			ConfirmAddress: cfg.ConfirmAddress, CodeAddress: claim, NewAccount: account, TrustedDevice: trusted,
 		}
 		if err := signinflow.SignIn(ctx, d, id, insert, req, rules); err != nil {
 			return impulse.NilUUID, errors.Wrap(err, "signinflow.SignIn()")
@@ -493,6 +615,25 @@ type AuthHarness struct {
 	// MailLinkConsumedAt reads the ConsumedAt of the mail link holding tokenHash
 	// directly: nil while it is live.
 	MailLinkConsumedAt func(ctx context.Context, t *testing.T, raw any, tokenHash []byte) *time.Time
+	// MailLinkMailFailedAt reads the MailFailedAt of the mail link holding tokenHash
+	// directly: nil unless the link's message could not be mailed.
+	MailLinkMailFailedAt func(ctx context.Context, t *testing.T, raw any, tokenHash []byte) *time.Time
+	// MailLinkWithdrawnAt reads the WithdrawnAt of the mail link holding tokenHash
+	// directly: nil unless the link was taken back.
+	MailLinkWithdrawnAt func(ctx context.Context, t *testing.T, raw any, tokenHash []byte) *time.Time
+	// AttemptsEndsAt reads the EndsAt of the sign-in attempts row under name directly:
+	// the moment the database worked out that the row stops counting.
+	AttemptsEndsAt func(ctx context.Context, t *testing.T, raw any, name string) time.Time
+	// RequirePasswordChange sets the user's password change mark directly, bypassing
+	// the driver, as an application's account management does when an administrator
+	// requires a new password: the library reads the mark and clears it, and no write of
+	// the driver's sets it.
+	RequirePasswordChange func(ctx context.Context, t *testing.T, raw any, userID impulse.UUID)
+	// AuditRows reads every row of the audit records table directly, the oldest first:
+	// each by its columns' names (auditlog.Columns), with the columns that hold
+	// nothing left out, the text as strings, OtherRoleNames as []string and the times as
+	// time.Time in UTC.
+	AuditRows func(ctx context.Context, t *testing.T, raw any) []map[string]any
 	// ClockLead is how far the backend's clock may run ahead of the host's; see
 	// Harness.ClockLead.
 	ClockLead time.Duration
@@ -515,10 +656,29 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "a session's auth events go with it", run: testAuthEventsCascade},
 		{name: "a linked identity signs in to its user without the resolver", run: testLinkedIdentitySignsIn},
 		{name: "the resolver's outcome decides an unlinked identity", run: testResolverOutcomes},
+		{name: "an Auth that registers no password method holds no sign-in for a password an account holds: the account is decided as one with no password, by the standard rule and at a link, and keeps its password", run: testNoPasswordMethod},
 		{name: "the standard account rule decides an unlinked identity by its sign-in name and by what was chosen for its method: no row is invite only, which refuses a stranger and writes nothing", run: testStandardAccountRules},
 		{name: "a sign-in method's row is written whole at the database's time, replaced by the next write, and listed by name", run: testSignInMethodRows},
+		{name: "self-service reset is written on its method's row as one field: what else the row says stands, another method's row is untouched, and a method with no row gets one that is invite only", run: testSelfServiceResetOneField},
+		{name: "a person who comes through a directory that does not vouch for their address is held for the code until the row holds a confirmed address, as the sign-in's transaction reads it", run: testAddressConfirmedFirst},
+		{name: "an address a directory asserts and does not vouch for finds no account, not even one that holds it confirmed and that nobody signs in to yet", run: testUnverifiedClaimFindsNoAccount},
+		{name: "an invitation accepted through a directory that asserts no address waits for the code mailed to the invited address, naming no user and writing nothing, and is accepted in the transaction of the sign-in that carries it", run: testInvitationByCode},
+		{name: "the code mailed to an invited address finds the account that holds it, confirmed or not, and is no way in to one somebody signs in to: with a password it waits for the password, a second identity is refused, and an account nobody signs in to yet takes its first identity", run: testInvitationByCodeAddressHeld},
+		{name: "the code mailed to an invited address makes no other account the one invited while another holds the address, linked or found under the directory's name, with a password or without, nor one under another name where the usernames are the addresses", run: testInvitationByCodeNotTheInvited},
+		{name: "the code mailed to an invited address proves that invitation's acceptance and nothing else: with the invitation dead nothing is made, linked or confirmed, and a registration that mails no code has none to accept on", run: testInvitationByCodeAlone},
+		{name: "an invitation accepted through a directory that asserts an address it did not verify waits for the code as one that asserts none: the claim makes no account, spends no invitation and makes no linked account the one invited", run: testInvitationUnverifiedAddress},
 		{name: "a driver whose sign-in methods table is not there says so: an error naming the table, never a method read as invite only", run: testSignInMethodsMissingTable},
-		{name: "an open method gives a person with no account its default role in the transaction that makes the account, once; a person an administrator created is linked and given nothing", run: testOpenMethodDefaultRole},
+		{name: "the sign-in settings are one row for the whole Auth, absent until a setting is written: each write sets its one field and leaves the other as it stands, a write with no row makes it with the other field at its default, and a sign-in's transaction reads what a plain read does", run: testSignInSettingsOneField},
+		{name: "each write that takes the record of its act writes it in its own transaction: handed none it writes no row and does what it did, refused or finding nothing to change it writes none, and handed one it writes that one row, which holds no secret the writes wrote", run: testAuditRecords},
+		{name: "a row of the audit log is read back as it was handed: a role given with its period's two times and a reason, and an invitation's two role names", run: testAuditRecordParts},
+		{name: "a driver whose sign-in settings table is not there says so: both reads fail with an error naming the table, never a row read as absent", run: testSignInSettingsMissingTable},
+		{name: "the sign-in settings decide after the sign-in rule: while they ask everyone for a second factor, a sign-in the rule allows, or any where there is no rule, is held for the mailed code, as it is with no row; a refusal and the rule's own hold stand either way", run: testSecondFactorSetting},
+		{name: "the setting is read at each sign-in: turned off between two sign-ins the second gets its session, and turned on again the next is held", run: testSecondFactorSettingTurnedOffAndOn},
+		{name: "while a second factor is required, the directory's attestation, a remembered browser, the completion that carries the mailed code and the completion that carries the application's own factor each pass it, and a remembered browser is recorded on the session", run: testSecondFactorRequiredPassed},
+		{name: "while a second factor is required, a completion that carries no step is held for the mailed code", run: testSecondFactorRequiredNotCarried},
+		{name: "while a second factor is required, a sign-in through a directory whose tenant vouches for it gets its session and records the tenant's word; a hold the rule answers, a password and a directory nobody vouches for are held as before, and the word is read at each sign-in", run: testSecondFactorVouchedByTenant},
+		{name: "a session that continues one already decided is not held for a second factor however the setting stands", run: testSecondFactorSettingUndecidedReason},
+		{name: "an open method gives a person with no account its default role in the transaction that makes the account, once; a person whose account was created ahead is linked and given nothing", run: testOpenMethodDefaultRole},
 		{name: "an open method that names no role makes the account and gives nothing", run: testOpenMethodWithoutRole},
 		{name: "a row opens its method for the audience it was opened for alone: a registration widened or narrowed in code since refuses a stranger and writes nothing, at a sign-in and at a password sign-up, and a row that names no audience opens nothing", run: testOpenRowOfAnotherAudience},
 		{name: "a person with an account, and a person with an invitation, sign in the same under either choice: the invitation's role, never the default role beside it", run: testEitherChoiceSameForAccountsAndInvitations},
@@ -548,30 +708,31 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "a provisioned username that is taken is refused as a conflict, and nothing is linked", run: testProvisionUsernameTaken},
 		{name: "concurrent first sign-ins of one identity link it once", run: testConcurrentFirstSignIn},
 		{name: "concurrent first sign-ins of one identity through a provisioning resolver all succeed and provision it once", run: testConcurrentFirstProvision},
-		{name: "links are managed outside sign-in, and the last means of sign-in stays", run: testLinkManagement},
+		{name: "links are managed outside sign-in, a link is read by its id, and the last means of sign-in stays", run: testLinkManagement},
 		{name: "an identity is unlinked from a password-less user only while another that signs them in remains", run: testUnlinkKeepsAMeansOfSignIn},
 		{name: "two unlinks of a password-less user's two identities, asked at once, leave the user one", run: testUnlinksRace},
 		{name: "a password is removed from a user that has an identity, with its change mark, and stays as the last means of sign-in", run: testPasswordRemoval},
 		{name: "a password's removal and the unlinking of the user's one identity, asked at once, leave the user one of the two", run: testPasswordRemovalRacesUnlink},
 		{name: "deleting a user deletes its identity links with it", run: testDeleteUserDeletesLinks},
 		{name: "DestroyUserSessions expires the user's sessions by UserId", run: testDestroyUserSessions},
+		{name: "a session keeps the name of the browser it was signed in from, and a person's own sessions are listed live, newest use first, with none someone else established acting as them", run: testOwnSessions},
+		{name: "a person's remembered browsers are counted live: no revoked or lapsed device, and no other person's", run: testTrustedDeviceCount},
+		{name: "a rename leaves when a session was last used, and renames no other account's session", run: testRenameLeavesLastUse},
+		{name: "signing out everywhere else ends every other session of the person's own in one write, and counts the live ones", run: testDestroyOtherOwnSessions},
 		{name: "AppendAuthEvent records a step-up after the sign-in", run: testAppendAuthEvent},
 		{name: "a pending sign-in is read back by its token hash with everything it carried", run: testPendingSignInRoundTrip},
 		{name: "a pending sign-in is consumed once, by a conditional update", run: testPendingSignInConsumedOnce},
 		{name: "an expired pending sign-in is neither read nor consumed", run: testPendingSignInExpired},
 		{name: "concurrent completions of one pending sign-in consume it once", run: testPendingSignInConcurrentConsume},
-		{name: "deleting a user deletes its sessions, their auth events and its identity links by the schema's cascade", run: testDeleteUserCascades},
-		{name: "a session row names an existing user or no user: the schema refuses an unknown user id", run: testSessionUserForeignKey},
+		{name: "deleting a user ends its sessions and deletes its identity links, and the session rows stay with their auth events until the timed removal takes them", run: testDeleteUserKeepsSessionRows},
 		{name: "a sign-in records the provider's session id under its issuer, and a provider-initiated logout ends the sessions under that issuer and id and no other", run: testProviderSessionLogout},
 		{name: "a sign-in and everything written with it take the database's time, once", run: testDatabaseTimeOnSignIn},
-		{name: "a user is stored with its password change mark and the database's time, and listed by username", run: testUserAccounts},
-		{name: "a password is replaced with its change mark and the user's sessions ended in one transaction: both, or neither", run: testPasswordReplaced},
+		{name: "a user is stored with the database's time and under no password change mark, reads back the mark an application writes, and is listed by username", run: testUserAccounts},
 		{name: "a hash upgrade, a user's own change and a user's own removal write on proof of the hash the user holds, and nothing without one", run: testProvenPasswordWrites},
 		{name: "a hash upgrade, a user's own change and a user's own removal write nothing once another write of the password has committed since the user was read", run: testProvenPasswordWriteAfterAnotherWrite},
-		{name: "a temporary password an operator sets stands, with its change mark, whatever write on proof of the password it replaces is asked at once", run: testProvenPasswordWriteRacesReset},
 		{name: "a user's own change writes the password and ends the user's sessions in one transaction: both, or neither", run: testOwnChangeEndsSessions},
 		{name: "a first password is written for a user who holds none, once, and ends no session; a user who holds one keeps it", run: testFirstPassword},
-		{name: "a sign-in on proof of a password inserts its session only while the user holds that password: refused after a change, a temporary password or a removal, before the policy is asked", run: testProvenSignIn},
+		{name: "a sign-in on proof of a password inserts its session only while the user holds that password: refused after a change or a removal, before the policy is asked", run: testProvenSignIn},
 		{name: "a pending sign-in a password started keeps the proof, is inserted only while the user holds that password, and completes only while they do; one no password proved is untouched", run: testProvenPendingSignIn},
 		{name: "a link confirmed with a password is made only while the user holds that password", run: testProvenLinkConfirmed},
 		{name: "a sign-in on proof of a password and the write that replaces it, asked at once, leave no live session resting on the replaced password", run: testProvenSignInRacesPasswordWrite},
@@ -579,35 +740,60 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "a revocation stamps every session it expires and every record it ends with one time, the database's", run: testDatabaseTimeOnRevocation},
 		{name: "a failed sign-in attempt is recorded under the name, known or not, counted in its window and locked at the limit, at the database's time", run: testSignInAttemptsRecorded},
 		{name: "a failed sign-in attempt after the window ended or the lock passed opens a new window", run: testSignInAttemptsWindowAndLockPass},
+		{name: "a sign-in attempts row stops counting at the end of its window or of its lock, whichever is later, as the database works it out", run: testSignInAttemptsEndsAt},
 		{name: "a clear deletes the name's sign-in attempts and the count starts over", run: testSignInAttemptsCleared},
+		{name: "sign-in attempts are kept under a name exactly as it is spelled", run: testSignInAttemptsKeyedExactly},
 		{name: "concurrent failed sign-in attempts on one name each count", run: testSignInAttemptsConcurrent},
 		{name: "of failed attempts recorded at once on one name, as many as the limit are told they were counted and no more", run: testSignInAttemptsCountedAtOnce},
 		{name: "a failed attempt recorded while the name is cleared is the first after the clear, never an error", run: testSignInAttemptsRecordedBesideClears},
 		{name: "a driver whose sign-in attempts table is not there says so: an error naming the table, never a count of nothing", run: testSignInAttemptsMissingTable},
 		{name: "a user's email address is stored in two states, unique among every address held, and read back with the user", run: testUserEmail},
 		{name: "a verified address replaces what the user held, at the database's time; an address another user holds is refused", run: testUserEmailVerified},
+		{name: "the address a sign-in code confirms is written in the sign-in's transaction only while the user still holds what it held and no other user holds it, and a write not made leaves the transaction to commit", run: testVerifyUserEmailIfHeldIn},
+		{name: "an address a mail link confirms is written with the link's use in one transaction, replacing what the account held, and the confirmation answers what the account held before; a link used again writes nothing", run: testConfirmAddressByLink},
+		{name: "a confirmation by link that is refused (by the caller's rule on what the account holds, an address another account holds in any case, an account that is gone) writes nothing and leaves the link standing", run: testConfirmAddressByLinkRefused},
+		{name: "where the usernames are the addresses, a confirmation by link renames the account and its live session and says so whenever the username changed in any byte, and an address that is another account's username writes nothing", run: testConfirmAddressByLinkUsernameIsEmail},
+		{name: "two links for one account followed at once confirm one address: the other is asked its rule on what the first wrote", run: testConfirmAddressByLinkRace},
+		{name: "an address is matched by the case of its ASCII letters alone", run: testAddressFold},
+		{name: "a username with an @ in it is matched as an address is, by the case of its ASCII letters alone, and any other without regard to case or to how its letters are composed", run: testUsernameFold},
 		{name: "a sign-in refused or held before the acceptance leaves the invitation standing, nothing consumed and nothing granted", run: testInvitationKeptOnRefusal},
 		{name: "a method's verified address is claimed for a user without one, once, and never over another user's", run: testClaimVerifiedEmail},
 		{name: "a person's name is stored without the space around it, replaced or taken off by hand, and claimed only for a user who holds none", run: testUserName},
-		{name: "the look a person chose is kept as a whole, a half it does not name taken off, and a scheme that is neither light nor dark refused", run: testUserLook},
+		{name: "the look a person chose is kept as a whole, a half it does not name taken off, and a scheme that is not light, dark or device refused", run: testUserLook},
+		{name: "an account, a session, a sign-in identity, a token, a device code or a mailed link the store does not hold is not found in one plain sentence that carries none of what was asked for", run: testNotFoundInWords},
+		{name: "a sign-in identity that is linked already is refused as a conflict in one plain sentence that carries neither the directory's connection nor the subject", run: testConflictsInWords},
 		{name: "where the username is the address, the database derives the address, a rename is refused and a verified address renames the user", run: testUsernameIsEmail},
 		{name: "a mail link is read back by its token hash with everything it carried", run: testMailLinkRoundTrip},
 		{name: "a mail link is consumed once, by token or by id, and listed while it stands", run: testMailLinkConsumedOnce},
+		{name: "a mail link whose message could not be mailed is ended and says so, once, and no other end says it", run: testMailLinkMailFailed},
+		{name: "a mail link taken back is consumed and marked withdrawn at one time, once, and no other end marks it", run: testMailLinkWithdrawn},
 		{name: "an expired mail link is neither read, consumed nor listed", run: testMailLinkExpired},
 		{name: "a verification link goes with its user", run: testMailLinkCascade},
 		{name: "a sign-in that carries an invitation accepts it in the resolution's transaction: consumed, the address set, the hook's writes committed with the user", run: testInvitationSignIn},
 		{name: "an invitation that died is skipped through an open method and refuses through an invite-only one, provisioning nothing", run: testInvitationDead},
-		{name: "a stranger from a directory a tenant declares with a default seat is provisioned and seated with it before the policy decides; a tenant declaring it without a seat gives nothing; a second sign-in seats nothing more", run: testDirectoryDefaultSeat},
-		{name: "a stranger from a directory a tenant declares with no default seat is refused with invitation_only and nothing is written, whatever the registration's rule; a user created ahead in the tenant links; an invitation is the way past, and a dead one refuses with invitation_expired", run: testDirectoryInvitationOnly},
+		{name: "a stranger from a directory a tenant declares with a default seat is provisioned and seated with it before the policy decides; a tenant declaring it without a seat gives nothing; a second sign-in hands the hook the seat again", run: testDirectoryDefaultSeat},
+		{name: "a stranger from a directory a tenant declares with no default seat is refused with invitation_only and nothing is written, whatever the registration's rule; a user created ahead in the tenant links, and signing in again through the link calls no seat hook; an invitation is the way past, and a dead one refuses with invitation_expired", run: testDirectoryInvitationOnly},
 		{name: "a directory no tenant declares falls to the registration's rule", run: testDirectoryUndeclared},
-		{name: "a person whose account stands and who follows another tenant's invitation is linked at their first sign-in through their own organization's directory, the invitation accepted and the directory's default seat given in one transaction, and is not linked without the invitation; a second sign-in seats nothing; a personal account reads no declaration", run: testDirectorySeatAtFirstLink},
-		{name: "a link a password confirms is a first sign-in through the directory and gives the default seat with the link; a later sign-in gives nothing back, so a removed seat stays removed; a link deleted and made again gives the seat again", run: testDirectorySeatAtConfirmedLink},
+		{name: "a person whose account stands and who follows another tenant's invitation is linked at their first sign-in through their own organization's directory, the invitation accepted and the directory's default seat given in one transaction, and is not linked without the invitation; the second sign-in and the third each hand the hook the seat again; a personal account reads no declaration", run: testDirectorySeatAtFirstLink},
+		{name: "a link a password confirms is a first sign-in through the directory and gives the default seat with the link; every later sign-in hands the hook the seat again, so a removed seat is given back; a link deleted and made again gives the seat again", run: testDirectorySeatAtConfirmedLink},
+		{name: "a linked identity of a disabled account is refused and its directory's default seat is not handed to the hook", run: testDirectorySeatNotForDisabledLink},
+		{name: "a disabled account whose identity the sign-in links for the first time through a directory whose tenant names a default seat is linked and refused, and the seat is not handed to the hook", run: testDirectorySeatNotForDisabledFirstLink},
+		{name: "a link a password confirms for a disabled account is made and does not hand the hook the directory's default seat", run: testDirectorySeatNotForDisabledConfirmedLink},
+		{name: "a linked sign-in that carries a live invitation naming the directory's default role in its tenant is given that role by the invitation and does not hand the hook the same seat", run: testDirectorySeatBeyondInvitationAtLink},
+		{name: "a sign-in through one tenant's directory that reaches an account which signs in through another tenant's is refused with second_directory before any password is asked for: nothing is linked and nothing seated", run: testSecondDirectoryRefusedBeforeConfirmation},
+		{name: "a confirmation asked for before the account signed in through another tenant's directory links nothing once it has: second_directory, nothing linked, nothing seated", run: testSecondDirectoryRefusedAtConfirmedLink},
+		{name: "a registration's own trusted link of an identity from one tenant's directory to an account that signs in through another tenant's is refused with second_directory, and nothing is linked", run: testSecondDirectoryRefusedForRegistrationRule},
+		{name: "a second directory no tenant declares, a second directory of the same tenant, a personal account and an application that reads no directories are each held for the password and linked by it", run: testSecondDirectoryNotRefused},
 		{name: "a failing seat hook fails the transaction that links the user: no link, none of the hook's writes, at once and at a confirmed link alike", run: testDirectorySeatHookFailsAtLink},
 		{name: "a default seat on an Auth with no seat hook fails the sign-in in its transaction: no user is created", run: testDirectorySeatHookMissing},
 		{name: "a failing seat hook fails the transaction that provisions the user: no account, no link, none of the hook's writes; the next sign-in is provisioned and seated", run: testDirectorySeatHookFails},
 		{name: "a failing invitation hook fails the transaction that consumes the invitation: the invitation stands, a stranger is not provisioned, the hook's writes are not committed, and the next attempt accepts it", run: testInvitationHookFails},
 		{name: "an invitation hook's committed function runs exactly once, after the commit and before the policy decides", run: testInvitationHookCommitted},
-		{name: "a password sign-in accepts the invitation it carries in a transaction of its own, and so does an acceptance by hand, each only for the address the account holds", run: testInvitationAcceptedByHand},
+		{name: "a sign-up with a password through an invitation makes its account in the transaction that consumes the invitation and runs the acceptor: made and accepted together, or neither, when the invitation is dead or another account holds the address or the username", run: testInvitedSignUp},
+		{name: "a failing invitation hook fails the transaction that would make the account of a sign-up through the invitation: no account, and the invitation stands", run: testInvitedSignUpHookFails},
+		{name: "an account to make goes only with a password sign-in that entered the code mailed for the invitation it carries, under the request's id and with the invited address confirmed: anything else is an error that writes nothing", run: testInvitedSignUpMisused},
+		{name: "a password sign-in accepts the invitation it carries only by the code mailed to the invited address, in a transaction of its own, and an acceptance by hand only for the address the account holds confirmed", run: testInvitationAcceptedByHand},
+		{name: "an invitation is read back with the place its roles are held in, one tenant, every tenant or the global surface, by its token hash and in the listing of the live ones", run: testInvitationPlaceRoundTrip},
 		{name: "an invitation that makes a tenant is read back with the tenant it carries, by its token hash and in the listing of the live ones", run: testTenantInvitationRoundTrip},
 		{name: "an invitation that makes a tenant hands its acceptor the tenant and how the person signed in, through a directory, by password and by hand, in the transaction that consumes it", run: testTenantInvitationAccepted},
 		{name: "an invitation whose tenant is directory only is refused a password, a personal account and a session that came through neither, and nothing is written: no account, no link, and the invitation stands", run: testTenantInvitationDirectoryOnly},
@@ -622,7 +808,9 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "a factor code counts the guesses made at it and is consumed once; a dead code is neither read, counted nor consumed", run: testFactorCodeAttemptsAndConsume},
 		{name: "attempts counted against a factor code at once are each counted and answered their own count", run: testFactorCodeAttemptsAtOnce},
 		{name: "of factor codes inserted at once for one pending sign-in, one stands and every other is consumed", run: testFactorCodesInsertedAtOnce},
+		{name: "taking a user's address off ends the live factor codes of the user's pending sign-ins and no other user's", run: testAddressTakenOffEndsCodes},
 		{name: "a trusted device is read back by its token hash while it is live, touched at the database's time, revoked once by its token and all at once by its user", run: testTrustedDeviceLifecycle},
+		{name: "a trusted device is found and counted only while it was remembered after the cut a read is given, and one past its end date however early the cut", run: testTrustedDeviceRememberedAfter},
 		{name: "a factor code goes with its pending sign-in and a trusted device with its user", run: testFactorsCascade},
 	}
 	for _, tt := range tests {

@@ -11,14 +11,17 @@ import (
 
 type (
 	// CrewSession is one session of the Crew auth: a row of
-	// CrewSessions, the session library's sessions table. A session ends by
-	// its Expired column; the rows are never deleted.
+	// CrewSessions, the session library's sessions table. A session is ended by
+	// its Expired column, and the session library removes a row 30 days after the session
+	// was last used. A page lists the sessions from CrewListedSession, which also says
+	// whether each is live.
 	//
 	// @resource
 	// @suppress(patchHandler)
 	// @outlet(default)
 	// @order(CreatedAt desc)
 	// @page(default: 25, max: 200)
+	// @rowWord(session)
 	CrewSession struct {
 		ID              impulse.UUID  `spanner:"Id"`
 		UserID          *impulse.UUID `spanner:"UserId"`

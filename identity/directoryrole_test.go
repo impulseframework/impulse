@@ -43,24 +43,24 @@ func TestManager_DirectoryRole(t *testing.T) {
 		{name: "a role of the tenant the caller may give", role: "Reader", wantAsked: []string{"give domain/alpha " + nobody + " Reader"}},
 		{
 			name: "a role of the tenant the caller may not give is refused", role: "Warden",
-			wantForbidden: "you may not give the role Warden in this tenant, so you cannot make it the role everyone from its directory gets",
+			wantForbidden: "You may not give the role Warden in this tenant, so you cannot make it the role everyone from its directory gets.",
 			wantAsked:     []string{"give domain/alpha " + nobody + " Warden"},
 		},
 		{
 			name: "a role the caller may not give is refused in the same words where the tenant does not hold it: the refusal is no word on whether it exists", role: "Ghost",
-			wantForbidden: "you may not give the role Ghost in this tenant, so you cannot make it the role everyone from its directory gets",
+			wantForbidden: "You may not give the role Ghost in this tenant, so you cannot make it the role everyone from its directory gets.",
 			wantAsked:     []string{"give domain/alpha " + nobody + " Ghost"},
 		},
 		{
 			name: "a role the caller could give that the tenant does not hold is refused", role: "Steward",
-			wantBadRequest: `"Steward" is not a role of this tenant`, wantAsked: []string{"give domain/alpha " + nobody + " Steward"},
+			wantBadRequest: "Steward is not a role of this tenant. Choose one of the roles the picker lists.", wantAsked: []string{"give domain/alpha " + nobody + " Steward"},
 		},
 		{
-			name: "a role that exists nowhere is refused", role: "Nobody",
-			wantBadRequest: `"Nobody" is not a role of this tenant`, wantAsked: []string{"give domain/alpha " + nobody + " Nobody"},
+			name: "a role that exists nowhere is refused", role: "NightShiftLead",
+			wantBadRequest: "Night shift lead is not a role of this tenant. Choose one of the roles the picker lists.", wantAsked: []string{"give domain/alpha " + nobody + " NightShiftLead"},
 		},
 		{name: "a call outside any request is the application's own act, held to the role's existence alone", role: "Warden", outside: true},
-		{name: "and still refuses a role the tenant does not hold", role: "Steward", outside: true, wantBadRequest: `"Steward" is not a role of this tenant`},
+		{name: "and still refuses a role the tenant does not hold", role: "Steward", outside: true, wantBadRequest: "Steward is not a role of this tenant. Choose one of the roles the picker lists."},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -79,13 +79,11 @@ func TestManager_DirectoryRole(t *testing.T) {
 			})
 			switch {
 			case tt.wantBadRequest != "":
-				if !httpio.HasBadRequest(err) || !strings.Contains(httpio.Message(err), tt.wantBadRequest) {
+				if !httpio.HasBadRequest(err) || httpio.Message(err) != tt.wantBadRequest {
 					t.Fatalf("DirectoryRole() error = %v, want a BadRequest saying %q", err, tt.wantBadRequest)
 				}
 			case tt.wantForbidden != "":
-				if !httpio.HasForbidden(err) || !strings.Contains(httpio.Message(err), tt.wantForbidden) {
-					t.Fatalf("DirectoryRole() error = %v, want Forbidden saying %q", err, tt.wantForbidden)
-				}
+				toldPlainly(t, err, tt.wantForbidden, "ask someone who may give this one")
 			case err != nil:
 				t.Fatalf("DirectoryRole() error = %v, want the role admitted", err)
 			}
@@ -262,30 +260,40 @@ func TestManager_DirectoryRoles(t *testing.T) {
 }
 
 // TestManager_RolesToGive pins the list a role is picked from to give one in a tenant by
-// hand: the roles of the tenant that the request's caller could give there by one of the
-// methods that give a role, asked of the role file's grants before anybody is named
-// (RoleGrants.CouldGive), and no other. A call outside any request is the application's
-// own and lists every role of the tenant; a manager that cannot ask refuses the
-// request, never lists; and no tenant named is an error. The question reads no row, so
-// the list opens no transaction and asks under none.
+// hand with one method: the roles of the tenant that the request's caller could give
+// there with that method, asked of the role file's grant on it before anybody is named
+// (RoleGrants.CouldGive), and no other, so a role one method alone takes from the
+// caller is in that method's list and in no other's. A call outside any request is the
+// application's own and lists every role of the tenant; a manager that cannot ask
+// refuses the request, never lists; and no tenant named is an error. The question
+// reads no row, so the list opens no transaction and asks under none.
 func TestManager_RolesToGive(t *testing.T) {
 	t.Parallel()
 
 	reader := access.RoleInfo{Name: "Reader", Description: "the Reader role"}
 	warden := access.RoleInfo{Name: "Warden", Description: "the Warden role"}
-	asked := []string{"could give alpha Reader", "could give alpha Warden"}
+	asked := []string{"AssignMembersRole could give alpha Reader", "AssignMembersRole could give alpha Warden"}
+	invited := []string{"InviteMembersUser could give alpha Reader", "InviteMembersUser could give alpha Warden"}
+	byInvitation := map[accesstypes.Role]accesstypes.Resource{"Warden": invites}
 	tests := []struct {
 		name string
+		// method is the method whose list is asked for; the one that gives a person a
+		// role where a case names none.
+		method accesstypes.Resource
 		// noneGives are the roles no method that gives a role takes from the caller.
 		noneGives []accesstypes.Role
+		// onlyBy are the roles one method alone takes from the caller.
+		onlyBy map[accesstypes.Role]accesstypes.Resource
 		// outside says the call is made outside any request.
 		outside   bool
 		want      []access.RoleInfo
 		wantAsked []string
 	}{
-		{name: "a caller is listed the roles of the tenant a method takes from them", noneGives: []accesstypes.Role{"Warden"}, want: []access.RoleInfo{reader}, wantAsked: asked},
+		{name: "a caller is listed the roles of the tenant the method takes from them", noneGives: []accesstypes.Role{"Warden"}, want: []access.RoleInfo{reader}, wantAsked: asked},
 		{name: "a caller every role is taken from is listed every role of the tenant", want: []access.RoleInfo{reader, warden}, wantAsked: asked},
-		{name: "a caller no method takes a role from is listed none", noneGives: []accesstypes.Role{"Reader", "Warden"}, want: []access.RoleInfo{}, wantAsked: asked},
+		{name: "a caller the method takes no role from is listed none", noneGives: []accesstypes.Role{"Reader", "Warden"}, want: []access.RoleInfo{}, wantAsked: asked},
+		{name: "a role the invitation alone takes from the caller is in the invitation's list", method: invites, onlyBy: byInvitation, want: []access.RoleInfo{reader, warden}, wantAsked: invited},
+		{name: "and in no other method's: the list of the method that gives a person a role leaves it out", onlyBy: byInvitation, want: []access.RoleInfo{reader}, wantAsked: asked},
 		{name: "a call outside any request lists every role of the tenant and asks nothing", noneGives: []accesstypes.Role{"Warden"}, outside: true, want: []access.RoleInfo{reader, warden}},
 	}
 	for _, tt := range tests {
@@ -293,14 +301,18 @@ func TestManager_RolesToGive(t *testing.T) {
 			t.Parallel()
 
 			store := groupStore()
-			grants := &fakeGrants{noneGives: tt.noneGives}
+			grants := &fakeGrants{noneGives: tt.noneGives, onlyBy: tt.onlyBy}
 			m, _ := newManager(t, store, wardenRoles, WithRoleGrants(grants))
 
 			ctx := t.Context()
 			if !tt.outside {
 				ctx = asCallerThrough(ctx, managedAuth, erin)
 			}
-			got, err := m.RolesToGive(ctx, "alpha")
+			method := tt.method
+			if method == "" {
+				method = assigns
+			}
+			got, err := m.RolesToGive(ctx, method, "alpha")
 			if err != nil {
 				t.Fatalf("RolesToGive() error = %v", err)
 			}
@@ -320,7 +332,7 @@ func TestManager_RolesToGive(t *testing.T) {
 		t.Parallel()
 
 		m, _ := newManager(t, groupStore(), wardenRoles)
-		_, err := m.RolesToGive(asCallerThrough(t.Context(), managedAuth, erin), "alpha")
+		_, err := m.RolesToGive(asCallerThrough(t.Context(), managedAuth, erin), assigns, "alpha")
 		if err == nil || !strings.Contains(err.Error(), "identity.WithRoleGrants") {
 			t.Errorf("RolesToGive() error = %v, want an error naming identity.WithRoleGrants", err)
 		}
@@ -330,7 +342,7 @@ func TestManager_RolesToGive(t *testing.T) {
 		t.Parallel()
 
 		m, _ := newManager(t, groupStore(), wardenRoles, WithRoleGrants(&fakeGrants{err: errStore}))
-		_, err := m.RolesToGive(asCallerThrough(t.Context(), managedAuth, erin), "alpha")
+		_, err := m.RolesToGive(asCallerThrough(t.Context(), managedAuth, erin), assigns, "alpha")
 		if !errors.Is(err, errStore) {
 			t.Errorf("RolesToGive() error = %v, want the grants' own error", err)
 		}
@@ -340,7 +352,7 @@ func TestManager_RolesToGive(t *testing.T) {
 		t.Parallel()
 
 		m, _ := newManager(t, groupStore(), wardenRoles, WithRoleGrants(&fakeGrants{}))
-		_, err := m.RolesToGive(t.Context(), "")
+		_, err := m.RolesToGive(t.Context(), assigns, "")
 		if err == nil || !strings.Contains(err.Error(), "no tenant was named") {
 			t.Errorf("RolesToGive() error = %v, want one that says no tenant was named", err)
 		}
@@ -357,6 +369,11 @@ func (ranTwice) ExecuteFunc(ctx context.Context, f func(ctx context.Context, txn
 	}
 
 	return fakeDatabase{}.ExecuteFunc(ctx, f)
+}
+
+// ExecuteDeleteFunc is ExecuteFunc whatever run says.
+func (d ranTwice) ExecuteDeleteFunc(ctx context.Context, _ resource.DeleteRun, f func(ctx context.Context, txn resource.ReadWriteTransaction) error) error {
+	return d.ExecuteFunc(ctx, f)
 }
 
 // TestManager_DirectoryName pins that the manager names a directory as the session
@@ -392,6 +409,90 @@ func TestManager_DirectoryName(t *testing.T) {
 			name, label := namer(tt.directory)
 			if name != tt.wantName || label != tt.wantLabel {
 				t.Errorf("DirectoryName() = (%q, %q), want (%q, %q)", name, label, tt.wantName, tt.wantLabel)
+			}
+		})
+	}
+}
+
+// TestTenant_SeatedAgainNote pins the note a removal's warning carries where the tenant is
+// open to its directory and the person signs in through it, in the application's word for
+// a tenant: the person is given the starting role again at their next sign-in, and
+// disabling their account is the way to keep them out.
+func TestTenant_SeatedAgainNote(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		opts []Option
+		want resource.WarningNote
+	}{
+		{
+			name: "the default word",
+			want: resource.WarningNote{Says: "This tenant is open to its directory and this person signs in through it, so they are given the starting role again the next time they sign in. To keep them out, disable their account instead."},
+		},
+		{
+			name: "the application's word",
+			opts: []Option{WithTenantWord("sector")},
+			want: resource.WarningNote{Says: "This sector is open to its directory and this person signs in through it, so they are given the starting role again the next time they sign in. To keep them out, disable their account instead."},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			m, _ := newManager(t, groupStore(), wardenRoles, tt.opts...)
+			tenant := &Tenant{manager: m, domain: "alpha"}
+			if diff := cmp.Diff(tt.want, tenant.SeatedAgainNote()); diff != "" {
+				t.Errorf("SeatedAgainNote() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestTenant_DeletionWarning pins the warning the tenant's method that deletes a person
+// gives before it runs, in the application's word for a tenant: the account goes from
+// every tenant, Disable keeps it, and, where the tenant is open to its directory and the
+// person signs in through it, a note that they can sign in again and will get a new
+// account with the starting role.
+func TestTenant_DeletionWarning(t *testing.T) {
+	t.Parallel()
+
+	const again = "They can sign in through the directory again and will get a new account with the starting role."
+	tests := []struct {
+		name        string
+		opts        []Option
+		seatedAgain bool
+		want        *resource.Warning
+	}{
+		{
+			name: "the default word, not seated again",
+			want: &resource.Warning{Consequence: "The account is removed from every tenant, with its sign-ins and its sessions. To keep the account and stop them signing in, choose Disable instead.", Confirm: "Delete"},
+		},
+		{
+			name:        "the default word, seated again",
+			seatedAgain: true,
+			want:        &resource.Warning{Consequence: "The account is removed from every tenant, with its sign-ins and its sessions. To keep the account and stop them signing in, choose Disable instead.", Confirm: "Delete", Also: []resource.WarningNote{{Says: again}}},
+		},
+		{
+			name: "the application's word, not seated again",
+			opts: []Option{WithTenantWord("cost center")},
+			want: &resource.Warning{Consequence: "The account is removed from every cost center, with its sign-ins and its sessions. To keep the account and stop them signing in, choose Disable instead.", Confirm: "Delete"},
+		},
+		{
+			name:        "the application's word, seated again",
+			opts:        []Option{WithTenantWord("cost center")},
+			seatedAgain: true,
+			want:        &resource.Warning{Consequence: "The account is removed from every cost center, with its sign-ins and its sessions. To keep the account and stop them signing in, choose Disable instead.", Confirm: "Delete", Also: []resource.WarningNote{{Says: again}}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			m, _ := newManager(t, groupStore(), wardenRoles, tt.opts...)
+			tenant := &Tenant{manager: m, domain: "alpha"}
+			if diff := cmp.Diff(tt.want, tenant.DeletionWarning(tt.seatedAgain)); diff != "" {
+				t.Errorf("DeletionWarning() mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

@@ -8,7 +8,6 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
-	"github.com/impulseframework/impulse/httpio"
 )
 
 // ComputedQueryDecoder decodes an HTTP request for a computed resource and enforces
@@ -28,6 +27,9 @@ type ComputedQueryDecoder[Resource Resourcer, Request any] struct {
 	// facts is the client the facts about the caller are read through, where a
 	// grant's condition names one (subject.<name>); nil until wired.
 	facts SubjectFactSource
+	// namedRowSources are the views and the computed lists a row a write names is asked
+	// of (WithNamedRowSources), stamped on the QuerySet the decode answers.
+	namedRowSources NamedRowSources
 }
 
 // NewComputedQueryDecoder creates a new ComputedQueryDecoder for a given Resource and
@@ -99,6 +101,15 @@ func (d *ComputedQueryDecoder[Resource, Request]) WithCollection(collection *Gen
 	return d
 }
 
+// WithNamedRowSources installs the views and the computed lists a row a write names is
+// asked of: they ride the QuerySet the decode answers, and its caller (QuerySet.Caller)
+// carries them to a write the application's function arms (NamedRowSources).
+func (d *ComputedQueryDecoder[Resource, Request]) WithNamedRowSources(sources NamedRowSources) *ComputedQueryDecoder[Resource, Request] {
+	d.namedRowSources = sources
+
+	return d
+}
+
 // WithSubjectFacts installs the client the facts about the caller are read
 // through: a grant's condition that compares a row against a subject value or a
 // subject set (subject.<name>) has the fact read once for the request, when it is
@@ -119,7 +130,11 @@ func (d *ComputedQueryDecoder[Resource, Request]) WithSubjectFacts(source Subjec
 // condition is a grant, as on a table: the resource and the fields it covers pass
 // here, and the Conditional decisions ride the QuerySet, which judges each row the
 // application's function yields (QuerySet.Collect, QuerySet.Admit). A sort or
-// filter field alone needs the caller's unconditional grant.
+// filter field alone needs the caller's grant with no condition, or under the
+// condition the list's own rows are held under. A field of the
+// declared order the caller may not read is left out of the order for that
+// caller, and one held under a condition orders a row only where the condition
+// holds for it.
 func (d *ComputedQueryDecoder[Resource, Request]) Decode(request *http.Request, userPermissions UserPermissions, scope accesstypes.Scope) (*QuerySet[Resource], error) {
 	qSet, err := d.inner.DecodeWithoutPermissions(request)
 	if err != nil {
@@ -148,17 +163,16 @@ func (d *ComputedQueryDecoder[Resource, Request]) Decode(request *http.Request, 
 	// And the application database's type (QuerySet.Collect), so the handler's
 	// in-memory sort and page boundary place NULL where a body's plain ORDER BY does.
 	qSet.dbType = d.dbType
-
-	if err := qSet.bindCursor(scope); err != nil {
-		return nil, err
-	}
+	// And the views and the computed lists a row a write names is asked of, which the
+	// query's caller carries to a write the function arms (QuerySet.Caller).
+	qSet.namedRowSources = d.namedRowSources
 
 	decisions, err := userPermissions.Check(ctx, qSet.env, scope, requiredPermission, base)
 	if err != nil {
 		return nil, errors.Wrap(err, "resource.UserPermissions.Check()")
 	}
 	if denied := decisions.DeniedResources(); len(denied) > 0 {
-		return nil, httpio.NewForbiddenMessagef("scope (%s), user (%s) does not have (%s) on %s", scope, userPermissions.User(), requiredPermission, denied)
+		return nil, NotPermitted(errors.Newf("scope (%s), user (%s) does not have (%s) on %s", scope, userPermissions.User(), requiredPermission, denied), requiredPermission, denied...)
 	}
 	plan := &rowConditions{}
 	if decision := decisions[base]; decision.IsConditional() {
@@ -168,10 +182,22 @@ func (d *ComputedQueryDecoder[Resource, Request]) Decode(request *http.Request, 
 		}
 	}
 
-	// A sort or filter field needs the caller's unconditional grant: the
-	// handler orders and filters the body's rows by the field's real values,
-	// and no statement renders a visible projection a masked cell could hide in.
-	if err := qSet.checkQueryFieldsGranted(ctx, rSet, userPermissions); err != nil {
+	// A sort or filter field needs the caller's grant with no condition, or under
+	// the list's own condition: the handler orders and filters the body's rows by
+	// the field's real values, and no statement renders a visible projection a
+	// masked cell could hide in.
+	if err := qSet.checkQueryFieldsGranted(ctx, rSet, userPermissions, plan.resource); err != nil {
+		return nil, err
+	}
+	// The declared order is settled before the cursor is bound: the cursor's
+	// fingerprint, the handler's sort and the body's TakeSort and TakePage all
+	// read the one order settled here. A field of it held under a condition keeps
+	// its condition on the plan, and the handler sorts each row by what the
+	// caller may see of it.
+	if err := qSet.settleDeclaredOrder(ctx, rSet, userPermissions, plan); err != nil {
+		return nil, err
+	}
+	if err := qSet.bindCursor(scope); err != nil {
 		return nil, err
 	}
 
@@ -220,7 +246,7 @@ func (d *ComputedQueryDecoder[Resource, Request]) projectFields(ctx context.Cont
 	}
 	if explicit {
 		if denied := decisions.DeniedResources(); len(denied) > 0 {
-			return httpio.NewForbiddenMessagef("scope (%s), user (%s) does not have (%s) on %s", scope, userPermissions.User(), requiredPermission, denied)
+			return NotPermitted(errors.Newf("scope (%s), user (%s) does not have (%s) on %s", scope, userPermissions.User(), requiredPermission, denied), requiredPermission, denied...)
 		}
 	} else {
 		for _, field := range candidates {

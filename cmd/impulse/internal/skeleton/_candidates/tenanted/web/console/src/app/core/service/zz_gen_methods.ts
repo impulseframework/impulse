@@ -38,19 +38,21 @@ export type AddStaffTenantGroupMemberStatus = 204;
 
 export interface AssignStaffRoleConfig {
   userId: string | FieldPointer;
-  role: string | FieldPointer;
   domain?: string | FieldPointer;
   everyDomain: boolean | FieldPointer;
+  role: string | FieldPointer;
   startsAt?: Date | FieldPointer;
   endsAt?: Date | FieldPointer;
+  reason?: string | FieldPointer;
 }
 export interface AssignStaffRole {
   userId: string;
-  role: string;
   domain?: string;
   everyDomain: boolean;
+  role: string;
   startsAt?: Date;
   endsAt?: Date;
+  reason?: string;
 }
 /** The statuses AssignStaffRole declares; the method chooses one per response. */
 export type AssignStaffRoleStatus = 204;
@@ -60,12 +62,14 @@ export interface AssignStaffTenantRoleConfig {
   role: string | FieldPointer;
   startsAt?: Date | FieldPointer;
   endsAt?: Date | FieldPointer;
+  reason?: string | FieldPointer;
 }
 export interface AssignStaffTenantRole {
   userId: string;
   role: string;
   startsAt?: Date;
   endsAt?: Date;
+  reason?: string;
 }
 /** The statuses AssignStaffTenantRole declares; the method chooses one per response. */
 export type AssignStaffTenantRoleStatus = 204;
@@ -98,83 +102,93 @@ export interface CreateStaffTenantGroupResult {
   id: string;
 }
 
-export interface CreateStaffTenantUserConfig {
-  username: string | FieldPointer;
-  name?: string | FieldPointer;
-  email?: string | FieldPointer;
-  password?: string | FieldPointer;
-  roles: string[] | FieldPointer;
-}
-export interface CreateStaffTenantUser {
-  username: string;
-  name?: string;
-  email?: string;
-  password?: string;
-  roles: string[];
-}
-/** The result CreateStaffTenantUser answers with. */
-export interface CreateStaffTenantUserResult {
-  id: string;
-}
-
-export interface CreateStaffUserConfig {
-  username: string | FieldPointer;
-  name?: string | FieldPointer;
-  email?: string | FieldPointer;
-  password?: string | FieldPointer;
-  roles: string[] | FieldPointer;
-  domain?: string | FieldPointer;
-  everyDomain: boolean | FieldPointer;
-}
-export interface CreateStaffUser {
-  username: string;
-  name?: string;
-  email?: string;
-  password?: string;
-  roles: string[];
-  domain?: string;
-  everyDomain: boolean;
-}
-/** The result CreateStaffUser answers with. */
-export interface CreateStaffUserResult {
-  id: string;
-}
-
 export interface DeleteStaffGroupConfig {
   groupId: string | FieldPointer;
+  everythingUnder: boolean | FieldPointer;
+  token: string | FieldPointer;
 }
 export interface DeleteStaffGroup {
   groupId: string;
+  everythingUnder: boolean;
+  token: string;
+}
+/** The result DeleteStaffGroup answers with. */
+export interface DeleteStaffGroupResult {
+  deleted: number;
 }
 /** The statuses DeleteStaffGroup declares; the method chooses one per response. */
-export type DeleteStaffGroupStatus = 204;
+export type DeleteStaffGroupStatus = 202 | 204;
+/** The answer DeleteStaffGroup resolves with: the status the method chose and its typed result. */
+export interface DeleteStaffGroupAnswer {
+  status: DeleteStaffGroupStatus;
+  result: DeleteStaffGroupResult;
+}
 
 export interface DeleteStaffTenantGroupConfig {
   groupId: string | FieldPointer;
+  everythingUnder: boolean | FieldPointer;
+  token: string | FieldPointer;
 }
 export interface DeleteStaffTenantGroup {
   groupId: string;
+  everythingUnder: boolean;
+  token: string;
+}
+/** The result DeleteStaffTenantGroup answers with. */
+export interface DeleteStaffTenantGroupResult {
+  deleted: number;
 }
 /** The statuses DeleteStaffTenantGroup declares; the method chooses one per response. */
-export type DeleteStaffTenantGroupStatus = 204;
+export type DeleteStaffTenantGroupStatus = 202 | 204;
+/** The answer DeleteStaffTenantGroup resolves with: the status the method chose and its typed result. */
+export interface DeleteStaffTenantGroupAnswer {
+  status: DeleteStaffTenantGroupStatus;
+  result: DeleteStaffTenantGroupResult;
+}
 
 export interface DeleteStaffTenantUserConfig {
   userId: string | FieldPointer;
+  everythingUnder: boolean | FieldPointer;
+  token: string | FieldPointer;
 }
 export interface DeleteStaffTenantUser {
   userId: string;
+  everythingUnder: boolean;
+  token: string;
+}
+/** The result DeleteStaffTenantUser answers with. */
+export interface DeleteStaffTenantUserResult {
+  deleted: number;
 }
 /** The statuses DeleteStaffTenantUser declares; the method chooses one per response. */
-export type DeleteStaffTenantUserStatus = 204;
+export type DeleteStaffTenantUserStatus = 202 | 204;
+/** The answer DeleteStaffTenantUser resolves with: the status the method chose and its typed result. */
+export interface DeleteStaffTenantUserAnswer {
+  status: DeleteStaffTenantUserStatus;
+  result: DeleteStaffTenantUserResult;
+}
 
 export interface DeleteStaffUserConfig {
   userId: string | FieldPointer;
+  everythingUnder: boolean | FieldPointer;
+  token: string | FieldPointer;
 }
 export interface DeleteStaffUser {
   userId: string;
+  everythingUnder: boolean;
+  token: string;
+}
+/** The result DeleteStaffUser answers with. */
+export interface DeleteStaffUserResult {
+  deleted: number;
 }
 /** The statuses DeleteStaffUser declares; the method chooses one per response. */
-export type DeleteStaffUserStatus = 204;
+export type DeleteStaffUserStatus = 202 | 204;
+/** The answer DeleteStaffUser resolves with: the status the method chose and its typed result. */
+export interface DeleteStaffUserAnswer {
+  status: DeleteStaffUserStatus;
+  result: DeleteStaffUserResult;
+}
 
 export interface DescribeStaffGroupConfig {
   groupId: string | FieldPointer;
@@ -263,17 +277,17 @@ export type EndStaffUserSessionsStatus = 204;
 
 export interface GiveStaffGroupRoleConfig {
   groupId: string | FieldPointer;
-  role: string | FieldPointer;
   domain?: string | FieldPointer;
   everyDomain: boolean | FieldPointer;
+  role: string | FieldPointer;
   startsAt?: Date | FieldPointer;
   endsAt?: Date | FieldPointer;
 }
 export interface GiveStaffGroupRole {
   groupId: string;
-  role: string;
   domain?: string;
   everyDomain: boolean;
+  role: string;
   startsAt?: Date;
   endsAt?: Date;
 }
@@ -334,14 +348,16 @@ export interface InviteStaffTenantUserResult {
 export interface InviteStaffUserConfig {
   email: string | FieldPointer;
   name?: string | FieldPointer;
-  roles: string[] | FieldPointer;
   domain?: string | FieldPointer;
+  everyDomain: boolean | FieldPointer;
+  roles: string[] | FieldPointer;
 }
 export interface InviteStaffUser {
   email: string;
   name?: string;
-  roles: string[];
   domain?: string;
+  everyDomain: boolean;
+  roles: string[];
 }
 /** The result InviteStaffUser answers with. */
 export interface InviteStaffUserResult {
@@ -425,13 +441,24 @@ export type RemoveStaffTenantPasswordStatus = 204;
 export interface RemoveStaffTenantRoleConfig {
   userId: string | FieldPointer;
   role: string | FieldPointer;
+  groupId: string | FieldPointer;
 }
 export interface RemoveStaffTenantRole {
   userId: string;
   role: string;
+  groupId: string;
 }
 /** The statuses RemoveStaffTenantRole declares; the method chooses one per response. */
 export type RemoveStaffTenantRoleStatus = 204;
+
+export interface RemoveStaffTenantUserConfig {
+  userId: string | FieldPointer;
+}
+export interface RemoveStaffTenantUser {
+  userId: string;
+}
+/** The statuses RemoveStaffTenantUser declares; the method chooses one per response. */
+export type RemoveStaffTenantUserStatus = 204;
 
 export interface RenameStaffTenantUserConfig {
   userId: string | FieldPointer;
@@ -464,6 +491,11 @@ export interface RequireStaffPasswordChange {
 /** The statuses RequireStaffPasswordChange declares; the method chooses one per response. */
 export type RequireStaffPasswordChangeStatus = 204;
 
+export interface RequireStaffSecondFactorConfig {}
+export interface RequireStaffSecondFactor {}
+/** The statuses RequireStaffSecondFactor declares; the method chooses one per response. */
+export type RequireStaffSecondFactorStatus = 204;
+
 export interface RequireStaffTenantPasswordChangeConfig {
   userId: string | FieldPointer;
 }
@@ -472,6 +504,30 @@ export interface RequireStaffTenantPasswordChange {
 }
 /** The statuses RequireStaffTenantPasswordChange declares; the method chooses one per response. */
 export type RequireStaffTenantPasswordChangeStatus = 204;
+
+export interface ResendStaffInvitationConfig {
+  invitationId: string | FieldPointer;
+}
+export interface ResendStaffInvitation {
+  invitationId: string;
+}
+/** The result ResendStaffInvitation answers with. */
+export interface ResendStaffInvitationResult {
+  id: string;
+  sent: boolean;
+}
+
+export interface ResendStaffTenantInvitationConfig {
+  invitationId: string | FieldPointer;
+}
+export interface ResendStaffTenantInvitation {
+  invitationId: string;
+}
+/** The result ResendStaffTenantInvitation answers with. */
+export interface ResendStaffTenantInvitationResult {
+  id: string;
+  sent: boolean;
+}
 
 export interface RevokeStaffSessionTokenConfig {
   tokenId: string | FieldPointer;
@@ -500,38 +556,61 @@ export interface RevokeStaffUserTrustedDevices {
 /** The statuses RevokeStaffUserTrustedDevices declares; the method chooses one per response. */
 export type RevokeStaffUserTrustedDevicesStatus = 204;
 
-export interface SetStaffTemporaryPasswordConfig {
+export interface SendStaffTenantUserPasswordResetLinkConfig {
   userId: string | FieldPointer;
-  password: string | FieldPointer;
 }
-export interface SetStaffTemporaryPassword {
+export interface SendStaffTenantUserPasswordResetLink {
   userId: string;
-  password: string;
 }
-/** The statuses SetStaffTemporaryPassword declares; the method chooses one per response. */
-export type SetStaffTemporaryPasswordStatus = 204;
+/** The result SendStaffTenantUserPasswordResetLink answers with. */
+export interface SendStaffTenantUserPasswordResetLinkResult {
+  sent: boolean;
+  reason: string;
+}
 
-export interface SetStaffTenantTemporaryPasswordConfig {
+export interface SendStaffUserPasswordResetLinkConfig {
   userId: string | FieldPointer;
-  password: string | FieldPointer;
 }
-export interface SetStaffTenantTemporaryPassword {
+export interface SendStaffUserPasswordResetLink {
   userId: string;
-  password: string;
 }
-/** The statuses SetStaffTenantTemporaryPassword declares; the method chooses one per response. */
-export type SetStaffTenantTemporaryPasswordStatus = 204;
+/** The result SendStaffUserPasswordResetLink answers with. */
+export interface SendStaffUserPasswordResetLinkResult {
+  sent: boolean;
+  reason: string;
+}
+
+export interface SetStaffRememberedBrowsersConfig {
+  length: string | FieldPointer;
+}
+export interface SetStaffRememberedBrowsers {
+  length: string;
+}
+/** The statuses SetStaffRememberedBrowsers declares; the method chooses one per response. */
+export type SetStaffRememberedBrowsersStatus = 204;
+
+export interface SetStaffSelfServiceResetConfig {
+  on: boolean | FieldPointer;
+}
+export interface SetStaffSelfServiceReset {
+  on: boolean;
+}
+/** The statuses SetStaffSelfServiceReset declares; the method chooses one per response. */
+export type SetStaffSelfServiceResetStatus = 204;
 
 export interface SetStaffTenantUserEmailConfig {
   userId: string | FieldPointer;
-  email?: string | FieldPointer;
+  email: string | FieldPointer;
 }
 export interface SetStaffTenantUserEmail {
   userId: string;
-  email?: string;
+  email: string;
 }
-/** The statuses SetStaffTenantUserEmail declares; the method chooses one per response. */
-export type SetStaffTenantUserEmailStatus = 204;
+/** The result SetStaffTenantUserEmail answers with. */
+export interface SetStaffTenantUserEmailResult {
+  sent: boolean;
+  reason: string;
+}
 
 export interface SetStaffTenantUserNameConfig {
   userId: string | FieldPointer;
@@ -546,14 +625,17 @@ export type SetStaffTenantUserNameStatus = 204;
 
 export interface SetStaffUserEmailConfig {
   userId: string | FieldPointer;
-  email?: string | FieldPointer;
+  email: string | FieldPointer;
 }
 export interface SetStaffUserEmail {
   userId: string;
-  email?: string;
+  email: string;
 }
-/** The statuses SetStaffUserEmail declares; the method chooses one per response. */
-export type SetStaffUserEmailStatus = 204;
+/** The result SetStaffUserEmail answers with. */
+export interface SetStaffUserEmailResult {
+  sent: boolean;
+  reason: string;
+}
 
 export interface SetStaffUserNameConfig {
   userId: string | FieldPointer;
@@ -565,6 +647,11 @@ export interface SetStaffUserName {
 }
 /** The statuses SetStaffUserName declares; the method chooses one per response. */
 export type SetStaffUserNameStatus = 204;
+
+export interface StopRequiringStaffSecondFactorConfig {}
+export interface StopRequiringStaffSecondFactor {}
+/** The statuses StopRequiringStaffSecondFactor declares; the method chooses one per response. */
+export type StopRequiringStaffSecondFactorStatus = 204;
 
 export interface TakeStaffGroupRoleConfig {
   groupId: string | FieldPointer;
@@ -580,6 +667,21 @@ export interface TakeStaffGroupRole {
 }
 /** The statuses TakeStaffGroupRole declares; the method chooses one per response. */
 export type TakeStaffGroupRoleStatus = 204;
+
+export interface TakeStaffRoleConfig {
+  domain: string | FieldPointer;
+  role: string | FieldPointer;
+  length: string | FieldPointer;
+  reason: string | FieldPointer;
+}
+export interface TakeStaffRole {
+  domain: string;
+  role: string;
+  length: string;
+  reason: string;
+}
+/** The statuses TakeStaffRole declares; the method chooses one per response. */
+export type TakeStaffRoleStatus = 204;
 
 export interface TakeStaffTenantGroupRoleConfig {
   groupId: string | FieldPointer;
@@ -662,6 +764,10 @@ export interface SetFeatureResult {
   updatedAt: Date;
 }
 
+/** The body TakeTenantDirectory takes. The method takes the directory you are signed in through as the tenant's own, after the statement that you are authorized to act for the organization. */
+export interface TakeTenantDirectoryConfig {}
+export interface TakeTenantDirectory {}
+
 /** The body MakeTenantDirectoryOnly takes. The method turns the tenant's directory-only switch on, which closes the tenant to every sign-in but one through its directory and its own administrators' password with a code sent to their email; the server refuses it until the tenant has its directory, unless the caller is signed in through it, and until the caller has a password where their auth has passwords, in a sentence the person can act on. */
 export interface MakeTenantDirectoryOnlyConfig {}
 export interface MakeTenantDirectoryOnly {}
@@ -670,7 +776,7 @@ export interface MakeTenantDirectoryOnly {}
 export interface EndTenantDirectoryOnlyConfig {}
 export interface EndTenantDirectoryOnly {}
 
-/** The body OpenTenantToDirectory takes. The method opens the tenant to its directory's people: each of them is given the role at their first sign-in through the directory, with no invitation. */
+/** The body OpenTenantToDirectory takes. The method opens the tenant to its directory's people: each of them who holds nothing in the tenant is given the role when they sign in through the directory, with no invitation. */
 export interface OpenTenantToDirectoryConfig {
   role: string | FieldPointer;
 }
@@ -682,10 +788,24 @@ export interface OpenTenantToDirectory {
 export interface MakeTenantInviteOnlyConfig {}
 export interface MakeTenantInviteOnly {}
 
+/** The body VouchForTenantDirectorySecondFactor takes. The method says the tenant's directory asks its people for a second factor of its own, so a person who signs in through it is not asked for the application's mailed code; the person calling is signed in through that directory, and the method warns first. */
+export interface VouchForTenantDirectorySecondFactorConfig {}
+export interface VouchForTenantDirectorySecondFactor {}
+
+/** The body StopVouchingForTenantDirectorySecondFactor takes. The method takes back the tenant's word that its directory asks for a second factor: the people who sign in through it are asked for the mailed code again from their next sign-in. */
+export interface StopVouchingForTenantDirectorySecondFactorConfig {}
+export interface StopVouchingForTenantDirectorySecondFactor {}
+
 
 export interface RPCFieldMeta {
   fieldName: string;
   displayType: ValidRPCTypes;
+  /**
+   * Set on a decimal field, and on a list of decimals: its display type is number, which
+   * chooses the number control, and its value is text in JSON, so a form sends what the
+   * person typed as a string and no digit is lost.
+   */
+  decimal?: true;
   /** The resource whose rows a picker for this field lists; absent when the values are fixed (see enumeration). */
   enumeratedResource?: Resource;
   /** The fixed values of an enumeration table the field names; the picker renders them without a request. */
@@ -725,6 +845,14 @@ export interface MethodTransition {
 export interface MethodTarget {
   resource: Resource;
   key: Record<string, string>;
+  /**
+   * The request fields of the key whose empty text is a value of the key, such as the
+   * group of a role a person holds directly: a text field the method does not declare
+   * required. A row that holds the empty text there is named by it, and it is sent as it
+   * is. Every other part of the key holds a value on every row, and a row that holds
+   * none there is refused. Absent where no part of the key may be empty.
+   */
+  mayBeEmpty?: string[];
 }
 
 export interface MethodMeta {
@@ -734,6 +862,15 @@ export interface MethodMeta {
   transition?: MethodTransition;
   /** The row the method runs against; absent on a method with no target row. */
   target?: MethodTarget;
+  /**
+   * The resources whose rows offer a method that names no target row (@callerEnters naming
+   * them): a page fills the method's request from such a row, and the row's Execute answer lists
+   * the method only for a caller who holds its grant and whose session enters every tenant the
+   * row names. The answer is not the whole of the method's judgment: the call may still be
+   * refused for a reason of the method's own. Absent on a method no row answers for, which is
+   * offered wherever its grant is held.
+   */
+  offeredOn?: Resource[];
   /** Set when the method answers with a result body; absent methods resolve with nothing. */
   answers?: true;
   /** The statuses the method declares with @answers; a listed 4xx is the method's own answer, not a refusal by the frame. */
@@ -748,10 +885,13 @@ export interface MethodMeta {
   dryRun?: true;
   /**
    * Set on a method that warns before it runs (@warning): the server writes what the
-   * call will do (asked with X-Warning, nothing saved), and a dialog shows it in the
-   * warning style and holds its confirm button until the person has typed the word.
+   * call will do (asked with X-Warning, nothing saved), and a dialog shows it and holds
+   * its confirm button until the server has answered. `typed` is the word the method has
+   * a person type first, where it declares one (@warning(typed: word)): the dialog then
+   * shows the server's words in the warning style and holds the button until the word
+   * is typed too.
    */
-  warning?: { typed: string };
+  warning?: { typed?: string };
   fields: RPCFieldMeta[];
 }
 
@@ -760,7 +900,7 @@ export type MethodMap = Record<Method, MethodMeta>;
 const methodMap: MethodMap = {
   [Methods.AddStaffGroupMember]: {
     route: 'add-staff-group-member',
-    target: { resource: Resources.StaffGroups, key: { groupId: 'id' } },
+    target: { resource: Resources.StaffListedGroups, key: { groupId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -788,11 +928,12 @@ const methodMap: MethodMap = {
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
-      { fieldName: 'role', displayType: 'string', required: true, attribute: 'role' },
       { fieldName: 'domain', displayType: 'enumerated', enumeratedResource: Resources.Tenants, optional: true },
       { fieldName: 'everyDomain', displayType: 'boolean' },
+      { fieldName: 'role', displayType: 'enumerated', enumeratedResource: Resources.StaffGivableRoles, required: true, attribute: 'role' },
       { fieldName: 'startsAt', displayType: 'date', optional: true },
       { fieldName: 'endsAt', displayType: 'date', optional: true },
+      { fieldName: 'reason', displayType: 'string', optional: true },
     ],
   },
   [Methods.AssignStaffTenantRole]: {
@@ -805,6 +946,7 @@ const methodMap: MethodMap = {
       { fieldName: 'role', displayType: 'enumerated', enumeratedResource: Resources.StaffTenantRoles, required: true, attribute: 'role' },
       { fieldName: 'startsAt', displayType: 'date', optional: true },
       { fieldName: 'endsAt', displayType: 'date', optional: true },
+      { fieldName: 'reason', displayType: 'string', optional: true },
     ],
   },
   [Methods.CreateStaffGroup]: {
@@ -826,71 +968,58 @@ const methodMap: MethodMap = {
       { fieldName: 'description', displayType: 'string', required: true },
     ],
   },
-  [Methods.CreateStaffTenantUser]: {
-    route: 'create-staff-tenant-user',
-    answers: true,
-    dryRun: true,
-    fields: [
-      { fieldName: 'username', displayType: 'string', required: true },
-      { fieldName: 'name', displayType: 'string', optional: true },
-      { fieldName: 'email', displayType: 'string', optional: true },
-      { fieldName: 'password', displayType: 'string', optional: true, secret: true },
-      { fieldName: 'roles', displayType: 'enumerated[]', enumeratedResource: Resources.StaffTenantRoles, attribute: 'role' },
-    ],
-  },
-  [Methods.CreateStaffUser]: {
-    route: 'create-staff-user',
-    answers: true,
-    dryRun: true,
-    fields: [
-      { fieldName: 'username', displayType: 'string', required: true },
-      { fieldName: 'name', displayType: 'string', optional: true },
-      { fieldName: 'email', displayType: 'string', optional: true },
-      { fieldName: 'password', displayType: 'string', optional: true, secret: true },
-      { fieldName: 'roles', displayType: 'string[]', attribute: 'role' },
-      { fieldName: 'domain', displayType: 'enumerated', enumeratedResource: Resources.Tenants, optional: true },
-      { fieldName: 'everyDomain', displayType: 'boolean' },
-    ],
-  },
   [Methods.DeleteStaffGroup]: {
     route: 'delete-staff-group',
-    target: { resource: Resources.StaffGroups, key: { groupId: 'id' } },
-    statuses: [204],
+    target: { resource: Resources.StaffListedGroups, key: { groupId: 'id' } },
+    answers: true,
+    statuses: [202, 204],
     dryRun: true,
     fields: [
       { fieldName: 'groupId', displayType: 'uuid' },
+      { fieldName: 'everythingUnder', displayType: 'boolean' },
+      { fieldName: 'token', displayType: 'string' },
     ],
   },
   [Methods.DeleteStaffTenantGroup]: {
     route: 'delete-staff-tenant-group',
     target: { resource: Resources.StaffTenantGroups, key: { groupId: 'id' } },
-    statuses: [204],
+    answers: true,
+    statuses: [202, 204],
     dryRun: true,
     fields: [
       { fieldName: 'groupId', displayType: 'uuid' },
+      { fieldName: 'everythingUnder', displayType: 'boolean' },
+      { fieldName: 'token', displayType: 'string' },
     ],
   },
   [Methods.DeleteStaffTenantUser]: {
     route: 'delete-staff-tenant-user',
     target: { resource: Resources.StaffTenantUsers, key: { userId: 'id' } },
-    statuses: [204],
+    answers: true,
+    statuses: [202, 204],
     dryRun: true,
+    warning: {},
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
+      { fieldName: 'everythingUnder', displayType: 'boolean' },
+      { fieldName: 'token', displayType: 'string' },
     ],
   },
   [Methods.DeleteStaffUser]: {
     route: 'delete-staff-user',
-    target: { resource: Resources.StaffSessionUsers, key: { userId: 'id' } },
-    statuses: [204],
+    target: { resource: Resources.StaffListedUsers, key: { userId: 'id' } },
+    answers: true,
+    statuses: [202, 204],
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
+      { fieldName: 'everythingUnder', displayType: 'boolean' },
+      { fieldName: 'token', displayType: 'string' },
     ],
   },
   [Methods.DescribeStaffGroup]: {
     route: 'describe-staff-group',
-    target: { resource: Resources.StaffGroups, key: { groupId: 'id' } },
+    target: { resource: Resources.StaffListedGroups, key: { groupId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -919,7 +1048,7 @@ const methodMap: MethodMap = {
   },
   [Methods.DisableStaffUser]: {
     route: 'disable-staff-user',
-    target: { resource: Resources.StaffSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.StaffListedUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -937,7 +1066,7 @@ const methodMap: MethodMap = {
   },
   [Methods.EnableStaffUser]: {
     route: 'enable-staff-user',
-    target: { resource: Resources.StaffSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.StaffListedUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -946,9 +1075,10 @@ const methodMap: MethodMap = {
   },
   [Methods.EndStaffSession]: {
     route: 'end-staff-session',
-    target: { resource: Resources.StaffSessions, key: { sessionId: 'id' } },
+    target: { resource: Resources.StaffListedSessions, key: { sessionId: 'id' } },
     statuses: [204],
     dryRun: true,
+    warning: {},
     fields: [
       { fieldName: 'sessionId', displayType: 'uuid' },
     ],
@@ -964,7 +1094,7 @@ const methodMap: MethodMap = {
   },
   [Methods.EndStaffUserSessions]: {
     route: 'end-staff-user-sessions',
-    target: { resource: Resources.StaffSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.StaffListedUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -973,14 +1103,14 @@ const methodMap: MethodMap = {
   },
   [Methods.GiveStaffGroupRole]: {
     route: 'give-staff-group-role',
-    target: { resource: Resources.StaffGroups, key: { groupId: 'id' } },
+    target: { resource: Resources.StaffListedGroups, key: { groupId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
       { fieldName: 'groupId', displayType: 'uuid' },
-      { fieldName: 'role', displayType: 'string', required: true, attribute: 'role' },
       { fieldName: 'domain', displayType: 'enumerated', enumeratedResource: Resources.Tenants, optional: true },
       { fieldName: 'everyDomain', displayType: 'boolean' },
+      { fieldName: 'role', displayType: 'enumerated', enumeratedResource: Resources.StaffGivableRoles, required: true, attribute: 'role' },
       { fieldName: 'startsAt', displayType: 'date', optional: true },
       { fieldName: 'endsAt', displayType: 'date', optional: true },
     ],
@@ -1005,7 +1135,7 @@ const methodMap: MethodMap = {
       { fieldName: 'name', displayType: 'string', optional: true },
       { fieldName: 'tenantName', displayType: 'string', required: true },
       { fieldName: 'tenantDirectoryOnly', displayType: 'boolean', attribute: 'directoryOnly' },
-      { fieldName: 'defaultRole', displayType: 'string', optional: true, attribute: 'role' },
+      { fieldName: 'defaultRole', displayType: 'enumerated', enumeratedResource: Resources.StaffInvitedTenantRoles, optional: true, attribute: 'role' },
     ],
   },
   [Methods.InviteStaffTenantUser]: {
@@ -1025,8 +1155,9 @@ const methodMap: MethodMap = {
     fields: [
       { fieldName: 'email', displayType: 'string', required: true },
       { fieldName: 'name', displayType: 'string', optional: true },
-      { fieldName: 'roles', displayType: 'string[]', attribute: 'role' },
       { fieldName: 'domain', displayType: 'enumerated', enumeratedResource: Resources.Tenants, optional: true },
+      { fieldName: 'everyDomain', displayType: 'boolean' },
+      { fieldName: 'roles', displayType: 'enumerated[]', enumeratedResource: Resources.StaffGivableRoles, attribute: 'role' },
     ],
   },
   [Methods.MakeStaffInviteOnly]: {
@@ -1051,6 +1182,7 @@ const methodMap: MethodMap = {
     target: { resource: Resources.StaffGroupUsers, key: { groupId: 'groupId', userId: 'userId' } },
     statuses: [204],
     dryRun: true,
+    warning: {},
     fields: [
       { fieldName: 'groupId', displayType: 'uuid' },
       { fieldName: 'userId', displayType: 'uuid' },
@@ -1058,7 +1190,7 @@ const methodMap: MethodMap = {
   },
   [Methods.RemoveStaffPassword]: {
     route: 'remove-staff-password',
-    target: { resource: Resources.StaffSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.StaffListedUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -1067,8 +1199,10 @@ const methodMap: MethodMap = {
   },
   [Methods.RemoveStaffRole]: {
     route: 'remove-staff-role',
+    offeredOn: [Resources.StaffHeldRoles, Resources.StaffTakenRoles],
     statuses: [204],
     dryRun: true,
+    warning: {},
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
       { fieldName: 'role', displayType: 'string', required: true },
@@ -1081,6 +1215,7 @@ const methodMap: MethodMap = {
     target: { resource: Resources.StaffTenantGroupUsers, key: { groupId: 'groupId', userId: 'userId' } },
     statuses: [204],
     dryRun: true,
+    warning: {},
     fields: [
       { fieldName: 'groupId', displayType: 'uuid' },
       { fieldName: 'userId', displayType: 'uuid' },
@@ -1097,12 +1232,24 @@ const methodMap: MethodMap = {
   },
   [Methods.RemoveStaffTenantRole]: {
     route: 'remove-staff-tenant-role',
-    target: { resource: Resources.StaffTenantUserRoles, key: { userId: 'userId', role: 'role' } },
+    target: { resource: Resources.StaffTenantHeldRoles, key: { userId: 'userId', role: 'role', groupId: 'groupId' }, mayBeEmpty: ['groupId'] },
     statuses: [204],
     dryRun: true,
+    warning: {},
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
       { fieldName: 'role', displayType: 'string', required: true },
+      { fieldName: 'groupId', displayType: 'string' },
+    ],
+  },
+  [Methods.RemoveStaffTenantUser]: {
+    route: 'remove-staff-tenant-user',
+    target: { resource: Resources.StaffTenantUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    warning: { typed: 'remove' },
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
     ],
   },
   [Methods.RenameStaffTenantUser]: {
@@ -1117,7 +1264,7 @@ const methodMap: MethodMap = {
   },
   [Methods.RenameStaffUser]: {
     route: 'rename-staff-user',
-    target: { resource: Resources.StaffSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.StaffListedUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -1127,12 +1274,18 @@ const methodMap: MethodMap = {
   },
   [Methods.RequireStaffPasswordChange]: {
     route: 'require-staff-password-change',
-    target: { resource: Resources.StaffSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.StaffListedUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
     ],
+  },
+  [Methods.RequireStaffSecondFactor]: {
+    route: 'require-staff-second-factor',
+    statuses: [204],
+    dryRun: true,
+    fields: [],
   },
   [Methods.RequireStaffTenantPasswordChange]: {
     route: 'require-staff-tenant-password-change',
@@ -1141,6 +1294,24 @@ const methodMap: MethodMap = {
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.ResendStaffInvitation]: {
+    route: 'resend-staff-invitation',
+    target: { resource: Resources.StaffListedMailLinks, key: { invitationId: 'id' } },
+    answers: true,
+    dryRun: true,
+    fields: [
+      { fieldName: 'invitationId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.ResendStaffTenantInvitation]: {
+    route: 'resend-staff-tenant-invitation',
+    target: { resource: Resources.StaffTenantInvitations, key: { invitationId: 'id' } },
+    answers: true,
+    dryRun: true,
+    fields: [
+      { fieldName: 'invitationId', displayType: 'uuid' },
     ],
   },
   [Methods.RevokeStaffSessionToken]: {
@@ -1163,41 +1334,55 @@ const methodMap: MethodMap = {
   },
   [Methods.RevokeStaffUserTrustedDevices]: {
     route: 'revoke-staff-user-trusted-devices',
-    target: { resource: Resources.StaffSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.StaffListedUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
     ],
   },
-  [Methods.SetStaffTemporaryPassword]: {
-    route: 'set-staff-temporary-password',
-    target: { resource: Resources.StaffSessionUsers, key: { userId: 'id' } },
-    statuses: [204],
-    dryRun: true,
-    fields: [
-      { fieldName: 'userId', displayType: 'uuid' },
-      { fieldName: 'password', displayType: 'string', required: true, secret: true },
-    ],
-  },
-  [Methods.SetStaffTenantTemporaryPassword]: {
-    route: 'set-staff-tenant-temporary-password',
+  [Methods.SendStaffTenantUserPasswordResetLink]: {
+    route: 'send-staff-tenant-user-password-reset-link',
     target: { resource: Resources.StaffTenantUsers, key: { userId: 'id' } },
-    statuses: [204],
+    answers: true,
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
-      { fieldName: 'password', displayType: 'string', required: true, secret: true },
+    ],
+  },
+  [Methods.SendStaffUserPasswordResetLink]: {
+    route: 'send-staff-user-password-reset-link',
+    target: { resource: Resources.StaffListedUsers, key: { userId: 'id' } },
+    answers: true,
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.SetStaffRememberedBrowsers]: {
+    route: 'set-staff-remembered-browsers',
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'length', displayType: 'enumerated', enumeratedResource: Resources.StaffRememberLengths, required: true },
+    ],
+  },
+  [Methods.SetStaffSelfServiceReset]: {
+    route: 'set-staff-self-service-reset',
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'on', displayType: 'boolean' },
     ],
   },
   [Methods.SetStaffTenantUserEmail]: {
     route: 'set-staff-tenant-user-email',
     target: { resource: Resources.StaffTenantUsers, key: { userId: 'id' } },
-    statuses: [204],
+    answers: true,
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
-      { fieldName: 'email', displayType: 'string', optional: true },
+      { fieldName: 'email', displayType: 'string', required: true },
     ],
   },
   [Methods.SetStaffTenantUserName]: {
@@ -1212,17 +1397,17 @@ const methodMap: MethodMap = {
   },
   [Methods.SetStaffUserEmail]: {
     route: 'set-staff-user-email',
-    target: { resource: Resources.StaffSessionUsers, key: { userId: 'id' } },
-    statuses: [204],
+    target: { resource: Resources.StaffListedUsers, key: { userId: 'id' } },
+    answers: true,
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
-      { fieldName: 'email', displayType: 'string', optional: true },
+      { fieldName: 'email', displayType: 'string', required: true },
     ],
   },
   [Methods.SetStaffUserName]: {
     route: 'set-staff-user-name',
-    target: { resource: Resources.StaffSessionUsers, key: { userId: 'id' } },
+    target: { resource: Resources.StaffListedUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -1230,8 +1415,16 @@ const methodMap: MethodMap = {
       { fieldName: 'name', displayType: 'string', optional: true },
     ],
   },
+  [Methods.StopRequiringStaffSecondFactor]: {
+    route: 'stop-requiring-staff-second-factor',
+    statuses: [204],
+    dryRun: true,
+    warning: { typed: 'stop' },
+    fields: [],
+  },
   [Methods.TakeStaffGroupRole]: {
     route: 'take-staff-group-role',
+    offeredOn: [Resources.StaffListedGroupRoles],
     statuses: [204],
     dryRun: true,
     fields: [
@@ -1239,6 +1432,17 @@ const methodMap: MethodMap = {
       { fieldName: 'role', displayType: 'string', required: true },
       { fieldName: 'domain', displayType: 'string', optional: true },
       { fieldName: 'everyDomain', displayType: 'boolean' },
+    ],
+  },
+  [Methods.TakeStaffRole]: {
+    route: 'take-staff-role',
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'domain', displayType: 'enumerated', enumeratedResource: Resources.Tenants, required: true },
+      { fieldName: 'role', displayType: 'enumerated', enumeratedResource: Resources.StaffTakeableRoles, required: true, attribute: 'role' },
+      { fieldName: 'length', displayType: 'enumerated', enumeratedResource: Resources.StaffTakeLengths, required: true },
+      { fieldName: 'reason', displayType: 'string', required: true },
     ],
   },
   [Methods.TakeStaffTenantGroupRole]: {
@@ -1253,7 +1457,7 @@ const methodMap: MethodMap = {
   },
   [Methods.UnlinkStaffSessionIdentity]: {
     route: 'unlink-staff-session-identity',
-    target: { resource: Resources.StaffSessionIdentities, key: { identityId: 'id' } },
+    target: { resource: Resources.StaffListedIdentities, key: { identityId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -1271,7 +1475,7 @@ const methodMap: MethodMap = {
   },
   [Methods.UnlockStaffSignIn]: {
     route: 'unlock-staff-sign-in',
-    target: { resource: Resources.StaffSessionSignInAttempts, key: { name: 'name' } },
+    target: { resource: Resources.StaffListedSignInAttempts, key: { name: 'name' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -1280,7 +1484,7 @@ const methodMap: MethodMap = {
   },
   [Methods.WithdrawStaffInvitation]: {
     route: 'withdraw-staff-invitation',
-    target: { resource: Resources.StaffSessionMailLinks, key: { invitationId: 'id' } },
+    target: { resource: Resources.StaffListedMailLinks, key: { invitationId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -1312,6 +1516,12 @@ const methodMap: MethodMap = {
       { fieldName: 'enabled', displayType: 'boolean' },
     ],
   },
+  [Methods.TakeTenantDirectory]: {
+    route: 'take-tenant-directory',
+    dryRun: true,
+    warning: { typed: 'I am authorized' },
+    fields: [],
+  },
   [Methods.MakeTenantDirectoryOnly]: {
     route: 'make-tenant-directory-only',
     dryRun: true,
@@ -1333,6 +1543,17 @@ const methodMap: MethodMap = {
   },
   [Methods.MakeTenantInviteOnly]: {
     route: 'make-tenant-invite-only',
+    dryRun: true,
+    fields: [],
+  },
+  [Methods.VouchForTenantDirectorySecondFactor]: {
+    route: 'vouch-for-tenant-directory-second-factor',
+    dryRun: true,
+    warning: { typed: 'vouch' },
+    fields: [],
+  },
+  [Methods.StopVouchingForTenantDirectorySecondFactor]: {
+    route: 'stop-vouching-for-tenant-directory-second-factor',
     dryRun: true,
     fields: [],
   },

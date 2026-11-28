@@ -33,7 +33,7 @@ func testFirstPassword(ctx context.Context, t *testing.T, h *AuthHarness) {
 		t.Fatalf("InsertSession() error = %v", err)
 	}
 
-	if err := in.Driver.SetFirstUserPassword(ctx, pat.ID, chosen); err != nil {
+	if err := in.Driver.SetFirstUserPassword(ctx, pat.ID, chosen, nil); err != nil {
 		t.Fatalf("SetFirstUserPassword() for a user who holds no password error = %v", err)
 	}
 	if got := mustUser(ctx, t, in.Driver, pat.ID); !sameHash(got.PasswordHash, chosen) || got.PasswordChangeRequired {
@@ -42,7 +42,7 @@ func testFirstPassword(ctx context.Context, t *testing.T, h *AuthHarness) {
 	assertSessionEnded(ctx, t, in.Driver, "the user's session, after their first password", session, false)
 
 	// A second first password is none: the one that stands is changed with itself.
-	err = in.Driver.SetFirstUserPassword(ctx, pat.ID, another)
+	err = in.Driver.SetFirstUserPassword(ctx, pat.ID, another, nil)
 	if !errors.Is(err, dbtype.ErrPasswordHeld) || !httpio.HasConflict(err) {
 		t.Errorf("SetFirstUserPassword() for a user who holds the password they chose error = %v, want ErrPasswordHeld (Conflict)", err)
 	}
@@ -50,16 +50,16 @@ func testFirstPassword(ctx context.Context, t *testing.T, h *AuthHarness) {
 		t.Errorf("User() after the refused write = %+v, want the password as it was", got)
 	}
 
-	marked := linkedPasswordUser(ctx, t, in.Driver, "marked", temporary, true)
-	err = in.Driver.SetFirstUserPassword(ctx, marked.ID, another)
+	marked := markedPasswordUser(ctx, t, h, in, "marked", temporary)
+	err = in.Driver.SetFirstUserPassword(ctx, marked.ID, another, nil)
 	if !errors.Is(err, dbtype.ErrPasswordHeld) || !httpio.HasConflict(err) {
-		t.Errorf("SetFirstUserPassword() for a user who holds a temporary password error = %v, want ErrPasswordHeld (Conflict)", err)
+		t.Errorf("SetFirstUserPassword() for a user who must change the password they hold error = %v, want ErrPasswordHeld (Conflict)", err)
 	}
 	if got := mustUser(ctx, t, in.Driver, marked.ID); !sameHash(got.PasswordHash, temporary) || !got.PasswordChangeRequired {
-		t.Errorf("User() after the refused write = %+v, want the temporary password and its mark as they were", got)
+		t.Errorf("User() after the refused write = %+v, want the password and its mark as they were", got)
 	}
 
-	if err := in.Driver.SetFirstUserPassword(ctx, impulse.Must(impulse.NewUUID()), chosen); !httpio.HasNotFound(err) {
+	if err := in.Driver.SetFirstUserPassword(ctx, impulse.Must(impulse.NewUUID()), chosen, nil); !httpio.HasNotFound(err) {
 		t.Errorf("SetFirstUserPassword() for an unknown user error = %v, want NotFound", err)
 	}
 
@@ -76,10 +76,10 @@ func testFirstPassword(ctx context.Context, t *testing.T, h *AuthHarness) {
 			refusedAs int
 		)
 		wg.Go(func() {
-			first = in.Driver.SetFirstUserPassword(ctx, user.ID, chosen)
+			first = in.Driver.SetFirstUserPassword(ctx, user.ID, chosen, nil)
 		})
 		wg.Go(func() {
-			second = in.Driver.SetFirstUserPassword(ctx, user.ID, another)
+			second = in.Driver.SetFirstUserPassword(ctx, user.ID, another, nil)
 		})
 		wg.Wait()
 		for _, err := range []error{first, second} {

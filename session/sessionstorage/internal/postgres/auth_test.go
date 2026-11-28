@@ -19,13 +19,18 @@ func TestAuth(t *testing.T) {
 	t.Parallel()
 
 	drivertest.RunAuth(t, &drivertest.AuthHarness{
-		New:                newAuthInstance,
-		CountAuthEvents:    countAuthEvents,
-		DeleteSession:      deleteSession,
-		Recorded:           recorded,
-		Record:             record,
-		PendingConsumedAt:  pendingConsumedAt,
-		MailLinkConsumedAt: mailLinkConsumedAt,
+		New:                   newAuthInstance,
+		CountAuthEvents:       countAuthEvents,
+		DeleteSession:         deleteSession,
+		Recorded:              recorded,
+		Record:                record,
+		PendingConsumedAt:     pendingConsumedAt,
+		MailLinkConsumedAt:    mailLinkConsumedAt,
+		MailLinkMailFailedAt:  mailLinkMailFailedAt,
+		MailLinkWithdrawnAt:   mailLinkWithdrawnAt,
+		AttemptsEndsAt:        attemptsEndsAt,
+		RequirePasswordChange: requirePasswordChange,
+		AuditRows:             auditRows,
 	})
 }
 
@@ -46,7 +51,10 @@ func authSources(schema drivertest.AuthSchema) []string {
 	}
 }
 
-func newAuthInstance(ctx context.Context, t *testing.T, schema drivertest.AuthSchema, cfg drivertest.AuthConfig) *drivertest.AuthInstance {
+func newAuthInstance(
+	ctx context.Context, t *testing.T, schema drivertest.AuthSchema,
+	cfg drivertest.AuthConfig, //nolint:gocritic // hugeParam: drivertest.AuthHarness.New takes the config as a value; every case writes it as a literal
+) *drivertest.AuthInstance {
 	t.Helper()
 
 	conn, err := prepareDatabase(ctx, t, authSources(schema)...)
@@ -77,14 +85,21 @@ func newAuthInstance(ctx context.Context, t *testing.T, schema drivertest.AuthSc
 		})
 	}
 
-	drivertest.SeedSignInMethod(ctx, t, d, cfg)
+	drivertest.SeedSignInMethod(ctx, t, d, &cfg)
+	drivertest.SeedSignInSettings(ctx, t, d, schema, &cfg)
 
 	return &drivertest.AuthInstance{
 		Driver: d, Raw: conn.Pool,
-		SignIn:        drivertest.NewSignIn(d, cfg, func(txn pgx.Tx) drivertest.HookTx { return hookTx{txn} }),
-		Accept:        drivertest.NewAccept(d, cfg, func(txn pgx.Tx) drivertest.HookTx { return hookTx{txn} }),
-		LinkConfirmed: drivertest.NewLinkConfirmed(d, cfg, func(txn pgx.Tx) drivertest.HookTx { return hookTx{txn} }),
-		SignUp:        drivertest.NewSignUp(d, cfg, func(txn pgx.Tx) drivertest.HookTx { return hookTx{txn} }),
+		SignIn:        drivertest.NewSignIn(d, &cfg, func(txn pgx.Tx) drivertest.HookTx { return hookTx{txn} }),
+		SignInByCode:  drivertest.NewSignInByCode(d, &cfg, func(txn pgx.Tx) drivertest.HookTx { return hookTx{txn} }),
+		SignUpInvited: drivertest.NewSignUpInvited(d, &cfg, func(txn pgx.Tx) drivertest.HookTx { return hookTx{txn} }),
+		Accept:        drivertest.NewAccept(d, &cfg, func(txn pgx.Tx) drivertest.HookTx { return hookTx{txn} }),
+		LinkConfirmed: drivertest.NewLinkConfirmed(d, &cfg, func(txn pgx.Tx) drivertest.HookTx { return hookTx{txn} }),
+		SignUp:        drivertest.NewSignUp(d, &cfg, func(txn pgx.Tx) drivertest.HookTx { return hookTx{txn} }),
+		Addresses:     drivertest.NewAddresses(d),
+
+		ConfirmAddressByLink: drivertest.NewConfirmAddressByLink(d),
+		SignInSettingsIn:     drivertest.NewSignInSettingsIn(d),
 	}
 }
 
@@ -114,6 +129,16 @@ func deleteSession(ctx context.Context, t *testing.T, raw any, sessionID impulse
 	t.Helper()
 
 	if _, err := queryer(t, raw).Exec(ctx, `DELETE FROM "Sessions" WHERE "Id" = $1`, sessionID); err != nil {
+		t.Fatalf("Exec() error = %v", err)
+	}
+}
+
+// requirePasswordChange sets the user's password change mark directly, as an
+// application's account management writes it.
+func requirePasswordChange(ctx context.Context, t *testing.T, raw any, userID impulse.UUID) {
+	t.Helper()
+
+	if _, err := queryer(t, raw).Exec(ctx, `UPDATE "SessionUsers" SET "PasswordChangeRequired" = TRUE WHERE "Id" = $1`, userID); err != nil {
 		t.Fatalf("Exec() error = %v", err)
 	}
 }
@@ -187,4 +212,37 @@ func mailLinkConsumedAt(ctx context.Context, t *testing.T, raw any, tokenHash []
 	}
 
 	return consumedAt
+}
+
+func mailLinkMailFailedAt(ctx context.Context, t *testing.T, raw any, tokenHash []byte) *time.Time {
+	t.Helper()
+
+	var failedAt *time.Time
+	if err := queryer(t, raw).QueryRow(ctx, `SELECT "MailFailedAt" FROM "SessionMailLinks" WHERE "TokenHash" = $1`, tokenHash).Scan(&failedAt); err != nil {
+		t.Fatalf("QueryRow().Scan() error = %v", err)
+	}
+
+	return failedAt
+}
+
+func mailLinkWithdrawnAt(ctx context.Context, t *testing.T, raw any, tokenHash []byte) *time.Time {
+	t.Helper()
+
+	var withdrawnAt *time.Time
+	if err := queryer(t, raw).QueryRow(ctx, `SELECT "WithdrawnAt" FROM "SessionMailLinks" WHERE "TokenHash" = $1`, tokenHash).Scan(&withdrawnAt); err != nil {
+		t.Fatalf("QueryRow().Scan() error = %v", err)
+	}
+
+	return withdrawnAt
+}
+
+func attemptsEndsAt(ctx context.Context, t *testing.T, raw any, name string) time.Time {
+	t.Helper()
+
+	var endsAt time.Time
+	if err := queryer(t, raw).QueryRow(ctx, `SELECT "EndsAt" FROM "SessionSignInAttempts" WHERE "Name" = $1`, name).Scan(&endsAt); err != nil {
+		t.Fatalf("QueryRow().Scan() error = %v", err)
+	}
+
+	return endsAt
 }

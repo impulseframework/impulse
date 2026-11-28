@@ -20,7 +20,7 @@ import (
 // @outlet(default)
 // @answers(204)
 type RevokeCrewUserTrustedDevices struct {
-	// @target(CrewSessionUser)
+	// @target(CrewListedUser)
 	UserID impulse.UUID
 }
 

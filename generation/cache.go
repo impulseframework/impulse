@@ -19,10 +19,17 @@ const (
 	genCacheSuffix string = ".gen"
 	// tableMapCache is versioned: the table map gained its index composition (v2), each
 	// column's declared type (v3), each table's parent and delete action with each
-	// foreign key's delete rule (v4), and each column's generation expression with each
-	// index's search kind (v5), and a cache an earlier generator wrote would load
-	// without them under the same schema hash.
-	tableMapCache  string = "tablemap-v5" + genCacheSuffix
+	// foreign key's delete rule (v4), each column's generation expression with each
+	// index's search kind (v5), each table's foreign keys whole (v6), and each column's
+	// default expression (v7), and a cache an earlier generator wrote would load without
+	// them under the same schema hash. It then came to pair a foreign key column with
+	// the column it references by its position in the referenced key (v8), and an
+	// earlier cache would load the pairing as it was read before. It then came to read
+	// the columns of two foreign keys to the same columns once each (v9), and an earlier
+	// cache would load them twice. It then came to refuse a foreign key that lists its
+	// columns in another order than the key it references (v10), and an earlier cache
+	// would load such a schema with the columns crossed and nothing said.
+	tableMapCache  string = "tablemap-v10" + genCacheSuffix
 	enumValueCache string = "enumvalues" + genCacheSuffix
 
 	// latestEmulatorVersion is the emulator's moving tag: a generator may name it, and
@@ -194,6 +201,7 @@ func (c *client) loadAllCachedData() (bool, error) {
 	for _, table := range c.tableMap {
 		table.deriveIndexFlags()
 	}
+	deriveColumnReferences(c.tableMap)
 
 	c.enumValues = make(map[string][]*enumData)
 	if ok, err := c.genCache.Load(spannerCachePath, enumValueCache, &c.enumValues); err != nil {

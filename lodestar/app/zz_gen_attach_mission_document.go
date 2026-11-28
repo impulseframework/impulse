@@ -55,6 +55,10 @@ func (a *App) AttachMissionDocument() http.HandlerFunc {
 		// write or a read against the caller (Enforce) evaluates the same checker,
 		// scope, and decision instant.
 		ctx = resource.WithCaller(ctx, gate.Caller())
+		// The method's name rides the context too: who made a change
+		// (eventsource.UserEvent) reads it there, so every change record the body writes
+		// names the method.
+		ctx = resource.WithRPC(ctx, "AttachMissionDocument")
 
 		p := (*rpc.AttachMissionDocument)(params)
 
@@ -100,15 +104,21 @@ func (a *App) AttachMissionDocument() http.HandlerFunc {
 				SetID(p.MissionID).
 				Read(ctx, txn)
 			if err != nil {
+				if httpio.HasNotFound(err) {
+					// No row has the key. Every row the method cannot reach is
+					// answered alike, so the words never say a row is there.
+					return resource.TargetNotFound("Mission", p.MissionID)
+				}
+
 				return errors.Wrap(err, "resources.MissionQuery.Read()")
 			}
 			if row == nil {
-				return httpio.NewNotFoundMessagef("Mission %s does not exist", p.MissionID)
+				return resource.TargetNotFound("Mission", p.MissionID)
 			}
 			if ok, err := resource.TenantKeyEquals(row.Data.SectorID, domain); err != nil {
 				return errors.Wrap(err, "resource.TenantKeyEquals()")
 			} else if !ok {
-				return httpio.NewNotFoundMessagef("Mission %s does not exist", p.MissionID)
+				return resource.TargetNotFound("Mission", p.MissionID)
 			}
 
 			// A row-referencing condition on the caller's Execute grant
@@ -134,7 +144,7 @@ func (a *App) AttachMissionDocument() http.HandlerFunc {
 				return httpio.NewEncoder(w).Ok(nil)
 			}
 
-			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "spanner.Client.ReadWriteTransaction()"))
+			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "resource.Client.ExecuteFunc()"))
 		}
 
 		// The transaction committed with the keys recorded: the rows claim the

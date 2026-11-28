@@ -46,19 +46,25 @@ func (d declaredLists) ListsAcrossTenants(res accesstypes.Resource) bool {
 	return slices.Contains(d, res)
 }
 
-// acrossList is a decoded list across tenants as the handler hands it to the live layer.
+// acrossList is a decoded list across tenants as the handler hands it to the live layer,
+// whose names are read from the lists sources names.
 type acrossList struct {
 	set      []accesstypes.Domain
 	narrowed []accesstypes.Domain
 	err      error
+	sources  []resource.NameSource
 }
 
-func (acrossList) Resource() accesstypes.Resource {
+func (*acrossList) Resource() accesstypes.Resource {
 	return "Hangars"
 }
 
-func (l acrossList) TenantsListed(context.Context) (set, narrowed []accesstypes.Domain, err error) {
+func (l *acrossList) TenantsListed(context.Context) (set, narrowed []accesstypes.Domain, err error) {
 	return l.set, l.narrowed, l.err
+}
+
+func (l *acrossList) NameSources(context.Context) ([]resource.NameSource, error) {
+	return l.sources, nil
 }
 
 func TestSubscription_acrossTenants(t *testing.T) {
@@ -172,16 +178,19 @@ func TestSubscription_acrossTenants(t *testing.T) {
 func TestSubscribeAcrossTenants(t *testing.T) {
 	t.Parallel()
 
+	makers := resource.NameSource{Resource: "Makers", Field: "name"}
 	tests := []struct {
-		name   string
-		header string
-		list   acrossList
-		want   []Subscription
+		name      string
+		header    string
+		list      *acrossList
+		want      []Subscription
+		wantNames *Names
+		wantPlain bool
 	}{
 		{
 			name:   "a page that asks for live registers one subscription over the set, however many tenants",
 			header: "tab-1",
-			list:   acrossList{set: []accesstypes.Domain{"cinder", "anvil"}},
+			list:   &acrossList{set: []accesstypes.Domain{"cinder", "anvil"}},
 			want: []Subscription{
 				{Principal: "crew|dispatcher", Tab: "tab-1", Resource: "Hangars", Across: &TenantSet{Domains: []accesstypes.Domain{"anvil", "cinder"}}},
 			},
@@ -189,42 +198,79 @@ func TestSubscribeAcrossTenants(t *testing.T) {
 		{
 			name:   "the page's filter on the tenant is kept with it",
 			header: "tab-1",
-			list:   acrossList{set: []accesstypes.Domain{"cinder"}, narrowed: []accesstypes.Domain{"cinder", "bastion"}},
+			list:   &acrossList{set: []accesstypes.Domain{"cinder"}, narrowed: []accesstypes.Domain{"cinder", "bastion"}},
 			want: []Subscription{
 				{Principal: "crew|dispatcher", Tab: "tab-1", Resource: "Hangars", Across: &TenantSet{Narrowed: []accesstypes.Domain{"bastion", "cinder"}, Domains: []accesstypes.Domain{"cinder"}}},
 			},
 		},
 		{
+			name:   "a list showing a name of no tenant registers both in one write; of names the list of every tenant",
+			header: "tab-1",
+			list:   &acrossList{set: []accesstypes.Domain{"cinder", "anvil"}, sources: []resource.NameSource{makers}},
+			want: []Subscription{
+				{Principal: "crew|dispatcher", Tab: "tab-1", Resource: "Hangars", Across: &TenantSet{Domains: []accesstypes.Domain{"anvil", "cinder"}}},
+				{Principal: "crew|dispatcher", Tab: "tab-1", Resource: "Makers"},
+			},
+			wantNames: &Names{
+				Of:    SubscriptionRequest{Resource: "Hangars", AcrossTenants: true},
+				Names: []SubscriptionRequest{{Resource: "Makers", NameField: "name"}},
+			},
+		},
+		{
+			name:   "a narrowed list showing a name: of names the tenants it was narrowed to, sorted",
+			header: "tab-1",
+			list:   &acrossList{set: []accesstypes.Domain{"cinder"}, narrowed: []accesstypes.Domain{"cinder", "bastion"}, sources: []resource.NameSource{makers}},
+			want: []Subscription{
+				{Principal: "crew|dispatcher", Tab: "tab-1", Resource: "Hangars", Across: &TenantSet{Narrowed: []accesstypes.Domain{"bastion", "cinder"}, Domains: []accesstypes.Domain{"cinder"}}},
+				{Principal: "crew|dispatcher", Tab: "tab-1", Resource: "Makers"},
+			},
+			wantNames: &Names{
+				Of:    SubscriptionRequest{Resource: "Hangars", AcrossTenants: true, Domains: "bastion,cinder"},
+				Names: []SubscriptionRequest{{Resource: "Makers", NameField: "name"}},
+			},
+		},
+		{
+			name:      "a list served plain registers nothing and names nothing",
+			header:    "tab-1",
+			list:      &acrossList{set: tenantKeys(MaxSubscriptionTenants + 1), sources: []resource.NameSource{makers}},
+			wantPlain: true,
+		},
+		{
 			name: "a list across tenants is plain unless the page asks: no header, nothing registered",
-			list: acrossList{set: []accesstypes.Domain{"anvil", "cinder"}},
+			list: &acrossList{set: []accesstypes.Domain{"anvil", "cinder"}, sources: []resource.NameSource{makers}},
 		},
 		{
 			name:   "a list that reads no tenant registers nothing: nothing can change it",
 			header: "tab-1",
-			list:   acrossList{set: []accesstypes.Domain{}},
+			list:   &acrossList{set: []accesstypes.Domain{}, sources: []resource.NameSource{makers}},
 		},
 		{
 			name:   "a set that cannot be worked out registers nothing and the request goes on",
 			header: "tab-1",
-			list:   acrossList{err: errors.New("the grants are down")},
+			list:   &acrossList{err: errors.New("the grants are down")},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			fake := NewFake()
+			svc := &registerCounted{Fake: NewFake()}
 			r := httptest.NewRequestWithContext(withSession(t.Context(), crewAuth, "dispatcher"), http.MethodGet, "/hangars", http.NoBody)
 			if tt.header != "" {
 				r.Header.Set(SubscribeHeader, tt.header)
 			}
+			w := httptest.NewRecorder()
 
-			SubscribeAcrossTenants(r.Context(), r, fake, tt.list)
+			liveness := SubscribeAcrossTenants(r.Context(), w, r, svc, tt.list)
 
-			if diff := cmp.Diff(tt.want, fake.Subscriptions(), cmpopts.IgnoreFields(Subscription{}, "Expiry"), cmpopts.EquateEmpty()); diff != "" {
-				t.Errorf("registered subscriptions mismatch (-want +got):\n%s", diff)
+			checkOneWrite(t, svc, tt.want)
+			if diff := cmp.Diff(tt.wantNames, namesOn(t, w.Header())); diff != "" {
+				t.Errorf("%s mismatch (-want +got):\n%s", NamesHeader, diff)
 			}
-			for _, sub := range fake.Subscriptions() {
+			if got := liveness.Plain(); got != tt.wantPlain {
+				t.Errorf("Plain() = %v, want %v", got, tt.wantPlain)
+			}
+			for _, sub := range svc.Subscriptions() {
 				if left := time.Until(sub.Expiry); left <= 0 || left > SubscriptionTTL {
 					t.Errorf("the subscription expires in %v, want within %v", left, SubscriptionTTL)
 				}

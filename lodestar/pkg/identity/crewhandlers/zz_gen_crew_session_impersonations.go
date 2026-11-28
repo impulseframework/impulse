@@ -20,20 +20,21 @@ import (
 
 func (h *Handlers) CrewSessionImpersonations() http.HandlerFunc {
 	type crewSessionImpersonation struct {
-		SessionID       impulse.UUID  `json:"sessionId"       index:"true" perm:"-"`
-		ActorUsername   string        `json:"actorUsername"   index:"true"`
-		ActorUserID     *impulse.UUID `json:"actorUserId"`
-		ActorRealm      *string       `json:"actorRealm"`
-		SourceSessionID *impulse.UUID `json:"sourceSessionId"`
-		PrincipalKind   string        `json:"principalKind"`
-		PrincipalUserID *string       `json:"principalUserId" index:"true"`
-		PrincipalRole   *string       `json:"principalRole"`
-		Mask            *string       `json:"mask"`
-		Reason          *string       `json:"reason"`
-		StartedAt       time.Time     `json:"startedAt"`
-		ExpiresAt       time.Time     `json:"expiresAt"`
-		EndedAt         *time.Time    `json:"endedAt"`
-		EndReason       *string       `json:"endReason"`
+		SessionID         impulse.UUID              `json:"sessionId"         index:"true" perm:"-"`
+		ActorUsername     string                    `json:"actorUsername"     index:"true"`
+		ActorUserID       *impulse.UUID             `json:"actorUserId"`
+		ActorRealm        *string                   `json:"actorRealm"`
+		SourceSessionID   *impulse.UUID             `json:"sourceSessionId"`
+		PrincipalKind     string                    `json:"principalKind"`
+		PrincipalUserID   *string                   `json:"principalUserId"   index:"true"`
+		PrincipalUsername *string                   `json:"principalUsername" index:"true"`
+		PrincipalRole     *string                   `json:"principalRole"`
+		Mask              accesstypes.NullMaskWords `json:"mask"`
+		Reason            *string                   `json:"reason"`
+		StartedAt         time.Time                 `json:"startedAt"`
+		ExpiresAt         time.Time                 `json:"expiresAt"`
+		EndedAt           *time.Time                `json:"endedAt"`
+		EndReason         *string                   `json:"endReason"`
 	}
 
 	type response []map[string]any
@@ -51,8 +52,9 @@ func (h *Handlers) CrewSessionImpersonations() http.HandlerFunc {
 		}
 
 		// A live list registers before the query runs, so a commit that lands during
-		// the query is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, h.LiveService(), querySet, live.ListSubscription(querySet.Resource(), ""))
+		// the query is not missed; a refused request registers nothing. With it the
+		// request registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, h.LiveService(), querySet, live.ListSubscription(querySet.Resource(), ""))
 
 		res := crewresources.NewCrewSessionImpersonationQueryFromQuerySet(querySet)
 
@@ -102,6 +104,10 @@ func (h *Handlers) CrewSessionImpersonations() http.HandlerFunc {
 				case "PrincipalUserID":
 					if !row.Masked("principalUserId") {
 						rmap["principalUserId"] = rec.PrincipalUserID
+					}
+				case "PrincipalUsername":
+					if !row.Masked("principalUsername") {
+						rmap["principalUsername"] = rec.PrincipalUsername
 					}
 				case "PrincipalRole":
 					if !row.Masked("principalRole") {
@@ -154,20 +160,21 @@ func (h *Handlers) CrewSessionImpersonations() http.HandlerFunc {
 
 func (h *Handlers) CrewSessionImpersonation() http.HandlerFunc {
 	type response struct {
-		SessionID       impulse.UUID  `json:"sessionId"       index:"true" perm:"-"`
-		ActorUsername   string        `json:"actorUsername"`
-		ActorUserID     *impulse.UUID `json:"actorUserId"`
-		ActorRealm      *string       `json:"actorRealm"`
-		SourceSessionID *impulse.UUID `json:"sourceSessionId"`
-		PrincipalKind   string        `json:"principalKind"`
-		PrincipalUserID *string       `json:"principalUserId"`
-		PrincipalRole   *string       `json:"principalRole"`
-		Mask            *string       `json:"mask"`
-		Reason          *string       `json:"reason"`
-		StartedAt       time.Time     `json:"startedAt"`
-		ExpiresAt       time.Time     `json:"expiresAt"`
-		EndedAt         *time.Time    `json:"endedAt"`
-		EndReason       *string       `json:"endReason"`
+		SessionID         impulse.UUID              `json:"sessionId"         index:"true" perm:"-"`
+		ActorUsername     string                    `json:"actorUsername"`
+		ActorUserID       *impulse.UUID             `json:"actorUserId"`
+		ActorRealm        *string                   `json:"actorRealm"`
+		SourceSessionID   *impulse.UUID             `json:"sourceSessionId"`
+		PrincipalKind     string                    `json:"principalKind"`
+		PrincipalUserID   *string                   `json:"principalUserId"`
+		PrincipalUsername *string                   `json:"principalUsername"`
+		PrincipalRole     *string                   `json:"principalRole"`
+		Mask              accesstypes.NullMaskWords `json:"mask"`
+		Reason            *string                   `json:"reason"`
+		StartedAt         time.Time                 `json:"startedAt"`
+		ExpiresAt         time.Time                 `json:"expiresAt"`
+		EndedAt           *time.Time                `json:"endedAt"`
+		EndReason         *string                   `json:"endReason"`
 	}
 
 	decoder := NewQueryDecoder[crewresources.CrewSessionImpersonation, response](h, accesstypes.Read)
@@ -184,8 +191,9 @@ func (h *Handlers) CrewSessionImpersonation() http.HandlerFunc {
 		}
 
 		// A live row registers before the read runs, so a commit that lands during the
-		// read is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, h.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(id)))
+		// read is not missed; a refused request registers nothing. With it the request
+		// registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, h.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(id)))
 
 		res := crewresources.NewCrewSessionImpersonationQueryFromQuerySet(querySet).SetSessionID(id)
 
@@ -225,6 +233,10 @@ func (h *Handlers) CrewSessionImpersonation() http.HandlerFunc {
 				if !row.Masked("principalUserId") {
 					rmap["principalUserId"] = rec.PrincipalUserID
 				}
+			case "PrincipalUsername":
+				if !row.Masked("principalUsername") {
+					rmap["principalUsername"] = rec.PrincipalUsername
+				}
 			case "PrincipalRole":
 				if !row.Masked("principalRole") {
 					rmap["principalRole"] = rec.PrincipalRole
@@ -261,5 +273,49 @@ func (h *Handlers) CrewSessionImpersonation() http.HandlerFunc {
 		live.SetCacheControl(w, r)
 
 		return httpio.NewEncoder(w).Ok(rmap)
+	})
+}
+
+// CrewSessionImpersonationChangeHistory answers a page of one crew session impersonation's change records, newest first, to whoever may read the record, with the fields they may see on it. It answers 404 while the resource does not track its changes.
+func (h *Handlers) CrewSessionImpersonationChangeHistory() http.HandlerFunc {
+	type response struct {
+		SessionID         impulse.UUID              `json:"sessionId"         index:"true" perm:"-"`
+		ActorUsername     string                    `json:"actorUsername"`
+		ActorUserID       *impulse.UUID             `json:"actorUserId"`
+		ActorRealm        *string                   `json:"actorRealm"`
+		SourceSessionID   *impulse.UUID             `json:"sourceSessionId"`
+		PrincipalKind     string                    `json:"principalKind"`
+		PrincipalUserID   *string                   `json:"principalUserId"`
+		PrincipalUsername *string                   `json:"principalUsername"`
+		PrincipalRole     *string                   `json:"principalRole"`
+		Mask              accesstypes.NullMaskWords `json:"mask"`
+		Reason            *string                   `json:"reason"`
+		StartedAt         time.Time                 `json:"startedAt"`
+		ExpiresAt         time.Time                 `json:"expiresAt"`
+		EndedAt           *time.Time                `json:"endedAt"`
+		EndReason         *string                   `json:"endReason"`
+	}
+
+	decoder := NewQueryDecoder[crewresources.CrewSessionImpersonation, response](h, accesstypes.Read)
+
+	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := tracer.Start(r.Context())
+		defer span.End()
+
+		id := httpio.Param[impulse.UUID](r, router.CrewSessionImpersonationSessionID)
+
+		history, err := decoder.DecodeChangeHistory(r, h.UserPermissions(r), accesstypes.GlobalScope())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		crewresources.NewCrewSessionImpersonationQueryFromQuerySet(history.QuerySet()).SetSessionID(id)
+
+		page, err := history.Read(ctx, h.ResourceClient())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok(page)
 	})
 }

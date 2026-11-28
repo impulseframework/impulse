@@ -1,11 +1,14 @@
 package resource
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"reflect"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,6 +18,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/httpio"
 )
 
 // The search vocabulary under test (README section 4): a resource with every token
@@ -840,6 +844,462 @@ func TestQueryDecoder_Search(t *testing.T) {
 			t.Errorf("NewQueryDecoder() error = %v, want the grammar refusal", err)
 		}
 	})
+}
+
+// gatedSearchRow and gatedSearchRequest are a box whose one sensitive field is behind
+// the feature flag emails; twoSensitiveSearchRequest adds a second sensitive box field
+// that no flag hides.
+type gatedSearchRow struct {
+	ID    impulse.UUID `spanner:"Id"`
+	Name  string       `spanner:"Name"`
+	Email string       `spanner:"Email"`
+	Phone string       `spanner:"Phone"`
+}
+
+func (gatedSearchRow) Resource() accesstypes.Resource { return "gatedSearchRows" }
+
+func (gatedSearchRow) DefaultConfig() Config { return Config{} }
+
+type gatedSearchRequest struct {
+	ID    impulse.UUID `json:"id"    index:"true"     perm:"-"`
+	Name  string       `json:"name"  index:"true"     search:"token=Name_Search;index=RowsSearch;role=text;contains"`
+	Email string       `json:"email" feature:"emails" pii:"true"                                                     search:"token=Email_Search;index=RowsSearch;role=text;contains"`
+}
+
+type twoSensitiveSearchRequest struct {
+	ID    impulse.UUID `json:"id"    index:"true"     perm:"-"`
+	Name  string       `json:"name"  index:"true"     search:"token=Name_Search;index=RowsSearch;role=text;contains"`
+	Email string       `json:"email" feature:"emails" pii:"true"                                                        search:"token=Email_Search;index=RowsSearch;role=text;contains"`
+	Phone string       `json:"phone" pii:"true"       search:"token=Phone_Search;index=RowsSearch;role=digits;contains"`
+}
+
+// TestQueryDecoder_searchBoxBehindFlag pins the URL rule of the search box against
+// the box as the request searches it: a sensitive box field a feature flag hides is
+// not searched, so it neither refuses a box in the URL nor is asked about; a
+// sensitive box field the request does search refuses it, flag off or on.
+func TestQueryDecoder_searchBoxBehindFlag(t *testing.T) {
+	t.Parallel()
+
+	boxInURL := func(t *testing.T) *http.Request {
+		t.Helper()
+
+		return httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/rows?"+url.Values{"filter": {`*:search:"ann"`}}.Encode(), http.NoBody)
+	}
+	holdsEvery := func() *fakeUserPermissions {
+		return &fakeUserPermissions{granted: map[accesstypes.Permission][]accesstypes.Resource{accesstypes.List: {
+			"gatedSearchRows", "gatedSearchRows.id", "gatedSearchRows.name", "gatedSearchRows.email", "gatedSearchRows.phone",
+		}}}
+	}
+	off := featureSetOf(map[Feature]bool{"emails": false})
+	on := featureSetOf(map[Feature]bool{"emails": true})
+
+	t.Run("flag off: the box in the URL is taken and searches without the hidden field", func(t *testing.T) {
+		t.Parallel()
+
+		decoder := gatedSearchDecoder[gatedSearchRequest](t, off)
+		qSet, err := decoder.DecodeWithoutPermissions(boxInURL(t))
+		if err != nil {
+			t.Fatalf("DecodeWithoutPermissions() error = %v, want the box taken: the box does not search the hidden email", err)
+		}
+		if diff := cmp.Diff([]accesstypes.Field{"Name"}, qSet.searchFields); diff != "" {
+			t.Errorf("DecodeWithoutPermissions() searchFields mismatch (-want +got):\n%s", diff)
+		}
+
+		perms := holdsEvery()
+		qSet, err = decoder.Decode(boxInURL(t), perms, testScope)
+		if err != nil {
+			t.Fatalf("Decode() error = %v, want the box taken: the box does not search the hidden email", err)
+		}
+		if diff := cmp.Diff([]accesstypes.Field{"Name"}, qSet.searchFields); diff != "" {
+			t.Errorf("Decode() searchFields mismatch (-want +got):\n%s", diff)
+		}
+		if perms.checkCalls != 0 {
+			t.Errorf("Check() called %d times at decode, want none: the box searches no sensitive field (asked %v)", perms.checkCalls, perms.gotResources)
+		}
+	})
+
+	t.Run("flag on: the box in the URL is refused by both decodes", func(t *testing.T) {
+		t.Parallel()
+
+		decoder := gatedSearchDecoder[gatedSearchRequest](t, on)
+		if _, err := decoder.DecodeWithoutPermissions(boxInURL(t)); err == nil || !strings.Contains(err.Error(), "send the filter in the request body") {
+			t.Errorf("DecodeWithoutPermissions() error = %v, want the body placement refusal", err)
+		}
+		if _, err := decoder.Decode(boxInURL(t), holdsEvery(), testScope); err == nil || !strings.Contains(err.Error(), "send the filter in the request body") {
+			t.Errorf("Decode() error = %v, want the body placement refusal", err)
+		}
+	})
+
+	for name, features := range map[string]*FeatureSet{"flag off": off, "flag on": on} {
+		t.Run(name+": a second sensitive box field no flag hides refuses the box in the URL", func(t *testing.T) {
+			t.Parallel()
+
+			decoder := gatedSearchDecoder[twoSensitiveSearchRequest](t, features)
+			if _, err := decoder.DecodeWithoutPermissions(boxInURL(t)); err == nil || !strings.Contains(err.Error(), "send the filter in the request body") {
+				t.Errorf("DecodeWithoutPermissions() error = %v, want the body placement refusal", err)
+			}
+			if _, err := decoder.Decode(boxInURL(t), holdsEvery(), testScope); err == nil || !strings.Contains(err.Error(), "send the filter in the request body") {
+				t.Errorf("Decode() error = %v, want the body placement refusal", err)
+			}
+		})
+	}
+}
+
+// gatedOwnerCrateRequest is the crates' list shape with the owner, sensitive, in the
+// box behind the feature flag owners.
+type gatedOwnerCrateRequest struct {
+	ID    string `json:"id"    index:"true"     perm:"-"`
+	Yard  string `json:"-"`
+	Label string `json:"label" index:"true"     search:"token=Label_Search;index=CratesSearch;role=text;contains"`
+	Owner string `json:"owner" feature:"owners" pii:"true"                                                        search:"token=Owner_Search;index=CratesSearch;role=text;contains"`
+}
+
+// TestDecodeAcrossTenants_searchBoxBehindFlag pins the same URL rule on a list across
+// tenants: the sensitive owner behind a flag that is off is not searched, so the box
+// stays in the URL and no tenant is asked about it; with the flag on, a tenant whose
+// grants let the person search the owner refuses it.
+func TestDecodeAcrossTenants_searchBoxBehindFlag(t *testing.T) {
+	t.Parallel()
+
+	target := "/crates?" + url.Values{"filter": {`*:search:"ap"`}}.Encode()
+	for name, tt := range map[string]struct {
+		features *FeatureSet
+		wantErr  bool
+	}{
+		"flag off": {features: featureSetOf(map[Feature]bool{"owners": false})},
+		"flag on":  {features: featureSetOf(map[Feature]bool{"owners": true}), wantErr: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			decoder := acrossDecoder[acrossCrate, gatedOwnerCrateRequest](t, Paging{Order: []SortField{{Field: "Label", Direction: SortAscending}}}).WithFeatures(tt.features)
+			perms := &acrossPermissions{
+				reach:  []accesstypes.Domain{"north", "south"},
+				grants: map[accesstypes.Domain]accesstypes.Decisions{"north": everyGrant(), "south": everyGrant()},
+			}
+			qSet, err := decoder.DecodeAcrossTenants(acrossRequest(t, target), perms)
+			if tt.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "send the filter in the request body") {
+					t.Errorf("DecodeAcrossTenants() error = %v, want the body placement refusal", err)
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("DecodeAcrossTenants() error = %v, want the box taken: the box does not search the hidden owner", err)
+			}
+			if diff := cmp.Diff([]accesstypes.Field{"Label"}, qSet.searchFields); diff != "" {
+				t.Errorf("searchFields mismatch (-want +got):\n%s", diff)
+			}
+			if len(perms.asked) != 0 {
+				t.Errorf("tenants asked at decode = %v, want none: the box searches no sensitive field", perms.asked)
+			}
+		})
+	}
+}
+
+// gatedTagCrate is the crates' record with its @searchAlso branch, a crate's tags,
+// behind the flag tags.
+type gatedTagCrate struct {
+	ID     string  `spanner:"Id"     postgres:"Id"`
+	Yard   string  `spanner:"Yard"   postgres:"Yard"`
+	Label  string  `spanner:"Label"  postgres:"Label"`
+	Owner  string  `spanner:"Owner"  postgres:"Owner"`
+	Team   *string `spanner:"Team"   postgres:"Team"`
+	Weight int64   `spanner:"Weight" postgres:"Weight"`
+	Value  *int64  `spanner:"Value"  postgres:"Value"`
+}
+
+func (gatedTagCrate) Resource() accesstypes.Resource { return acrossCrates }
+
+func (gatedTagCrate) DefaultConfig() Config { return Config{} }
+
+func (gatedTagCrate) SearchBranches() []SearchBranch {
+	branch := acrossTagBranch
+	branch.Features = []Feature{"tags"}
+
+	return []SearchBranch{branch}
+}
+
+// checksRecorded is a list across tenants' grants that records every resource it is
+// asked about, in any tenant.
+type checksRecorded struct {
+	*acrossPermissions
+
+	mu        sync.Mutex
+	resources []accesstypes.Resource
+}
+
+func (p *checksRecorded) Check(ctx context.Context, env accesstypes.Environment, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource) (accesstypes.Decisions, error) {
+	p.mu.Lock()
+	p.resources = append(p.resources, resources...)
+	p.mu.Unlock()
+
+	return p.acrossPermissions.Check(ctx, env, scope, perm, resources...)
+}
+
+// TestDecodeAcrossTenants_searchBranchBehindFlag pins a @searchAlso branch behind a
+// flag that is off on a list across tenants: no tenant is asked its grant, no
+// tenant's signature names it, and the statement does not search it. With the flag
+// on every tenant is asked, as today.
+func TestDecodeAcrossTenants_searchBranchBehindFlag(t *testing.T) {
+	t.Parallel()
+
+	target := "/crates?" + url.Values{"columns": {"id,weight"}}.Encode()
+	body := `{"filter":"*:search:\"ap\""}`
+	for name, tt := range map[string]struct {
+		features *FeatureSet
+		hidden   bool
+	}{
+		"flag off": {features: featureSetOf(map[Feature]bool{"tags": false}), hidden: true},
+		"flag on":  {features: featureSetOf(map[Feature]bool{"tags": true})},
+	} {
+		for _, dbType := range []DBType{SpannerDBType, PostgresDBType} {
+			t.Run(name+" "+string(dbType), func(t *testing.T) {
+				t.Parallel()
+
+				decoder := acrossDecoder[gatedTagCrate, acrossCrateRequest](t, Paging{Order: []SortField{{Field: "Weight", Direction: SortAscending}}}).WithFeatures(tt.features)
+				perms := &checksRecorded{acrossPermissions: &acrossPermissions{
+					reach: []accesstypes.Domain{"north", "south"},
+					grants: map[accesstypes.Domain]accesstypes.Decisions{
+						"north": everyGrant(),
+						"south": {"CrateTags.name": conditionalOn("CrateTags.name", "team IN subject.crews")},
+					},
+				}}
+				req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, target, strings.NewReader(body))
+				req.Header.Set("Content-Type", "application/json")
+				qSet, err := decoder.DecodeAcrossTenants(req, perms)
+				if err != nil {
+					t.Fatalf("DecodeAcrossTenants() error = %v", err)
+				}
+				if err := qSet.checkPermissions(t.Context(), dbType); err != nil {
+					t.Fatalf("checkPermissions(%s) error = %v", dbType, err)
+				}
+				stmt, err := qSet.stmt(dbType)
+				if err != nil {
+					t.Fatalf("stmt(%s) error = %v", dbType, err)
+				}
+				if got := slices.Contains(perms.resources, "CrateTags.name"); got == tt.hidden {
+					t.Errorf("CrateTags.name asked = %v, want %v (asked %v)", got, !tt.hidden, perms.resources)
+				}
+				for _, group := range qSet.across.groups {
+					signature, err := group.signature()
+					if err != nil {
+						t.Fatalf("signature() error = %v", err)
+					}
+					if tt.hidden && strings.Contains(signature, "crateTag.name") {
+						t.Errorf("the signature of %v = %q, want no word of the hidden branch", group.domains, signature)
+					}
+				}
+				if got := strings.Contains(stmt.SQL, "CrateTags"); got == tt.hidden {
+					t.Errorf("stmt(%s) names CrateTags = %v, want %v:\n%s", dbType, got, !tt.hidden, stmt.SQL)
+				}
+			})
+		}
+	}
+}
+
+// gatedSearchDecoder builds a list decoder for gatedSearchRow over the request type
+// Request, reading the flags from features.
+func gatedSearchDecoder[Request any](t *testing.T, features *FeatureSet) *QueryDecoder[gatedSearchRow, Request] {
+	t.Helper()
+
+	resSet, err := NewSet[gatedSearchRow, Request](accesstypes.List)
+	if err != nil {
+		t.Fatalf("NewSet() error = %v", err)
+	}
+	decoder, err := NewQueryDecoder[gatedSearchRow, Request](resSet)
+	if err != nil {
+		t.Fatalf("NewQueryDecoder() error = %v", err)
+	}
+
+	return decoder.WithPaging(Paging{Order: []SortField{{Field: "Name", Direction: SortAscending}}}).WithFeatures(features)
+}
+
+// gatedBranchRow is a resource whose box searches its name and a sensitive
+// contact's display name, a branch behind two flags: contacts, the child resource's,
+// and contact_names, the child field's.
+type gatedBranchRow struct {
+	ID   impulse.UUID `spanner:"Id"   postgres:"Id"`
+	Name string       `spanner:"Name" postgres:"Name"`
+}
+
+func (gatedBranchRow) Resource() accesstypes.Resource { return "gatedBranchRows" }
+
+func (gatedBranchRow) DefaultConfig() Config { return Config{} }
+
+func (gatedBranchRow) SearchBranches() []SearchBranch {
+	branch := searchBranch
+	branch.PII = true
+	branch.Features = []Feature{"contacts", "contact_names"}
+
+	return []SearchBranch{branch}
+}
+
+// gatedBranchRequest is the list shape whose box holds the name and the branch;
+// gatedBranchOnlyRequest's box holds the branch alone.
+type (
+	gatedBranchRequest struct {
+		ID   impulse.UUID `json:"id"   index:"true" perm:"-"`
+		Name string       `json:"name" index:"true" search:"token=Name_Search;index=RowsSearch;role=text;contains"`
+	}
+	gatedBranchOnlyRequest struct {
+		ID   impulse.UUID `json:"id"   index:"true" perm:"-"`
+		Name string       `json:"name" index:"true"`
+	}
+)
+
+// TestQueryDecoder_searchBranchBehindFlag pins a @searchAlso branch behind a flag
+// that is off: it is no part of the request's box. The box's condition carries no
+// branch, so neither statement names the child table; no grant is asked for it; and
+// a box in the URL whose only sensitive part is the branch is taken by both
+// decodes. A branch behind two flags is hidden while either is off. With both on
+// it is searched, asked and refused in the URL, as any branch is.
+func TestQueryDecoder_searchBranchBehindFlag(t *testing.T) {
+	t.Parallel()
+
+	boxInURL := func(t *testing.T) *http.Request {
+		t.Helper()
+
+		return httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/rows?"+url.Values{"filter": {`*:search:"ann"`}}.Encode(), http.NoBody)
+	}
+	boxInBody := func(t *testing.T) *http.Request {
+		t.Helper()
+
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/rows", strings.NewReader(`{"filter":"*:search:\"ann\""}`))
+		req.Header.Set("Content-Type", "application/json")
+
+		return req
+	}
+	holdsEvery := func() *fakeUserPermissions {
+		return &fakeUserPermissions{granted: map[accesstypes.Permission][]accesstypes.Resource{accesstypes.List: {
+			"gatedBranchRows", "gatedBranchRows.id", "gatedBranchRows.name", "Contacts.displayName",
+		}}}
+	}
+	asked := func(perms *fakeUserPermissions, res accesstypes.Resource) bool {
+		for _, call := range perms.gotResources {
+			if slices.Contains(call, res) {
+				return true
+			}
+		}
+
+		return false
+	}
+	offs := map[string]*FeatureSet{
+		"the child resource's flag off": featureSetOf(map[Feature]bool{"contacts": false, "contact_names": true}),
+		"the child field's flag off":    featureSetOf(map[Feature]bool{"contacts": true, "contact_names": false}),
+		"no flags wired":                nil,
+	}
+	on := featureSetOf(map[Feature]bool{"contacts": true, "contact_names": true})
+
+	for name, features := range offs {
+		t.Run(name+": the box in the URL is taken by both decodes", func(t *testing.T) {
+			t.Parallel()
+
+			decoder := gatedBranchDecoder[gatedBranchRequest](t, features)
+			if _, err := decoder.DecodeWithoutPermissions(boxInURL(t)); err != nil {
+				t.Errorf("DecodeWithoutPermissions() error = %v, want the box taken: it does not search the hidden branch", err)
+			}
+			perms := holdsEvery()
+			if _, err := decoder.Decode(boxInURL(t), perms, testScope); err != nil {
+				t.Errorf("Decode() error = %v, want the box taken: it does not search the hidden branch", err)
+			}
+			if asked(perms, "Contacts.displayName") {
+				t.Errorf("Decode() asked %v, want no question naming Contacts.displayName", perms.gotResources)
+			}
+		})
+
+		t.Run(name+": the box searches no branch, and no grant is asked for it", func(t *testing.T) {
+			t.Parallel()
+
+			for _, dbType := range []DBType{SpannerDBType, PostgresDBType} {
+				perms := holdsEvery()
+				qSet, err := gatedBranchDecoder[gatedBranchRequest](t, features).Decode(boxInBody(t), perms, testScope)
+				if err != nil {
+					t.Fatalf("Decode() error = %v", err)
+				}
+				if err := qSet.checkPermissions(t.Context(), dbType); err != nil {
+					t.Fatalf("checkPermissions(%s) error = %v", dbType, err)
+				}
+				stmt, err := qSet.stmt(dbType)
+				if err != nil {
+					t.Fatalf("stmt(%s) error = %v", dbType, err)
+				}
+				if strings.Contains(stmt.SQL, "Contacts") {
+					t.Errorf("stmt(%s) SQL =\n%s\nwant no word of the hidden branch's table Contacts", dbType, stmt.SQL)
+				}
+				if asked(perms, "Contacts.displayName") {
+					t.Errorf("checkPermissions(%s) asked %v, want no question naming Contacts.displayName", dbType, perms.gotResources)
+				}
+			}
+		})
+
+		t.Run(name+": a box of the hidden branch alone is no box", func(t *testing.T) {
+			t.Parallel()
+
+			_, err := gatedBranchDecoder[gatedBranchOnlyRequest](t, features).Decode(boxInBody(t), holdsEvery(), testScope)
+			if err == nil || !httpio.HasBadRequest(err) || !strings.Contains(err.Error(), "the search box has nothing to search") {
+				t.Errorf("Decode() error = %v, want the answer a resource with no search box gets", err)
+			}
+		})
+	}
+
+	t.Run("both flags on: the box in the URL is refused by both decodes", func(t *testing.T) {
+		t.Parallel()
+
+		decoder := gatedBranchDecoder[gatedBranchRequest](t, on)
+		if _, err := decoder.DecodeWithoutPermissions(boxInURL(t)); err == nil || !strings.Contains(err.Error(), "send the filter in the request body") {
+			t.Errorf("DecodeWithoutPermissions() error = %v, want the body placement refusal", err)
+		}
+		if _, err := decoder.Decode(boxInURL(t), holdsEvery(), testScope); err == nil || !strings.Contains(err.Error(), "send the filter in the request body") {
+			t.Errorf("Decode() error = %v, want the body placement refusal", err)
+		}
+	})
+
+	t.Run("both flags on: the box searches the branch, and its grant is asked", func(t *testing.T) {
+		t.Parallel()
+
+		for _, dbType := range []DBType{SpannerDBType, PostgresDBType} {
+			perms := holdsEvery()
+			qSet, err := gatedBranchDecoder[gatedBranchRequest](t, on).Decode(boxInBody(t), perms, testScope)
+			if err != nil {
+				t.Fatalf("Decode() error = %v", err)
+			}
+			if err := qSet.checkPermissions(t.Context(), dbType); err != nil {
+				t.Fatalf("checkPermissions(%s) error = %v", dbType, err)
+			}
+			stmt, err := qSet.stmt(dbType)
+			if err != nil {
+				t.Fatalf("stmt(%s) error = %v", dbType, err)
+			}
+			if !strings.Contains(stmt.SQL, "Contacts") {
+				t.Errorf("stmt(%s) SQL =\n%s\nwant the branch's table Contacts searched", dbType, stmt.SQL)
+			}
+			if !asked(perms, "Contacts.displayName") {
+				t.Errorf("checkPermissions(%s) asked %v, want a question naming Contacts.displayName", dbType, perms.gotResources)
+			}
+		}
+		if _, err := gatedBranchDecoder[gatedBranchOnlyRequest](t, on).Decode(boxInBody(t), holdsEvery(), testScope); err != nil {
+			t.Errorf("Decode() of a box of the branch alone error = %v, want the box taken", err)
+		}
+	})
+}
+
+// gatedBranchDecoder builds a list decoder for gatedBranchRow over the request type
+// Request, reading the flags from features.
+func gatedBranchDecoder[Request any](t *testing.T, features *FeatureSet) *QueryDecoder[gatedBranchRow, Request] {
+	t.Helper()
+
+	resSet, err := NewSet[gatedBranchRow, Request](accesstypes.List)
+	if err != nil {
+		t.Fatalf("NewSet() error = %v", err)
+	}
+	decoder, err := NewQueryDecoder[gatedBranchRow, Request](resSet)
+	if err != nil {
+		t.Fatalf("NewQueryDecoder() error = %v", err)
+	}
+
+	return decoder.WithPaging(Paging{Order: []SortField{{Field: "Name", Direction: SortAscending}}}).WithFeatures(features)
 }
 
 func mustFilterAst[Resource Resourcer](t *testing.T, qSet *QuerySet[Resource], dbType DBType) ExpressionNode {

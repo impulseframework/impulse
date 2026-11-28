@@ -22,6 +22,15 @@ func (CrewUserGroupRole) DefaultConfig() resource.Config {
 	return resource.Config{}
 }
 
+// NameFields names the resource's name fields: beside each id that points to a row with
+// a name, the name of that row, which a list shows, sorts by and filters by. A name is
+// looked up in the pointed-to table by the id; it is no column of this resource.
+func (CrewUserGroupRole) NameFields() []resource.NameField {
+	return []resource.NameField{
+		{Field: "DomainName", Key: "DomainID", Resource: "Sectors", Tag: "name", Table: "Sectors", KeyColumn: "Id", NameColumn: "Name", TenantColumn: ""},
+	}
+}
+
 // crewUserGroupRoleRead mirrors the wire shape the resource routes list
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; crewUserGroupRoleReadSets holds one Set per read operation.
@@ -34,6 +43,7 @@ type crewUserGroupRoleRead struct {
 	Axis      string       `json:"axis"      perm:"-"`
 	DomainID  string       `json:"domainId"  perm:"-"`
 	Role      string       `json:"role"      perm:"-"`
+	CreatedAt time.Time    `json:"createdAt"`
 	StartsAt  *time.Time   `json:"startsAt"`
 	EndsAt    *time.Time   `json:"endsAt"`
 }
@@ -212,6 +222,7 @@ func (c *CrewUserGroupRoleColumns) All() *CrewUserGroupRoleColumns {
 		"Axis",
 		"DomainID",
 		"Role",
+		"CreatedAt",
 		"StartsAt",
 		"EndsAt",
 	}
@@ -263,6 +274,12 @@ func (c *CrewUserGroupRoleColumns) DomainID() *CrewUserGroupRoleColumns {
 
 func (c *CrewUserGroupRoleColumns) Role() *CrewUserGroupRoleColumns {
 	c.fields = append(c.fields, "Role")
+
+	return c
+}
+
+func (c *CrewUserGroupRoleColumns) CreatedAt() *CrewUserGroupRoleColumns {
+	c.fields = append(c.fields, "CreatedAt")
 
 	return c
 }
@@ -415,6 +432,10 @@ func (c *crewUserGroupRoleSort) DomainID() *CrewUserGroupRoleSort {
 
 func (c *crewUserGroupRoleSort) Role() *CrewUserGroupRoleSort {
 	return c.addField("Role")
+}
+
+func (c *crewUserGroupRoleSort) CreatedAt() *CrewUserGroupRoleSort {
+	return c.addField("CreatedAt")
 }
 
 func (c *crewUserGroupRoleSort) StartsAt() *CrewUserGroupRoleSort {

@@ -10,6 +10,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/lodestar/pkg/resources"
 	"github.com/impulseframework/impulse/lodestar/pkg/router"
@@ -43,6 +44,10 @@ func (a *App) FailFlightTest() http.HandlerFunc {
 		// write or a read against the caller (Enforce) evaluates the same checker,
 		// scope, and decision instant.
 		ctx = resource.WithCaller(ctx, gate.Caller())
+		// The method's name rides the context too: who made a change
+		// (eventsource.UserEvent) reads it there, so every change record the body writes
+		// names the method.
+		ctx = resource.WithRPC(ctx, "FailFlightTest")
 
 		p := (*rpc.FailFlightTest)(params)
 
@@ -79,10 +84,16 @@ func (a *App) FailFlightTest() http.HandlerFunc {
 				SetID(p.RefitID).
 				Read(ctx, txn)
 			if err != nil {
+				if httpio.HasNotFound(err) {
+					// No row has the key. Every row the method cannot reach is
+					// answered alike, so the words never say a row is there.
+					return resource.TargetNotFound("Refit", p.RefitID)
+				}
+
 				return errors.Wrap(err, "resources.RefitQuery.Read()")
 			}
 			if row == nil {
-				return httpio.NewNotFoundMessagef("Refit %s does not exist", p.RefitID)
+				return resource.TargetNotFound("Refit", p.RefitID)
 			}
 			// The root's tenant key lives across its @domain join path: the
 			// gate verifies the located row resolves to the request's domain
@@ -96,7 +107,7 @@ func (a *App) FailFlightTest() http.HandlerFunc {
 			default:
 				// One refusal for the state check and the grant condition
 				// alike: the wire never says which said no (§12).
-				return httpio.NewForbiddenMessagef("FailFlightTest may not run against Refit %s", p.RefitID)
+				return resource.TargetRefused("FailFlightTest", "Refit", p.RefitID)
 			}
 
 			// A row-referencing condition on the caller's Execute grant
@@ -109,7 +120,7 @@ func (a *App) FailFlightTest() http.HandlerFunc {
 			}
 
 			// The framework stamps the declared target state as the last mutation.
-			if err := resources.NewRefitUpdatePatch(p.RefitID).SetStatusID("in_refit").Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+			if err := resources.NewRefitUpdatePatch(p.RefitID).SetStatusID("in_refit").Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 				return errors.Wrap(err, "resources.RefitUpdatePatch.Buffer()")
 			}
 			if dryRun {
@@ -122,7 +133,7 @@ func (a *App) FailFlightTest() http.HandlerFunc {
 				return httpio.NewEncoder(w).Ok(nil)
 			}
 
-			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "spanner.Client.ReadWriteTransaction()"))
+			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "resource.Client.ExecuteFunc()"))
 		}
 
 		live.Publish(ctx, w, a.LiveService(), liveDerivations, domain, touched)

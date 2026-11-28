@@ -33,9 +33,10 @@
 // invitation gave would be gone at the person's next sign-in. A member's address is the
 // one the directory verified, held beside the username.
 //
-// Every member session carries a second factor (requireSecondFactor):
-// the company's directory attests for its people when the deployment says the fleet
-// administers it, and otherwise the login page runs the sign-in code the auth mails.
+// Whether a session then carries a second factor is the auth's sign-in setting (the
+// Sign-in page), which the session library reads at every sign-in. The company's
+// directory attests for its people when the deployment says the fleet administers it,
+// and otherwise the login page runs the sign-in code the auth mails.
 //
 // Demonstrates: auth.directory-roles, auth.two-populations, auth.skipauth-directory, auth.login-refusal-code, auth.second-factor, auth.attested-directory.
 package members
@@ -55,13 +56,18 @@ import (
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/google"
-	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage"
 	"github.com/impulseframework/impulse/session/signin"
 )
 
 const (
-	// Name is the auth's name: the cookie its sessions ride in.
+	// Name is the auth's name. It is the name of this package's directory, the name
+	// generation knows the auth by, the name a @subjectSet says in its auth: part,
+	// the name the role file carries ("auth" in roles.json) and is handed over under
+	// (access.WithDefaultRoles(Roles(), Name)), and the cookie its sessions ride in.
+	// It is not a setting: an engine handed a name generation does not know, or a
+	// role file that carries another name, refuses to open, so renaming the auth
+	// renames the directory, this constant and the role file's "auth" together.
 	Name = "members"
 	// TablePrefix is the name's PascalCase form, which prefixes every table the auth owns.
 	TablePrefix = "Members"
@@ -87,10 +93,12 @@ const (
 	// each session records, the pending sign-ins that wait for a confirmation or an
 	// MFA step, the sign-in attempts the library counts per name (the mail it sends is
 	// counted there too, under the address), the mail links (the invitations and
-	// address verifications the auth mails, each a single-use token), and the second
-	// factor's: the sign-in codes mailed for a pending sign-in and the browsers people
-	// asked to be remembered. The names are spelled out in full so the tool's
-	// session-tables check, which reads the literals, finds their migrations.
+	// address verifications the auth mails, each a single-use token), the audit records
+	// (the auth's audit log: one row for each act that changes an account, who holds
+	// what, or how people sign in), and the second factor's: the sign-in codes mailed for
+	// a pending sign-in and the browsers people asked to be remembered. The names are
+	// spelled out in full so the tool's session-tables check, which reads the literals,
+	// finds their migrations.
 	sessionsTable       = "MembersSessions"
 	usersTable          = "MembersSessionUsers"
 	identitiesTable     = "MembersSessionIdentities"
@@ -98,6 +106,8 @@ const (
 	pendingTable        = "MembersSessionPendingSignIns"
 	attemptsTable       = "MembersSessionSignInAttempts"
 	methodsTable        = "MembersSessionSignInMethods"
+	signInSettingsTable = "MembersSessionSignInSettings"
+	auditRecordsTable   = "MembersSessionAuditRecords"
 	mailLinksTable      = "MembersSessionMailLinks"
 	factorCodesTable    = "MembersSessionFactorCodes"
 	trustedDevicesTable = "MembersSessionTrustedDevices"
@@ -133,9 +143,14 @@ type Settings struct {
 	LoginURL string
 	// Directory identifies the application to the directory that verifies its logins.
 	Directory auth.Directory
-	// Collection is the generated permission collection the role file validates against:
-	// the resources, fields and conditions the release declares. The router package
-	// generates it and imports this one, so the configuration passes it in.
+	// Collection is the generated permission collection: the resources, permissions and
+	// fields the release declares, which the permission engine holds every grant to. The
+	// role file validates against it when the engine opens, a grant written to a custom
+	// role is refused unless the collection lists what it names, and a stored grant that
+	// names anything else is skipped and reported each time the policy loads. The router
+	// package generates it (router.Collection()) and imports this one, so the
+	// configuration passes it in. Required; New refuses nil, a nil
+	// pointer of a collection's type included (access.IsNilCollection).
 	Collection access.PermissionCollection
 	// ChangeSignal carries the engine's policy-change hints between the application's
 	// instances (auth.PolicySignal over the live service): the engine announces after
@@ -211,16 +226,20 @@ func (h *Handlers) EmailVerify() http.HandlerFunc {
 	return h.Email().Verify()
 }
 
-// PendingStatus reports the sign-in that waits for a password confirmation or for the
-// second factor, if any; a member has no password, so only the factor's wait happens,
-// for a member whose directory the fleet does not administer.
-func (h *Handlers) PendingStatus() http.HandlerFunc {
-	return h.Pending().Status()
+// EmailConfirm confirms an address an administrator set for a person, from the link
+// mailed to the new address ({"token"}): the login holds the address it had until then.
+// The reader of the link confirms it signed in or not, since they may have lost the
+// mailbox their sign-in code goes to.
+func (h *Handlers) EmailConfirm() http.HandlerFunc {
+	return h.Email().Confirm()
 }
 
-// PendingConfirmWithPassword completes a waiting sign-in with the user's password.
-func (h *Handlers) PendingConfirmWithPassword() http.HandlerFunc {
-	return h.Pending().ConfirmWithPassword()
+// PendingStatus reports the sign-in that waits for the second factor, if any. A member
+// has no password, so no sign-in waits for one to be confirmed and the portal serves no
+// route for it; the factor's wait happens for a member whose directory the fleet does
+// not administer.
+func (h *Handlers) PendingStatus() http.HandlerFunc {
+	return h.Pending().Status()
 }
 
 // PendingCancel discards a waiting sign-in.
@@ -255,6 +274,9 @@ func (h *Handlers) PendingEnrollEmail() http.HandlerFunc {
 // blocks until its first policy snapshot is loaded. It announces its policy writes and
 // watches the other instances' through the change signal, which is required.
 func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Auth, error) {
+	if access.IsNilCollection(settings.Collection) {
+		return nil, errors.New("members.Settings.Collection is required: the permission engine holds every grant to the permission collection the release declares; pass the generated router's (router.Collection())")
+	}
 	if settings.ChangeSignal == nil {
 		return nil, errors.New("members.Settings.ChangeSignal is required: the engine announces and watches policy changes through it")
 	}
@@ -264,7 +286,7 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	if settings.Mail.Sender == nil {
 		return nil, errors.New("members.Settings.Mail.Sender is required: the auth mails its invitations and address verifications through it (the configuration's driver, or mail.Log in development)")
 	}
-	store, err := spannerstore.New(db, spannerstore.WithPrefix(TablePrefix))
+	store, err := spannerstore.New(db, spannerstore.WithPrefix(TablePrefix), spannerstore.WithAuditRecords(auditRecordsTable))
 	if err != nil {
 		return nil, errors.Wrap(err, "spannerstore.New()")
 	}
@@ -274,8 +296,8 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// a client's roles, that one among them. The directory decides who is a super
 	// administrator of the members, the sync gives the role to a client it names for it
 	// and takes it from one it no longer names, and the bootstrap seeds none.
-	accessClient, err := access.New(store,
-		access.WithDefaultRoles(settings.Collection, Roles()),
+	accessClient, err := access.New(store, settings.Collection,
+		access.WithDefaultRoles(Roles(), Name),
 		access.WithChangeSignal(settings.ChangeSignal),
 		access.WithSuperAdministratorMethods(membersidentity.SuperAdministratorMethods()...),
 	)
@@ -292,27 +314,30 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	}
 
 	// One Auth session the directory establishes, which mails as the fleet
-	// (session.WithMail): the verification of an address, leading to the portal's login
-	// page with its token in the query. It is built knowing who holds the Super
+	// (session.MailSettings): the verification of an address, leading to the portal's
+	// login page with its token in the address's fragment. It is built knowing who holds the Super
 	// Administrator role (session.SuperAdministratorsBy), as every auth with roles is.
 	// The library's own second factor for a holder holds nobody here: every member
 	// signs in through the directory, which writes the roles, and there the directory is
-	// the authority. The members' own rule, set below, asks its factor of every member.
+	// the authority. While the members' sign-in setting requires a second factor, it is
+	// asked of every member.
 	membersSession, err := session.NewAuth[session.NoCustomData, session.NoCustomData](
 		sessionstorage.NewSpannerAuth(db, sessionstorage.WithAuthEvents(events)),
 		settings.CookieKey,
 		session.SuperAdministratorsBy(signin.SuperAdministrators(resource.SignInRoles(accessClient.UserManager()))),
+		session.MailSettings{Sender: settings.Mail.Sender, Application: Application, LoginURL: settings.Mail.LoginURL},
 		session.WithSessionTableName(sessionsTable),
 		session.WithUserTableName(usersTable),
 		session.WithIdentitiesTableName(identitiesTable),
 		session.WithPendingSignInsTableName(pendingTable),
 		session.WithSignInAttemptsTableName(attemptsTable),
 		session.WithSignInMethodsTableName(methodsTable),
+		session.WithSignInSettingsTableName(signInSettingsTable),
+		session.WithAuditRecordsTableName(auditRecordsTable),
 		session.WithMailLinksTableName(mailLinksTable),
 		session.WithFactorCodesTableName(factorCodesTable),
 		session.WithTrustedDevicesTableName(trustedDevicesTable),
 		session.WithTrustedDeviceCookieName(TrustedDeviceCookie),
-		session.WithMail(settings.Mail.Sender, session.MailSettings{Application: Application, LoginURL: settings.Mail.LoginURL}),
 		session.WithCookieName(Name),
 		session.WithXSRFCookieName(XSRFCookie),
 		session.WithSessionTimeout(settings.SessionTimeout),
@@ -365,23 +390,35 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// again where its chart is computed (app.UserPermissions): the seed declares the
 	// company directory on every sector. The memberships are read outside the sign-in's
 	// transaction (resource.SignInRoles): the Spanner client refuses the engine's read
-	// under the transaction's context as a nested transaction. The rule's last word is
-	// the second factor every member session carries (requireSecondFactor), which
-	// the company's directory attests for where the fleet administers it.
-	//
-	// Demonstrates: auth.second-factor.
-	membersSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations).Then(requireSecondFactor))
+	// under the transaction's context as a nested transaction. Whether a session then
+	// carries a second factor is the auth's sign-in setting (the Sign-in page), which the
+	// session library reads at every sign-in.
+	membersSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations))
+
+	// The same rule, asked outside a sign-in, says whose password is disabled: a person
+	// the rule would refuse a sign-in with a password as directory only. Their account
+	// page draws no Password line and they are refused a first password
+	// (SetPasswordDisabledCheck). The declarations are read with the sign-in's reader,
+	// each in a transaction of its own (resource.OutsideSignIn).
+	membersSession.SetPasswordDisabledCheck(signin.PasswordsDisabledByTenants(accessClient.UserManager(), resource.OutsideSignIn(db, settings.TenantDeclarations)))
 
 	// The members' identity client (pkg/identity, generated): the lists of the auth's
 	// people and the methods that act on an account, over the engine that reads their
 	// memberships and the API of the session manager that signs them in. No invitation
 	// gives a client a role: the directory's groups name the roles and the sync removes,
-	// at every sign-in, a role they do not name, so the client answers no sign-in hook
-	// and none is set.
+	// at every sign-in, a role they do not name, so no hook that gives a role is set;
+	// the one hook set is the sign-in's, below.
 	identityClient, err := membersidentity.NewClient(accessClient, membersSession.API())
 	if err != nil {
 		return nil, errors.Wrap(err, "membersidentity.NewClient()")
 	}
+	// The session library calls the identity client's SignedIn once a sign-in's session
+	// is committed, apart from the sign-in, so a failure is logged and the session stands.
+	// It announces the sign-in to the open pages: the session it made, the person's
+	// account, and the identities and roles a sign-in can write, so a list of accounts, a
+	// person's page and a tenant's people show them without a reload. The directory
+	// writes this auth's roles, so none is given for a period and the hook removes none.
+	membersSession.SetSignedInHook(identityClient.SignedIn(resource.NewSpannerClient(db)))
 
 	return &Auth{access: accessClient, handlers: &Handlers{Session: membersSession, directory: directory}, identity: identityClient}, nil
 }
@@ -408,20 +445,14 @@ func (a *Auth) Identity() *membersidentity.Client {
 	return a.identity
 }
 
-// Close releases the permission engine.
+// Close waits for the mail the auth is still sending, then releases the permission
+// engine (session.AuthAPI.WaitForMail): the configuration closes the auth once the
+// server has stopped and before it closes the database.
 func (a *Auth) Close() error {
+	a.handlers.Session.API().WaitForMail()
 	if err := a.access.Close(); err != nil {
 		return errors.Wrap(err, "access.Client.Close()")
 	}
 
 	return nil
-}
-
-// requireSecondFactor is the last word of the members' sign-in rule, chained after the
-// tenant policy: every member session carries a second factor, the sign-in code the
-// library mails (signin.RequireMFA(sessioninfo.MethodEmailCode)), unless the company's
-// directory attests for the person where the fleet administers it. It is the crew's rule
-// (pkg/auth/crew), held here as each auth package holds its own.
-func requireSecondFactor(context.Context, *cloudspanner.ReadWriteTransaction, *sessioninfo.NewSessionRequest) (*signin.Decision, error) {
-	return signin.RequireMFA(sessioninfo.MethodEmailCode), nil
 }

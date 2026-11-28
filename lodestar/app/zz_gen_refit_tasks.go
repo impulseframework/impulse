@@ -19,8 +19,8 @@ import (
 
 func (a *App) RefitTasks() http.HandlerFunc {
 	type refitTask struct {
-		RefitID      impulse.UUID `json:"refitId"      index:"true" perm:"-"`
 		TaskNumber   int64        `json:"taskNumber"   perm:"-"`
+		RefitID      impulse.UUID `json:"refitId"      index:"true" perm:"-"`
 		Instructions string       `json:"instructions"`
 		Done         bool         `json:"done"`
 		Notes        *string      `json:"notes"`
@@ -43,8 +43,9 @@ func (a *App) RefitTasks() http.HandlerFunc {
 		}
 
 		// A live list registers before the query runs, so a commit that lands during
-		// the query is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, a.LiveService(), querySet, live.ListSubscription(querySet.Resource(), domain))
+		// the query is not missed; a refused request registers nothing. With it the
+		// request registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, a.LiveService(), querySet, live.ListSubscription(querySet.Resource(), domain))
 
 		res := resources.NewRefitTaskQueryFromQuerySet(querySet)
 
@@ -67,13 +68,13 @@ func (a *App) RefitTasks() http.HandlerFunc {
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
-				case "RefitID":
-					if !row.Masked("refitId") {
-						rmap["refitId"] = rec.RefitID
-					}
 				case "TaskNumber":
 					if !row.Masked("taskNumber") {
 						rmap["taskNumber"] = rec.TaskNumber
+					}
+				case "RefitID":
+					if !row.Masked("refitId") {
+						rmap["refitId"] = rec.RefitID
 					}
 				case "Instructions":
 					if !row.Masked("instructions") {
@@ -110,8 +111,8 @@ func (a *App) RefitTasks() http.HandlerFunc {
 
 func (a *App) RefitTask() http.HandlerFunc {
 	type response struct {
-		RefitID      impulse.UUID `json:"refitId"      index:"true" perm:"-"`
 		TaskNumber   int64        `json:"taskNumber"   index:"true" perm:"-"`
+		RefitID      impulse.UUID `json:"refitId"      index:"true" perm:"-"`
 		Instructions string       `json:"instructions"`
 		Done         bool         `json:"done"`
 		Notes        *string      `json:"notes"`
@@ -134,8 +135,9 @@ func (a *App) RefitTask() http.HandlerFunc {
 		}
 
 		// A live row registers before the read runs, so a commit that lands during the
-		// read is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, a.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(refitID, taskNumber)))
+		// read is not missed; a refused request registers nothing. With it the request
+		// registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, a.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(refitID, taskNumber)))
 
 		res := resources.NewRefitTaskQueryFromQuerySet(querySet).SetRefitID(refitID).SetTaskNumber(taskNumber)
 
@@ -147,13 +149,13 @@ func (a *App) RefitTask() http.HandlerFunc {
 		rmap := make(map[string]any)
 		for _, field := range querySet.Fields() {
 			switch string(field) {
-			case "RefitID":
-				if !row.Masked("refitId") {
-					rmap["refitId"] = rec.RefitID
-				}
 			case "TaskNumber":
 				if !row.Masked("taskNumber") {
 					rmap["taskNumber"] = rec.TaskNumber
+				}
+			case "RefitID":
+				if !row.Masked("refitId") {
+					rmap["refitId"] = rec.RefitID
 				}
 			case "Instructions":
 				if !row.Masked("instructions") {
@@ -175,6 +177,43 @@ func (a *App) RefitTask() http.HandlerFunc {
 		live.SetCacheControl(w, r)
 
 		return httpio.NewEncoder(w).Ok(rmap)
+	})
+}
+
+// RefitTaskChangeHistory answers a page of one refit task's change records, newest first, to whoever may read the record, with the fields they may see on it. It answers 404 while the resource does not track its changes.
+func (a *App) RefitTaskChangeHistory() http.HandlerFunc {
+	type response struct {
+		TaskNumber   int64        `json:"taskNumber"   index:"true" perm:"-"`
+		RefitID      impulse.UUID `json:"refitId"      index:"true" perm:"-"`
+		Instructions string       `json:"instructions"`
+		Done         bool         `json:"done"`
+		Notes        *string      `json:"notes"`
+		PhotoKey     *string      `json:"-"`
+	}
+
+	decoder := NewQueryDecoder[resources.RefitTask, response](a, accesstypes.Read)
+
+	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := tracer.Start(r.Context())
+		defer span.End()
+
+		refitID := httpio.Param[impulse.UUID](r, router.RefitTaskRefitID)
+		taskNumber := httpio.Param[int64](r, router.RefitTaskTaskNumber)
+
+		domain := httpio.Param[accesstypes.Domain](r, router.Domain)
+		history, err := decoder.DecodeChangeHistory(r, a.UserPermissions(r), accesstypes.DomainScope(domain), "PhotoKey")
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		resources.NewRefitTaskQueryFromQuerySet(history.QuerySet()).SetRefitID(refitID).SetTaskNumber(taskNumber)
+
+		page, err := history.Read(ctx, a.ResourceClient())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok(page)
 	})
 }
 

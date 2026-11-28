@@ -35,6 +35,7 @@ type (
 	// @outlet(default)
 	// @order(Username asc, GroupName asc, Role asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(role held through a group, plural: roles held through a group)
 	CrewSectorUserGroupRole struct {
 		// @domain
 		DomainID string `spanner:"DomainId" index:"true"`
@@ -46,11 +47,15 @@ type (
 		GroupID   impulse.UUID `spanner:"GroupId"   index:"true"`
 		GroupName string       `spanner:"GroupName" index:"true"`
 		// @primarykey
-		Role        string     `spanner:"Role"        index:"true"`
-		GlobalGroup bool       `spanner:"GlobalGroup" index:"true"`
-		EveryDomain bool       `spanner:"EveryDomain" index:"true"`
-		StartsAt    *time.Time `spanner:"StartsAt"`
-		EndsAt      *time.Time `spanner:"EndsAt"`
+		// @roleOf(Crew)
+		Role        string `spanner:"Role"        index:"true"`
+		GlobalGroup bool   `spanner:"GlobalGroup" index:"true"`
+		EveryDomain bool   `spanner:"EveryDomain" index:"true"`
+		// CreatedAt is when the person came to hold the role through the group: the later
+		// of when the group was given the role and when the person was put in the group.
+		CreatedAt time.Time  `spanner:"CreatedAt"`
+		StartsAt  *time.Time `spanner:"StartsAt"`
+		EndsAt    *time.Time `spanner:"EndsAt"`
 	}
 )
 
@@ -71,10 +76,11 @@ SELECT
   t.Role AS Role,
   (g.Kind = 'global') AS GlobalGroup,
   t.EveryDomain AS EveryDomain,
+  GREATEST(t.CreatedAt, m.CreatedAt) AS CreatedAt,
   COALESCE(GREATEST(t.StartsAt, m.StartsAt), t.StartsAt, m.StartsAt) AS StartsAt,
   COALESCE(LEAST(t.EndsAt, m.EndsAt), t.EndsAt, m.EndsAt) AS EndsAt
 FROM (
-  SELECT r.DomainId AS DomainId, r.GroupId AS GroupId, r.Role AS Role, FALSE AS EveryDomain, r.StartsAt AS StartsAt, r.EndsAt AS EndsAt
+  SELECT r.DomainId AS DomainId, r.GroupId AS GroupId, r.Role AS Role, FALSE AS EveryDomain, r.CreatedAt AS CreatedAt, r.StartsAt AS StartsAt, r.EndsAt AS EndsAt
   FROM CrewGroupRoles r
   WHERE r.Kind = 'domain' AND r.Axis = ''
     AND (r.EndsAt IS NULL OR r.EndsAt > CURRENT_TIMESTAMP())
@@ -84,7 +90,7 @@ FROM (
         AND (e.StartsAt IS NULL OR e.StartsAt <= CURRENT_TIMESTAMP()) AND (e.EndsAt IS NULL OR e.EndsAt > CURRENT_TIMESTAMP())
     ))
   UNION ALL
-  SELECT s.Id AS DomainId, r.GroupId AS GroupId, r.Role AS Role, TRUE AS EveryDomain, r.StartsAt AS StartsAt, r.EndsAt AS EndsAt
+  SELECT s.Id AS DomainId, r.GroupId AS GroupId, r.Role AS Role, TRUE AS EveryDomain, r.CreatedAt AS CreatedAt, r.StartsAt AS StartsAt, r.EndsAt AS EndsAt
   FROM CrewGroupRoles r
   CROSS JOIN Sectors s
   WHERE r.Kind = 'every' AND r.Axis = ''

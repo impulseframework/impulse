@@ -83,6 +83,15 @@ describe('tenantWord', () => {
     expect(tenantWord({ ...descriptor, domainRoute: { segment: 'sectors', param: 'sectorID' } })).toBe('Tenant');
     expect(tenantWord({ ...descriptor, domainRoute: undefined })).toBe('Tenant');
   });
+
+  it("begins with a capital where the descriptor's word does not, and keeps the rest as written", () => {
+    const worded = (one: string): ApiDescriptor => ({
+      ...descriptor,
+      domainRoute: { segment: 'outlets', param: 'outletID', word: { one, many: `${one}s` } },
+    });
+    expect(tenantWord(worded('outlet'))).toBe('Outlet');
+    expect(tenantWord(worded('API client'))).toBe('API client');
+  });
 });
 
 describe('tenantLink', () => {

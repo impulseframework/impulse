@@ -4,7 +4,7 @@
 // Package staffidentity holds the methods that manage the people of the Staff
 // auth: each an RPC method of the application, served on its routes behind an Execute
 // grant, and a Go call an application makes in a transaction of its own, so a person is
-// created and seated beside the application's own rows and committed with them.
+// given a role beside the application's own rows and committed with them.
 //
 // Every method's body is one call into the framework's identity package, where the
 // rules are; this package gives them the auth's own tables. The generator writes it
@@ -18,10 +18,12 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/tenanted/pkg/identity/internal/staffresources"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/resource"
+	"github.com/impulseframework/impulse/resource/live"
 	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/signin"
 )
@@ -75,6 +77,15 @@ func NewClient(controller access.Controller, sessions identity.SessionAPI, tenan
 	// record's; it goes first, so an option the caller passes is the one kept.
 	opts = append([]identity.Option{identity.WithTenantWord("tenant")}, opts...)
 	opts = append(opts, identity.WithSuperAdministratorMethods(SuperAdministratorMethods()...))
+	// The manager announces a sign-in's writes under the names the generated types give
+	// the auth's tables (AnnounceThrough).
+	opts = append(opts, identity.WithAccountTables(&identity.AccountTables{
+		Users:       staffresources.StaffSessionUser{}.Resource(),
+		Sessions:    staffresources.StaffSession{}.Resource(),
+		Identities:  staffresources.StaffSessionIdentity{}.Resource(),
+		Memberships: staffresources.StaffUserRole{}.Resource(),
+		MailLinks:   staffresources.StaffSessionMailLink{}.Resource(),
+	}))
 	// What gives a person a role without naming them is judged as giving the role
 	// directly, by the grants of the methods that give a role and take one away
 	// (grants.go): a change to a group, as the role changes it makes, and the default
@@ -89,6 +100,19 @@ func NewClient(controller access.Controller, sessions identity.SessionAPI, tenan
 	// reads who administers a tenant by the engine's own names, the ones the sign-in and
 	// the session's reach decide by.
 	staffresources.SetStaffTenantUserAdministratorRoles(manager.TenantAdministratorRoles())
+	// A row of the auth's people offers the methods that change how a tenant's
+	// administrator signs in only to a caller who enters the tenants the person
+	// administers, read by the engine's own names, the ones the methods refuse by.
+	staffresources.SetStaffSessionUserAdministratorRoles(manager.TenantAdministratorRoles())
+	// The whole application's list of tenants names each one's administrators by the
+	// engine's own names.
+	staffresources.SetStaffListedTenantAdministratorRoles(manager.TenantAdministratorRoles())
+	// The list of the auth's sessions says which are live by the timeout the Auth judges a
+	// request by.
+	staffresources.SetStaffListedSessionTimeout(sessions.SessionTimeout())
+	// The list of the failed sign-ins says the limit that locks a name by asking the Auth
+	// at each query: the limit is fixed when the password method is registered.
+	staffresources.SetStaffListedSignInAttemptLimit(sessions.SignInFailureLimit)
 
 	return &Client{manager: manager}, nil
 }
@@ -114,7 +138,8 @@ func SuperAdministratorMethods() []accesstypes.Resource {
 // user is the person as the permission store names them, the id of their account: a
 // request's caller is its resource.UserPermissions.User(). A role is held by an account,
 // so a user that is no account's id (a session that acts for nobody with an account
-// here) is refused, and nothing is written. The call reads no account: a user created
+// here) is refused, in a sentence that names no role by its code name, and nothing is
+// written. The call reads no account: a user created
 // earlier in the same transaction is one the database cannot yet show it, and such a
 // user is what a Go caller often gives a role to. The caller names an account it knows
 // exists, its request's caller or one it created; a role method served to a person who
@@ -122,7 +147,7 @@ func SuperAdministratorMethods() []accesstypes.Resource {
 func (c *Client) AssignRole(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role) error {
 	userID, ok := identity.UserID(user)
 	if !ok {
-		return httpio.NewForbiddenMessagef("the role %s is given to a person with an account, and this session acts for none", role)
+		return httpio.NewForbiddenMessageWithError(errors.Newf("the role %s is given to a person with an account, and %q is no account's id", role, user), "A role is given to a person with an account, and this session acts for none.")
 	}
 	if err := c.manager.AssignRole(ctx, txn, scope, userID, role); err != nil {
 		return errors.Wrap(err, "identity.Manager.AssignRole()")
@@ -131,20 +156,44 @@ func (c *Client) AssignRole(ctx context.Context, txn resource.ReadWriteTransacti
 	return nil
 }
 
-// ClearTenant buffers the removal of everything the Staff auth holds for a tenant, in
-// the transaction that deletes the tenant's row (identity.Manager.ClearTenant): every
-// membership held in it, the custom roles made in it with their grants, and the
-// withdrawal of every invitation into it that still stands. A person the tenant's
-// memberships were the only ones of is deleted with their identity links and sessions,
-// by the rule on an account nothing admits. The generated delete of the tenant record
-// calls it; an application that deletes a tenant in a transaction of its own calls it
-// there.
-func (c *Client) ClearTenant(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) error {
-	if err := c.manager.ClearTenant(ctx, txn, domain); err != nil {
-		return errors.Wrap(err, "identity.Manager.ClearTenant()")
+// HoldsTenant reports whether user holds a role of the Staff auth in some tenant, read
+// in the caller's transaction (identity.Manager.HoldsTenant): a membership of their own
+// held in one tenant, or a place in a group kept in one. The generated create of a
+// tenant asks it in the transaction that writes the tenant's row, so that of two
+// creations by one person at once only one is written. A user that is no account's id
+// (a session that acts for nobody with an account here) holds none.
+func (c *Client) HoldsTenant(ctx context.Context, txn resource.ReadWriteTransaction, user accesstypes.User) (bool, error) {
+	userID, ok := identity.UserID(user)
+	if !ok {
+		return false, nil
+	}
+	holds, err := c.manager.HoldsTenant(ctx, txn, userID)
+	if err != nil {
+		return false, errors.Wrap(err, "identity.Manager.HoldsTenant()")
 	}
 
-	return nil
+	return holds, nil
+}
+
+// TenantKinds answers what the Staff auth holds for a tenant as kinds of the
+// tenant's delete (identity.Manager.TenantKinds): the accounts that are the tenant's
+// alone, the roles held in it, its groups, its custom roles and its invitations that
+// still stand. The generated delete of the tenant record hands them to the delete
+// (resource.PatchSet.DeleteAlso), which counts them in its question and takes them in
+// its rounds; an application that deletes a tenant in code of its own hands them to its
+// delete there.
+func (c *Client) TenantKinds(domain accesstypes.Domain) []resource.TakenKind {
+	return c.manager.TenantKinds(domain)
+}
+
+// RecordKinds answers what the Staff auth holds on one record as kinds of the
+// record's delete (identity.Manager.RecordKinds): the roles held on it, a person's and a
+// group's. The generated delete of a record a role can be held on hands them to the
+// delete (resource.PatchSet.DeleteAlso), which counts them in its question and takes them
+// in its rounds; an application that deletes such a record in code of its own hands them
+// to its delete there.
+func (c *Client) RecordKinds(at accesstypes.RecordScope) []resource.TakenKind {
+	return c.manager.RecordKinds(at)
 }
 
 // DirectoryName answers what the Staff auth's sign-in registrations call a
@@ -175,6 +224,22 @@ func (c *Client) CallerPassword(ctx context.Context, txn resource.ReadWriteTrans
 	return has, applies, nil
 }
 
+// AuthSecondFactor answers whether the Staff auth's sign-in settings ask everyone for
+// a second factor now, and whether the question is this auth's to answer for the
+// request: it is not where the request came through another auth
+// (identity.Manager.AuthSecondFactor). It is a resource.AuthSecondFactor: the generated
+// frame of the method by which a tenant vouches for its directory's second factor hands
+// it to the rule that there is something to turn off
+// (resource.TenantDirectoryRules.SecondFactorsBy).
+func (c *Client) AuthSecondFactor(ctx context.Context, txn resource.ReadWriteTransaction) (required, applies bool, err error) {
+	required, applies, err = c.manager.AuthSecondFactor(ctx, txn)
+	if err != nil {
+		return false, false, errors.Wrap(err, "identity.Manager.AuthSecondFactor()")
+	}
+
+	return required, applies, nil
+}
+
 // AdministratorsEnterWithPassword reports whether a tenant's own administrators of the
 // Staff auth keep a way into a tenant that is directory only: the auth registers
 // the password method and its permission engine names the roles that administer a
@@ -182,6 +247,36 @@ func (c *Client) CallerPassword(ctx context.Context, txn resource.ReadWriteTrans
 // that makes a tenant directory only says so (resource.DirectoryPeople).
 func (c *Client) AdministratorsEnterWithPassword() bool {
 	return c.manager.AdministratorsEnterWithPassword()
+}
+
+// AnnounceThrough has the client announce what a sign-in writes to the open pages,
+// through the application's live service and with its live derivations: the session a
+// sign-in makes, the person's account, the identities and the roles a sign-in can write,
+// the roles an accepted invitation, a directory's default role or a sign-up gives, and
+// what a person's leaving a tenant writes. The auth's generated handlers call it where
+// the application constructs them (New), so an application writes nothing; the first
+// service and derivations handed over are kept. Until then nothing is announced.
+func (c *Client) AnnounceThrough(svc live.Service, derivations *live.Derivations) {
+	if c == nil || svc == nil {
+		return
+	}
+	c.manager.AnnounceWith(func(ctx context.Context, touched *resource.TouchedRows) {
+		live.Announce(ctx, svc, derivations, touched)
+	})
+}
+
+// SignedIn answers the session library's hook for a sign-in that stands
+// (session.Auth.SetSignedInHook) over the Staff auth's tables: the person's roles
+// and places in groups whose period has ended are removed (identity.Manager.SignedIn),
+// in a transaction of the hook's own on db, the application's database. Nothing else
+// removes them: no job runs on a schedule. The session library calls the hook once the
+// session is committed and logs an error it answers, so the removal neither fails a
+// sign-in nor undoes one; a sign-in with nothing to clear costs one read. The hook then
+// announces the sign-in to the open pages, once the generated handlers have handed the
+// client a service to announce through (AnnounceThrough). The auth's package sets it
+// where it sets the invitation's.
+func (c *Client) SignedIn(db resource.Client) session.SignedInHook {
+	return c.manager.SignedIn("Staff", db)
 }
 
 // InvitationAccepted answers the session library's hook for an accepted invitation
@@ -197,9 +292,10 @@ func (c *Client) InvitationAccepted() session.InvitationAcceptedHook[*spanner.Re
 
 // DirectorySeated answers the session library's hook for a tenant directory's default
 // role (session.Auth.SetDirectoryAdmission) over the Staff auth's tables: the role
-// is given in the transaction that creates the person at their first sign-in, so no
-// account is left holding nothing (identity.Manager.DirectorySeated). The auth's package
-// sets it where it sets the invitation's.
+// is given in the sign-in's transaction to a person who signs in through the directory
+// and holds nothing in the tenant, at every sign-in, so no account is left holding
+// nothing (identity.Manager.DirectorySeated). The auth's package sets it where it sets
+// the invitation's.
 func (c *Client) DirectorySeated() session.DirectorySeatedHook[*spanner.ReadWriteTransaction] {
 	return c.manager.DirectorySeated("Staff")
 }
@@ -218,16 +314,28 @@ func (c *Client) DirectoryRole(ctx context.Context, txn resource.ReadWriteTransa
 	return nil
 }
 
-// SignedIn answers the session library's hook for a sign-in that stands
-// (session.Auth.SetSignedInHook) over the Staff auth's tables: the person's roles
-// and places in groups whose period has ended are removed (identity.Manager.SignedIn),
-// in a transaction of the hook's own on db, the application's database. Nothing else
-// removes them: no job runs on a schedule. The session library calls the hook once the
-// session is committed and logs an error it answers, so the removal neither fails a
-// sign-in nor undoes one; a sign-in with nothing to clear costs one read. The auth's
-// package sets it where it sets the invitation's.
-func (c *Client) SignedIn(db resource.Client) session.SignedInHook {
-	return c.manager.SignedIn("Staff", db)
+// RecordTenantSignIn records an act on a tenant's own sign-in settings in the Staff
+// auth's audit log, in the caller's transaction: done to the tenant, by who acted, with
+// the act's one part, named (identity.Manager.RecordTenantSignIn). The generated methods
+// of a tenant's directory call it after their write, where this auth's people are the
+// ones the directories record's outlets sign in.
+func (c *Client) RecordTenantSignIn(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain, act auditlog.Act, named string) error {
+	if err := c.manager.RecordTenantSignIn(ctx, txn, tenant, act, named); err != nil {
+		return errors.Wrap(err, "identity.Manager.RecordTenantSignIn()")
+	}
+
+	return nil
+}
+
+// OwnTenants answers the session library's own-tenants hook (session.Auth.SetOwnTenants)
+// over the Staff auth's tables: a signed-in person's account page lists the
+// tenants they hold something in, with the roles held in each, and takes them out of one
+// at their own word (identity.Manager.OwnTenants), each in a transaction of the hook's
+// own on db, the application's database. A tenant's last administrator does not leave
+// it, and an account left holding nothing stays. The auth's package sets it where it sets
+// the after-sign-in hook.
+func (c *Client) OwnTenants(db resource.Client) session.OwnTenantsHook {
+	return c.manager.OwnTenants("Staff", db)
 }
 
 // SignedUp answers the session library's hook for a sign-up through an open sign-in
@@ -239,15 +347,22 @@ func (c *Client) SignedUp() session.SignUpSeatedHook[*spanner.ReadWriteTransacti
 	return c.manager.SignedUp("Staff")
 }
 
-// AnySignInMethodOpen reports whether an administrator has a sign-in method of the
-// Staff auth open to sign-up now, read through reader: the caller's transaction,
-// or the application's client (identity.Manager.AnyMethodOpen). The generated
+// SessionSignInMethodOpen reports whether the sign-in method the session came through is
+// open to sign-up now, read through reader: the caller's transaction, or the
+// application's client (identity.Manager.SessionMethodOpen). The generated
 // create-your-tenant route asks it in the transaction that writes the tenant's row.
-func (c *Client) AnySignInMethodOpen(ctx context.Context, reader resource.ReadOnlyTransaction) (bool, error) {
-	open, err := c.manager.AnyMethodOpen(ctx, reader)
+func (c *Client) SessionSignInMethodOpen(ctx context.Context, reader resource.ReadOnlyTransaction) (bool, error) {
+	open, err := c.manager.SessionMethodOpen(ctx, reader)
 	if err != nil {
-		return false, errors.Wrap(err, "identity.Manager.AnyMethodOpen()")
+		return false, errors.Wrap(err, "identity.Manager.SessionMethodOpen()")
 	}
 
 	return open, nil
+}
+
+// OneTenantPerPerson reports whether the Staff auth's people belong to one tenant
+// each (identity.Manager.OneTenantPerPerson). The generated create-your-tenant route sets
+// its creator's directory on the new tenant only there.
+func (c *Client) OneTenantPerPerson() bool {
+	return c.manager.OneTenantPerPerson()
 }

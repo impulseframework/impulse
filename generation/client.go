@@ -8,6 +8,7 @@ package generation
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"fmt"
 	"log"
@@ -30,6 +31,7 @@ import (
 	"github.com/impulseframework/impulse/generation/internal/gomod"
 	"github.com/impulseframework/impulse/generation/parser"
 	"github.com/impulseframework/impulse/generation/parser/genlang"
+	"github.com/impulseframework/impulse/internal/apptree"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/resource/live"
 	"golang.org/x/tools/go/packages"
@@ -67,6 +69,13 @@ type client struct {
 	// package is loaded: the import paths of the sources a run writes ahead of its load
 	// (the generated management of an auth) are derived from it.
 	modulePathRoot string
+	// moduleRoot is the main module's directory, the root of the application's tree: a
+	// run reads the application's auths from it (treeAuthNames). A generator built with
+	// none, as a test builds one, reads no tree.
+	moduleRoot string
+	// treeAuths are the auth packages of the application's tree, read once a run.
+	treeAuths     []string
+	treeAuthsRead bool
 	// outputs are the packages the run writes generated files into (the handlers and the
 	// routes), whose import paths are derived from the module.
 	outputs             []packageDir
@@ -136,6 +145,7 @@ func newClient(ctx context.Context, resourcePackageDir string, migrationSourceUR
 		migrationSourceURLs: migrationSourceURL,
 		genCache:            gCache,
 		modulePathRoot:      modInfo.PackageName,
+		moduleRoot:          modInfo.AbsolutePath,
 	}
 	if err := resolveOptions(c, opts); err != nil {
 		return nil, err
@@ -242,6 +252,23 @@ func (c *client) notePackages(packageMap map[string]*packages.Package) {
 	}
 }
 
+// treeAuthNames lists the auth packages in the application's tree by name, in name
+// order, by the rule impulse check finds an auth package by (apptree.AuthPackages): a
+// package directly under an auth directory that constructs a session Auth. The tree is
+// read once a run. A generator with no module root reads none.
+func (c *client) treeAuthNames() ([]string, error) {
+	if c.moduleRoot == "" || c.treeAuthsRead {
+		return c.treeAuths, nil
+	}
+	names, err := apptree.AuthPackages(c.moduleRoot)
+	if err != nil {
+		return nil, errors.Wrap(err, "apptree.AuthPackages()")
+	}
+	c.treeAuths, c.treeAuthsRead = names, true
+
+	return names, nil
+}
+
 // leaves is the run's leaf resolver: the built-in table and the @typescript
 // declarations, read from the loaded packages and, for a type declared elsewhere, from
 // its package on first sight.
@@ -304,11 +331,12 @@ func (c *client) hasRPCMethods() bool {
 }
 
 // hasRPCMethodWithTarget reports whether a method runs against a row (@target, a
-// transition's target included): its metadata names the row's resource, so the methods
-// file imports the resource names.
+// transition's target included) or, naming no row, is offered on the rows of resources
+// (@callerEnters(Row, ...)): its metadata names the rows' resources, so the methods file
+// imports the resource names.
 func (c *client) hasRPCMethodWithTarget() bool {
 	for _, rpcMethod := range c.rpcMethods {
-		if rpcMethod.Target != nil {
+		if rpcMethod.Target != nil || len(rpcMethod.OfferedOn) != 0 {
 			return true
 		}
 	}
@@ -449,12 +477,11 @@ func (t *tableMetadata) addSchemaResult(result *informationSchemaResult) {
 		if result.ReferencedColumn != nil {
 			column.ReferencedColumn = *result.ReferencedColumn
 		}
-
-		column.DeleteRule = valueOrEmpty(result.DeleteRule)
 	}
 
 	column.IsNullable = result.IsNullable
 	column.HasDefault = result.HasDefault
+	column.Default = valueOrEmpty(result.ColumnDefault)
 	column.SpannerType = result.SpannerType
 	column.GenerationExpression = valueOrEmpty(result.GenerationExpression)
 
@@ -487,6 +514,28 @@ func (t *tableMetadata) addIndexResult(result *indexSchemaResult) {
 		Column:     result.ColumnName,
 		Descending: result.ColumnOrdering != nil && *result.ColumnOrdering == descendingOrdering,
 	})
+}
+
+// addForeignKeyResult folds one row of the foreign key query into the table's foreign
+// keys: rows arrive grouped by constraint, its columns in constraint order.
+func (t *tableMetadata) addForeignKeyResult(result *foreignKeySchemaResult) {
+	if len(t.ForeignKeys) == 0 || t.ForeignKeys[len(t.ForeignKeys)-1].Name != result.ConstraintName {
+		t.ForeignKeys = append(t.ForeignKeys, foreignKeyMeta{
+			Name:            result.ConstraintName,
+			ReferencedTable: valueOrEmpty(result.ReferencedTable),
+			DeleteRule:      valueOrEmpty(result.DeleteRule),
+		})
+	}
+
+	foreignKey := &t.ForeignKeys[len(t.ForeignKeys)-1]
+	foreignKey.Columns = append(foreignKey.Columns, result.ColumnName)
+	if result.ReferencedColumn == nil {
+		// A column with no match leaves the constraint unresolved as a whole.
+		foreignKey.ReferencedTable = ""
+
+		return
+	}
+	foreignKey.ReferencedColumns = append(foreignKey.ReferencedColumns, *result.ReferencedColumn)
 }
 
 // deriveIndexFlags sets the per-column index flags from the index composition. A
@@ -528,6 +577,142 @@ func (t *tableMetadata) deriveIndexFlags() {
 	}
 }
 
+// deriveColumnReferences sets the table and column a column references, for every column
+// that a foreign key of its table holds. The column query answers, for each column, the
+// largest table name and the largest column name among everything the column leads to,
+// each taken on its own, and one step on: exact where a column leads to one table and
+// column, but for a tenant column in a key of its own and in keys of two columns, or
+// carried in a key of two columns to such a column, a table and a column that may not
+// belong together. Each column is read from the whole foreign keys alone
+// (columnReference), never from another column's reference, so the order the tables are
+// visited in changes nothing. Only foreign keys the read matched column by column count:
+// a column no such key holds keeps what the query read. Like the index flags, it runs on
+// every read and every cache load, so a cache an earlier generator wrote cannot carry the
+// query's answer.
+func deriveColumnReferences(tableMap map[string]*tableMetadata) {
+	for name, table := range tableMap {
+		for column, meta := range table.Columns {
+			if len(table.resolvedKeysHolding(column)) == 0 {
+				continue
+			}
+			meta.ReferencedTable, meta.ReferencedColumn = columnReference(tableMap, name, column)
+			table.Columns[column] = meta
+		}
+	}
+}
+
+// tableColumn is one column of one table.
+type tableColumn struct {
+	table, column string
+}
+
+// columnReference is the table and column that a column of the named table references,
+// read from its foreign keys. The column reads its own foreign key (ownReference). Where
+// the column that key names is only carried along in foreign keys of several columns, the
+// read goes on through that column's own key, however many tables it is carried through,
+// and stops where a table and column come round again. Then, where the column it has
+// reached is held by a foreign key of its table, one step on, as the query goes, and never
+// two. A column whose every foreign key pairs it with itself references nothing. The
+// column is held by at least one resolved foreign key.
+func columnReference(tableMap map[string]*tableMetadata, name, column string) (referencedTable, referencedColumn string) {
+	if tableMap[name].pairsOnlyWithItself(name, column) {
+		return "", ""
+	}
+	referencedTable, referencedColumn = tableMap[name].ownReference(name, column)
+	seen := map[tableColumn]bool{{name, column}: true}
+	for {
+		next, ok := tableMap[referencedTable]
+		if !ok || !next.onlyCarried(referencedColumn) {
+			break
+		}
+		seen[tableColumn{referencedTable, referencedColumn}] = true
+		carriedTable, carriedColumn := next.ownReference(referencedTable, referencedColumn)
+		if seen[tableColumn{carriedTable, carriedColumn}] {
+			return referencedTable, referencedColumn
+		}
+		referencedTable, referencedColumn = carriedTable, carriedColumn
+	}
+	if next, ok := tableMap[referencedTable]; ok && len(next.resolvedKeysHolding(referencedColumn)) > 0 {
+		referencedTable, referencedColumn = next.ownReference(referencedTable, referencedColumn)
+	}
+
+	return referencedTable, referencedColumn
+}
+
+// heldColumn is one foreign key that holds a column, with the column's position in it.
+type heldColumn struct {
+	key      *foreignKeyMeta
+	position int
+}
+
+// pairsWithItself reports whether the foreign key, one of the named table's, pairs the
+// column it holds with that same column: a key to the table's own rows that leads back to
+// the column.
+func (h heldColumn) pairsWithItself(table string) bool {
+	return h.key.ReferencedTable == table && h.key.ReferencedColumns[h.position] == h.key.Columns[h.position]
+}
+
+// resolvedKeysHolding is the table's foreign keys that hold the column and that the read
+// matched column by column: each names a referenced table and as many referenced columns
+// as it has columns.
+func (t *tableMetadata) resolvedKeysHolding(column string) []heldColumn {
+	var held []heldColumn
+	for i := range t.ForeignKeys {
+		key := &t.ForeignKeys[i]
+		if key.ReferencedTable == "" || len(key.ReferencedColumns) != len(key.Columns) {
+			continue
+		}
+		if position := slices.Index(key.Columns, column); position >= 0 {
+			held = append(held, heldColumn{key: key, position: position})
+		}
+	}
+
+	return held
+}
+
+// pairsOnlyWithItself reports whether every resolved foreign key of the named table that
+// holds the column pairs it with itself.
+func (t *tableMetadata) pairsOnlyWithItself(name, column string) bool {
+	return !slices.ContainsFunc(t.resolvedKeysHolding(column), func(h heldColumn) bool {
+		return !h.pairsWithItself(name)
+	})
+}
+
+// onlyCarried reports whether the column is held by resolved foreign keys of the table and
+// every one of them has several columns: the column is carried along beside others, with
+// no foreign key of its own.
+func (t *tableMetadata) onlyCarried(column string) bool {
+	held := t.resolvedKeysHolding(column)
+
+	return len(held) > 0 && !slices.ContainsFunc(held, func(h heldColumn) bool {
+		return len(h.key.Columns) == 1
+	})
+}
+
+// ownReference is the table and column that a column of the named table references by
+// its own foreign key: among the table's resolved foreign keys that hold it, the one with
+// the fewest columns, the first by name among equals. A key that pairs the column with
+// itself is passed over when another holds the column, since it leads back to the column.
+// The column is held by at least one resolved foreign key.
+func (t *tableMetadata) ownReference(name, column string) (referencedTable, referencedColumn string) {
+	held := t.resolvedKeysHolding(column)
+	others := slices.DeleteFunc(slices.Clone(held), func(h heldColumn) bool {
+		return h.pairsWithItself(name)
+	})
+	if len(others) > 0 {
+		held = others
+	}
+	own := slices.MinFunc(held, func(a, b heldColumn) int {
+		if byLength := cmp.Compare(len(a.key.Columns), len(b.key.Columns)); byLength != 0 {
+			return byLength
+		}
+
+		return strings.Compare(a.key.Name, b.key.Name)
+	})
+
+	return own.key.ReferencedTable, own.key.ReferencedColumns[own.position]
+}
+
 func (c *client) tableMetadataFor(resourceName string) (*tableMetadata, error) {
 	table, ok := c.tableMap[c.pluralize(resourceName)]
 	if !ok {
@@ -566,8 +751,10 @@ func (c *client) templateFuncs() map[string]any {
 		"PermissionConstant":      permissionConstant,
 		"ScopeConstant":           scopeConstant,
 		"MaskingConstant":         maskingConstant,
+		"ClassConstant":           classConstantName,
 		"BindingHops":             bindingHopsLiteral,
 		"SubjectParts":            subjectPartsLiteral,
+		"SubjectDomain":           subjectDomainLiteral,
 		// The feature flag routes under an outlet's prefix and the read route's
 		// parameter, from the resource package's constants, so the routes, the router
 		// tests and the TypeScript descriptor spell them once.
@@ -579,6 +766,9 @@ func (c *client) templateFuncs() map[string]any {
 		},
 		"SetFeatureRoute": func() string {
 			return resource.SetFeatureRoute
+		},
+		"FeatureFlagChangesRoute": func() string {
+			return resource.FeatureFlagChangesRoute
 		},
 		// The header a request asks a method's warning with, from the resource package's
 		// constant, so the frames' refusal spells it as the frame reads it.
@@ -661,6 +851,17 @@ func subjectPartsLiteral(who []resource.SubjectWhoData, where *resource.SubjectW
 	}
 
 	return b.String()
+}
+
+// subjectDomainLiteral renders a subject set's own way to a row's tenant as the
+// trailing Domain field of its SubjectBindingData literal. A set that names none
+// renders nothing, so its literal is the one it has always had.
+func subjectDomainLiteral(domain *resource.DomainBindingData) string {
+	if domain == nil {
+		return ""
+	}
+
+	return fmt.Sprintf(", Domain: &resource.DomainBindingData{Column: %q%s}", domain.Column, bindingHopsLiteral(domain.Path))
 }
 
 // permissionConstant renders a permission as its accesstypes constant when one exists,

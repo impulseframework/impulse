@@ -11,6 +11,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -20,6 +21,105 @@ func (Client) Resource() accesstypes.Resource {
 
 func (Client) DefaultConfig() resource.Config {
 	return defaultConfig()
+}
+
+// DeleteTree describes what a delete of a Client takes with it and what refuses
+// it (@deleteCascade). The kinds taken are in the order their rows are deleted, deepest
+// first, each with its ways up to the Client and what the delete of one of its
+// rows costs. The kinds under Under are the ones with a row directly under a Client
+// that the database does not remove with it.
+func (Client) DeleteTree() *resource.DeleteTree {
+	return &resource.DeleteTree{
+		Record: "Clients",
+		Words:  resource.DeleteWords{One: "client", Many: "clients"},
+		Key:    []string{"Id"},
+		Cost:   resource.DeleteCost{IndexEntries: 2, Files: 0},
+		Taken: []resource.DeleteKind{
+			{
+				Resource: "ClientContacts",
+				Words:    resource.DeleteWords{One: "client contact", Many: "client contacts"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 3, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"ClientId"}, Table: "Clients", References: []string{"Id"}},
+					},
+				},
+				Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[ClientContact], caller *resource.Caller) {
+					patch := &ClientContactDeletePatch{patchSet: patchSet}
+					if !caller.IsZero() {
+						patch.Enforce(caller)
+						patchSet.RegisterDeleteCheckFunc(func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+							return RefuseImpersonatorAsClientContactSubject(ctx, txn, resource.OperationDelete, patchSet.PrimaryKey(), patchSet)
+						})
+					}
+				}),
+			},
+		},
+		RefusedBy: []resource.DeleteKind{
+			{
+				Resource: "Missions",
+				Words:    resource.DeleteWords{One: "mission", Many: "missions"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 10, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"ClientId"}, Table: "Clients", References: []string{"Id"}},
+					},
+				},
+			},
+			{
+				Resource: "Consignments",
+				Words:    resource.DeleteWords{One: "consignment", Many: "consignments"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 4, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"ClientId"}, Table: "Clients", References: []string{"Id"}},
+					},
+				},
+			},
+		},
+		Under: []resource.DeleteKind{
+			{
+				Resource: "ClientContacts",
+				Words:    resource.DeleteWords{One: "client contact", Many: "client contacts"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 3, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"ClientId"}, Table: "Clients", References: []string{"Id"}},
+					},
+				},
+			},
+			{
+				Resource: "Consignments",
+				Words:    resource.DeleteWords{One: "consignment", Many: "consignments"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 4, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"ClientId"}, Table: "Clients", References: []string{"Id"}},
+					},
+				},
+			},
+			{
+				Resource: "Missions",
+				Words:    resource.DeleteWords{One: "mission", Many: "missions"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 10, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"ClientId"}, Table: "Clients", References: []string{"Id"}},
+					},
+				},
+			},
+		},
+	}
 }
 
 // SearchBranches names the child text the resource's search box also searches
@@ -464,11 +564,11 @@ func (p *ClientCreatePatch) ToStruct() *Client {
 	return p.patchSet.ToStruct()
 }
 
-func (p *ClientCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *ClientCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *ClientCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *ClientCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -616,11 +716,11 @@ func (p *ClientUpdatePatch) ToStruct() *Client {
 	return p.patchSet.ToStruct()
 }
 
-func (p *ClientUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *ClientUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *ClientUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *ClientUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -778,11 +878,54 @@ func NewClientDeletePatch(id impulse.UUID) *ClientDeletePatch {
 	return &ClientDeletePatch{patchSet: patchSet}
 }
 
-func (p *ClientDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+// WithEverythingUnder says the delete takes the rows under the Client with it:
+// every row of the kinds its @deleteCascade lists as taken, each deleted as its own
+// delete would delete it. It takes the kinds handed to the delete as well (DeleteAlso).
+// Without it, a delete of a Client that has such rows
+// deletes nothing and is answered with the question a person is asked first
+// (httpio.HasPreconditionRequired). Where the rows cost more than one save takes, the
+// delete takes what fits, deepest first, and Left answers the rows that save deleted:
+// buffer the delete again, in a transaction of its own, until Left answers nil.
+// It is for code that deletes outside a request, and every save of such a delete asks
+// everything again before it takes a row: a request's delete goes on the token its
+// question gave (WithDeleteToken).
+func (p *ClientDeletePatch) WithEverythingUnder() *ClientDeletePatch {
+	p.patchSet.DeleteEverythingUnder()
+
+	return p
+}
+
+// WithDeleteToken says the delete takes the rows under the Client on the token
+// its question gave (resource.PatchSet.DeleteWithToken): it takes them only where the
+// token holds, and is answered with the question again where it does not.
+func (p *ClientDeletePatch) WithDeleteToken(token string) *ClientDeletePatch {
+	p.patchSet.DeleteWithToken(token)
+
+	return p
+}
+
+// Left is what the delete says once it is buffered (resource.DeleteLeft): the rows the
+// save deleted where rows are left under the Client, which stands until a save
+// takes the last of them; nil where the delete finished, the Client with it.
+func (p *ClientDeletePatch) Left() *resource.DeleteLeft {
+	return p.patchSet.DeleteLeft()
+}
+
+// DeleteAlso hands the delete kinds of row it takes with the Client that its
+// description does not list (resource.TakenKind): the question counts them, the check
+// before the delete asks them, and each round takes what fits of them after the kinds
+// the description lists and before the Client.
+func (p *ClientDeletePatch) DeleteAlso(kinds ...resource.TakenKind) *ClientDeletePatch {
+	p.patchSet.DeleteAlso(kinds...)
+
+	return p
+}
+
+func (p *ClientDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *ClientDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *ClientDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

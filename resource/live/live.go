@@ -84,6 +84,12 @@ const (
 	// the header names at once and does nothing when its change set reports the same
 	// write.
 	ChangesHeader = "X-Changes"
+	// NamesHeader is the response header a live list's or row's answer carries when the
+	// request registered, beside its own subscription, the lists the names it shows are
+	// read from (Names): its own subscription as the record keeps it and those lists, as
+	// JSON, percent-encoded as ChangesHeader is. The tab keeps the lists under the
+	// subscription, is told of their changes as of its own, and renews them with it.
+	NamesHeader = "X-Names"
 )
 
 // The principal id: what joins the auth's name to the principal, and how long it may be.

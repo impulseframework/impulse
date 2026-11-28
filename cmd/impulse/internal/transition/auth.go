@@ -1,6 +1,7 @@
 package transition
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -311,8 +312,8 @@ func appMigrationsDir(a *app.App) string {
 const fileScheme = "file://"
 
 // Apply makes the deterministic half: the package, its migrations, its role file, its
-// construction on the data level, and the development environment for its directory
-// methods.
+// construction on the data level, the invitation of its first administrator where it
+// invites one, and the development environment for its directory methods.
 func (au Auth) Apply(ctx context.Context, a *app.App, exec check.Execer) (*Change, error) {
 	if err := au.Validate(a); err != nil {
 		return nil, err
@@ -349,10 +350,18 @@ func (au Auth) Apply(ctx context.Context, a *app.App, exec check.Execer) (*Chang
 	if err := au.writeRoles(a, src, ch); err != nil {
 		return nil, err
 	}
-	if err := au.editConfig(a, src, spec, ch); err != nil {
+	if err := au.editConfig(a, src, spec, outletLoginPage(&outlet.Outlet), ch); err != nil {
 		return nil, err
 	}
+	if authpkg.InvitesAdministrator(spec) {
+		if err := au.inviteAdministrator(a, src, ch); err != nil {
+			return nil, err
+		}
+	}
 	if err := au.bindOutlet(a, outlet, spec, ch); err != nil {
+		return nil, err
+	}
+	if err := au.wire(a, outlet, src, spec, ch); err != nil {
 		return nil, err
 	}
 	if err := au.rebindWeb(a, outlet, src, spec.IdentityDir != "", ch); err != nil {
@@ -460,13 +469,20 @@ func (au Auth) bindOutlet(a *app.App, choice *OutletChoice, spec *authpkg.Spec, 
 		was = fmt.Sprintf("in place of the %s auth's", authName(a, choice.Outlet.Auth.ImportPath))
 	}
 	ch.didf("%s: the %s outlet's declaration names the %s auth with its methods, %s, %s, so the regenerated router mounts the auth's session group under %s: one login route per method, the methods route its login page renders from, and the pending sign-in routes", file, choice.Key, au.Name, declaration, was, prefix)
+	for i := range spec.Methods {
+		// An identity provider declared here carries no words of its own: the brief says
+		// what people read for it and names this file, where its own name goes.
+		if m := &spec.Methods[i]; m.Kind == app.MethodOIDC {
+			ch.didf("%s", wordsLine(file, m))
+		}
+	}
 	switch {
 	case tree == "":
-		ch.skipf("%[1]s: the program generates no management of its auths' people (no generation.GenerateIdentity) and declares another auth beside the %[2]s auth, so the tool adds none: the %[2]s auth is rendered without an identity client, and nothing creates its people, gives them a role or invites an address until the application does. To have it generated, add generation.GenerateIdentity with a tree of the program's own: it generates the management of every auth the program declares, and each auth's package builds its client from that tree in New, as an auth the tool renders for such a program does", file, au.Name)
+		ch.skipf("%[1]s: the program generates no management of its auths' people (no generation.GenerateIdentity) and declares another auth beside the %[2]s auth, so the tool adds none: the %[2]s auth is rendered without an identity client, and nothing creates its people, gives them a role or invites an address until the application does; impulse check refuses an auth whose roles the application gives while it builds no identity client (first-administrator). To have it generated, add generation.GenerateIdentity with a tree of the program's own: it generates the management of every auth the program declares, and each auth's package builds its client from that tree in New, as an auth the tool renders for such a program does", file, au.Name)
 	case site.Generator.IdentityDir() == "":
 		ch.didf("%[1]s: generation.GenerateIdentity(%[2]q) added: the program generated no management, and the %[3]s auth is the only auth it declares, so the management of the auth's people is generated into %[2]s and the auth's package builds its identity client from it", file, tree, au.Name)
 	}
-	if tree != "" {
+	if tree != "" && !site.GeneratedRouter {
 		ch.skipf("%[1]s: the program generates each auth's management (GenerateIdentity(%[2]q)), so the regeneration writes the %[3]s auth's packages under %[2]s and the generated contract asks the handlers for %[4]sIdentity() *%[3]sidentity.Client, which the tool does not write. The auth builds its client when it opens (%[3]s.Auth.Identity(), with the hooks a sign-in gives roles through set in New): hand it to the App through the Configurer, and add the accessor where the App is declared and on every test configurer; the application does not compile until it holds", file, tree, au.Name, au.Pascal())
 	}
 	noteIdentityRetired(a, site, choice.Outlet.Name, ch)
@@ -508,7 +524,9 @@ func modulePath(a *app.App) string {
 // reader the data level hands in (the settings copied from the source auth carry it),
 // admitting a person who holds no tenant where the auth's people create a tenant of
 // their own (admitWithoutTenant): a person who signs up through a method an
-// administrator opened signs in first and creates one. Nil for a site without tenants.
+// administrator opened signs in first and creates one. The policy says whether the
+// application has tenant directories, which decides whether the auth carries the
+// directory reader and sets the directory admission. Nil for a site without tenants.
 func tenantPolicy(a *app.App, site *app.Site, admitWithoutTenant bool) *authpkg.TenantPolicy {
 	if !site.Tenanted() {
 		return nil
@@ -518,8 +536,20 @@ func tenantPolicy(a *app.App, site *app.Site, admitWithoutTenant bool) *authpkg.
 	return &authpkg.TenantPolicy{
 		Record:             record,
 		Reader:             packageNameOf(a, site.Generator.HandlersDir()) + ".New" + record + "DeclarationReader",
+		Directories:        hasTenantDirectories(a),
 		AdmitWithoutTenant: admitWithoutTenant,
 	}
+}
+
+// hasTenantDirectories reports whether the application's tenants can have directories:
+// some site's resource package declares a directories record (@tenantDirectory). It is
+// asked of the application and not of one site, as impulse audit asks it: a site that
+// declares the tenant record another site serves declares no directories record of its
+// own, and its auths carry that site's readers all the same.
+func hasTenantDirectories(a *app.App) bool {
+	profile := a.Profile()
+
+	return slices.ContainsFunc(profile.Sites, func(site app.Site) bool { return site.Directories != nil })
 }
 
 // servesTenantRecord reports whether the site's tenant record is served on the outlet:
@@ -580,37 +610,15 @@ func (au Auth) writePackage(a *app.App, src *authSource, spec *authpkg.Spec, ch 
 		}
 	}
 	ch.didf("%s: the %s auth package (%s), rendered from the skeleton's auth source: the Auth session over tables prefixed %s, the %s permission store, and the methods %s, each in its own file%s", dir, au.Name, strings.Join(authpkg.FileNames(spec), ", "), au.Pascal(), au.Name, strings.Join(described, ", "), rule)
-	switch authpkg.Foothold(spec) {
-	case authpkg.FootholdPassword:
-		ch.skipf("%s/foothold.go: the first administrator the migrate command seeds while the auth's users table holds no rows, a user named administrator with a generated password; author AdministratorRoles (the roles whose holder can give a role back) and FirstAdministratorRoles (what the first administrator is seeded with) with the role file, declare the password in the data level (%s, secret:\"generated\") and seed it from pkg/deploy SeedAdministrators", dir, au.variable("ADMINISTRATOR_PASSWORD"))
-	case authpkg.FootholdMembership:
-		ch.skipf("%s/foothold.go: the first administrator the migrate command seeds while the auth's users table holds no rows, a password-less user under the sign-in name the placement names, holding the first administrator's roles, %s; author AdministratorRoles (the roles whose holder can give a role back) and FirstAdministratorRoles (what the first administrator is seeded with) with the role file, declare the name in the data level (%s) and seed it from pkg/deploy SeedAdministrators", dir, footholdLink(spec), au.variable("ADMINISTRATOR"))
+	switch {
+	case authpkg.InvitesAdministrator(spec):
+		variable := authpkg.AdministratorVariable(au.Name)
+		ch.skipf("%[1]s/foothold.go: the first administrator the migrate command invites while nobody of the auth holds the Super Administrator role, by an invitation mailed to the address the placement names (%[2]s) that gives the Super Administrator role and the first administrator's roles; no account and no password are made ahead of the person, who signs in from the link by a method of the auth. Author AdministratorRoles (the roles whose holder can give a role back) and FirstAdministratorRoles (what the invitation gives) with the role file", dir, variable)
+	case authpkg.Foothold(spec):
+		ch.skipf("%s/foothold.go: AdministratorRoles, the roles whose holder can give a role back, to author with the role file. The deployment invites no first administrator for the %s auth: the application generates no management of the auth's people, so nothing would give an accepted invitation its roles. impulse check refuses the auth as it stands (first-administrator), since nobody can be invited as its first administrator and an account seeded by hand is refused too: have the program generate the management (generation.GenerateIdentity), build the auth's identity client from it in New, and invite the first administrator as the tool writes foothold.go for such an auth", dir, au.Name)
 	}
 
 	return nil
-}
-
-// footholdLink says, in the note a membership foothold leaves its author, what the first
-// sign-in of the user it seeds does. It links the account where the foothold names the
-// registration the name is believed from (authpkg.FootholdMethod), and where the auth
-// sets no directory admission, so a name links an account created ahead as it always
-// did. Where the application's tenants have directories and the foothold names no
-// registration, the sign-in is refused until the author names one, and the note says so.
-func footholdLink(spec *authpkg.Spec) string {
-	switch method := authpkg.FootholdMethod(spec); {
-	case method != nil:
-		return fmt.Sprintf("seeded for the %s registration (session.SeedUserIDThrough) and linked to by the person's first sign-in through that registration", method.Name)
-	case spec.DirectoryAdmission():
-		return "seeded for no registration and linked to by no sign-in while the application's tenants have directories (a name alone links no account that has never signed in): " +
-			"name the deployment's own directory in seedFoothold (session.SeedUserIDThrough with its registration's constant) or give the auth a password method and seed the administrator with a password, which impulse check holds the application to (first-administrator)"
-	default:
-		return "which the person's first sign-in links to"
-	}
-}
-
-// variable is a setting of the auth under the convention APP_<AUTH>_<SUFFIX>.
-func (au Auth) variable(suffix string) string {
-	return "APP_" + strings.ToUpper(strings.ReplaceAll(au.Name, "-", "_")) + "_" + suffix
 }
 
 // writeMigrations writes the auth's tables: the Auth session tables rendered under the
@@ -698,7 +706,7 @@ func createsPrefixed(data []byte, prefix string) bool {
 var createTableRE = regexp.MustCompile("(?i)CREATE\\s+TABLE\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?`?([A-Za-z_][A-Za-z0-9_]*)`?")
 
 // writeRoles writes the auth's role file, empty, in the package: the file its Roles()
-// embeds.
+// embeds, carrying the auth's name, the name the package hands it over under.
 func (au Auth) writeRoles(a *app.App, src *authSource, ch *Change) error {
 	rel := path.Join(src.AuthDir, au.Name, app.RolesFileName)
 	if _, err := os.Stat(a.Abs(rel)); err == nil {
@@ -706,7 +714,7 @@ func (au Auth) writeRoles(a *app.App, src *authSource, ch *Change) error {
 
 		return nil
 	}
-	if err := writeNew(a, rel, "{\n  \"roles\": {\n    \"global\": [],\n    \"domain\": []\n  }\n}\n"); err != nil {
+	if err := writeNew(a, rel, fmt.Sprintf("{\n  \"auth\": %q,\n  \"roles\": {\n    \"global\": [],\n    \"domain\": []\n  }\n}\n", au.Name)); err != nil {
 		return err
 	}
 	ch.didf("%s: the %s auth's role file, empty: author its roles when its surfaces are bound", rel, au.Name)
@@ -718,7 +726,7 @@ func (au Auth) writeRoles(a *app.App, src *authSource, ch *Change) error {
 // field, the construction before the return, and the literal element. An accessor goes
 // in a new file. Each directory method's settings are read from the environment under
 // the registration's variables.
-func (au Auth) editConfig(a *app.App, src *authSource, spec *authpkg.Spec, ch *Change) error {
+func (au Auth) editConfig(a *app.App, src *authSource, spec *authpkg.Spec, page string, ch *Change) error {
 	rel, data, mode, err := findDeclaringFile(a, "DataConfiguration")
 	if err != nil {
 		return err
@@ -743,7 +751,7 @@ func (au Auth) editConfig(a *app.App, src *authSource, spec *authpkg.Spec, ch *C
 		ch.skipf("%s: NewDataConfiguration constructs no %s.New(...) to copy, so the %s auth is declared on DataConfiguration but not constructed; construct it beside the %s auth and set the field", rel, src.Name, au.Name, src.Name)
 	} else {
 		statements := strings.ReplaceAll(strings.ReplaceAll(srcVar.statement, src.Name+".", au.Name+"."), srcVar.name, au.Name+"Auth")
-		statements, settings, edited, err = au.copySettings(rel, edited, src, statements, spec, ch)
+		statements, settings, edited, err = au.copySettings(rel, edited, src, statements, spec, page, ch)
 		if err != nil {
 			return err
 		}
@@ -788,7 +796,7 @@ func (c *DataConfiguration) %[3]s() *%[4]s.Auth {
 	ch.didf("%s: the %s auth constructed on DataConfiguration beside the %s auth (field, construction, import)%s; %s: its accessor %s()", rel, au.Name, src.Name, settings, accessor, au.Pascal())
 	ch.skipf("%s: Close releases the %s auth only; release the %s auth too", rel, src.Name, au.Name)
 	if ok {
-		ch.skipf("%s: the %s auth's Mail and MailLoginURL are the %s auth's (the application's one sender, and the %s auth's login page); make MailLoginURL the login page of the %s outlet, the application's public address (APP_PUBLIC_URL) and the outlet's login path, since every link the %s auth mails opens it", rel, au.Name, src.Name, src.Name, au.Outlet, au.Name)
+		au.reportLoginPage(rel, data, edited, src, page, ch)
 	}
 
 	return nil
@@ -822,26 +830,45 @@ func withoutMaker(text string) string {
 	return makerParameterRE.ReplaceAllString(text, ")")
 }
 
+// registrationLoginRE finds the login page a directory sends a person back to in a
+// settings function's Settings literal, an element on a line of its own.
+var registrationLoginRE = regexp.MustCompile(`(?m)^[ \t]*LoginURL:[^\n]*,\n`)
+
+// withoutRegistrations takes the directory registrations of the auth a settings function
+// was copied from out of the copy made for the named auth: the login page, and each
+// registration's settings, an element of the Settings literal that is a literal of its
+// own and closes on a line of its own. They are the source auth's alone. The new auth's
+// Settings have a place for them only where the auth has a directory method, and its own
+// then join the literal (directoryFields), so a copy that kept the source's would not
+// compile, or would name the page twice.
+func withoutRegistrations(text, auth string) string {
+	registration := regexp.MustCompile(`(?m)^[ \t]*\w+:[ \t]*` + regexp.QuoteMeta(auth) + `\.\w+Settings\{\n(?:[^\n]*\n)*?[ \t]*\},\n`)
+
+	return registration.ReplaceAllString(registrationLoginRE.ReplaceAllString(text, ""), "")
+}
+
 // envVarRE finds the data level's environment struct: the variable envconfig fills.
 var envVarRE = regexp.MustCompile(`(?m)^\s*env := &(\w+)\{\}`)
 
 // copySettings gives the copied construction the new auth's settings. A construction
 // reading the source auth's settings from its settings function on the environment
 // struct (env.<src>Settings(...), the skeleton's shape) has the call renamed, and the
-// function copied for the new auth after the source auth's, under the new auth's name;
+// function copied for the new auth after the source auth's, under the new auth's name
+// and without the source auth's directory registrations (withoutRegistrations);
 // a construction carrying the Settings literal inline (an application composed before
 // the function) keeps the literal in the copy. The directory methods' settings then go
 // where the literal is. The source auth's maker of an invited tenant stays behind unless
 // a tenant is made through the new auth too (withoutMaker). It returns the
 // construction, the words the did line names the settings by, and the file.
-func (au Auth) copySettings(rel string, edited []byte, src *authSource, statements string, spec *authpkg.Spec, ch *Change) (construction, settings string, file []byte, err error) {
+func (au Auth) copySettings(rel string, edited []byte, src *authSource, statements string, spec *authpkg.Spec, page string, ch *Change) (construction, settings string, file []byte, err error) {
+	statements = withLoginPage(statements, page)
 	makes := spec.MakesTenants()
 	if !makes {
 		statements = withoutMaker(statements)
 	}
 	call := regexp.MustCompile(`\b(\w+)\.` + regexp.QuoteMeta(src.Name) + `Settings\(`).FindStringSubmatch(statements)
 	if call == nil {
-		statements, edited, err = au.methodSettings(rel, edited, statements, spec, ch)
+		statements, edited, err = au.methodSettings(rel, edited, statements, spec, page, ch)
 		if err != nil {
 			return "", "", nil, err
 		}
@@ -863,12 +890,12 @@ func (au Auth) copySettings(rel string, edited []byte, src *authSource, statemen
 			text = withoutMaker(text)
 		}
 
-		return text
+		return withLoginPage(withoutRegistrations(text, au.Name), page)
 	})
 	if err != nil {
 		return "", "", nil, err
 	}
-	fields, edited, err := au.directoryFields(rel, edited, structName, spec, ch)
+	fields, edited, err := au.directoryFields(rel, edited, structName, spec, page, ch)
 	if err != nil {
 		return "", "", nil, err
 	}
@@ -887,7 +914,7 @@ func (au Auth) copySettings(rel string, edited []byte, src *authSource, statemen
 // literal per directory method, and the environment struct gains each method's
 // variables. Without an environment struct to read them from, the registrations are
 // left to the agent.
-func (au Auth) methodSettings(rel string, edited []byte, statements string, spec *authpkg.Spec, ch *Change) (extended string, file []byte, err error) {
+func (au Auth) methodSettings(rel string, edited []byte, statements string, spec *authpkg.Spec, page string, ch *Change) (extended string, file []byte, err error) {
 	if !au.directory() {
 		return statements, edited, nil
 	}
@@ -909,7 +936,7 @@ func (au Auth) methodSettings(rel string, edited []byte, statements string, spec
 	} else {
 		ch.skipf("%s: no environment struct (env := &T{}) to add the %s auth's registration variables to; read them and pass them in %s.Settings", rel, au.Name, au.Name)
 	}
-	added, edited, err := au.directoryFields(rel, edited, structName, spec, ch)
+	added, edited, err := au.directoryFields(rel, edited, structName, spec, page, ch)
 	if err != nil {
 		return "", nil, err
 	}
@@ -919,16 +946,72 @@ func (au Auth) methodSettings(rel string, edited []byte, statements string, spec
 	return strings.Replace(statements, m[0], literal, 1), edited, nil
 }
 
+// The login pages a Settings literal names: the page every link the auth mails opens, as
+// the path the application's public address is joined with, and the page a directory
+// method returns a person to.
+var (
+	mailLoginRE     = regexp.MustCompile(`(\bMailLoginURL:[^\n"]*")[^"\n]*(")`)
+	settingsLoginRE = regexp.MustCompile(`(\bLoginURL:\s*")[^"\n]*(")`)
+)
+
+// outletLoginPage is the login page of the browser application the outlet serves, as the
+// login-pages check reads it: /login at the root, <mount>/login elsewhere. It is empty
+// where the outlet serves no browser application.
+func outletLoginPage(o *app.Outlet) string {
+	if o.WebApp == "" {
+		return ""
+	}
+
+	return path.Join("/", o.WebApp, "login")
+}
+
+// withLoginPage is settings copied from the first auth with the added auth's login page
+// in the place of the first auth's: the page of the outlet the auth is bound to, which
+// is where its people sign in and where a mailed link must open. With no page the
+// settings come back as they are.
+func withLoginPage(text, page string) string {
+	if page == "" {
+		return text
+	}
+	text = mailLoginRE.ReplaceAllString(text, "${1}"+page+"${2}")
+
+	return settingsLoginRE.ReplaceAllString(text, "${1}"+page+"${2}")
+}
+
+// reportLoginPage says where the links the added auth mails open. Where the outlet
+// serves a browser application the copied settings name its login page, and the change
+// says so. Where they do not, because the outlet serves none or the copied settings name
+// no page, the line leads what is left: the invitation the next release mails to the
+// auth's first administrator opens the first auth's login page, which refuses it, until
+// the setting names the page that signs the auth's people in.
+func (au Auth) reportLoginPage(rel string, before, after []byte, src *authSource, page string, ch *Change) {
+	quoted := []byte(`"` + page + `"`)
+	if page != "" && bytes.Count(after, quoted) > bytes.Count(before, quoted) {
+		ch.didf("%s: the %s auth's MailLoginURL is the %s outlet's login page (the application's public address, APP_PUBLIC_URL, and %s), so every link the auth mails opens where its people sign in; its Mail is the application's one sender, as the %s auth's is", rel, au.Name, au.Outlet, page, src.Name)
+
+		return
+	}
+	why := fmt.Sprintf("the %s outlet serves no browser application, so the auth has no login page of its own", au.Outlet)
+	if page != "" {
+		why = fmt.Sprintf("the settings copied from the %s auth name no MailLoginURL to point at the %s outlet's login page (%s)", src.Name, au.Outlet, page)
+	}
+	line := fmt.Sprintf("%[1]s: the %[2]s auth's Mail and MailLoginURL are the %[3]s auth's (the application's one sender, and the %[3]s auth's login page): %[4]s. Set MailLoginURL in the %[2]s auth's settings (%[2]s.Settings.MailLoginURL) before the next release: the invitation that release mails to the auth's first administrator will not open until the setting names the page that signs the %[2]s auth's people in, the application's public address (APP_PUBLIC_URL) and that page's path", rel, au.Name, src.Name, why)
+	ch.Skipped = append([]string{line}, ch.Skipped...)
+}
+
 // directoryFields reads the auth's directory methods' settings from the environment:
 // the environment struct gains each method's variables, and the returned elements are
 // the login page and one settings literal per method, for the auth's Settings literal.
 // An auth with no directory method takes none; without an environment struct
 // (structName empty) the login page alone.
-func (au Auth) directoryFields(rel string, edited []byte, structName string, spec *authpkg.Spec, ch *Change) (fields []string, file []byte, err error) {
+func (au Auth) directoryFields(rel string, edited []byte, structName string, spec *authpkg.Spec, page string, ch *Change) (fields []string, file []byte, err error) {
 	if !au.directory() {
 		return nil, edited, nil
 	}
-	fields = []string{`LoginURL: "/login"`}
+	if page == "" {
+		page = "/login"
+	}
+	fields = []string{fmt.Sprintf("LoginURL: %q", page)}
 	if structName == "" {
 		return fields, edited, nil
 	}
@@ -985,7 +1068,7 @@ func (au Auth) Meaning() string {
 	fmt.Fprintf(&b, "An auth is a population that holds roles in its own permission store and signs in through the methods registered on its Auth session, and it is a package: `pkg/auth/%[1]s` owns the %[1]s session manager (one `session.Auth` over the tables `%[2]sSessions`, `%[2]sSessionUsers`, `%[2]sSessionIdentities`, `%[2]sSessionAuthEvents`, `%[2]sSessionPendingSignIns`, `%[2]sSessionSignInAttempts`, `%[2]sSessionSignInMethods` and `%[2]sSessionMailLinks`; cookie `%[1]s`), the %[1]s permission store (tables prefixed `%[2]s`), and the role file `pkg/auth/%[1]s/roles.json`, embedded in the package and handed to the permission engine as the release's default roles (`access.WithDefaultRoles`). The engine signals its policy writes to the application's other instances through the live service (`access.WithChangeSignal` over `resource.KindPolicy`, built by the package's `announcePolicy` and `watchPolicy` from the `Settings.Signals` the data level passes), which the `change-signal` check holds every engine to. Its methods, each in its own file named for the registration: %[3]s. A person in two auths is two unrelated principals. The data level now constructs it beside the other auths%[4]s.\n\n", au.Name, au.Pascal(), strings.Join(listed, "; "), au.registrationNote())
 	b.WriteString("Left to wire:\n\n")
 	items := []string{
-		fmt.Sprintf("Serve it from the %[3]s outlet. The outlet's declaration now names the auth with its methods (`generation.Auth(\"<module>/pkg/auth/%[1]s\", %[2]s)` on its `WithRouterOutlet`, or on `GenerateRoutes` for the default outlet), so the regenerated router mounts the %[1]s auth's session group under the outlet's prefix with one login route per method (`user/<registration>/login`, the callback and front-channel logout of a directory method, the password method's `user/password/login`), the methods route the login page renders from (`user/methods`), the pending sign-in routes, the invitation routes (`user/invitation`, which the login page opens a mailed invitation through) and the address routes (`user/email`), and with two auths declared binds the group's requests to the auth (`BindAuth(%[1]s.Name)`, which the App implements over `pkg/auth.Bind` as the reference's does) so permission checks and tenant visibility answer from the %[1]s store. Give the App what the generated `Handlers` now requires: for an additional outlet a `<Outlet>()` method returning the %[1]s auth's `*%[1]s.Handlers`, in place of the one returning the auth the outlet served before; the default outlet's session surface is the App's embedded `*<auth>.Handlers`. The outlet's web app names the auth's XSRF cookie, `%[1]s.XSRFCookie` (`%[1]s-xsrf`), in its HttpClient configuration (`withXsrfConfiguration`), since the browser echoes that cookie in the X-XSRF-TOKEN header, and its login page renders from the methods route. %[4]s Under a hand-written router the declaration carries no Auth to point, and the skipped list above says to mount the group in the router.", au.Name, strings.Join(declarations, ", "), au.Outlet, webPlan(au.Outlet)),
+		fmt.Sprintf("Serve it from the %[3]s outlet. The outlet's declaration now names the auth with its methods (`generation.Auth(\"<module>/pkg/auth/%[1]s\", %[2]s)` on its `WithRouterOutlet`, or on `GenerateRoutes` for the default outlet), so the regenerated router mounts the %[1]s auth's session group under the outlet's prefix with one login route per method (`user/<registration>/login`, the callback and front-channel logout of a directory method, the password method's `user/password/login`), the methods route the login page renders from (`user/methods`), the pending sign-in routes, the invitation routes (`user/invitation`, which the login page opens a mailed invitation through) and the address routes (`user/email`), and with two auths declared binds the group's requests to the auth (`resource.BindAuth(%[1]s.Name)`) so permission checks and tenant visibility answer from the %[1]s store, and the library refuses a request asked of another auth's permission engine. The command gives the App what the generated `Handlers` and the generated contract now require, where the App is the base's: the Configurer hands it the %[1]s auth and the auth's identity client, the App holds the auth's session handlers, its identity client and its permission engine and answers a session's permissions from the engine of the auth the request came through, an additional outlet's `<Outlet>()` returns the %[1]s auth's `*%[1]s.Handlers` in place of the handlers of the auth the outlet served before, and every test configurer answers the new accessors (the did lines say what was written, and the skipped lines what an App that is not the base's still needs). The default outlet's session surface is the App's embedded `*<auth>.Handlers`, which stays yours to change. The outlet's web app names the auth's XSRF cookie, `%[1]s.XSRFCookie` (`%[1]s-xsrf`), in its HttpClient configuration (`withXsrfConfiguration`), since the browser echoes that cookie in the X-XSRF-TOKEN header, and its login page renders from the methods route. %[4]s Under a hand-written router the declaration carries no Auth to point, and the skipped list above says to mount the group in the router.", au.Name, strings.Join(declarations, ", "), au.Outlet, webPlan()),
 		fmt.Sprintf("Check its roles. The package hands its role file to the engine when the data level constructs it; call `deploy.CheckRoles` for the %[1]s auth in the bootstrap and the deployment's migrate step, so a deploy prints what the store holds that the release cannot use as written.%[2]s Add the %[1]s auth's row to the roles validation test in `pkg/deploy` (`access.ValidateRoles` over the collection, parsing `%[1]s.Roles()`), its expected warnings empty, so a warning the deploy would print is accepted in code or fixed in the role; `impulse check` warns while the row is missing.", au.Name, au.identitiesNote()),
 		mailItem(au.Name, au.Outlet),
 	}

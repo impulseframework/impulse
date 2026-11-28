@@ -11,8 +11,10 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
+	"github.com/impulseframework/impulse/session/internal/util"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/signin"
 )
@@ -40,11 +42,19 @@ const (
 	conflicts
 	// fails drops the writes and ends the transaction with errCommitFailed.
 	fails
+	// emailConflicts drops the writes and ends the transaction with errEmailConflict, as
+	// the users table refuses an address another account took at the same moment.
+	emailConflicts
+	// lockConflicts drops the writes and ends the transaction with errLockConflict, as
+	// PostgreSQL ends one of two transactions to break their deadlock.
+	lockConflicts
 )
 
 var (
 	errIdentityConflict = errors.New("the identities key is taken")
 	errCommitFailed     = errors.New("the commit failed")
+	errEmailConflict    = errors.New("the address is another user's")
+	errLockConflict     = errors.New("the database ended the transaction to break a deadlock")
 )
 
 // memUser is a user row of the store.
@@ -52,6 +62,12 @@ type memUser struct {
 	username string
 	email    string
 	name     string
+	// confirmed says the person has confirmed the address the row holds.
+	confirmed bool
+	// proof is the proof the row's password answers to, nil for no password, and
+	// disabled says the user is disabled.
+	proof    dbtype.PasswordProof
+	disabled bool
 }
 
 // memStore is the committed state, the steps taken against it, and what the next
@@ -62,16 +78,26 @@ type memStore struct {
 	invitations map[impulse.UUID]bool
 	granted     map[string][]string
 	// methods are the rows of the sign-in methods table, by registration name.
-	methods  map[string]*dbtype.SignInMethod
+	methods map[string]*dbtype.SignInMethod
+	// settings is the row of the sign-in settings table, nil for none: newMemStore's
+	// asks nobody for a second factor, so a sign-in the rules let through gets its
+	// session.
+	settings *dbtype.SignInSettings
+	// audit are the rows of the audit log the transactions committed.
+	audit    []auditlog.Record
 	sessions int
 	steps    []string
 	next     []commitOutcome
+	// meanwhile is what another transaction commits while the next one that ends in a
+	// lock conflict runs, applied as that one ends; nil for nothing.
+	meanwhile func()
 }
 
 func newMemStore() *memStore {
 	return &memStore{
 		users: map[impulse.UUID]*memUser{}, links: map[string]impulse.UUID{}, invitations: map[impulse.UUID]bool{},
 		granted: map[string][]string{}, methods: map[string]*dbtype.SignInMethod{},
+		settings: &dbtype.SignInSettings{RequireSecondFactor: false, RememberBrowserDays: dbtype.DefaultRememberBrowserDays},
 	}
 }
 
@@ -89,14 +115,14 @@ func (s *memStore) invite(email, tenant string, roles ...string) *sessioninfo.In
 }
 
 // userNamed finds a committed user by username.
-func (s *memStore) userNamed(username string) (impulse.UUID, *memUser) {
-	for id, user := range s.users {
+func (s *memStore) userNamed(username string) *memUser {
+	for _, user := range s.users {
 		if user.username == username {
-			return id, user
+			return user
 		}
 	}
 
-	return impulse.NilUUID, nil
+	return nil
 }
 
 // memTx is one run of a transaction's closure: the writes it buffered, applied at the
@@ -117,6 +143,13 @@ func (tx *memTx) buffer(write func()) {
 type memDriver struct {
 	store *memStore
 	runs  int
+	// usernamesAreAddresses says the store's usernames are the addresses
+	// (UsernameIsEmail), false unless a test sets it.
+	usernamesAreAddresses bool
+	// takenBeforeClaim is an address another account takes, committed, right before the
+	// next claim runs, as a write that commits between two statements of an acceptance
+	// does; "" for none.
+	takenBeforeClaim string
 }
 
 var _ Driver[*memTx] = (*memDriver)(nil)
@@ -151,6 +184,18 @@ func (d *memDriver) Transact(ctx context.Context, fn func(ctx context.Context, t
 			d.store.notef("commit failed")
 
 			return errCommitFailed
+		case emailConflicts:
+			d.store.notef("address conflict")
+
+			return errEmailConflict
+		case lockConflicts:
+			d.store.notef("lock conflict")
+			if d.store.meanwhile != nil {
+				d.store.meanwhile()
+				d.store.meanwhile = nil
+			}
+
+			return errLockConflict
 		case commits:
 		}
 		for _, write := range tx.writes {
@@ -192,23 +237,40 @@ func (d *memDriver) UserIn(_ context.Context, _ *memTx, userID impulse.UUID) (*d
 		return nil, httpio.NewNotFoundMessagef("user %s not found", userID)
 	}
 
-	return &dbtype.User{ID: userID, Username: user.username}, nil
+	return &dbtype.User{
+		ID: userID, Username: user.username, HasPassword: user.proof != nil, Disabled: user.disabled, PasswordProof: user.proof,
+		EmailConfirmed: user.confirmed, EmailHeld: user.email != "",
+	}, nil
 }
 
 func (d *memDriver) LockUserIn(ctx context.Context, tx *memTx, userID impulse.UUID) (*dbtype.User, error) {
 	return d.UserIn(ctx, tx, userID)
 }
 
+// UserByUsernameIn finds a committed user more widely than the stores find a username
+// with an @ in it (Unicode's case folding, strings.EqualFold, takes the Kelvin sign for a
+// k), so the flow's own check that a vouched name is the account's is what these cases
+// pin.
 func (d *memDriver) UserByUsernameIn(_ context.Context, _ *memTx, username string) (*dbtype.User, error) {
-	id, user := d.store.userNamed(username)
-	if user == nil {
-		return nil, nil
+	for id, user := range d.store.users {
+		if strings.EqualFold(user.username, username) {
+			return &dbtype.User{ID: id, Username: user.username}, nil
+		}
 	}
 
-	return &dbtype.User{ID: id, Username: user.username}, nil
+	return nil, nil
 }
 
-func (d *memDriver) UserByVerifiedEmailIn(context.Context, *memTx, string) (*dbtype.User, error) {
+// UserByVerifiedEmailIn finds the committed user who holds email confirmed, as the stores
+// match an address: the case of its ASCII letters aside, every other character as
+// written.
+func (d *memDriver) UserByVerifiedEmailIn(_ context.Context, _ *memTx, email string) (*dbtype.User, error) {
+	for id, user := range d.store.users {
+		if user.confirmed && user.email != "" && util.EqualASCIIFold(user.email, email) {
+			return &dbtype.User{ID: id, Username: user.username, EmailConfirmed: true, EmailHeld: true}, nil
+		}
+	}
+
 	return nil, nil
 }
 
@@ -216,7 +278,7 @@ func (d *memDriver) InsertUserIn(_ context.Context, tx *memTx, user *dbtype.Inse
 	id := impulse.Must(impulse.NewUUID())
 	row := &memUser{username: user.Username}
 	if user.Email != nil {
-		row.email = *user.Email
+		row.email, row.confirmed = *user.Email, user.EmailVerified
 	}
 	if user.Name != nil {
 		row.name = *user.Name
@@ -233,11 +295,16 @@ func (d *memDriver) InsertSessionIn(_ context.Context, tx *memTx, _ impulse.UUID
 }
 
 func (d *memDriver) SignInConflict(err error) dbtype.SignInConflict {
-	if errors.Is(err, errIdentityConflict) {
+	switch {
+	case errors.Is(err, errIdentityConflict):
 		return dbtype.IdentityConflict
+	case errors.Is(err, errEmailConflict):
+		return dbtype.EmailConflict
+	case errors.Is(err, errLockConflict):
+		return dbtype.LockConflict
+	default:
+		return dbtype.NoSignInConflict
 	}
-
-	return dbtype.NoSignInConflict
 }
 
 func (d *memDriver) ConsumeMailLinkIn(_ context.Context, tx *memTx, id impulse.UUID, _ time.Time) error {
@@ -250,10 +317,77 @@ func (d *memDriver) ConsumeMailLinkIn(_ context.Context, tx *memTx, id impulse.U
 	return nil
 }
 
+// ClaimVerifiedEmailIn writes email on the user, confirmed, unless the user holds a
+// confirmed address already or another user holds email, confirmed or not, as both
+// stores answer. The address another account takes right before the claim
+// (takenBeforeClaim) is stored first, committed.
 func (d *memDriver) ClaimVerifiedEmailIn(_ context.Context, tx *memTx, userID impulse.UUID, email string) (bool, error) {
-	tx.buffer(func() { d.store.users[userID].email = email })
+	if d.takenBeforeClaim != "" {
+		d.store.users[impulse.Must(impulse.NewUUID())] = &memUser{username: "other", email: d.takenBeforeClaim}
+		d.takenBeforeClaim = ""
+	}
+	if d.store.users[userID].confirmed {
+		return false, nil
+	}
+	for id, other := range d.store.users {
+		if id != userID && other.email != "" && util.EqualASCIIFold(other.email, email) {
+			return false, nil
+		}
+	}
+	tx.buffer(func() { d.store.users[userID].email, d.store.users[userID].confirmed = email, true })
 
 	return true, nil
+}
+
+// VerifyUserEmailIfHeldIn writes email on the user, confirmed, while the user holds held
+// exactly (nil: none) and no other user holds email; where the usernames are the
+// addresses it confirms the address alone, and only where email is the username.
+func (d *memDriver) VerifyUserEmailIfHeldIn(_ context.Context, tx *memTx, userID impulse.UUID, held *string, email string) (bool, error) {
+	user, ok := d.store.users[userID]
+	switch {
+	case !ok, held == nil && user.email != "", held != nil && user.email != *held:
+		return false, nil
+	case d.usernamesAreAddresses && (held == nil || !util.EqualASCIIFold(user.username, email)):
+		return false, nil
+	}
+	for id, other := range d.store.users {
+		if id != userID && other.email != "" && util.EqualASCIIFold(other.email, email) {
+			return false, nil
+		}
+	}
+	if d.usernamesAreAddresses {
+		email = user.email
+	}
+	tx.buffer(func() { user.email, user.confirmed = email, true })
+
+	return true, nil
+}
+
+// InsertAuditRecordIn keeps a copy of record as a row of the audit log once the
+// transaction commits.
+func (d *memDriver) InsertAuditRecordIn(_ context.Context, tx *memTx, record *auditlog.Record) error {
+	kept := *record
+	tx.buffer(func() { d.store.audit = append(d.store.audit, kept) })
+
+	return nil
+}
+
+// VerifyUserEmailIn writes email on the user, confirmed, replacing what the user held;
+// where the usernames are the addresses it is written as the username too. A missing
+// user is NotFound.
+func (d *memDriver) VerifyUserEmailIn(_ context.Context, tx *memTx, userID impulse.UUID, email string) error {
+	user, ok := d.store.users[userID]
+	if !ok {
+		return httpio.NewNotFoundMessagef("user %s not found", userID)
+	}
+	tx.buffer(func() {
+		user.email, user.confirmed = email, true
+		if d.usernamesAreAddresses {
+			user.username = email
+		}
+	})
+
+	return nil
 }
 
 func (d *memDriver) ClaimUserNameIn(_ context.Context, tx *memTx, userID impulse.UUID, name string) (bool, error) {
@@ -265,18 +399,30 @@ func (d *memDriver) ClaimUserNameIn(_ context.Context, tx *memTx, userID impulse
 	return true, nil
 }
 
-func (d *memDriver) UserByEmailIn(context.Context, *memTx, string) (*dbtype.User, error) {
+// UserByEmailIn finds the committed user who holds email, confirmed or not, as the
+// stores match an address: the case of its ASCII letters aside.
+func (d *memDriver) UserByEmailIn(_ context.Context, _ *memTx, email string) (*dbtype.User, error) {
+	for id, user := range d.store.users {
+		if user.email != "" && util.EqualASCIIFold(user.email, email) {
+			return &dbtype.User{ID: id, Username: user.username, EmailConfirmed: user.confirmed}, nil
+		}
+	}
+
 	return nil, nil
 }
 
 func (d *memDriver) UsernameIsEmail() bool {
-	return false
+	return d.usernamesAreAddresses
 }
 
 func (d *memDriver) SignInMethodIn(_ context.Context, tx *memTx, name string) (*dbtype.SignInMethod, error) {
 	d.store.notef("method %s read in run %d", name, tx.run)
 
 	return d.store.methods[name], nil
+}
+
+func (d *memDriver) SignInSettingsIn(context.Context, *memTx) (*dbtype.SignInSettings, error) {
+	return d.store.settings, nil
 }
 
 // roleHooks are the two hooks as an application writes them: each buffers what it
@@ -328,7 +474,7 @@ func (h *roleHooks) signUp(_ context.Context, tx *memTx, _ impulse.UUID, usernam
 }
 
 func (h *roleHooks) userCommitted(username string) bool {
-	_, user := h.store.userNamed(username)
+	user := h.store.userNamed(username)
 
 	return user != nil
 }
@@ -500,6 +646,16 @@ func TestSignIn_aCommittedFunctionRunsOnceAfterTheCommitBeforeThePolicy(t *testi
 			next: []commitOutcome{conflicts},
 			wantSteps: []string{
 				"seat in run 1", "accept in run 1", "conflict",
+				"seat in run 2", "accept in run 2", "commit",
+				"seat of run 2 committed: user=true", "accept of run 2 committed: user=true invitation live=false",
+				"policy: pat@lakeside.edu holds [lakeside/Member Teacher] after 2 committed", "commit",
+			},
+		},
+		{
+			name: "the first resolution loses a race on the address a racing provisioning wrote on its own user and the flow resolves once more: only the second resolution's committed functions run",
+			next: []commitOutcome{emailConflicts},
+			wantSteps: []string{
+				"seat in run 1", "accept in run 1", "address conflict",
 				"seat in run 2", "accept in run 2", "commit",
 				"seat of run 2 committed: user=true", "accept of run 2 committed: user=true invitation live=false",
 				"policy: pat@lakeside.edu holds [lakeside/Member Teacher] after 2 committed", "commit",
@@ -697,20 +853,22 @@ func TestAcceptInvitation_inOneTransaction(t *testing.T) {
 	t.Parallel()
 
 	roleGone := httpio.NewNotFoundMessage("the role the invitation names no longer exists")
+	// The account holds the invited address confirmed, so its acceptance waits for no
+	// code (TestAcceptance_theLinkAloneAcceptsNothing holds the accounts that do).
 	newUser := func(store *memStore) impulse.UUID {
 		id := impulse.Must(impulse.NewUUID())
-		store.users[id] = &memUser{username: "sam"}
+		store.users[id] = &memUser{username: "sam", email: "sam@lakeside.edu", confirmed: true}
 
 		return id
 	}
 	passwordRequest := func(id impulse.UUID, inv *sessioninfo.Invitation) *sessioninfo.NewSessionRequest {
 		return &sessioninfo.NewSessionRequest{
 			Reason: sessioninfo.ReasonLogin, Username: "sam", UserID: id,
-			Identity: &sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: id.String()}, Invitation: inv,
+			Identity: &sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: id.String(), Email: "sam@lakeside.edu", EmailVerified: true}, Invitation: inv,
 		}
 	}
 
-	t.Run("by hand: the acceptor's roles commit with the consumption and the address, and its committed function runs once after the commit", func(t *testing.T) {
+	t.Run("by hand: the acceptor's roles commit with the consumption, and its committed function runs once after the commit", func(t *testing.T) {
 		t.Parallel()
 
 		store := newMemStore()
@@ -720,7 +878,7 @@ func TestAcceptInvitation_inOneTransaction(t *testing.T) {
 		id := newUser(store)
 		inv := store.invite("sam@lakeside.edu", "", "Admin")
 
-		if err := AcceptInvitation(t.Context(), d, id, "sam", "", inv, hooks.accept); err != nil {
+		if err := AcceptInvitation(t.Context(), d, id, "sam", "sam@lakeside.edu", inv, hooks.accept); err != nil {
 			t.Fatalf("AcceptInvitation() error = %v", err)
 		}
 
@@ -728,15 +886,15 @@ func TestAcceptInvitation_inOneTransaction(t *testing.T) {
 		if diff := cmp.Diff(want, store.steps); diff != "" {
 			t.Errorf("steps (-want +got):\n%s", diff)
 		}
-		if !inv.Accepted || store.users[id].email != "sam@lakeside.edu" || hooks.committed != 1 {
-			t.Errorf("Accepted = %t, address = %q, committed runs = %d; want accepted, the invited address and one run", inv.Accepted, store.users[id].email, hooks.committed)
+		if !inv.Accepted || hooks.committed != 1 {
+			t.Errorf("Accepted = %t, committed runs = %d; want accepted and one run", inv.Accepted, hooks.committed)
 		}
 		if diff := cmp.Diff(map[string][]string{"sam": {"Admin"}}, store.granted); diff != "" {
 			t.Errorf("granted (-want +got):\n%s", diff)
 		}
 	})
 
-	t.Run("by hand: an acceptor that fails leaves the invitation standing and the address unset, and its NotFound is not a dead invitation's", func(t *testing.T) {
+	t.Run("by hand: an acceptor that fails leaves the invitation standing, and its NotFound is not a dead invitation's", func(t *testing.T) {
 		t.Parallel()
 
 		store := newMemStore()
@@ -745,13 +903,13 @@ func TestAcceptInvitation_inOneTransaction(t *testing.T) {
 		id := newUser(store)
 		inv := store.invite("sam@lakeside.edu", "", "Admin")
 
-		err := AcceptInvitation(t.Context(), d, id, "sam", "", inv, hooks.accept)
+		err := AcceptInvitation(t.Context(), d, id, "sam", "sam@lakeside.edu", inv, hooks.accept)
 
 		if !errors.Is(err, roleGone) || errors.Is(err, signin.ErrInvitationExpired) {
 			t.Fatalf("AcceptInvitation() error = %v, want the acceptor's failure and not a dead invitation's", err)
 		}
-		if inv.Accepted || !store.invitations[inv.ID] || store.users[id].email != "" || len(store.granted) != 0 || hooks.committed != 0 {
-			t.Errorf("Accepted = %t, live = %t, address = %q, granted = %v, committed runs = %d; want nothing written", inv.Accepted, store.invitations[inv.ID], store.users[id].email, store.granted, hooks.committed)
+		if inv.Accepted || !store.invitations[inv.ID] || len(store.granted) != 0 || hooks.committed != 0 {
+			t.Errorf("Accepted = %t, live = %t, granted = %v, committed runs = %d; want nothing written", inv.Accepted, store.invitations[inv.ID], store.granted, hooks.committed)
 		}
 	})
 
@@ -765,7 +923,7 @@ func TestAcceptInvitation_inOneTransaction(t *testing.T) {
 		inv := store.invite("sam@lakeside.edu", "", "Admin")
 		store.invitations[inv.ID] = false
 
-		err := AcceptInvitation(t.Context(), d, id, "sam", "", inv, hooks.accept)
+		err := AcceptInvitation(t.Context(), d, id, "sam", "sam@lakeside.edu", inv, hooks.accept)
 
 		if !httpio.HasNotFound(err) || !errors.Is(err, signin.ErrInvitationExpired) {
 			t.Fatalf("AcceptInvitation() error = %v, want NotFound with ErrInvitationExpired", err)
@@ -870,7 +1028,7 @@ func TestSignIn_theNameOfANewAccount(t *testing.T) {
 				t.Fatalf("SignIn() error = %v", err)
 			}
 
-			_, user := store.userNamed(stranger)
+			user := store.userNamed(stranger)
 			if user == nil {
 				t.Fatal("no account was created")
 			}
@@ -905,11 +1063,11 @@ func TestAcceptInvitation_theInvitedName(t *testing.T) {
 			d := &memDriver{store: store}
 			hooks := &roleHooks{store: store}
 			id := impulse.Must(impulse.NewUUID())
-			store.users[id] = &memUser{username: "sam", name: tt.held}
+			store.users[id] = &memUser{username: "sam", name: tt.held, email: "sam@lakeside.edu", confirmed: true}
 			inv := store.invite("sam@lakeside.edu", "", "Admin")
 			inv.Name = tt.invited
 
-			if err := AcceptInvitation(t.Context(), d, id, "sam", "", inv, hooks.accept); err != nil {
+			if err := AcceptInvitation(t.Context(), d, id, "sam", "sam@lakeside.edu", inv, hooks.accept); err != nil {
 				t.Fatalf("AcceptInvitation() error = %v", err)
 			}
 			if got := store.users[id].name; got != tt.want {
@@ -923,7 +1081,7 @@ func TestAcceptInvitation_theInvitedName(t *testing.T) {
 			d := &memDriver{store: store}
 			hooks := &roleHooks{store: store}
 			id := impulse.Must(impulse.NewUUID())
-			store.users[id] = &memUser{username: "sam", name: tt.held}
+			store.users[id] = &memUser{username: "sam", name: tt.held, email: "sam@lakeside.edu", confirmed: true}
 			inv := store.invite("sam@lakeside.edu", "", "Admin")
 			inv.Name = tt.invited
 			req := &sessioninfo.NewSessionRequest{
@@ -1144,7 +1302,7 @@ func TestSignIn_theMethodsRowDecidesAStranger(t *testing.T) {
 
 				return
 			}
-			if _, user := store.userNamed(stranger); user == nil || store.sessions != 1 {
+			if user := store.userNamed(stranger); user == nil || store.sessions != 1 {
 				t.Errorf("the store holds user %v and %d session(s), want the account made and signed in", user, store.sessions)
 			}
 			want := tt.wantGranted
@@ -1196,6 +1354,40 @@ func TestSignIn_aPersonWithAnAccountSignsInTheSameUnderEitherChoice(t *testing.T
 			}
 			if req.UserID != id || req.User == nil || req.User.Source != sessioninfo.UserExistingLink {
 				t.Errorf("req = user %v (%+v), want the linked user %v", req.UserID, req.User, id)
+			}
+		})
+	}
+}
+
+func TestCarriesSecondFactor(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		events []sessioninfo.AuthMethod
+		want   bool
+	}{
+		{name: "no event", want: false},
+		{name: "a password alone", events: []sessioninfo.AuthMethod{sessioninfo.MethodPassword}, want: false},
+		{name: "an application's own sign-in name alone", events: []sessioninfo.AuthMethod{"magic-link"}, want: false},
+		{name: "an application's own sign-in name, then a link confirmation", events: []sessioninfo.AuthMethod{"magic-link", sessioninfo.MethodLinkConfirmation}, want: false},
+		{name: "a password, then a link confirmation", events: []sessioninfo.AuthMethod{sessioninfo.MethodPassword, sessioninfo.MethodLinkConfirmation}, want: false},
+		{name: "a password, then the application's own factor", events: []sessioninfo.AuthMethod{sessioninfo.MethodPassword, "totp"}, want: true},
+		{name: "a directory, then its attestation", events: []sessioninfo.AuthMethod{sessioninfo.MethodWorkOS, sessioninfo.MethodAttestedByEvidence}, want: true},
+		{name: "a directory, then its tenant's word", events: []sessioninfo.AuthMethod{sessioninfo.MethodWorkOS, sessioninfo.MethodVouchedByTenant}, want: true},
+		{name: "a password, then the mailed code", events: []sessioninfo.AuthMethod{sessioninfo.MethodPassword, sessioninfo.MethodEmailCode}, want: true},
+		{name: "a password, a link confirmation, then the application's own factor", events: []sessioninfo.AuthMethod{sessioninfo.MethodPassword, sessioninfo.MethodLinkConfirmation, "totp"}, want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			events := make([]sessioninfo.AuthEvent, 0, len(tt.events))
+			for _, m := range tt.events {
+				events = append(events, sessioninfo.AuthEvent{Method: m})
+			}
+			if got := carriesSecondFactor(events); got != tt.want {
+				t.Errorf("carriesSecondFactor(%v) = %v, want %v", tt.events, got, tt.want)
 			}
 		})
 	}

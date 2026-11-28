@@ -23,7 +23,8 @@ func (l webStep) WebPins(*modfile.File) map[string]string { return l }
 
 // TestWebPins holds every web root to the step's web pins: a root at them passes; one
 // behind in any section fails naming the file, the section and the package; one ahead
-// warns; one naming a package nowhere fails; a root naming none of the library's packages
+// warns, unless it stands at the release go.mod requires the framework at, which is
+// where impulse new pins the browser packages; one naming a package nowhere fails; a root naming none of the library's packages
 // is passed over; and the check skips without browser apps, without a ledger, or at a step
 // naming no web pins.
 func TestWebPins(t *testing.T) {
@@ -34,12 +35,44 @@ func TestWebPins(t *testing.T) {
 	tests := []struct {
 		name string
 		// roots are the web roots' package.json files by web directory.
-		roots       map[string]string
-		ledger      Ledger
+		roots  map[string]string
+		ledger Ledger
+		// pin is the version go.mod requires the framework at; empty for no go.mod.
+		pin         string
 		wantStatus  Status
 		wantSummary string
 		wantDetails []string
 	}{
+		{
+			name:       "a new application's pins at its own release, later than the step it stands at, are where impulse new put them",
+			roots:      map[string]string{"web": `{"dependencies": {"@impulseframework/resource": "0.5.0", "@impulseframework/resource-angular": "0.5.0", "@impulseframework/resource-firestore": "0.5.0"}, "overrides": {"@impulseframework/resource": "0.5.0"}}`},
+			ledger:     step,
+			pin:        "v0.5.0",
+			wantStatus: Pass, wantSummary: "1 web root(s) pin the browser packages at the application's own release (0.5.0), where impulse new wrote them, beyond the ledger step's (@impulseframework/resource 0.0.12, @impulseframework/resource-angular 0.0.16, @impulseframework/resource-firestore 0.0.10)",
+		},
+		{
+			name:       "pins at the application's own release beside pins at the step's pass, and the answer says which are which",
+			roots:      map[string]string{"web": `{"dependencies": {"@impulseframework/resource": "0.0.12", "@impulseframework/resource-angular": "0.5.0", "@impulseframework/resource-firestore": "0.0.10"}}`},
+			ledger:     step,
+			pin:        "v0.5.0",
+			wantStatus: Pass, wantSummary: "1 web root(s) pin the browser packages at the ledger step's versions (@impulseframework/resource 0.0.12, @impulseframework/resource-angular 0.0.16, @impulseframework/resource-firestore 0.0.10), but for 1 pin(s) at the application's own release (0.5.0), where impulse new wrote them",
+		},
+		{
+			name:       "a pin ahead of the step and of the application's own release still warns",
+			roots:      map[string]string{"web": `{"dependencies": {"@impulseframework/resource": "0.5.0", "@impulseframework/resource-angular": "0.6.0", "@impulseframework/resource-firestore": "0.5.0"}}`},
+			ledger:     step,
+			pin:        "v0.5.0",
+			wantStatus: Warn, wantSummary: "1 web pin(s) stand ahead of the ledger step the application stands at (@impulseframework/resource 0.0.12, @impulseframework/resource-angular 0.0.16, @impulseframework/resource-firestore 0.0.10)",
+			wantDetails: []string{"web/package.json dependencies: @impulseframework/resource-angular is 0.6.0, ahead of the step's 0.0.16; a pin ahead of its step stays until a step reaches it"},
+		},
+		{
+			name:       "an application pinned at a commit has no release of its own, so a pin ahead of the step warns",
+			roots:      map[string]string{"web": `{"dependencies": {"@impulseframework/resource": "0.0.12", "@impulseframework/resource-angular": "0.5.0", "@impulseframework/resource-firestore": "0.0.10"}}`},
+			ledger:     step,
+			pin:        "v0.5.1-0.20261118120000-abcdef123456",
+			wantStatus: Warn, wantSummary: "1 web pin(s) stand ahead of the ledger step the application stands at (@impulseframework/resource 0.0.12, @impulseframework/resource-angular 0.0.16, @impulseframework/resource-firestore 0.0.10)",
+			wantDetails: []string{"web/package.json dependencies: @impulseframework/resource-angular is 0.5.0, ahead of the step's 0.0.16; a pin ahead of its step stays until a step reaches it"},
+		},
 		{
 			name: "every web root at the step's pins", roots: map[string]string{"web": at, "apps/portal/web": at}, ledger: step,
 			wantStatus: Pass, wantSummary: "2 web root(s) pin the browser packages at the ledger step's versions (@impulseframework/resource 0.0.12, @impulseframework/resource-angular 0.0.16, @impulseframework/resource-firestore 0.0.10)",
@@ -101,6 +134,13 @@ func TestWebPins(t *testing.T) {
 
 			dir := t.TempDir()
 			a := &app.App{Root: dir}
+			if tt.pin != "" {
+				mod, err := modfile.Parse("go.mod", []byte("module example.com/app\n\nrequire "+FrameworkModule+" "+tt.pin+"\n"), nil)
+				if err != nil {
+					t.Fatalf("modfile.Parse() error = %v", err)
+				}
+				a.GoMod = mod
+			}
 			for _, web := range sortedKeys(tt.roots) {
 				a.WebApps = append(a.WebApps, app.WebApp{Dir: web})
 				if err := os.MkdirAll(filepath.Join(dir, filepath.FromSlash(web)), 0o750); err != nil {

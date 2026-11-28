@@ -16,10 +16,8 @@ import (
 // other way. It names a row of StaffGroupUser, the people of every group, by
 // the row's two key columns (the group's id and the person's).
 //
-// A place in a group keeps an account as a role of its own does: a person left with no
-// role anywhere and no place in a group is deleted with their identity links and
-// sessions, in the same transaction, since an account nothing admits is not kept. A
-// person who takes themselves out keeps a place that makes them the last administrator
+// Where the place is the last thing the person holds, the account stays, holding nothing.
+// A person who takes themselves out keeps a place that makes them the last administrator
 // of a tenant, as they keep the role itself.
 //
 // A group gives nobody a power that giving the role directly would not: beside the
@@ -27,14 +25,29 @@ import (
 // directly need of the caller (the grants of AssignStaffRole and RemoveStaffRole, each read with the
 // role in question), and is refused where one of them would be.
 //
+// The method declares a warning with no word to type: asked first, the server says who
+// leaves which group.
+//
 // @rpc
 // @outlet(default)
 // @answers(204)
+// @warning
+// @class(access)
 type RemoveStaffGroupMember struct {
 	// @target(StaffGroupUser, key: GroupID)
 	GroupID impulse.UUID
 	// @target(StaffGroupUser, key: UserID)
 	UserID impulse.UUID
+}
+
+// Warning says who would leave which group. It writes nothing.
+func (m *RemoveStaffGroupMember) Warning(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*resource.Warning, error) {
+	warning, err := client.manager.GroupMemberRemovalWarning(ctx, txn, m.GroupID, m.UserID)
+	if err != nil {
+		return nil, errors.Wrap(err, "identity.Manager.GroupMemberRemovalWarning()")
+	}
+
+	return warning, nil
 }
 
 // Execute buffers the removal into the caller's transaction.

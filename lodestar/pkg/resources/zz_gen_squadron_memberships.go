@@ -7,9 +7,12 @@ import (
 	"context"
 	"iter"
 
+	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
+	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -19,6 +22,43 @@ func (SquadronMembership) Resource() accesstypes.Resource {
 
 func (SquadronMembership) DefaultConfig() resource.Config {
 	return defaultConfig()
+}
+
+// NamedRows names the columns that name a row of another resource the application lists
+// (SquadronID, UserID): a create or an update sets one only to a row its caller can list, so the
+// library answers any other as a row that is not there.
+func (SquadronMembership) NamedRows() []resource.NamedRow {
+	return []resource.NamedRow{
+		{Field: "SquadronID", Resource: "Squadrons", Table: "Squadrons", KeyColumn: "Id", TenantColumn: "WingId", TenantPath: []resource.BindingHop{{Table: "Wings", JoinColumn: "Id", Column: "SectorId"}}},
+		{Field: "UserID", Resource: "CrewSectorUsers", Table: "CrewSectorUsers", KeyColumn: "Id", TenantColumn: "DomainId", View: true},
+	}
+}
+
+// TenantBinding is the row's way to its tenant: the library writes the tenant on every
+// change record of the row, whoever writes the row.
+func (SquadronMembership) TenantBinding() resource.TenantBinding {
+	return resource.TenantBinding{Field: "SquadronID", Path: []resource.BindingHop{{Table: "Squadrons", JoinColumn: "Id", Column: "WingId"}, {Table: "Wings", JoinColumn: "Id", Column: "SectorId"}}}
+}
+
+// NameFields names the resource's name fields: beside each id that points to a row with
+// a name, the name of that row, which a list shows, sorts by and filters by. A name is
+// looked up in the pointed-to table by the id; it is no column of this resource.
+func (SquadronMembership) NameFields() []resource.NameField {
+	return []resource.NameField{
+		{Field: "SquadronName", Key: "SquadronID", Resource: "Squadrons", Tag: "name", Table: "Squadrons", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "WingId", TenantPath: []resource.BindingHop{{Table: "Wings", JoinColumn: "Id", Column: "SectorId"}}},
+		{Field: "UserName", Key: "UserID", Resource: "CrewSectorUsers", Tag: "displayName", Table: "CrewSectorUsers", KeyColumn: "Id", NameColumn: "DisplayName", View: true, TenantColumn: "DomainId"},
+	}
+}
+
+// RecordedNames names the rows a change record of the resource keeps the name of:
+// for each field that points at a row with a name, where the name is read. A
+// tracked write that changes such a field reads the name in its own transaction,
+// and the change record keeps it beside the id.
+func (SquadronMembership) RecordedNames() []resource.NameField {
+	return []resource.NameField{
+		{Field: "", Key: "SquadronID", Resource: "Squadrons", Tag: "name", Table: "Squadrons", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "WingId", TenantPath: []resource.BindingHop{{Table: "Wings", JoinColumn: "Id", Column: "SectorId"}}},
+		{Field: "", Key: "UserID", Resource: "CrewSectorUsers", Tag: "username", Table: "CrewSessionUsers", KeyColumn: "Id", NameColumn: "Username", TenantColumn: "", GrantInTenant: true},
+	}
 }
 
 // squadronMembershipRead mirrors the wire shape the resource routes list
@@ -320,11 +360,11 @@ func (p *SquadronMembershipCreatePatch) ToStruct() *SquadronMembership {
 	return p.patchSet.ToStruct()
 }
 
-func (p *SquadronMembershipCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *SquadronMembershipCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *SquadronMembershipCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *SquadronMembershipCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -416,11 +456,11 @@ func (p *SquadronMembershipUpdatePatch) ToStruct() *SquadronMembership {
 	return p.patchSet.ToStruct()
 }
 
-func (p *SquadronMembershipUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *SquadronMembershipUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *SquadronMembershipUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *SquadronMembershipUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -502,11 +542,11 @@ func NewSquadronMembershipDeletePatch(squadronID impulse.UUID, userID string) *S
 	return &SquadronMembershipDeletePatch{patchSet: patchSet}
 }
 
-func (p *SquadronMembershipDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *SquadronMembershipDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *SquadronMembershipDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *SquadronMembershipDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -537,4 +577,20 @@ func (p *SquadronMembershipDeletePatch) UserID() string {
 // Diff is intended for unit testing, and reports the differences between two values using github.com/google/go-cmp/cmp
 func (p *SquadronMembershipDeletePatch) Diff(got *SquadronMembershipDeletePatch, opts ...cmp.Option) string {
 	return resource.PatchSetDiff(opts...)(p.patchSet, got.patchSet)
+}
+
+// RefuseImpersonatorAsSquadronMembershipSubject asks, of one write of the squadron membership
+// record, what a record that decides what a person may do is asked in a session that
+// acts as someone else: nobody writes the row that decides it for themselves. op is the
+// write, key the row's key (empty for an add whose id is generated) and patchSet the
+// write's fields. The record's generated write, where it has one, calls it once the
+// operation is decoded, ahead of the create, the change and the delete, and the delete
+// of a row taken with the record it is under (resource.NewTakenRows) calls it as a
+// removal, so the two ask the same. It answers nil outside such a session.
+func RefuseImpersonatorAsSquadronMembershipSubject(ctx context.Context, txn resource.ReadWriteTransaction, op resource.OperationType, key resource.KeySet, patchSet *resource.PatchSet[SquadronMembership]) error {
+	if err := identity.RefuseImpersonatorAsRowSubject(ctx, txn, op, key, patchSet, "squadron membership", "UserID"); err != nil {
+		return errors.Wrap(err, "identity.RefuseImpersonatorAsRowSubject()")
+	}
+
+	return nil
 }

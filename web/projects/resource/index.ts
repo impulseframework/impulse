@@ -1,5 +1,6 @@
 export * from './src/auth';
 export * from './src/brands';
+export * from './src/changes';
 export * from './src/client';
 export * from './src/descriptor';
 export * from './src/digest';

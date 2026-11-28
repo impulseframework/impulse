@@ -36,12 +36,12 @@ import {
   rowActionsKey,
 } from '@impulseframework/resource-angular/types';
 import { of } from 'rxjs';
-import { identityPages } from './identity-pages';
+import { identityPages, invitedTenantsConfig } from './identity-pages';
 
-// The page of the invitations that make a tenant, as the library's list draws it. Staff
-// bring an organization in by inviting one person, and that person's first sign-in makes
-// the tenant: nobody creates a tenant directly. The page is built from the API's
-// description (identityPages) and is an ordinary list: the server lists the invitations
+// The invitations that make a tenant, as the library's list draws them above the tenants
+// on the tenants page. Staff bring an organization in by inviting one person, and that
+// person's first sign-in makes the tenant: nobody creates a tenant directly. The list is
+// built from the API's description (invitedTenantsConfig) and is an ordinary list: the server lists the invitations
 // that still stand, each with the tenant record's fields as staff entered them, the
 // method that sends one stands above the list, its form drawn by the method dialog from
 // the method's own fields, and a row offers Withdraw. Each action is offered only to a
@@ -87,6 +87,8 @@ const resourceMeta = (resource: Resource): ResourceMeta => metas[resource];
 
 const invite = 'InviteCrewSector';
 const withdraw = 'WithdrawCrewInvitedSector';
+/** The list the server writes for the invitation's starting role to be picked from. */
+const startingRoles = 'CrewInvitedSectorRoles' as Resource;
 const method = (name: string): ApiDescriptor['methods'][string] => ({
   method: name as Method,
   property: name.charAt(0).toLowerCase() + name.slice(1),
@@ -156,7 +158,13 @@ const methodMetas: Record<string, MethodMeta> = {
       { fieldName: 'sectorRegion', displayType: 'string', required: true },
       { fieldName: 'sectorEstablished', displayType: 'civildate', required: true },
       { fieldName: 'sectorDirectoryOnly', displayType: 'boolean' },
-      { fieldName: 'defaultRole', displayType: 'string', optional: true, attribute: 'role' },
+      {
+        fieldName: 'defaultRole',
+        displayType: 'enumerated',
+        enumeratedResource: startingRoles,
+        optional: true,
+        attribute: 'role',
+      },
     ],
   } as MethodMeta,
   [withdraw]: {
@@ -188,30 +196,27 @@ const masked = {
 
 const list = (config: RootConfig): ListViewConfig => config.parentConfig as ListViewConfig;
 
-describe('identityPages, the invitations that make a tenant', () => {
-  const pages = identityPages(descriptor, resourceMeta, { auth: 'Crew', scope: 'global' });
-  const page = pages.find((config) => list(config).primaryResource === invited);
+describe('invitedTenantsConfig, the invitations that make a tenant', () => {
+  const page = invitedTenantsConfig(descriptor, resourceMeta, { auth: 'Crew' });
 
-  it("builds the page among the whole application's, named for what the application calls its tenants, at a route named for the auth", () => {
-    expect(
-      pages.map((config) => [
-        config.routeData.route,
-        config.page?.label,
-        config.page?.icon,
-        config.routeData.hasViewRoute,
-      ]),
-    ).toEqual([
-      ['crew-accounts', 'Accounts', 'manage_accounts', true],
-      ['crew-invited-sectors', 'Invited sectors', 'domain_add', false],
+  it("builds the configuration named for what the application calls its tenants, at a route named for the auth, and no page of the whole application's holds it", () => {
+    expect([page?.routeData.route, page?.page?.label, page?.page?.icon, page?.routeData.hasViewRoute]).toEqual([
+      'crew-invited-sectors',
+      'Invited sectors',
+      'domain_add',
+      false,
     ]);
     expect(list(page as RootConfig).title).toBe('Invited sectors');
+    expect(
+      identityPages(descriptor, resourceMeta, { auth: 'Crew', scope: 'global' }).map(
+        (config) => config.routeData.route,
+      ),
+    ).toEqual(['crew-accounts']);
   });
 
-  it('is no page where the description names no such list: an auth that makes no tenant, or an application without tenants', () => {
+  it('is no configuration where the description names no such list: an auth that makes no tenant, or an application without tenants', () => {
     const without = descriptorOf(crewOf({}, { inviteTenant: invite, withdrawInvitedTenant: withdraw }));
-    expect(
-      identityPages(without, resourceMeta, { auth: 'Crew', scope: 'global' }).map((config) => config.routeData.route),
-    ).toEqual(['crew-accounts']);
+    expect(invitedTenantsConfig(without, resourceMeta, { auth: 'Crew' })).toBeUndefined();
   });
 
   it("lists each invitation by the tenant record's own fields, each under the record's name, then who was invited and when", () => {
@@ -245,11 +250,11 @@ describe('identityPages, the invitations that make a tenant', () => {
         ],
       } as ResourceMeta,
     };
-    const built = identityPages(descriptorOf(crewOf({ invitedTenants: invited }, {})), (resource) => wider[resource], {
-      auth: 'Crew',
-      scope: 'global',
-    });
-    const config = list(built.find((candidate) => list(candidate).primaryResource === invited) as RootConfig);
+    const config = list(
+      invitedTenantsConfig(descriptorOf(crewOf({ invitedTenants: invited }, {})), (resource) => wider[resource], {
+        auth: 'Crew',
+      }) as RootConfig,
+    );
     expect(config.listColumns.filter((column) => !column.hidden).map((column) => [column.id, column.header])).toEqual([
       ['sectorName', 'Sector name'],
       ['sectorCallSign', 'Sector call sign'],
@@ -281,11 +286,9 @@ describe('identityPages, the invitations that make a tenant', () => {
         fields: [field('id'), field('email'), field('officeName')],
       } as ResourceMeta,
     };
-    const built = identityPages(descriptorOf(offices), (resource) => officeMetas[resource], {
+    const office = invitedTenantsConfig(descriptorOf(offices), (resource) => officeMetas[resource], {
       auth: 'Staff',
-      scope: 'global',
-    });
-    const office = built.find((candidate) => list(candidate).primaryResource === 'StaffInvitedOffices') as RootConfig;
+    }) as RootConfig;
     expect([office.routeData.route, office.page?.label, list(office).title]).toEqual([
       'staff-invited-offices',
       'Invited offices',
@@ -294,16 +297,67 @@ describe('identityPages, the invitations that make a tenant', () => {
     expect((list(office).listMethods || []).map((presentation) => presentation.label)).toEqual(['Invite an office']);
   });
 
-  it('takes the route the application gives', () => {
-    const built = identityPages(descriptor, resourceMeta, {
-      auth: 'Crew',
-      scope: 'global',
-      routes: { invitedTenants: 'new-sectors' },
-    });
-    expect(built.map((config) => config.routeData.route)).toEqual(['crew-accounts', 'new-sectors']);
+  it('picks the article of the Invite button by how the word is said: "Invite a unit"', () => {
+    const units: IdentityDescriptor = {
+      auth: 'Staff',
+      label: 'Staff',
+      tenant: 'Unit',
+      sides: [
+        {
+          scope: 'global',
+          lists: { users, invitedTenants: 'StaffInvitedUnits' },
+          methods: { inviteTenant: 'InviteStaffUnit' },
+        },
+      ],
+    };
+    const unitMetas: Record<string, ResourceMeta> = {
+      ...metas,
+      StaffInvitedUnits: {
+        route: 'staff-invited-units',
+        fields: [field('id'), field('email'), field('unitName')],
+      } as ResourceMeta,
+    };
+    const unit = invitedTenantsConfig(descriptorOf(units), (resource) => unitMetas[resource], {
+      auth: 'Staff',
+    }) as RootConfig;
+    expect((list(unit).listMethods || []).map((presentation) => presentation.label)).toEqual(['Invite a unit']);
   });
 
-  it("words the method that sends one and its form: the person's address and name, the record's fields by their names, the switch and the starting role", () => {
+  it('keeps a plural acronym whole where the list names the tenants: the invitations that make a partner API', () => {
+    const partners: IdentityDescriptor = {
+      auth: 'Staff',
+      label: 'Staff',
+      tenant: 'PartnerAPI',
+      sides: [
+        {
+          scope: 'global',
+          lists: { users, invitedTenants: 'StaffInvitedPartnerAPIs' },
+          methods: { inviteTenant: 'InviteStaffPartnerAPI' },
+        },
+      ],
+    };
+    const partnerMetas: Record<string, ResourceMeta> = {
+      ...metas,
+      StaffInvitedPartnerAPIs: {
+        route: 'staff-invited-partner-apis',
+        fields: [field('id'), field('email'), field('partnerAPIName')],
+      } as ResourceMeta,
+    };
+    const partner = invitedTenantsConfig(descriptorOf(partners), (resource) => partnerMetas[resource], {
+      auth: 'Staff',
+    }) as RootConfig;
+    expect([partner.page?.label, list(partner).title]).toEqual(['Invited partner APIs', 'Invited partner APIs']);
+  });
+
+  it('answers the same configuration to the same description and auth, and is refused as identityPages is', () => {
+    // A route of the application's own cannot be given: no page lives at it.
+    expect(invitedTenantsConfig(descriptor, resourceMeta, { auth: 'Crew' })).toBe(page);
+    expect(() => invitedTenantsConfig(descriptor, resourceMeta, { auth: 'Pilots' })).toThrow(
+      'identityPages: the API description carries no generated management of the auth Pilots (it carries: Crew);',
+    );
+  });
+
+  it("words the method that sends one and its form: the person's address and name, the record's fields by their names, the switch and the starting role, each role by its name and description", () => {
     expect(list(page as RootConfig).listMethods).toEqual([
       {
         method: invite,
@@ -315,8 +369,20 @@ describe('identityPages, the invitations that make a tenant', () => {
           sectorDirectoryOnly: 'Entered through its directory only',
           defaultRole: "Role its directory's people start with",
         },
+        shows: { defaultRole: ['name', 'description'] },
+        answered: expect.any(Function),
       },
     ]);
+  });
+
+  it('says once the invitation is sent whether its message went, and what to do where it did not', () => {
+    // The server ends an invitation whose message could not be sent, and answers so.
+    const answered = (list(page as RootConfig).listMethods ?? [])[0]?.answered;
+    expect(answered?.({ id: 'i-1', sent: true })).toEqual({ message: 'The invitation is on its way.' });
+    expect(answered?.({ id: 'i-1', sent: false })).toEqual({
+      message: 'The invitation was not mailed, so it is ended. Invite the person again.',
+      failed: true,
+    });
   });
 
   it('asks before a withdrawal, naming the address and the tenant that will not be set up, and says how details are changed', () => {
@@ -363,11 +429,9 @@ describe('the page of the invitations that make a tenant, drawn by the list', ()
 
   const create = async (rows: Record<string, unknown>[], granted: PermissionDigest = {}): Promise<void> => {
     const digest: PermissionDigest = { ...lists, ...granted };
-    const page = identityPages(descriptor, resourceMeta, { auth: 'Crew', scope: 'global' }).find(
-      (config) => config.page?.label === 'Invited sectors',
-    );
+    const page = invitedTenantsConfig(descriptor, resourceMeta, { auth: 'Crew' });
     if (!page) {
-      throw new Error('identityPages built no page of the invited sectors');
+      throw new Error('invitedTenantsConfig built no configuration of the invited sectors');
     }
     const config = page.parentConfig as ListViewConfig;
     transport = scriptedTransport((request: TransportRequest): TransportResponse => {
@@ -421,7 +485,7 @@ describe('the page of the invitations that make a tenant, drawn by the list', ()
       RowAction[] | undefined) ?? [];
   const element = (): HTMLElement => fixture.nativeElement as HTMLElement;
   const above = (): string[] =>
-    Array.from(element().querySelectorAll('button.list-method')).map((button) =>
+    Array.from(element().querySelectorAll('button.impulse-resource-list-method')).map((button) =>
       (button.textContent ?? '').replace(/\s+/g, ' ').trim(),
     );
   const cells = (): string[][] =>
@@ -469,7 +533,7 @@ describe('the page of the invitations that make a tenant, drawn by the list', ()
     expect(actionsOf(0).map((action) => action.label)).toEqual(['Withdraw']);
   });
 
-  it("opens the method that sends one in the method dialog, which draws the form from the method's fields under the page's words, nothing filled", async () => {
+  it("opens the method that sends one in the method dialog, which draws the form from the method's fields under the page's words, nothing filled, and lists each starting role by its name and description", async () => {
     await create([dawn], { ...maySend, ...mayWithdraw });
 
     fixture.componentInstance.runMethod(fixture.componentInstance.listMethods()[0]);
@@ -486,6 +550,7 @@ describe('the page of the invitations that make a tenant, drawn by the list', ()
           sectorDirectoryOnly: 'Entered through its directory only',
           defaultRole: "Role its directory's people start with",
         },
+        shows: { defaultRole: ['name', 'description'] },
       },
     ]);
   });

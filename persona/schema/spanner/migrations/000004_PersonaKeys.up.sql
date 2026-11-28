@@ -2,4 +2,5 @@ CREATE TABLE PersonaKeys (
   Id STRING(36) NOT NULL,
   PrivateKey STRING(MAX) NOT NULL,
   CreatedAt TIMESTAMP NOT NULL,
+  Position INT64 NOT NULL,
 ) PRIMARY KEY (Id);

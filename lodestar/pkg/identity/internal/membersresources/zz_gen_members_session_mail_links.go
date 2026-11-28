@@ -12,6 +12,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -21,6 +22,34 @@ func (MembersSessionMailLink) Resource() accesstypes.Resource {
 
 func (MembersSessionMailLink) DefaultConfig() resource.Config {
 	return defaultConfig()
+}
+
+// NamedRows names the columns that name a row of another resource the application lists
+// (UserID): a create or an update sets one only to a row its caller can list, so the
+// library answers any other as a row that is not there.
+func (MembersSessionMailLink) NamedRows() []resource.NamedRow {
+	return []resource.NamedRow{
+		{Field: "UserID", Resource: "MembersSessionUsers", Table: "MembersSessionUsers", KeyColumn: "Id"},
+	}
+}
+
+// NameFields names the resource's name fields: beside each id that points to a row with
+// a name, the name of that row, which a list shows, sorts by and filters by. A name is
+// looked up in the pointed-to table by the id; it is no column of this resource.
+func (MembersSessionMailLink) NameFields() []resource.NameField {
+	return []resource.NameField{
+		{Field: "UserName", Key: "UserID", Resource: "MembersSessionUsers", Tag: "username", Table: "MembersSessionUsers", KeyColumn: "Id", NameColumn: "Username", TenantColumn: ""},
+	}
+}
+
+// RecordedNames names the rows a change record of the resource keeps the name of:
+// for each field that points at a row with a name, where the name is read. A
+// tracked write that changes such a field reads the name in its own transaction,
+// and the change record keeps it beside the id.
+func (MembersSessionMailLink) RecordedNames() []resource.NameField {
+	return []resource.NameField{
+		{Field: "", Key: "UserID", Resource: "MembersSessionUsers", Tag: "username", Table: "MembersSessionUsers", KeyColumn: "Id", NameColumn: "Username", TenantColumn: ""},
+	}
 }
 
 // membersSessionMailLinkRead mirrors the wire shape the resource routes list
@@ -33,11 +62,14 @@ type membersSessionMailLinkRead struct {
 	Name            *string       `json:"name"`
 	UserID          *impulse.UUID `json:"userId"`
 	TenantID        *string       `json:"tenantId"`
+	EveryTenant     bool          `json:"everyTenant"`
 	RoleNames       []string      `json:"roleNames"`
 	InvitedByUserID *impulse.UUID `json:"invitedByUserId"`
 	CreatedAt       time.Time     `json:"createdAt"`
 	ExpiresAt       time.Time     `json:"expiresAt"`
 	ConsumedAt      *time.Time    `json:"consumedAt"`
+	MailFailedAt    *time.Time    `json:"mailFailedAt"`
+	WithdrawnAt     *time.Time    `json:"withdrawnAt"`
 }
 
 var membersSessionMailLinkReadSets resource.SetCache[MembersSessionMailLink, membersSessionMailLinkRead]
@@ -52,11 +84,14 @@ type membersSessionMailLinkWrite struct {
 	Name            *string       `json:"name"`
 	UserID          *impulse.UUID `json:"userId"`
 	TenantID        *string       `json:"tenantId"`
+	EveryTenant     bool          `json:"everyTenant"`
 	RoleNames       []string      `json:"roleNames"       nullable:"true"`
 	InvitedByUserID *impulse.UUID `json:"invitedByUserId"`
 	CreatedAt       time.Time     `json:"createdAt"`
 	ExpiresAt       time.Time     `json:"expiresAt"`
 	ConsumedAt      *time.Time    `json:"consumedAt"`
+	MailFailedAt    *time.Time    `json:"mailFailedAt"`
+	WithdrawnAt     *time.Time    `json:"withdrawnAt"`
 }
 
 var membersSessionMailLinkWriteSets resource.SetCache[MembersSessionMailLink, membersSessionMailLinkWrite]
@@ -171,11 +206,14 @@ func (c *MembersSessionMailLinkColumns) All() *MembersSessionMailLinkColumns {
 		"Name",
 		"UserID",
 		"TenantID",
+		"EveryTenant",
 		"RoleNames",
 		"InvitedByUserID",
 		"CreatedAt",
 		"ExpiresAt",
 		"ConsumedAt",
+		"MailFailedAt",
+		"WithdrawnAt",
 	}
 
 	return c
@@ -217,6 +255,12 @@ func (c *MembersSessionMailLinkColumns) TenantID() *MembersSessionMailLinkColumn
 	return c
 }
 
+func (c *MembersSessionMailLinkColumns) EveryTenant() *MembersSessionMailLinkColumns {
+	c.fields = append(c.fields, "EveryTenant")
+
+	return c
+}
+
 func (c *MembersSessionMailLinkColumns) RoleNames() *MembersSessionMailLinkColumns {
 	c.fields = append(c.fields, "RoleNames")
 
@@ -243,6 +287,18 @@ func (c *MembersSessionMailLinkColumns) ExpiresAt() *MembersSessionMailLinkColum
 
 func (c *MembersSessionMailLinkColumns) ConsumedAt() *MembersSessionMailLinkColumns {
 	c.fields = append(c.fields, "ConsumedAt")
+
+	return c
+}
+
+func (c *MembersSessionMailLinkColumns) MailFailedAt() *MembersSessionMailLinkColumns {
+	c.fields = append(c.fields, "MailFailedAt")
+
+	return c
+}
+
+func (c *MembersSessionMailLinkColumns) WithdrawnAt() *MembersSessionMailLinkColumns {
+	c.fields = append(c.fields, "WithdrawnAt")
 
 	return c
 }
@@ -365,6 +421,10 @@ func (c *membersSessionMailLinkSort) TenantID() *MembersSessionMailLinkSort {
 	return c.addField("TenantID")
 }
 
+func (c *membersSessionMailLinkSort) EveryTenant() *MembersSessionMailLinkSort {
+	return c.addField("EveryTenant")
+}
+
 func (c *membersSessionMailLinkSort) RoleNames() *MembersSessionMailLinkSort {
 	return c.addField("RoleNames")
 }
@@ -383,6 +443,14 @@ func (c *membersSessionMailLinkSort) ExpiresAt() *MembersSessionMailLinkSort {
 
 func (c *membersSessionMailLinkSort) ConsumedAt() *MembersSessionMailLinkSort {
 	return c.addField("ConsumedAt")
+}
+
+func (c *membersSessionMailLinkSort) MailFailedAt() *MembersSessionMailLinkSort {
+	return c.addField("MailFailedAt")
+}
+
+func (c *membersSessionMailLinkSort) WithdrawnAt() *MembersSessionMailLinkSort {
+	return c.addField("WithdrawnAt")
 }
 
 type MembersSessionMailLinkSort struct {
@@ -443,11 +511,11 @@ func (p *MembersSessionMailLinkCreatePatch) ToStruct() *MembersSessionMailLink {
 	return p.patchSet.ToStruct()
 }
 
-func (p *MembersSessionMailLinkCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *MembersSessionMailLinkCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *MembersSessionMailLinkCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *MembersSessionMailLinkCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -564,6 +632,22 @@ func (p *MembersSessionMailLinkCreatePatch) TenantIDIsSet() bool {
 	return p.patchSet.IsSet("TenantID")
 }
 
+func (p *MembersSessionMailLinkCreatePatch) SetEveryTenant(v bool) *MembersSessionMailLinkCreatePatch {
+	p.patchSet.Set("EveryTenant", v)
+
+	return p
+}
+
+func (p *MembersSessionMailLinkCreatePatch) EveryTenant() bool {
+	v, _ := p.patchSet.Get("EveryTenant").(bool)
+
+	return v
+}
+
+func (p *MembersSessionMailLinkCreatePatch) EveryTenantIsSet() bool {
+	return p.patchSet.IsSet("EveryTenant")
+}
+
 func (p *MembersSessionMailLinkCreatePatch) SetRoleNames(v []string) *MembersSessionMailLinkCreatePatch {
 	p.patchSet.Set("RoleNames", v)
 
@@ -652,6 +736,46 @@ func (p *MembersSessionMailLinkCreatePatch) ConsumedAtIsSet() bool {
 	return p.patchSet.IsSet("ConsumedAt")
 }
 
+func (p *MembersSessionMailLinkCreatePatch) SetMailFailedAt(v *time.Time) *MembersSessionMailLinkCreatePatch {
+	if v != nil {
+		p.patchSet.Set("MailFailedAt", v)
+	} else {
+		p.patchSet.Set("MailFailedAt", nil)
+	}
+
+	return p
+}
+
+func (p *MembersSessionMailLinkCreatePatch) MailFailedAt() *time.Time {
+	v, _ := p.patchSet.Get("MailFailedAt").(*time.Time)
+
+	return v
+}
+
+func (p *MembersSessionMailLinkCreatePatch) MailFailedAtIsSet() bool {
+	return p.patchSet.IsSet("MailFailedAt")
+}
+
+func (p *MembersSessionMailLinkCreatePatch) SetWithdrawnAt(v *time.Time) *MembersSessionMailLinkCreatePatch {
+	if v != nil {
+		p.patchSet.Set("WithdrawnAt", v)
+	} else {
+		p.patchSet.Set("WithdrawnAt", nil)
+	}
+
+	return p
+}
+
+func (p *MembersSessionMailLinkCreatePatch) WithdrawnAt() *time.Time {
+	v, _ := p.patchSet.Get("WithdrawnAt").(*time.Time)
+
+	return v
+}
+
+func (p *MembersSessionMailLinkCreatePatch) WithdrawnAtIsSet() bool {
+	return p.patchSet.IsSet("WithdrawnAt")
+}
+
 // Diff is intended for unit testing, and reports the differences between two values using github.com/google/go-cmp/cmp
 func (p *MembersSessionMailLinkCreatePatch) Diff(got *MembersSessionMailLinkCreatePatch, opts ...cmp.Option) string {
 	return resource.PatchSetDiff(opts...)(p.patchSet, got.patchSet)
@@ -691,11 +815,11 @@ func (p *MembersSessionMailLinkUpdatePatch) ToStruct() *MembersSessionMailLink {
 	return p.patchSet.ToStruct()
 }
 
-func (p *MembersSessionMailLinkUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *MembersSessionMailLinkUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *MembersSessionMailLinkUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *MembersSessionMailLinkUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -836,6 +960,22 @@ func (p *MembersSessionMailLinkUpdatePatch) TenantIDIsSet() bool {
 	return p.patchSet.IsSet("TenantID")
 }
 
+func (p *MembersSessionMailLinkUpdatePatch) SetEveryTenant(v bool) *MembersSessionMailLinkUpdatePatch {
+	p.patchSet.Set("EveryTenant", v)
+
+	return p
+}
+
+func (p *MembersSessionMailLinkUpdatePatch) EveryTenant() bool {
+	v, _ := p.patchSet.Get("EveryTenant").(bool)
+
+	return v
+}
+
+func (p *MembersSessionMailLinkUpdatePatch) EveryTenantIsSet() bool {
+	return p.patchSet.IsSet("EveryTenant")
+}
+
 func (p *MembersSessionMailLinkUpdatePatch) SetRoleNames(v []string) *MembersSessionMailLinkUpdatePatch {
 	p.patchSet.Set("RoleNames", v)
 
@@ -924,6 +1064,46 @@ func (p *MembersSessionMailLinkUpdatePatch) ConsumedAtIsSet() bool {
 	return p.patchSet.IsSet("ConsumedAt")
 }
 
+func (p *MembersSessionMailLinkUpdatePatch) SetMailFailedAt(v *time.Time) *MembersSessionMailLinkUpdatePatch {
+	if v != nil {
+		p.patchSet.Set("MailFailedAt", v)
+	} else {
+		p.patchSet.Set("MailFailedAt", nil)
+	}
+
+	return p
+}
+
+func (p *MembersSessionMailLinkUpdatePatch) MailFailedAt() *time.Time {
+	v, _ := p.patchSet.Get("MailFailedAt").(*time.Time)
+
+	return v
+}
+
+func (p *MembersSessionMailLinkUpdatePatch) MailFailedAtIsSet() bool {
+	return p.patchSet.IsSet("MailFailedAt")
+}
+
+func (p *MembersSessionMailLinkUpdatePatch) SetWithdrawnAt(v *time.Time) *MembersSessionMailLinkUpdatePatch {
+	if v != nil {
+		p.patchSet.Set("WithdrawnAt", v)
+	} else {
+		p.patchSet.Set("WithdrawnAt", nil)
+	}
+
+	return p
+}
+
+func (p *MembersSessionMailLinkUpdatePatch) WithdrawnAt() *time.Time {
+	v, _ := p.patchSet.Get("WithdrawnAt").(*time.Time)
+
+	return v
+}
+
+func (p *MembersSessionMailLinkUpdatePatch) WithdrawnAtIsSet() bool {
+	return p.patchSet.IsSet("WithdrawnAt")
+}
+
 // Diff is intended for unit testing, and reports the differences between two values using github.com/google/go-cmp/cmp
 func (p *MembersSessionMailLinkUpdatePatch) Diff(got *MembersSessionMailLinkUpdatePatch, opts ...cmp.Option) string {
 	return resource.PatchSetDiff(opts...)(p.patchSet, got.patchSet)
@@ -949,11 +1129,11 @@ func NewMembersSessionMailLinkDeletePatch(id impulse.UUID) *MembersSessionMailLi
 	return &MembersSessionMailLinkDeletePatch{patchSet: patchSet}
 }
 
-func (p *MembersSessionMailLinkDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *MembersSessionMailLinkDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *MembersSessionMailLinkDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *MembersSessionMailLinkDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

@@ -41,15 +41,15 @@ import {
   AnyResourceHandle,
   BatchResult,
   Capability,
+  ChangeEvent,
   Domain,
-  keyBatches,
-  keyLookupQuery,
   ListQuery,
   liveSubscription,
   LiveSubscription,
   MethodHandle,
   methodHandle,
   Operation,
+  ownWrite,
   Page,
   pageIsLive,
   readMode,
@@ -58,10 +58,11 @@ import {
   sameSubscription,
   wholeListQuery,
 } from '@impulseframework/resource';
-import { from, map, mergeMap, Observable, of, tap, toArray } from 'rxjs';
+import { from, Observable, of, tap } from 'rxjs';
+import { deleteLeftOf } from './delete-left';
 import { PagedList, PagedListRequest } from './paged-list';
 import { PagePosition, positionAfter } from './resource-list/list-request';
-import { methodsTargeting } from './row-methods/row-methods';
+import { methodsOfferedOn, methodsTargeting } from './row-methods/row-methods';
 
 /** One page of the listed resource as the table shows it, positioned in the server's list. */
 export interface ListPage {
@@ -70,7 +71,10 @@ export interface ListPage {
   offset: number;
   hasPrev: boolean;
   hasNext: boolean;
-  /** The total the first page answered, kept while turning; undefined until it answers. */
+  /**
+   * The total the first page answered, kept while turning; undefined until it answers, and
+   * where the page asked for none (drawsTotal).
+   */
   total?: number;
 }
 
@@ -80,8 +84,6 @@ const emptyListPage: ListPage = { rows: [], offset: 0, hasPrev: false, hasNext: 
 
 @Injectable()
 export class ResourceStore {
-  private static readonly BATCH_REQUEST_CONCURRENCY = 5;
-
   resourceMeta = signal({} as ResourceMeta);
   resourceName = signal<Resource>('' as Resource);
   filter = signal<string>('');
@@ -106,6 +108,14 @@ export class ResourceStore {
   searchPII = signal(false);
   /** Set while the page has nothing to ask for (the digest grants none of its columns): no request is made. */
   listSuspended = signal(false);
+  /**
+   * Whether the page draws the list's total in its title (`showRowCount`). The first page
+   * asks the server for a total only where the page draws one: in the title, or in the
+   * search box's line of matches while text is committed. A total costs the server a read
+   * of every row the filter admits, which a computed list makes by building each row; a
+   * page that draws none pages by the server's cursor alone.
+   */
+  drawsTotal = signal(true);
   /**
    * The per-row capabilities the list page asks the server to answer with its rows: none
    * by default, `Execute` on a list whose rows offer methods. A change asks for a first
@@ -186,7 +196,7 @@ export class ResourceStore {
   // next page exist, and the total the first page asked for, kept while turning — and
   // performs the turns the grid asks for through the page's own relations. A change to
   // the sorts, the filters, the columns, or the page size drops the cursor and asks for
-  // a first page with the count.
+  // a first page, with the count where the page draws one (drawsTotal).
   private readonly currentPage = signal<Page<RecordData> | undefined>(undefined);
   private readonly position = signal<PagePosition>({ offset: 0 });
   private pageEffect: EffectRef | undefined;
@@ -194,6 +204,20 @@ export class ResourceStore {
   /** The reload of a live page in flight: the page it repeats, the version it asked by, and its place among the requests. */
   private liveReload: { page: Page<RecordData>; version: string; seq: number } | undefined;
   pageStatus = signal<ListPageStatus>('idle');
+  /**
+   * Whether the list's first request has been answered, with a page or with a refusal.
+   * From then on the list knows what it has, and what it draws from that (its rows, its
+   * empty line, the count in its title) stands on an answer. It stays true through every
+   * request that follows.
+   */
+  readonly firstPageAnswered = signal(false);
+  /**
+   * What a page that has landed still needs before it is the list's page, where a list
+   * draws a row from more than the row: a list across tenants reads each tenant's digest
+   * to know whether a row links to its own page. The request stays in flight until this
+   * settles, so a row is drawn once, with everything it is drawn from. It never rejects.
+   */
+  pageNeeds: ((page: Page<RecordData>) => Promise<void>) | undefined;
   /** The page request's error when it failed — an ApiError for a server refusal — else undefined. */
   pageError = signal<unknown>(undefined);
   page = computed<ListPage>(() => {
@@ -211,18 +235,30 @@ export class ResourceStore {
   });
 
   /**
+   * The fields and the name fields the metadata marks PII (the name beside an id is PII
+   * where the pointed-to name is): a filter that names one travels in the body, the
+   * page's (sensitive) and a read beside the page's (rowsBesidePage) alike.
+   */
+  private readonly piiFields = computed(
+    () =>
+      new Set([
+        ...(this.resourceMeta().fields ?? []).filter((field) => field.pii).map((field) => field.fieldName),
+        ...(this.resourceMeta().nameFields ?? []).filter((name) => name.pii).map((name) => name.fieldName),
+      ]),
+  );
+
+  /**
    * Whether the request must travel in the body: the page asked for it
-   * (disableCacheForFilterPii), the page's filter or a column filter names a field the
-   * metadata marks PII, or the search box reaches one. The server refuses a PII field in
-   * a URL with a 400, so the store posts on its own wherever the metadata lets it tell.
+   * (disableCacheForFilterPii), the page's filter or a column filter names a field or a
+   * name field the metadata marks PII (piiFields), or the search box reaches one. The
+   * server refuses a PII field in a URL with a 400, so the store posts on its own
+   * wherever the metadata lets it tell.
    */
   private readonly sensitive = computed(() => {
     if (this.disableCacheForFilterPii()) {
       return true;
     }
-    const pii = new Set(
-      (this.resourceMeta().fields ?? []).filter((field) => field.pii).map((field) => field.fieldName),
-    );
+    const pii = this.piiFields();
     if (
       pii.size > 0 &&
       (filterFields(this.filter()).some((f) => pii.has(f)) ||
@@ -259,6 +295,7 @@ export class ResourceStore {
       live: this.live(),
       capabilities: this.pageCapabilities(),
       acrossTenants: this.acrossTenants(),
+      count: this.drawsTotal() || this.searchText().trim() !== '',
     };
   });
 
@@ -297,7 +334,55 @@ export class ResourceStore {
     this.watchLive(this.pageSubscription, () => this.reloadPage());
   }
 
-  /** The first page of the current request, with the count. */
+  /**
+   * What a read beside the list's page (rowsBesidePage) is answered under: the route, the
+   * tenant the list reads in or that it reads across tenants, and the page's own filter.
+   * What such reads found stands while this stays the same.
+   */
+  readonly besidePageScope = computed((): string => {
+    const route = this.route();
+    const tenant = this.acrossTenants() ? null : (this.scopedDomain(this.descriptorFor(route)) ?? '');
+    return JSON.stringify([route, tenant, this.filter()]);
+  });
+
+  /**
+   * Rows of the listed resource read beside the list's page, which the table's rows never
+   * become: read as the page is read, in the selected tenant or across tenants, under the
+   * page's own filter (the conditions the person did not choose: the config's filter, a
+   * child list's parent key) joined with the condition given, and never under the person's
+   * column filters or search text. One request with the columns, the sort and the limit
+   * given: no count, not live, and no capability asked. A filter that names a field or a
+   * name field the metadata marks PII (piiFields) travels in the body, as the page's does.
+   */
+  async rowsBesidePage(query: {
+    condition: string;
+    columns: string[];
+    sorts: FieldSort[];
+    limit: number;
+  }): Promise<RecordData[]> {
+    const route = this.route();
+    const clauses = [this.filter().trim(), query.condition.trim()].filter((clause) => clause !== '');
+    const filter = clauses.length > 1 ? clauses.map((clause) => `(${clause})`).join(',') : clauses[0];
+    const pii = this.piiFields();
+    const sensitive =
+      this.disableCacheForFilterPii() || (filter !== undefined && filterFields(filter).some((field) => pii.has(field)));
+    const sort = query.sorts.map((s) => ({ field: s.field as string, direction: s.direction }));
+    const request = {
+      filter,
+      sensitiveFilter: sensitive || undefined,
+      columns: query.columns.length > 0 ? query.columns : undefined,
+      sort: sort.length > 0 ? (sort as ListQuery<RecordData>['sort']) : undefined,
+      limit: query.limit,
+    };
+    if (this.acrossTenants()) {
+      const across = acrossTenantsHandle<RecordData>(this.client, this.descriptorFor(route).resource);
+      return (await across.page(request as never)).rows;
+    }
+    const page = (await this.handleFor(route).page(request as never)) as Page<RecordData>;
+    return page.rows;
+  }
+
+  /** The first page of the current request, with the count where the page draws one. */
   firstPage(): void {
     this.loadFirstPage(untracked(() => this.pageQuery()));
   }
@@ -371,7 +456,7 @@ export class ResourceStore {
             sensitiveFilter: query.sensitive || undefined,
             sort: acrossSorts.length > 0 ? (acrossSorts as ListQuery<RecordData>['sort']) : undefined,
             limit: query.limit,
-            count: true,
+            count: query.count || undefined,
             live: query.live || undefined,
           }) as Promise<Page<RecordData>>,
         'first',
@@ -383,8 +468,9 @@ export class ResourceStore {
     // No limit unless the page names one, so the descriptor's default applies; no sort
     // unless the page names one, so a declared @order applies, and a resource declaring
     // none is refused by the server until the config names a sort or a header is
-    // clicked, in the server's own words (see listEmptyMessage). The client fabricates
-    // no sort of its own.
+    // clicked: the list says it could not be loaded the way it was asked for (see
+    // listEmptyMessage) and writes the server's own words to the console. The client
+    // fabricates no sort of its own.
     const sorts = query.sorts.map((s) => ({ field: s.field as string, direction: s.direction }));
     const request: ListQuery<RecordData> = {
       filter: query.filter !== '' ? query.filter : undefined,
@@ -392,7 +478,7 @@ export class ResourceStore {
       columns: query.columns.length > 0 ? query.columns : undefined,
       sort: sorts.length > 0 ? (sorts as ListQuery<RecordData>['sort']) : undefined,
       limit: query.limit,
-      count: true,
+      count: query.count || undefined,
       live: query.live || undefined,
       capabilities: query.capabilities.length > 0 ? query.capabilities : undefined,
     };
@@ -412,12 +498,19 @@ export class ResourceStore {
       if (seq !== this.pageRequestSeq) {
         return;
       }
+      if (this.pageNeeds) {
+        await this.pageNeeds(landed);
+        if (seq !== this.pageRequestSeq) {
+          return;
+        }
+      }
       this.position.set(
         positionAfter(this.position(), turn, leftRows, { rows: landed.rows.length, total: landed.total }),
       );
       this.currentPage.set(landed);
       this.pageError.set(undefined);
       this.pageStatus.set('resolved');
+      this.firstPageAnswered.set(true);
     } catch (error) {
       if (seq !== this.pageRequestSeq) {
         return;
@@ -426,6 +519,7 @@ export class ResourceStore {
       this.position.set({ offset: 0 });
       this.pageError.set(error);
       this.pageStatus.set('error');
+      this.firstPageAnswered.set(true);
     }
   }
 
@@ -494,6 +588,16 @@ export class ResourceStore {
    */
   methodsTargeting(resource: Resource): string[] {
     return methodsTargeting(Object.keys(this.client.descriptor.methods), this.methodMeta, resource);
+  }
+
+  /**
+   * The generated methods that name no target row and are offered on the rows of the
+   * resource (`offeredOn` naming it), by the method metadata: the methods a page of the
+   * resource asks the server about with a row, and offers where the row's answer lists them
+   * and the page fills them from the row.
+   */
+  methodsOfferedOn(resource: Resource): string[] {
+    return methodsOfferedOn(Object.keys(this.client.descriptor.methods), this.methodMeta, resource);
   }
 
   overrideRoute = signal<string>('');
@@ -679,10 +783,11 @@ export class ResourceStore {
    * Holds the row or list `subscription` names on the client's live session for as long
    * as the signal names it: the session runs `refetch` when the row or list is to be
    * fetched again (a write this tab made, other people's changes after its wait, a
-   * resync). A new answer from the signal releases the old hold and takes the new;
-   * undefined holds nothing. Released with the store.
+   * resync), with the change that asked for it when one did. A new answer from the signal
+   * releases the old hold and takes the new; undefined holds nothing. Released with the
+   * store.
    */
-  private watchLive(subscription: Signal<LiveSubscription | undefined>, refetch: () => void): void {
+  private watchLive(subscription: Signal<LiveSubscription | undefined>, refetch: (event?: ChangeEvent) => void): void {
     let release: (() => void) | undefined;
     const ref = untracked(() =>
       effect(
@@ -690,7 +795,7 @@ export class ResourceStore {
           const current = subscription();
           untracked(() => {
             release?.();
-            release = current ? this.client.live.watch(current, () => refetch()) : undefined;
+            release = current ? this.client.live.watch(current, (_version, event) => refetch(event)) : undefined;
           });
         },
         { injector: this.injector },
@@ -705,10 +810,15 @@ export class ResourceStore {
   /**
    * Sends operations through the client's consolidated endpoint as one transaction
    * and reports success. The client raises ApiError on refusal, so the notification
-   * fires only on commit.
+   * fires only on commit. A delete too large for one request answers with the records it
+   * deleted (`DeleteLeft`), and its row still stands: that answer is reported by whoever
+   * sends the delete again, and the notification waits for the request that finishes.
    */
   async apply(operations: Operation[], message: string): Promise<BatchResult> {
     const result = await this.client.batch(operations);
+    if (deleteLeftOf(result) !== undefined) {
+      return result;
+    }
     this.notifications.addGlobalNotification({
       message,
       type: AlertType.SUCCESS,
@@ -729,7 +839,9 @@ export class ResourceStore {
    * session, which says when it is read again: at once for a write this tab made, after
    * the session's wait for other people's changes, and not while the tab is hidden. The
    * row stays on hand through every such read, so a form in use and the row's children
-   * stay on screen.
+   * stay on screen. A row this tab's own write deleted is not read again: the write's
+   * answer said it is gone, and the page that deleted it leaves, as on a page that is not
+   * live.
    */
   resourceView(
     route: Signal<string>,
@@ -752,8 +864,12 @@ export class ResourceStore {
             domain: this.scopedDomain(descriptor),
             live: live(),
             // The row's Execute answer is asked for where a generated method runs
-            // against a row of the resource and the page offers its rows' methods.
-            execute: this.viewMethods() && this.methodsTargeting(descriptor.resource as Resource).length > 0,
+            // against a row of the resource, or is offered on its rows, and the page
+            // offers its rows' methods.
+            execute:
+              this.viewMethods() &&
+              (this.methodsTargeting(descriptor.resource as Resource).length > 0 ||
+                this.methodsOfferedOn(descriptor.resource as Resource).length > 0),
           };
         },
         stream: ({ params }) => {
@@ -770,7 +886,12 @@ export class ResourceStore {
       }) as ResourceRef<RecordData>;
       this.watchLive(
         computed(() => (live() ? this.rowSubscription(route(), uuid()) : undefined), { equal: sameSubscription }),
-        () => ref.reload(),
+        (event) => {
+          if (event?.deleted && ownWrite(event)) {
+            return;
+          }
+          ref.reload();
+        },
       );
       return ref;
     });
@@ -816,78 +937,6 @@ export class ResourceStore {
   }
 
   /**
-   * The display values a list's referenced-resource columns show, resolved on the read
-   * mode of the referenced resource (readMode). A source with no maximum is read whole
-   * once, `limit=all`, and mapped, whatever keys the page holds, so turning the page asks
-   * nothing more of it. A source with a maximum is asked for one `filter=<key>:in:(…)`
-   * page per batch of the page's keys, each batch no larger than its maximum (and than
-   * `batchSize`), each answered by the key's index in one request; nothing is walked and
-   * nothing is read whole.
-   */
-  resourceListByKeys(
-    route: Signal<string>,
-    keyField: Signal<string>,
-    keys: Signal<string[]>,
-    columns: Signal<string[]> = signal([]),
-    batchSize = 200,
-  ): ResourceRef<RecordData[]> {
-    if (!Number.isInteger(batchSize) || batchSize <= 0) {
-      throw new Error(`resourceListByKeys: batchSize must be a positive integer, got ${batchSize}`);
-    }
-
-    return untracked(() => {
-      return rxResource({
-        defaultValue: [] as RecordData[],
-        injector: this.injector,
-        params: () => {
-          const resourceRoute = route();
-          const descriptor = this.descriptorFor(resourceRoute);
-          const paged = resourceRoute !== '' && readMode(descriptor) === 'paged';
-          return {
-            route: resourceRoute,
-            keyField: keyField(),
-            // A whole source is read once for every page: the keys are not a parameter.
-            keys: paged ? keys() : [],
-            paged,
-            columns: columns(),
-            domain: this.scopedDomain(descriptor),
-          };
-        },
-        stream: ({ params }) => {
-          if (!params.route || !params.keyField) {
-            return of([] as RecordData[]);
-          }
-          const handle = this.handleFor(params.route);
-          const columnsAsked = params.columns.length > 0 ? params.columns : undefined;
-          if (!params.paged) {
-            return from(
-              handle.list(wholeListQuery<RecordData>(handle.descriptor, { columns: columnsAsked }) as never) as Promise<
-                RecordData[]
-              >,
-            );
-          }
-          if (params.keys.length === 0) {
-            return of([] as RecordData[]);
-          }
-          return from(keyBatches(handle.descriptor, params.keys, batchSize)).pipe(
-            mergeMap(
-              (batch) =>
-                from(
-                  handle.list(
-                    keyLookupQuery<RecordData>(handle.descriptor, params.keyField, batch, columnsAsked) as never,
-                  ) as Promise<RecordData[]>,
-                ),
-              ResourceStore.BATCH_REQUEST_CONCURRENCY,
-            ),
-            toArray(),
-            map((results) => results.flat()),
-          );
-        },
-      }) as ResourceRef<RecordData[]>;
-    });
-  }
-
-  /**
    * One server page of a resource, for a reader that pages a bounded source (a picker
    * over a resource with a maximum page size): the first page, with its count, whenever
    * the request changes, and Previous and Next by the server's relations. The request is
@@ -917,8 +966,7 @@ export class ResourceStore {
 
   /**
    * Lists a resource through the client for the readers that want a whole set — the
-   * array view, the pickers, the referenced-resource lookups — on the resource's read
-   * mode (readMode). A source with no maximum is read whole, `limit=all`, in one
+   * array view and the pickers — on the resource's read mode (readMode). A source with no maximum is read whole, `limit=all`, in one
    * request. A source with a maximum is never read whole, so the answer is one server
    * page, the descriptor's default, and a bounded source with no `@order` and no sort is
    * refused by the server in its own words, which the reader shows. A caller that names

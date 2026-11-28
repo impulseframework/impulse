@@ -31,16 +31,21 @@ import (
 // @suppress(readHandler)
 // @outlet(default)
 // @order(Label asc)
+// @rowWord(way to sign in, plural: ways to sign in)
 type StaffSignInMethod struct {
 	// @primarykey
-	Name                string `spanner:"Name"`
-	Label               string `spanner:"Label"`
-	Admits              string `spanner:"Admits"`
-	OpenSignUp          bool   `spanner:"OpenSignUp"`
+	Name       string `spanner:"Name"`
+	Label      string `spanner:"Label"`
+	Admits     string `spanner:"Admits"`
+	OpenSignUp bool   `spanner:"OpenSignUp"`
+	// @roleOf(Staff)
 	DefaultRole         string `spanner:"DefaultRole"`
 	DirectoryGivesRoles bool   `spanner:"DirectoryGivesRoles"`
 	OwnRule             bool   `spanner:"OwnRule"`
 	Says                string `spanner:"Says"`
+	// SelfServiceReset says a person may ask at the sign-in page for a link that
+	// resets their own password: the password method's alone.
+	SelfServiceReset bool `spanner:"SelfServiceReset"`
 }
 
 // Resource implements resource.Resourcer.
@@ -63,6 +68,7 @@ func ListStaffSignInMethod(ctx context.Context, _ *resource.QuerySet[StaffSignIn
 			method := &StaffSignInMethod{
 				Name: methods[i].Name, Label: methods[i].Label, Admits: methods[i].Admits, OpenSignUp: methods[i].OpenSignUp,
 				DefaultRole: methods[i].DefaultRole, DirectoryGivesRoles: methods[i].DirectoryGivesRoles, OwnRule: methods[i].OwnRule, Says: methods[i].Says,
+				SelfServiceReset: methods[i].SelfServiceReset,
 			}
 			if !yield(method, nil) {
 				return

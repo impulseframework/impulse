@@ -6,11 +6,13 @@ package resources
 import (
 	"context"
 	"iter"
+	"time"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -22,13 +24,118 @@ func (Tenant) DefaultConfig() resource.Config {
 	return defaultConfig()
 }
 
+// TenantBinding is the row's way to its tenant: the library writes the tenant on every
+// change record of the row, whoever writes the row.
+func (Tenant) TenantBinding() resource.TenantBinding {
+	return resource.TenantBinding{Field: "ID"}
+}
+
+// DeleteTree describes what a delete of a Tenant takes with it, as the library
+// declares for the tenant record: every kind of the application's rows under the tenant
+// goes with it, and nothing refuses it. The kinds are in the order their rows are
+// deleted, deepest first, each with its ways up to the Tenant and what the delete
+// of one of its rows costs.
+func (Tenant) DeleteTree() *resource.DeleteTree {
+	return &resource.DeleteTree{
+		Record: "Tenants",
+		Words:  resource.DeleteWords{One: "tenant", Many: "tenants"},
+		Key:    []string{"Id"},
+		Cost:   resource.DeleteCost{IndexEntries: 1, Files: 0},
+		Tenant: &resource.DomainBindingData{Column: "Id"},
+		Taken: []resource.DeleteKind{
+			{
+				Resource: "TenantDirectories",
+				Words:    resource.DeleteWords{One: "tenant directory", Many: "tenant directories"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 3, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "TenantId"},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"TenantId"}, Table: "Tenants", References: []string{"Id"}},
+					},
+				},
+				Trusted: true,
+				Rows:    resource.NewTakenRows(func(*resource.PatchSet[TenantDirectory], *resource.Caller) {}),
+			},
+			{
+				Resource: "Readings",
+				Words:    resource.DeleteWords{One: "reading", Many: "readings"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "TenantId"},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"TenantId"}, Table: "Tenants", References: []string{"Id"}},
+					},
+				},
+				Trusted: true,
+				Rows:    resource.NewTakenRows(func(*resource.PatchSet[Reading], *resource.Caller) {}),
+			},
+			{
+				Resource: "Announcements",
+				Words:    resource.DeleteWords{One: "announcement", Many: "announcements"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "TenantId"},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"TenantId"}, Table: "Tenants", References: []string{"Id"}},
+					},
+				},
+				Trusted: true,
+				Rows:    resource.NewTakenRows(func(*resource.PatchSet[Announcement], *resource.Caller) {}),
+			},
+		},
+		Under: []resource.DeleteKind{
+			{
+				Resource: "Announcements",
+				Words:    resource.DeleteWords{One: "announcement", Many: "announcements"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "TenantId"},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"TenantId"}, Table: "Tenants", References: []string{"Id"}},
+					},
+				},
+			},
+			{
+				Resource: "Readings",
+				Words:    resource.DeleteWords{One: "reading", Many: "readings"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "TenantId"},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"TenantId"}, Table: "Tenants", References: []string{"Id"}},
+					},
+				},
+			},
+			{
+				Resource: "TenantDirectories",
+				Words:    resource.DeleteWords{One: "tenant directory", Many: "tenant directories"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 3, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "TenantId"},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"TenantId"}, Table: "Tenants", References: []string{"Id"}},
+					},
+				},
+			},
+		},
+	}
+}
+
 // tenantRead mirrors the wire shape the resource routes list
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; tenantReadSets holds one Set per read operation.
 type tenantRead struct {
 	ID            impulse.UUID `json:"id"            perm:"-"`
 	Name          string       `json:"name"`
+	CreatedAt     time.Time    `json:"createdAt"`
 	DirectoryOnly bool         `json:"directoryOnly"`
+	Disabled      bool         `json:"disabled"`
 }
 
 var tenantReadSets resource.SetCache[Tenant, tenantRead]
@@ -39,7 +146,9 @@ var tenantReadSets resource.SetCache[Tenant, tenantRead]
 type tenantWrite struct {
 	ID            impulse.UUID `json:"-"`
 	Name          string       `json:"name"`
+	CreatedAt     time.Time    `json:"-"`
 	DirectoryOnly bool         `json:"-"`
+	Disabled      bool         `json:"disabled"`
 }
 
 var tenantWriteSets resource.SetCache[Tenant, tenantWrite]
@@ -162,7 +271,9 @@ func (c *TenantColumns) All() *TenantColumns {
 	c.fields = []accesstypes.Field{
 		"ID",
 		"Name",
+		"CreatedAt",
 		"DirectoryOnly",
+		"Disabled",
 	}
 
 	return c
@@ -180,8 +291,20 @@ func (c *TenantColumns) Name() *TenantColumns {
 	return c
 }
 
+func (c *TenantColumns) CreatedAt() *TenantColumns {
+	c.fields = append(c.fields, "CreatedAt")
+
+	return c
+}
+
 func (c *TenantColumns) DirectoryOnly() *TenantColumns {
 	c.fields = append(c.fields, "DirectoryOnly")
+
+	return c
+}
+
+func (c *TenantColumns) Disabled() *TenantColumns {
+	c.fields = append(c.fields, "Disabled")
 
 	return c
 }
@@ -280,8 +403,16 @@ func (c *tenantSort) Name() *TenantSort {
 	return c.addField("Name")
 }
 
+func (c *tenantSort) CreatedAt() *TenantSort {
+	return c.addField("CreatedAt")
+}
+
 func (c *tenantSort) DirectoryOnly() *TenantSort {
 	return c.addField("DirectoryOnly")
+}
+
+func (c *tenantSort) Disabled() *TenantSort {
+	return c.addField("Disabled")
 }
 
 type TenantSort struct {
@@ -342,11 +473,11 @@ func (p *TenantCreatePatch) ToStruct() *Tenant {
 	return p.patchSet.ToStruct()
 }
 
-func (p *TenantCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *TenantCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *TenantCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *TenantCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -363,6 +494,7 @@ func (p *TenantCreatePatch) Enforce(caller *resource.Caller) *TenantCreatePatch 
 }
 
 func (p *TenantCreatePatch) registerDefaultFuncs() {
+	p.patchSet.RegisterDefaultCreateFunc("CreatedAt", resource.CommitTimestamp)
 }
 
 func (p *TenantCreatePatch) ID() impulse.UUID {
@@ -387,6 +519,22 @@ func (p *TenantCreatePatch) NameIsSet() bool {
 	return p.patchSet.IsSet("Name")
 }
 
+func (p *TenantCreatePatch) SetCreatedAt(v time.Time) *TenantCreatePatch {
+	p.patchSet.Set("CreatedAt", v)
+
+	return p
+}
+
+func (p *TenantCreatePatch) CreatedAt() time.Time {
+	v, _ := p.patchSet.Get("CreatedAt").(time.Time)
+
+	return v
+}
+
+func (p *TenantCreatePatch) CreatedAtIsSet() bool {
+	return p.patchSet.IsSet("CreatedAt")
+}
+
 func (p *TenantCreatePatch) SetDirectoryOnly(v bool) *TenantCreatePatch {
 	p.patchSet.Set("DirectoryOnly", v)
 
@@ -401,6 +549,22 @@ func (p *TenantCreatePatch) DirectoryOnly() bool {
 
 func (p *TenantCreatePatch) DirectoryOnlyIsSet() bool {
 	return p.patchSet.IsSet("DirectoryOnly")
+}
+
+func (p *TenantCreatePatch) SetDisabled(v bool) *TenantCreatePatch {
+	p.patchSet.Set("Disabled", v)
+
+	return p
+}
+
+func (p *TenantCreatePatch) Disabled() bool {
+	v, _ := p.patchSet.Get("Disabled").(bool)
+
+	return v
+}
+
+func (p *TenantCreatePatch) DisabledIsSet() bool {
+	return p.patchSet.IsSet("Disabled")
 }
 
 // Diff is intended for unit testing, and reports the differences between two values using github.com/google/go-cmp/cmp
@@ -442,11 +606,11 @@ func (p *TenantUpdatePatch) ToStruct() *Tenant {
 	return p.patchSet.ToStruct()
 }
 
-func (p *TenantUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *TenantUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *TenantUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *TenantUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -511,6 +675,22 @@ func (p *TenantUpdatePatch) NameIsSet() bool {
 	return p.patchSet.IsSet("Name")
 }
 
+func (p *TenantUpdatePatch) SetCreatedAt(v time.Time) *TenantUpdatePatch {
+	p.patchSet.Set("CreatedAt", v)
+
+	return p
+}
+
+func (p *TenantUpdatePatch) CreatedAt() time.Time {
+	v, _ := p.patchSet.Get("CreatedAt").(time.Time)
+
+	return v
+}
+
+func (p *TenantUpdatePatch) CreatedAtIsSet() bool {
+	return p.patchSet.IsSet("CreatedAt")
+}
+
 func (p *TenantUpdatePatch) SetDirectoryOnly(v bool) *TenantUpdatePatch {
 	p.patchSet.Set("DirectoryOnly", v)
 
@@ -525,6 +705,22 @@ func (p *TenantUpdatePatch) DirectoryOnly() bool {
 
 func (p *TenantUpdatePatch) DirectoryOnlyIsSet() bool {
 	return p.patchSet.IsSet("DirectoryOnly")
+}
+
+func (p *TenantUpdatePatch) SetDisabled(v bool) *TenantUpdatePatch {
+	p.patchSet.Set("Disabled", v)
+
+	return p
+}
+
+func (p *TenantUpdatePatch) Disabled() bool {
+	v, _ := p.patchSet.Get("Disabled").(bool)
+
+	return v
+}
+
+func (p *TenantUpdatePatch) DisabledIsSet() bool {
+	return p.patchSet.IsSet("Disabled")
 }
 
 // Diff is intended for unit testing, and reports the differences between two values using github.com/google/go-cmp/cmp
@@ -552,11 +748,55 @@ func NewTenantDeletePatch(id impulse.UUID) *TenantDeletePatch {
 	return &TenantDeletePatch{patchSet: patchSet}
 }
 
-func (p *TenantDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+// WithEverythingUnder says the delete takes the rows under the Tenant with it:
+// every row of the application's that is the Tenant's own or leads to one that
+// is, each deleted through its kind's delete, with its delete rule asked, its change
+// record written and its files released. It takes the kinds handed to the delete as well
+// (DeleteAlso). The grant to delete the Tenant answers for them all. Without it, a delete of a Tenant that has such rows deletes
+// nothing and is answered with the question a person is asked first
+// (httpio.HasPreconditionRequired). Where the rows cost more than one save takes, the
+// delete takes what fits, deepest first, and Left answers the rows that save deleted:
+// buffer the delete again, in a transaction of its own, until Left answers nil.
+// It is for code that deletes outside a request, and every save of such a delete asks
+// everything again before it takes a row: a request's delete goes on the token its
+// question gave (WithDeleteToken).
+func (p *TenantDeletePatch) WithEverythingUnder() *TenantDeletePatch {
+	p.patchSet.DeleteEverythingUnder()
+
+	return p
+}
+
+// WithDeleteToken says the delete takes the rows under the Tenant on the token
+// its question gave (resource.PatchSet.DeleteWithToken): it takes them only where the
+// token holds, and is answered with the question again where it does not.
+func (p *TenantDeletePatch) WithDeleteToken(token string) *TenantDeletePatch {
+	p.patchSet.DeleteWithToken(token)
+
+	return p
+}
+
+// Left is what the delete says once it is buffered (resource.DeleteLeft): the rows the
+// save deleted where rows are left under the Tenant, which stands until a save
+// takes the last of them; nil where the delete finished, the Tenant with it.
+func (p *TenantDeletePatch) Left() *resource.DeleteLeft {
+	return p.patchSet.DeleteLeft()
+}
+
+// DeleteAlso hands the delete kinds of row it takes with the Tenant that its
+// description does not list (resource.TakenKind): the question counts them, the check
+// before the delete asks them, and each round takes what fits of them after the kinds
+// the description lists and before the Tenant.
+func (p *TenantDeletePatch) DeleteAlso(kinds ...resource.TakenKind) *TenantDeletePatch {
+	p.patchSet.DeleteAlso(kinds...)
+
+	return p
+}
+
+func (p *TenantDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *TenantDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *TenantDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

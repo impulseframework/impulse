@@ -13,11 +13,13 @@ import (
 // NewQueryDecoder builds a query decoder for a generated resource and request pair,
 // wired to the generated collection so conditional grants render into the query, to
 // the application's cursor key so its lists page, and to its feature set so a field
-// gated behind a flag that is off is unknown to the request. The Resourcer union keeps
+// gated behind a flag that is off is unknown to the request, and to the name views its
+// lists may point into (the application's; in an auth's handlers, the auth's own) so a
+// name that points into a view is read from the view's query. The Resourcer union keeps
 // construction inside the generated universe: a decoder over any other struct is a
 // compile error.
 func NewQueryDecoder[Resource Resourcer, Request any](h *Handlers, permissions ...accesstypes.Permission) *resource.QueryDecoder[Resource, Request] {
-	return resource.MustNewQueryDecoder[Resource, Request](router.Collection(), permissions...).WithCursorKey(h.CursorKey()).WithFeatures(h.FeatureSet())
+	return resource.MustNewQueryDecoder[Resource, Request](router.Collection(), permissions...).WithCursorKey(h.CursorKey()).WithFeatures(h.FeatureSet()).WithNameViews(NameViews)
 }
 
 // NewComputedQueryDecoder builds a query decoder for a generated computed resource
@@ -26,29 +28,38 @@ func NewQueryDecoder[Resource Resourcer, Request any](h *Handlers, permissions .
 // it carries the application database's type so a computed list sorts and pages NULL
 // where the tables beside it do, and the generated collection and the resource client
 // so a grant's condition that reads the row is judged over the rows the resource's
-// function yields, against the facts about the caller the client reads. The
-// Resourcer union keeps construction inside the generated universe: a decoder over
-// any other struct is a compile error.
+// function yields, against the facts about the caller the client reads. It is
+// handed the named-row sources (the application's; in an auth's handlers, the auth's
+// own), which the caller of the query carries to a write the resource's function arms,
+// so a column picked from a view or a computed list is set only to a row the writer's
+// list of it shows. The Resourcer union keeps construction inside the generated
+// universe: a decoder over any other struct is a compile error.
 func NewComputedQueryDecoder[Resource Resourcer, Request any](h *Handlers, permissions ...accesstypes.Permission) *resource.ComputedQueryDecoder[Resource, Request] {
-	return resource.MustNewComputedQueryDecoder[Resource, Request](h.ResourceClient().DBType(), permissions...).WithCursorKey(h.CursorKey()).WithFeatures(h.FeatureSet()).WithCollection(router.Collection()).WithSubjectFacts(h.ResourceClient())
+	return resource.MustNewComputedQueryDecoder[Resource, Request](h.ResourceClient().DBType(), permissions...).WithCursorKey(h.CursorKey()).WithFeatures(h.FeatureSet()).WithCollection(router.Collection()).WithSubjectFacts(h.ResourceClient()).WithNamedRowSources(h.NamedRowSources())
 }
 
-// NewRPCDecoder builds a decoder for a generated RPC method request. The Method
-// union keeps construction inside the generated universe: a decoder for any other
-// type is a compile error.
+// NewRPCDecoder builds a decoder for a generated RPC method request, handed the
+// named-row sources (the application's; in an auth's handlers, the auth's own), which
+// the caller it stamps carries to a write the method's body arms, so a column picked
+// from a view or a computed list is set only to a row the writer's list of it shows.
+// The Method union keeps construction inside the generated universe: a decoder for
+// any other type is a compile error.
 func NewRPCDecoder[Method crewidentity.Method, Request any](h *Handlers, perm accesstypes.Permission) *resource.RPCDecoder[Request] {
 	var method Method
 
-	return resource.MustNewRPCDecoder[Request](h, method.Method(), perm).WithCollection(router.Collection())
+	return resource.MustNewRPCDecoder[Request](h, method.Method(), perm).WithCollection(router.Collection()).WithNamedRowSources(h.NamedRowSources())
 }
 
 // NewTargetedRPCDecoder builds a decoder for a @target-bearing RPC method
 // request, wired to the generated collection so a conditional Execute grant
-// rides to the handler's located-row check instead of being refused at decode.
-// The Method union keeps construction inside the generated universe: a decoder
-// for any other type is a compile error.
+// rides to the handler's located-row check instead of being refused at decode,
+// and handed the named-row sources (the application's; in an auth's handlers, the
+// auth's own), which the caller of its gate carries to a write the method's body
+// arms, so a column picked from a view or a computed list is set only to a row the
+// writer's list of it shows. The Method union keeps construction inside the
+// generated universe: a decoder for any other type is a compile error.
 func NewTargetedRPCDecoder[Method crewidentity.Method, Request any](h *Handlers, perm accesstypes.Permission) *resource.TargetedRPCDecoder[Request] {
 	var method Method
 
-	return resource.MustNewTargetedRPCDecoder[Request](h, router.Collection(), method.Method(), perm)
+	return resource.MustNewTargetedRPCDecoder[Request](h, router.Collection(), method.Method(), perm).WithNamedRowSources(h.NamedRowSources())
 }

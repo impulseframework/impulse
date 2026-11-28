@@ -32,8 +32,13 @@ import (
 // conditional update before it signs in, so the token is single-use. See "What a
 // pending identity is" in the README.
 
-// pendingCookieKey is the pending cookie's value holding the token.
-const pendingCookieKey cookie.Key = "pending"
+// pendingCookieKey is the pending cookie's value holding the token, and
+// pendingSignUpKey the one holding what a sign-up through an invitation keeps until its
+// code is entered (heldSignUp), present for such a wait alone.
+const (
+	pendingCookieKey cookie.Key = "pending"
+	pendingSignUpKey cookie.Key = "sign-up"
+)
 
 // pendingTokenSize is the token's size in bytes.
 const pendingTokenSize = 32
@@ -70,8 +75,9 @@ func hashPendingToken(raw []byte) []byte {
 }
 
 // withPendingCookie returns the request's context with the hash of the pending token
-// from the pending cookie, if there is one. pending decides whether the pending identity
-// is still accepted.
+// from the pending cookie, if there is one, and with what a sign-up through an
+// invitation keeps beside it, if the cookie holds that. pending decides whether the
+// pending identity is still accepted.
 func (a *Auth[S, U, Tx]) withPendingCookie(r *http.Request) context.Context {
 	ctx := r.Context()
 
@@ -90,7 +96,13 @@ func (a *Auth[S, U, Tx]) withPendingCookie(r *http.Request) context.Context {
 		return ctx
 	}
 
-	return context.WithValue(ctx, pendingCtxKey{}, hashPendingToken(raw))
+	ctx = context.WithValue(ctx, pendingCtxKey{}, hashPendingToken(raw))
+	var signUp heldSignUp
+	if err := cval.Get(pendingSignUpKey, &signUp); err == nil {
+		ctx = context.WithValue(ctx, heldSignUpCtxKey{}, &signUp)
+	}
+
+	return ctx
 }
 
 // pendingTokenHash returns the hash of the browser's pending token from ctx.
@@ -102,7 +114,8 @@ func pendingTokenHash(ctx context.Context) ([]byte, bool) {
 
 // pending returns the browser's pending identity from ctx. It returns NotFound when
 // there is none, and a pending_expired refusal when its row is no longer live (expired,
-// completed, canceled or replaced).
+// completed, canceled or replaced). The identity it returns says an address is verified
+// only on the word the library keeps, whatever the row holds.
 func (a *Auth[S, U, Tx]) pending(ctx context.Context) (*pendingState, error) {
 	hash, ok := pendingTokenHash(ctx)
 	if !ok {
@@ -120,6 +133,9 @@ func (a *Auth[S, U, Tx]) pending(ctx context.Context) (*pendingState, error) {
 	if p.ConsumedAt != nil || !time.Now().Before(p.ExpiresAt) {
 		return nil, errPendingExpired()
 	}
+	// The row's identity is held to the answer a sign-in's is (onlyGoogleVouches): a
+	// row stored with another provider's word for the address is read without it.
+	p.Identity = *a.onlyGoogleVouches(p.Registration, &p.Identity)
 
 	return p, nil
 }
@@ -133,8 +149,15 @@ func errPendingExpired() error {
 // sign-in completed it, which consumed it already), and writes the pending cookie with
 // the new token. The row is created at the database's time; the events it holds that
 // have no time take that time when the sign-in completes (pendingEvents). A sign-in a
-// password proved is held with the proof of that password, and only while the user
-// still holds it (sessionstorage.ErrPasswordChanged otherwise, with nothing held).
+// password proved is held with the proof of that password where the row names its user,
+// and only while the user still holds it (sessionstorage.ErrPasswordChanged otherwise,
+// with nothing held). A row that names no user carries no proof, since a proof names its
+// user: the wait for an invitation's code of a sign-in through a directory names nobody,
+// also where the account's password has just confirmed that sign-in's link. The link was
+// made on the proof, and it is what the sign-in rests on from then on, as the person's
+// next sign-in through the directory does. A sign-up through an invitation (at.signUp)
+// is held naming nobody, since its account is made once the code is entered, and the
+// cookie carries what the account is made from.
 func (a *Auth[S, U, Tx]) holdPending(ctx context.Context, w http.ResponseWriter, at *signInAttempt, wait *signin.PendingSignInError) (*pendingState, error) {
 	events := at.events
 	if events == nil {
@@ -143,6 +166,12 @@ func (a *Auth[S, U, Tx]) holdPending(ctx context.Context, w http.ResponseWriter,
 	token, hash, err := newPendingToken()
 	if err != nil {
 		return nil, err
+	}
+	cval := cookie.NewValues().SetString(pendingCookieKey, token)
+	if at.signUp != nil {
+		if err := cval.Set(pendingSignUpKey, at.signUp); err != nil {
+			return nil, errors.Wrap(err, "cookie.Values.Set()")
+		}
 	}
 	p := &pendingState{
 		TokenHash:             hash,
@@ -160,13 +189,17 @@ func (a *Auth[S, U, Tx]) holdPending(ctx context.Context, w http.ResponseWriter,
 		ProviderSessionIssuer: at.providerSessionIssuer,
 		ExpiresAt:             time.Now().Add(a.settings.pendingTimeout),
 	}
-	if namesItsUser(at.identity) {
+	if namesItsUser(at.identity) && at.signUp == nil {
 		p.UserID = impulse.NullUUIDFromUUID(at.userID)
 	}
-	// A sign-in that rests on a password proof is held with it: the store inserts the
-	// row only while the user still holds that password, and the completion is held to
-	// it again (completePending).
-	p.PasswordProof = at.proof
+	// A sign-in that rests on a password proof is held with it where the row names its
+	// user: the store inserts the row only while the user still holds that password, and
+	// the completion is held to it again (completePending). A row that names no user is
+	// held with none (signinflow's invitedCodeWait, after a password confirmed the
+	// link).
+	if p.UserID.Valid {
+		p.PasswordProof = at.proof
+	}
 
 	id, err := a.storage.HoldSignIn(ctx, p)
 	if err != nil {
@@ -180,7 +213,6 @@ func (a *Auth[S, U, Tx]) holdPending(ctx context.Context, w http.ResponseWriter,
 
 	// Lax, so the cookie also reaches the login page the provider's callback redirects
 	// to. The pending handlers that change anything are POSTs behind the XSRF check.
-	cval := cookie.NewValues().SetString(pendingCookieKey, token)
 	a.pendingCookies.Cookie().WritePersistentCookie(w, a.settings.pendingCookie, a.pendingCookies.Domain, true, http.SameSiteLaxMode, 2*a.settings.pendingTimeout, cval)
 
 	return p, nil
@@ -297,10 +329,22 @@ func (a *Auth[S, U, Tx]) consumePending(ctx context.Context, p *pendingState) er
 // (p.PasswordProof: a password started it, or confirmed it) completes only while the
 // user still holds that password: after a change, a reset or a removal the completion
 // is refused as a wrong password is, however long the row had left, and the person
-// signs in again. A pending identity no password proved is held to none.
+// signs in again. A pending identity whose row carries no proof is held to none: one no
+// password proved, and one held naming no user (holdPending).
 func (a *Auth[S, U, Tx]) completePending(
 	ctx context.Context, w http.ResponseWriter, p *pendingState, reason sessioninfo.NewSessionReason, more ...sessioninfo.AuthEvent,
 ) (*signInOutcome, error) {
+	at, err := a.pendingAttempt(p, reason, more...)
+	if err != nil {
+		return nil, err
+	}
+
+	return a.signIn(ctx, w, at)
+}
+
+// pendingAttempt is the sign-in that completes the pending identity p for reason, with
+// the events p carried and more.
+func (a *Auth[S, U, Tx]) pendingAttempt(p *pendingState, reason sessioninfo.NewSessionReason, more ...sessioninfo.AuthEvent) (*signInAttempt, error) {
 	identity := p.Identity
 	at := &signInAttempt{
 		identity:              &identity,
@@ -324,7 +368,7 @@ func (a *Auth[S, U, Tx]) completePending(
 		at.userID = p.UserID.UUID
 	}
 
-	return a.signIn(ctx, w, at)
+	return at, nil
 }
 
 // pendingEvents returns the events p carried, with the time p was held, as the database
@@ -378,6 +422,16 @@ func (p *AuthAPI[S, U, Tx]) PendingIdentity(ctx context.Context) (*sessioninfo.P
 // records the step-up events, links the identity if needed, starts the session, and
 // regenerates the session ID.
 //
+// stepUp names the application's own steps, each under a name of the application's
+// ("totp"). An event without a method, under a method that records a step the
+// library runs itself (sessioninfo.MethodEmailCode, sessioninfo.MethodTrustedDevice,
+// an attestation's, a tenant's word (sessioninfo.MethodVouchedByTenant)), or under the
+// name of a sign-in method the library runs (a password, a directory's method the
+// library ships, the method of a registration on the Auth), is a BadRequest, and the
+// pending identity stays as it was: the mailed code is entered through
+// Pending().VerifyCode() or VerifyEmailCode, which record its event, and a sign-in is
+// recorded by the method the person signs in through.
+//
 // The pending identity must wait for MFA (Conflict otherwise). It is consumed first, so
 // it completes once: a second completion finds it expired. The user is resolved again
 // and must be the one the identity waited on, and the sign-in policy is asked again
@@ -385,15 +439,21 @@ func (p *AuthAPI[S, U, Tx]) PendingIdentity(ctx context.Context) (*sessioninfo.P
 // satisfy proceeds, a Deny refuses the completion (no session; the pending identity is
 // consumed), and a RequireMFA for a factor the person did not give holds the sign-in
 // again. The session records the sign-in's events followed by stepUp. If the sign-in
-// must wait again (the resolver now asks for a confirmation, or the policy for another
-// factor), the error is a *signin.PendingSignInError and the pending identity is
-// replaced.
+// must wait again (the resolver now asks for a confirmation, the policy for another
+// factor, or the person came through a directory that does not vouch for an address and
+// their account holds no confirmed one, which the mailed code alone answers), the error
+// is a *signin.PendingSignInError and the pending identity is replaced.
 //
 // A pending identity that a password started, or confirmed, completes only while the
 // user still holds that password: once it was changed, reset or removed, the
-// completion is refused as a wrong password is (Unauthorized, "Invalid Credentials",
+// completion is refused as a wrong password is (Unauthorized, in the same words,
 // with sessionstorage.ErrPasswordChanged as its cause), the pending identity stays
 // consumed and the person signs in again.
+//
+// A sign-up through an invitation has no account before the code mailed to the invited
+// address is entered, so the application's own step cannot complete it (Conflict, the
+// pending identity left as it was): the library's email code does
+// (Pending().VerifyCode(), VerifyEmailCode).
 func (p *AuthAPI[S, U, Tx]) CompletePending(ctx context.Context, w http.ResponseWriter, stepUp ...sessioninfo.AuthEvent) (impulse.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -405,10 +465,16 @@ func (p *AuthAPI[S, U, Tx]) CompletePending(ctx context.Context, w http.Response
 	if pending.Step != sessioninfo.PendingMFA {
 		return impulse.NilUUID, httpio.NewConflictMessage("the pending sign-in waits for a password confirmation, not MFA")
 	}
+	if signsUpInvited(pending) {
+		return impulse.NilUUID, httpio.NewConflictMessage("the pending sign-in is a sign-up through an invitation: the code mailed to the invited address completes it")
+	}
 	if err := validateEvents(stepUp); err != nil {
 		return impulse.NilUUID, err
 	}
 	if err := acceptedFactors(pending.Factors, stepUp); err != nil {
+		return impulse.NilUUID, err
+	}
+	if err := p.auth.reportsNoSignIn(stepUp); err != nil {
 		return impulse.NilUUID, err
 	}
 	if err := p.auth.consumePending(ctx, pending); err != nil {
@@ -478,7 +544,14 @@ func (a *Auth[S, U, Tx]) confirmPending(ctx context.Context, w http.ResponseWrit
 	if err := a.checkConfirmation(ctx, user, password, client); err != nil {
 		return nil, err
 	}
-	if user.Disabled {
+	// A disabled account is refused before the pending identity is spent and before
+	// anything is linked: one the store's answer holds disabled, or one the library's
+	// own row does where a store wraps the library's.
+	disabled, err := a.disabledByEitherStore(ctx, user)
+	if err != nil {
+		return nil, err
+	}
+	if disabled {
 		return nil, signinflow.Refusal("", sessioninfo.RefusedUserDisabled, signin.ErrUserDisabled, "User disabled")
 	}
 	// The link and the session rest on the password just proved: both are made only
@@ -518,7 +591,7 @@ func (a *Auth[S, U, Tx]) linkAndComplete(ctx context.Context, w http.ResponseWri
 func (a *Auth[S, U, Tx]) checkConfirmation(ctx context.Context, user *sessionstorage.SessionUser, password string, client attempts.Client) error {
 	wrong, err := a.provePassword(ctx, user, password, client)
 	if wrong {
-		return httpio.NewUnauthorizedMessageWithError(err, "Invalid Credentials")
+		return httpio.NewUnauthorizedMessageWithError(err, wrongCredentials)
 	}
 
 	return err
@@ -565,7 +638,7 @@ func (a *Auth[S, U, Tx]) pendingStatus() http.HandlerFunc {
 		// Factors are the methods the sign-in policy accepts for the MFA step.
 		Factors []sessioninfo.AuthMethod `json:"factors,omitempty"`
 		// EmailCode is the state of the library's email code, for an MFA wait that
-		// may take it on an Auth that sends mail.
+		// may take it.
 		EmailCode *emailCodeAnswer `json:"emailCode,omitempty"`
 	}
 
@@ -578,7 +651,7 @@ func (a *Auth[S, U, Tx]) pendingStatus() http.HandlerFunc {
 			return writeSignInError(ctx, w, err)
 		}
 		answer := response{Reason: p.Step, Email: p.Identity.Email, ExpiresAt: p.ExpiresAt, ReturnURL: internalcookie.SanitizeReturnURL(p.ReturnURL), Factors: p.Factors}
-		if p.Step == sessioninfo.PendingMFA && offersEmailCode(p.Factors) && a.settings.mail != nil {
+		if p.Step == sessioninfo.PendingMFA && offersEmailCode(p.Factors) {
 			if answer.EmailCode, err = a.emailCodeState(ctx, p); err != nil {
 				return httpio.NewEncoder(w).ClientMessage(ctx, err)
 			}

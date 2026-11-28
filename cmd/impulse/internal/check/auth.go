@@ -12,7 +12,7 @@ import (
 
 // sessionTables verifies that every session Auth the application constructs has its
 // tables in the schema (sessions, users, identities, pending sign-ins, sign-in attempts,
-// sign-in methods, the mail links, sign-in codes and trusted devices where the Auth sends mail, and the
+// sign-in methods, mail links, sign-in codes and trusted devices, and the
 // auth events, impersonation and custom data tables where the storage attaches them), that
 // two Auths never share a table, that every Auth has at least one sign-in method
 // registered on it and every registration an Auth it reaches, and reports the auths
@@ -111,14 +111,14 @@ func issuingAuths(a *app.App, p *app.Profile) map[string]bool {
 }
 
 // authTables lists the tables one construction reads: the mail links, sign-in codes and
-// trusted devices tables when the Auth sends mail (session.WithMail), since an Auth
-// without mail never opens the links and mails no code, and the tokens and device codes
-// tables when a machine outlet names the Auth as its issuer (issues), since an Auth that
-// issues no tokens never opens them.
+// trusted devices tables among them, since every Auth sends mail, the audit records
+// table, which every Auth writes its audit log to, and the tokens and device codes tables
+// when a machine outlet names the Auth as its issuer (issues), since an Auth that issues
+// no tokens never opens them.
 func authTables(auth *app.Auth, issues bool) []string {
-	tables := []string{auth.SessionTable, auth.UserTable, auth.IdentitiesTable, auth.PendingTable, auth.AttemptsTable, auth.SignInMethodsTable}
-	if auth.Mail {
-		tables = append(tables, auth.MailLinksTable, auth.FactorCodesTable, auth.TrustedDevicesTable)
+	tables := []string{
+		auth.SessionTable, auth.UserTable, auth.IdentitiesTable, auth.PendingTable, auth.AttemptsTable, auth.SignInMethodsTable, auth.SignInSettingsTable,
+		auth.MailLinksTable, auth.FactorCodesTable, auth.TrustedDevicesTable, auth.AuditRecordsTable,
 	}
 	if issues {
 		tables = append(tables, auth.TokensTable, auth.DeviceCodesTable)

@@ -12,8 +12,8 @@ import (
 )
 
 // TestFirstAdministratorRoles_areInTheRoleFile holds the foothold to the role file: every
-// role the first administrator is seeded with is one the auth's file defines, at the scope
-// the membership is held in, so the seed names nothing the engine would refuse.
+// role the first administrator's invitation gives is one the auth's file defines, at the
+// scope it is held in, so the invitation names nothing its acceptance could not give.
 func TestFirstAdministratorRoles_areInTheRoleFile(t *testing.T) {
 	t.Parallel()
 
@@ -21,7 +21,7 @@ func TestFirstAdministratorRoles_areInTheRoleFile(t *testing.T) {
 	tests := []struct {
 		name  string
 		roles access.RoleFile
-		// global and domain are the roles seeded in the global partition and in every
+		// global and domain are the roles given in the global partition and in every
 		// domain.
 		global, domain []accesstypes.Role
 	}{
@@ -45,12 +45,12 @@ func TestFirstAdministratorRoles_areInTheRoleFile(t *testing.T) {
 			global, domain := defined(parsed.Roles.Global), defined(parsed.Roles.Domain)
 			for _, r := range tt.global {
 				if !global[r] {
-					t.Errorf("%s is seeded in the global partition and the role file defines no global role by that name", r)
+					t.Errorf("%s is given in the global partition and the role file defines no global role by that name", r)
 				}
 			}
 			for _, r := range tt.domain {
 				if !domain[r] {
-					t.Errorf("%s is seeded in every domain and the role file defines no domain role by that name", r)
+					t.Errorf("%s is given in every domain and the role file defines no domain role by that name", r)
 				}
 			}
 		})
@@ -59,7 +59,7 @@ func TestFirstAdministratorRoles_areInTheRoleFile(t *testing.T) {
 
 // TestAdministratorRoles_areHeldByTheFirstAdministrator holds the foothold's two lists
 // together: every role that counts as an administrator's, which the rule on the last
-// administrator judges by, is one the first administrator is seeded with, where it is
+// administrator judges by, is one the first administrator's invitation gives, where it is
 // held. So the foothold is an administrator, and never the person the rule passes over.
 func TestAdministratorRoles_areHeldByTheFirstAdministrator(t *testing.T) {
 	t.Parallel()
@@ -77,12 +77,12 @@ func TestAdministratorRoles_areHeldByTheFirstAdministrator(t *testing.T) {
 			firstGlobal, firstEveryDomain := tt.first()
 			for _, r := range global {
 				if !slices.Contains(firstGlobal, r) {
-					t.Errorf("%s counts as an administrator's role in the global partition and the first administrator is not seeded with it", r)
+					t.Errorf("%s counts as an administrator's role in the global partition and the first administrator's invitation does not give it", r)
 				}
 			}
 			for _, r := range everyDomain {
 				if !slices.Contains(firstEveryDomain, r) {
-					t.Errorf("%s counts as an administrator's role in every domain and the first administrator is not seeded with it", r)
+					t.Errorf("%s counts as an administrator's role in every domain and the first administrator's invitation does not give it", r)
 				}
 			}
 		})
@@ -104,7 +104,7 @@ func TestRoles_validateAgainstTheCollection(t *testing.T) {
 		roles        access.RoleFile
 		wantWarnings []access.Warning
 	}{
-		{name: "staff", roles: staff.Roles()},
+		{name: staff.Name, roles: staff.Roles()},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -122,7 +122,7 @@ func TestRoles_validateAgainstTheCollection(t *testing.T) {
 				t.Fatalf("config.Collection() error = %v", err)
 			}
 
-			warnings, err := access.ValidateRoles(collection, roles)
+			warnings, err := access.ValidateRoles(collection, roles, tt.name)
 			if err != nil {
 				t.Fatalf("access.ValidateRoles() error = %v", err)
 			}

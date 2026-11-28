@@ -24,33 +24,49 @@ import (
 // per-request check or rendering error — deploy is the last moment the
 // mistake is the operator's alone.
 
-// validateGrantCondition checks one authored grant's condition text.
+// validateGrantCondition checks one authored grant's condition text: it parses, and
+// it reads what the release declares for the grant's permission and resource
+// (validateConditionReads). A refusal names the role and the grant.
 func validateGrantCondition(store PermissionCollection, role accesstypes.Role, perm accesstypes.Permission, grant Grant) error {
-	fail := func(err error) error {
-		return errors.Wrapf(err, "role %s: %s grant on %s", role, perm, grant.Resource)
-	}
-
 	compiled, err := accesstypes.NewCondition(grant.Condition)
 	if err != nil {
-		return fail(err)
+		return grantConditionError(err, role, perm, grant.Resource)
 	}
-	expr := compiled.Expr()
+	if err := validateConditionReads(store, perm, grant.Resource, compiled.Expr()); err != nil {
+		return grantConditionError(err, role, perm, grant.Resource)
+	}
 
-	scope := store.Scope(grant.Resource)
+	return nil
+}
+
+// grantConditionError names the role and the grant whose condition err refuses, as
+// the role file's validation and a write to a custom role both say it.
+func grantConditionError(err error, role accesstypes.Role, perm accesstypes.Permission, res accesstypes.Resource) error {
+	return errors.Wrapf(err, "role %s: %s grant on %s", role, perm, res)
+}
+
+// validateConditionReads holds a parsed condition to what the release declares for a
+// grant of perm on res, the grant's base resource: the vocabulary it reads, the image
+// the permission has, and the types it compares. It names no role, since the answer is
+// the same for every role given the grant: the role file's validation and a write to a
+// custom role add the role (validateGrantCondition, grantRule.refusal), and a load of
+// the policy reports the reason as it is (SkippedGrant).
+func validateConditionReads(store PermissionCollection, perm accesstypes.Permission, res accesstypes.Resource, expr condition.Expr) error {
+	scope := store.Scope(res)
 
 	// The vocabulary the condition validates against: the grant's own
 	// resource — or, for a targeted Execute grant, the @target row resource
 	// the generated handler locates and evaluates against (design plan §12).
-	vocabScope, vocabResource := scope, grant.Resource
+	vocabScope, vocabResource := scope, res
 
 	requestFields := false
 	if perm == accesstypes.Execute {
 		var err error
-		requestFields, err = validateExecuteCondition(store, scope, grant.Resource, expr)
+		requestFields, err = validateExecuteCondition(store, scope, res, expr)
 		if err != nil {
-			return fail(err)
+			return err
 		}
-		if target, targeted := store.MethodTarget(scope, grant.Resource); targeted {
+		if target, targeted := store.MethodTarget(scope, res); targeted {
 			vocabScope, vocabResource = store.Scope(target), target
 		}
 	}
@@ -71,30 +87,30 @@ func validateGrantCondition(store PermissionCollection, role accesstypes.Role, p
 	for _, name := range rowBindings {
 		if _, ok := store.AttributeComparisonType(vocabScope, vocabResource, name); !ok {
 			if store.IsComputedResource(vocabScope, vocabResource) {
-				return fail(errors.Newf("condition references %q, which is not an attribute of %s; a computed resource declares the fields a condition may read with @attribute(%s) on the field", name, vocabResource, name))
+				return errors.Newf("condition references %q, which is not an attribute of %s; a computed resource declares the fields a condition may read with @attribute(%s) on the field", name, vocabResource, name)
 			}
 
-			return fail(errors.Newf("condition references %q, which is not an attribute of %s", name, vocabResource))
+			return errors.Newf("condition references %q, which is not an attribute of %s", name, vocabResource)
 		}
 	}
 	for _, name := range condition.SubjectSets(expr) {
 		if _, ok := store.SubjectSetComparisonType(name); !ok {
-			return fail(errors.Newf("condition references subject.%s, which is not a declared subject set", name))
+			return errors.Newf("condition references subject.%s, which is not a declared subject set", name)
 		}
 	}
 	for _, name := range condition.SubjectValues(expr) {
 		if _, ok := store.SubjectValueComparisonType(name); !ok {
-			return fail(errors.Newf("condition references subject.%s, which is not a declared subject value", name))
+			return errors.Newf("condition references subject.%s, which is not a declared subject value", name)
 		}
 	}
 
 	if err := validateListReads(store, vocabScope, vocabResource, perm, expr); err != nil {
-		return fail(err)
+		return err
 	}
 
 	if condition.UsesPostImage(expr) {
 		if perm != accesstypes.Create && perm != accesstypes.Update && perm != accesstypes.Execute {
-			return fail(errors.Newf("condition reads the post-image (new.), which only create and update mutations propose"))
+			return errors.Newf("condition reads the post-image (new.), which only create and update mutations propose")
 		}
 	}
 
@@ -102,14 +118,10 @@ func validateGrantCondition(store PermissionCollection, role accesstypes.Role, p
 	// only an update has both (an insert's single image would compare a value
 	// against itself).
 	if condition.ComparesAttributes(expr) && perm != accesstypes.Update {
-		return fail(errors.Newf("condition compares the post-image against the row's own attributes (old-vs-new), which only update mutations can evaluate — both images exist only there"))
+		return errors.Newf("condition compares the post-image against the row's own attributes (old-vs-new), which only update mutations can evaluate — both images exist only there")
 	}
 
-	if err := validateConditionTypes(&conditionVocabulary{store: store, scope: vocabScope, res: vocabResource, requestScope: scope, requestRes: grant.Resource, request: requestFields}, expr); err != nil {
-		return fail(err)
-	}
-
-	return nil
+	return validateConditionTypes(&conditionVocabulary{store: store, scope: vocabScope, res: vocabResource, requestScope: scope, requestRes: res, request: requestFields}, expr)
 }
 
 // validateListReads holds a condition to the way a list attribute is read. A
@@ -250,7 +262,11 @@ func validateComparisonTypes(v *conditionVocabulary, cmp *condition.Comparison) 
 		// The attribute-vs-now form is the operand case below.
 		switch operand := cmp.Right.(type) {
 		case condition.StringLiteral:
-			return validateLiteralType(accesstypes.AttributeTypeTimestamp, "now", condition.Literal(operand))
+			if _, err := time.Parse(time.RFC3339, operand.Value); err != nil {
+				return errors.Newf("now is the time of the request; %q is not an RFC 3339 timestamp", operand.Value)
+			}
+
+			return nil
 		case condition.SubjectValue:
 			valueType, _ := store.SubjectValueComparisonType(operand.Name)
 			if valueType != accesstypes.AttributeTypeTimestamp {
@@ -396,6 +412,15 @@ func validateInTypes(v *conditionVocabulary, in *condition.In) error {
 	return nil
 }
 
+// refType is the comparison type of the attribute a condition reads. A grant's
+// condition reads what a write proposes (new.) of the row's own columns alone,
+// never through a join path. An update relies on that refusal: it asks its
+// conditions before it holds the rows it names to the rows its writer can list
+// (the resource package's checkNamedRows), so a condition that read through a
+// proposed key would answer by a row the writer may not list. The one condition
+// that reads through one is the library's own for a role held on one record
+// (resource.GeneratedCollection.RecordCondition), which holds only where the
+// row named is, or is under, a record the role is held on.
 func refType(store PermissionCollection, scope accesstypes.PermissionScope, res accesstypes.Resource, ref condition.Ref) (accesstypes.AttributeType, error) {
 	attrType, ok := store.AttributeComparisonType(scope, res, ref.Name)
 	if !ok {

@@ -11,6 +11,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/shopspring/decimal"
 )
@@ -21,6 +22,21 @@ func (SortieExpense) Resource() accesstypes.Resource {
 
 func (SortieExpense) DefaultConfig() resource.Config {
 	return defaultConfig()
+}
+
+// NamedRows names the columns that name a row of another resource the application lists
+// (SortieID): a create or an update sets one only to a row its caller can list, so the
+// library answers any other as a row that is not there.
+func (SortieExpense) NamedRows() []resource.NamedRow {
+	return []resource.NamedRow{
+		{Field: "SortieID", Resource: "Sorties", Table: "Sorties", KeyColumn: "Id", TenantColumn: "MissionId", TenantPath: []resource.BindingHop{{Table: "Missions", JoinColumn: "Id", Column: "SectorId"}}},
+	}
+}
+
+// TenantBinding is the row's way to its tenant: the library writes the tenant on every
+// change record of the row, whoever writes the row.
+func (SortieExpense) TenantBinding() resource.TenantBinding {
+	return resource.TenantBinding{Field: "SortieID", Path: []resource.BindingHop{{Table: "Sorties", JoinColumn: "Id", Column: "MissionId"}, {Table: "Missions", JoinColumn: "Id", Column: "SectorId"}}}
 }
 
 // sortieExpenseRead mirrors the wire shape the resource routes list
@@ -357,11 +373,11 @@ func (p *SortieExpenseCreatePatch) ToStruct() *SortieExpense {
 	return p.patchSet.ToStruct()
 }
 
-func (p *SortieExpenseCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *SortieExpenseCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *SortieExpenseCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *SortieExpenseCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -493,11 +509,11 @@ func (p *SortieExpenseUpdatePatch) ToStruct() *SortieExpense {
 	return p.patchSet.ToStruct()
 }
 
-func (p *SortieExpenseUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *SortieExpenseUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *SortieExpenseUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *SortieExpenseUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -628,7 +644,10 @@ func NewSortieExpenseDeletePatchFromPatchSet(id impulse.UUID, patchSet *resource
 		SetKey("ID", id).
 		SetPatchType(resource.DeletePatchType)
 
-	return &SortieExpenseDeletePatch{patchSet: patchSet}
+	patch := &SortieExpenseDeletePatch{patchSet: patchSet}
+	patch.registerValidateFunc()
+
+	return patch
 }
 
 func NewSortieExpenseDeletePatch(id impulse.UUID) *SortieExpenseDeletePatch {
@@ -636,14 +655,28 @@ func NewSortieExpenseDeletePatch(id impulse.UUID) *SortieExpenseDeletePatch {
 		SetKey("ID", id).
 		SetPatchType(resource.DeletePatchType)
 
-	return &SortieExpenseDeletePatch{patchSet: patchSet}
+	patch := &SortieExpenseDeletePatch{patchSet: patchSet}
+	patch.registerValidateFunc()
+
+	return patch
 }
 
-func (p *SortieExpenseDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+// registerValidateFunc hands the patch set the resource's delete rule
+// (@validateDeleteType): SortieExpenseDeleteRule.Validate is asked about the
+// row before it is deleted, by the delete of the one row and by a delete that takes the
+// row with a record it is under. An error it returns refuses the delete, and nothing
+// is deleted.
+func (p *SortieExpenseDeletePatch) registerValidateFunc() {
+	p.patchSet.RegisterValidateDeleteFunc(func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		return new(SortieExpenseDeleteRule).Validate(ctx, txn, p)
+	})
+}
+
+func (p *SortieExpenseDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *SortieExpenseDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *SortieExpenseDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

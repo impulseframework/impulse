@@ -30,11 +30,17 @@ import (
 // directly need of the caller (the grants of AssignMembersRole and RemoveMembersRole, each read with the
 // role in question), and is refused where one of them would be.
 //
+// Where the group is kept in a tenant and holds one of that tenant's
+// administrator roles there, a row offers it only to a caller whose session enters the
+// tenant (@callerEnters); the method refuses anyone else.
+//
 // @rpc
+// @callerEnters
 // @outlet(portal)
 // @answers(204)
+// @class(access)
 type AddMembersGroupMember struct {
-	// @target(MembersGroup)
+	// @target(MembersListedGroup)
 	GroupID impulse.UUID
 	// UserID is the person, picked from the people the caller may list.
 	//

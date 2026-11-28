@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -33,6 +34,8 @@ func TestAuth_limitMail_askedAtOnce(t *testing.T) {
 		// ask gives the fixture what the caller reads and returns the address the mail
 		// goes to and the request made a dozen times at once.
 		ask func(f *authFixture, links *mailLinks) (email string, request func(ctx context.Context) error)
+		// key is the count the mail is held to; nil for the address's mail (mailLimitKey).
+		key func(links *mailLinks, email string) string
 	}{
 		{
 			name: "a sign-up's link",
@@ -79,13 +82,52 @@ func TestAuth_limitMail_askedAtOnce(t *testing.T) {
 			},
 		},
 		{
-			name: "a sign-in code",
+			name: "a sign-in code to the address the account holds, in the count of its own",
+			key: func(_ *mailLinks, email string) string {
+				return codeLimitKey(email)
+			},
 			ask: func(f *authFixture, _ *mailLinks) (string, func(ctx context.Context) error) {
+				userID := impulse.Must(impulse.NewUUID())
+				holder := &sessionstorage.SessionUser{ID: userID, Username: "pat", Email: strPtr("pat@lakeside.edu")}
+				f.store.EXPECT().User(gomock.Any(), userID).Return(holder, nil).AnyTimes()
 				f.store.EXPECT().InsertFactorCode(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+				pending := &pendingState{ID: impulse.Must(impulse.NewUUID()), UserID: impulse.NullUUIDFromUUID(userID)}
+
+				return "pat@lakeside.edu", func(ctx context.Context) error {
+					_, err := f.auth.sendCodeToUser(ctx, pending)
+
+					return err
+				}
+			},
+		},
+		{
+			name: "the code that accepts an invitation, in the invitation's own count",
+			key: func(links *mailLinks, _ string) string {
+				return invitationCodeLimitKey(invitationOf(links.rows[0]))
+			},
+			ask: func(f *authFixture, links *mailLinks) (string, func(ctx context.Context) error) {
+				f.store.EXPECT().InsertFactorCode(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+				hash := forwardedInvitation(links, "pat@lakeside.edu")
 				pending := &pendingState{ID: impulse.Must(impulse.NewUUID())}
 
 				return "pat@lakeside.edu", func(ctx context.Context) error {
-					_, err := f.auth.sendEmailCode(ctx, pending, "pat@lakeside.edu")
+					_, err := f.auth.sendCodeToUser(context.WithValue(ctx, invitationCtxKey{}, hash), pending)
+
+					return err
+				}
+			},
+		},
+		{
+			name: "the code to an address given at the sign-in code's step",
+			ask: func(f *authFixture, links *mailLinks) (string, func(ctx context.Context) error) {
+				userID := impulse.Must(impulse.NewUUID())
+				f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat"}, nil).AnyTimes()
+				f.store.EXPECT().InsertFactorCode(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+				links.expectAccounts(f)
+				pending := &pendingState{ID: impulse.Must(impulse.NewUUID()), UserID: impulse.NullUUIDFromUUID(userID), Identity: sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: userID.String()}}
+
+				return "new@lakeside.edu", func(ctx context.Context) error {
+					_, err := f.auth.enrollEmail(ctx, pending, "new@lakeside.edu")
 
 					return err
 				}
@@ -98,7 +140,7 @@ func TestAuth_limitMail_askedAtOnce(t *testing.T) {
 				f.store.EXPECT().User(gomock.Any(), userID).Return(pat(userID), nil).AnyTimes()
 				links.holds("taken@lakeside.edu", &sessionstorage.SessionUser{ID: impulse.Must(impulse.NewUUID()), Username: "sam", Email: strPtr("taken@lakeside.edu")})
 				links.expectAccounts(f)
-				pending := &pendingState{ID: impulse.Must(impulse.NewUUID()), UserID: impulse.NullUUIDFromUUID(userID)}
+				pending := &pendingState{ID: impulse.Must(impulse.NewUUID()), UserID: impulse.NullUUIDFromUUID(userID), Identity: sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: userID.String()}}
 
 				return "taken@lakeside.edu", func(ctx context.Context) error {
 					_, err := f.auth.enrollEmail(ctx, pending, "taken@lakeside.edu")
@@ -126,13 +168,17 @@ func TestAuth_limitMail_askedAtOnce(t *testing.T) {
 			t.Parallel()
 			f, recorder, links := newMailFixture(t, gomock.NewController(t))
 			email, request := tt.ask(f, links)
+			key := mailLimitKey(email)
+			if tt.key != nil {
+				key = tt.key(links, email)
+			}
 			// Every request is held at the first thing it asks the store about the
 			// address's mail, its count or a read of its record, until all of them have
 			// asked: none has mailed or been answered when the last one arrives.
 			hold := newTogether()
 			f.afterFailure = hold.arrive
 			f.afterRead = func(ctx context.Context, name string) {
-				if name == mailLimitKey(email) {
+				if name == key {
 					hold.arrive(ctx)
 				}
 			}
@@ -158,9 +204,159 @@ func TestAuth_limitMail_askedAtOnce(t *testing.T) {
 			if mailed != mailLimit.Failures || refused != guessesAtOnce-mailLimit.Failures {
 				t.Errorf("%d requests were answered as mailed and %d refused, want %d and %d", mailed, refused, mailLimit.Failures, guessesAtOnce-mailLimit.Failures)
 			}
-			record := f.attemptsRecord(mailLimitKey(email))
+			record := f.attemptsRecord(key)
 			if record == nil || record.Failures != int64(mailLimit.Failures) || record.LockedUntil == nil {
 				t.Errorf("the address's record = %+v, want %d counted and the address held", record, mailLimit.Failures)
+			}
+		})
+	}
+}
+
+// forwardedInvitation gives the mail links table a live invitation to email, as one
+// mailed earlier and opened by whoever holds its link, and returns the hash of its token
+// as a browser that opened it carries it.
+func forwardedInvitation(links *mailLinks, email string) []byte {
+	hash := hashPendingToken([]byte("the token of an invitation to " + email))
+	links.insert(&sessionstorage.MailLink{Kind: sessionstorage.MailLinkInvitation, TokenHash: hash, Email: email, ExpiresAt: time.Now().Add(time.Hour)})
+
+	return hash
+}
+
+// TestAuth_signInCodesCountedApart holds the codes a person signs in with apart from
+// the mail anybody can have sent to their address. A stranger who knows the address
+// starts sign-ups for it until the address's mail is at its limit; so does a person
+// who gives it at the sign-in code's step of an account of their own; so does
+// whoever holds the link of an invitation mailed to the address, which can be
+// forwarded, by asking for the code that accepts it until the invitation's codes are at
+// their limit; and so does a person at the code step of another account, whose address
+// only reads like this one's, by asking for that account's codes until they are at
+// their limit. None of them holds up the codes of the account that holds the address:
+// they are still mailed, five of them, and the sixth alone is refused, by the codes'
+// own limit. Nor do the codes use up the address's other mail, in an address the
+// stranger has not touched.
+func TestAuth_signInCodesCountedApart(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		// flood runs the address's mail up to its limit as a stranger can, and reports
+		// what the request past the limit answered.
+		flood func(ctx context.Context, t *testing.T, f *authFixture, links *mailLinks, email string) error
+	}{
+		{
+			name: "sign-ups a stranger starts for the address",
+			flood: func(ctx context.Context, _ *testing.T, f *authFixture, _ *mailLinks, email string) error {
+				var err error
+				for range mailLimit.Failures + 1 {
+					err = f.auth.startSignUp(ctx, email)
+				}
+
+				return err
+			},
+		},
+		{
+			name: "the address given at the sign-in code's step of another account",
+			flood: func(ctx context.Context, _ *testing.T, f *authFixture, _ *mailLinks, email string) error {
+				strangerID := impulse.Must(impulse.NewUUID())
+				f.store.EXPECT().User(gomock.Any(), strangerID).Return(&sessionstorage.SessionUser{ID: strangerID, Username: "sam"}, nil).AnyTimes()
+				// The stranger proved their own account's password: the step takes an
+				// address from nobody else (identityIsTheUsers).
+				pending := &pendingState{ID: impulse.Must(impulse.NewUUID()), UserID: impulse.NullUUIDFromUUID(strangerID), Identity: sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: strangerID.String()}}
+				var err error
+				for range mailLimit.Failures + 1 {
+					_, err = f.auth.enrollEmail(ctx, pending, email)
+				}
+
+				return err
+			},
+		},
+		{
+			name: "the codes of an invitation to the address, asked for by whoever holds its link",
+			flood: func(ctx context.Context, _ *testing.T, f *authFixture, links *mailLinks, email string) error {
+				carried := context.WithValue(ctx, invitationCtxKey{}, forwardedInvitation(links, email))
+				// The wait of a sign-in from the link that names nobody: a sign-up
+				// through the invitation, or a directory that does not vouch for it.
+				pending := &pendingState{ID: impulse.Must(impulse.NewUUID())}
+				var err error
+				for range mailLimit.Failures + 1 {
+					_, err = f.auth.sendCodeToUser(carried, pending)
+				}
+
+				return err
+			},
+		},
+		{
+			name: "the sign-in codes of another account whose address only reads like the address",
+			flood: func(ctx context.Context, t *testing.T, f *authFixture, _ *mailLinks, email string) error {
+				// The address with the Kelvin sign in place of its k: the mail counts' fold
+				// takes it for the address, and the users table for another, which another
+				// account holds.
+				alike := strings.Replace(email, "k", "\u212A", 1)
+				if attempts.FoldWide(alike) != attempts.FoldWide(email) {
+					t.Fatalf("attempts.FoldWide() folds %q and %q apart, want them folded to one", alike, email)
+				}
+				if sameAddress(alike, email) {
+					t.Fatalf("sameAddress(%q, %q) = true, want two addresses", alike, email)
+				}
+				alikeID := impulse.Must(impulse.NewUUID())
+				f.store.EXPECT().User(gomock.Any(), alikeID).Return(&sessionstorage.SessionUser{ID: alikeID, Username: "lee", Email: strPtr(alike)}, nil).AnyTimes()
+				// lee is past the first step of lee's own account, and asks for its code.
+				pending := &pendingState{ID: impulse.Must(impulse.NewUUID()), UserID: impulse.NullUUIDFromUUID(alikeID)}
+				var err error
+				for range mailLimit.Failures + 1 {
+					_, err = f.auth.sendCodeToUser(ctx, pending)
+				}
+
+				return err
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			f, recorder, links := newMailFixture(t, gomock.NewController(t))
+			const email = "pat@lakeside.edu"
+			userID := impulse.Must(impulse.NewUUID())
+			holder := &sessionstorage.SessionUser{ID: userID, Username: "pat", Email: strPtr(email)}
+			links.holds(email, holder)
+			links.expectAccounts(f)
+			f.store.EXPECT().User(gomock.Any(), userID).Return(holder, nil).AnyTimes()
+			f.store.EXPECT().InsertFactorCode(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
+			if err := tt.flood(ctx, t, f, links, email); sessioninfo.LoginRefusalCodeOf(err) != sessioninfo.RefusedTooManyEmails {
+				t.Fatalf("the request past the address's mail limit was answered %v, want too_many_emails: the address's mail is not at its limit", err)
+			}
+			flooded := len(recorder.Messages())
+
+			pending := &pendingState{ID: impulse.Must(impulse.NewUUID()), UserID: impulse.NullUUIDFromUUID(userID)}
+			for n := range mailLimit.Failures {
+				if _, err := f.auth.sendCodeToUser(ctx, pending); err != nil {
+					t.Fatalf("sign-in code %d of the account that holds the address error = %v, want it mailed: what a stranger asked for must not hold it up", n+1, err)
+				}
+			}
+			if got := len(recorder.Messages()) - flooded; got != mailLimit.Failures {
+				t.Errorf("%d sign-in codes were mailed, want %d", got, mailLimit.Failures)
+			}
+			if _, err := f.auth.sendCodeToUser(ctx, pending); sessioninfo.LoginRefusalCodeOf(err) != sessioninfo.RefusedTooManyEmails {
+				t.Errorf("the sixth sign-in code error = %v, want too_many_emails: the codes have a limit of their own", err)
+			}
+			if record := f.attemptsRecord(codeLimitKey(email)); record == nil || record.Failures != int64(mailLimit.Failures) {
+				t.Errorf("the record of the address's sign-in codes = %+v, want %d counted", record, mailLimit.Failures)
+			}
+
+			// The codes used up nothing of an address's other mail.
+			const other = "sam@lakeside.edu"
+			otherID := impulse.Must(impulse.NewUUID())
+			f.store.EXPECT().User(gomock.Any(), otherID).Return(&sessionstorage.SessionUser{ID: otherID, Username: "sam", Email: strPtr(other)}, nil).AnyTimes()
+			otherPending := &pendingState{ID: impulse.Must(impulse.NewUUID()), UserID: impulse.NullUUIDFromUUID(otherID)}
+			for range mailLimit.Failures {
+				if _, err := f.auth.sendCodeToUser(ctx, otherPending); err != nil {
+					t.Fatalf("a sign-in code to %s error = %v, want it mailed", other, err)
+				}
+			}
+			if record := f.attemptsRecord(mailLimitKey(other)); record != nil {
+				t.Errorf("the record of the other mail of %s = %+v, want none: its sign-in codes are counted apart", other, record)
 			}
 		})
 	}

@@ -47,17 +47,17 @@ type view struct {
 	// Outlets are the machine outlets whose tokens the auth issues, with their rendering
 	// helpers.
 	Outlets []*outletView
-	// Foothold is the form of the auth's first administrator the deployment seeds
-	// (Foothold), AdministratorAuthored whether the spec names the roles,
-	// AdministratorGlobal and AdministratorEveryDomain the roles that count as an
-	// administrator's as Go literals, and FirstAdministratorGlobal and
-	// FirstAdministratorEveryDomain the roles the first administrator is seeded with.
-	Foothold string
-	// FootholdRegistration is the constant naming the registration a membership
-	// foothold's first administrator signs in through (FootholdMethod), and
-	// FootholdMethodName that registration's name; empty where there is none.
-	FootholdRegistration          string
-	FootholdMethodName            string
+	// Foothold reports an auth whose roles the application gives (Foothold), which names
+	// the roles that count as an administrator's in its foothold file, and
+	// InvitesAdministrator one whose first administrator the deployment invites
+	// (InvitesAdministrator). AdministratorVariable is the setting the placement names
+	// that person's address in (AdministratorVariable), AdministratorAuthored whether the
+	// spec names the roles, AdministratorGlobal and AdministratorEveryDomain the roles
+	// that count as an administrator's as Go literals, and FirstAdministratorGlobal and
+	// FirstAdministratorEveryDomain the roles the first administrator's invitation gives.
+	Foothold                      bool
+	InvitesAdministrator          bool
+	AdministratorVariable         string
 	AdministratorAuthored         bool
 	AdministratorGlobal           string
 	AdministratorEveryDomain      string
@@ -81,9 +81,6 @@ type methodView struct {
 	// Auth is the auth's name and AuthPascal its table prefix.
 	Auth       string
 	AuthPascal string
-	// Foothold is the form of the auth's first administrator (Foothold), which the
-	// persona cast's seed keeps its accounts apart from.
-	Foothold string
 	// Field is the Handlers field holding the method (directory, entraOne).
 	Field string
 	// Type is the method's Go type (*azure.Method).
@@ -110,6 +107,10 @@ type methodView struct {
 	// SignUpChoice reports an auth whose methods an administrator may open to sign-up
 	// (signUpChoice).
 	SignUpChoice bool
+	// TenantDirectories reports an application with tenant directories
+	// (TenantPolicy.Directories), where a tenant's directory that names a default role
+	// is a second way a stranger gets an account through the method.
+	TenantDirectories bool
 	// module is the application's module path.
 	module string
 }
@@ -151,10 +152,7 @@ func newView(spec *Spec) *view {
 	for _, outlet := range spec.MachineOutlets {
 		v.Outlets = append(v.Outlets, &outletView{Name: outlet, Pascal: names.Pascal(outlet)})
 	}
-	v.Foothold = Foothold(spec)
-	if m := FootholdMethod(spec); m != nil {
-		v.FootholdRegistration, v.FootholdMethodName = m.Registration(), m.Name
-	}
+	v.Foothold, v.InvitesAdministrator, v.AdministratorVariable = Foothold(spec), InvitesAdministrator(spec), AdministratorVariable(spec.Name)
 	v.AdministratorAuthored = len(spec.AdministratorRoles.Global)+len(spec.AdministratorRoles.EveryDomain) > 0
 	v.AdministratorGlobal = roleLiteral(spec.AdministratorRoles.Global)
 	v.AdministratorEveryDomain = roleLiteral(spec.AdministratorRoles.EveryDomain)
@@ -180,15 +178,15 @@ func newView(spec *Spec) *view {
 			v.Imports = append(v.Imports, imp)
 		}
 	}
-	// The sign-in rule every auth sets (requireSecondFactor) names the library's decision
-	// and the factor's method.
-	v.Imports = append(v.Imports, "github.com/impulseframework/impulse/session/sessioninfo", signinImport)
+	// Every auth reads who holds the Super Administrator role through the sign-in
+	// library (signin.SuperAdministrators).
+	v.Imports = append(v.Imports, signinImport)
 	// The auth's identity client, and its option naming the administrator roles.
 	if spec.IdentityDir != "" {
 		v.IdentityPackage = path.Join(spec.Module, spec.IdentityDir, spec.Name+"identity")
 		v.Imports = append(v.Imports, v.IdentityPackage)
 	}
-	if v.IdentityPackage != "" && (v.Foothold != "" || spec.MakesTenants()) {
+	if v.IdentityPackage != "" && (v.Foothold || spec.MakesTenants()) {
 		v.Imports = append(v.Imports, "github.com/impulseframework/impulse/identity")
 	}
 
@@ -205,86 +203,46 @@ func Application(spec *Spec) string {
 	return names.Pascal(path.Base(spec.Module))
 }
 
-// The forms of the first administrator the deployment seeds while the auth's users table
-// holds no rows: a user named administrator with the password the stack generates, marked
-// for change at the first sign-in, for an auth with a password method; a user without a
-// password under the sign-in name the placement names, which that person's first sign-in
-// links to, for an auth whose directory methods leave role membership to the application,
-// who has no password to change (seeded for the registration that person comes through,
-// FootholdMethod). Either holds the administrator roles from the seed, by the id of its
-// account. An auth whose directory methods all follow the directory's roles needs none.
-const (
-	FootholdPassword   = "password"
-	FootholdMembership = "membership"
-	footholdFile       = "foothold.go"
-)
+// footholdFile is the file of an auth package that names the roles that count as an
+// administrator's and, where the deployment invites the auth's first administrator,
+// asks for the invitation.
+const footholdFile = "foothold.go"
 
-// Foothold is the form of the first administrator the deployment seeds for the auth, or
-// empty when the directory ranks its people.
-func Foothold(spec *Spec) string {
-	membership := false
+// Foothold reports an auth whose roles the application gives: one with the password
+// method, or with a directory method that leaves role membership to the application.
+// Such an auth names the roles that count as an administrator's in its foothold file.
+// An auth whose directory writes the roles names none: the directory ranks its people.
+func Foothold(spec *Spec) bool {
 	for i := range spec.Methods {
 		m := &spec.Methods[i]
-		switch {
-		case m.Kind == app.MethodPassword:
-			return FootholdPassword
-		case m.Directory() && m.Authority == app.AuthorityApplication:
-			membership = true
+		if m.Kind == app.MethodPassword || (m.Directory() && m.Authority == app.AuthorityApplication) {
+			return true
 		}
 	}
-	if membership {
-		return FootholdMembership
-	}
 
-	return ""
+	return false
 }
 
-// FootholdMethod is the method the first administrator of a membership foothold signs
-// in through, where the generator can name it without guessing: the auth's one
-// directory method whose roles the application gives, when it is a Microsoft method in
-// the slot of one tenant or a Google method in the slot of one Workspace. The seed
-// creates the administrator for that registration (session.SeedUserIDThrough), so the
-// account's id says which of the auth's registrations its name is believed from, and
-// the person's first sign-in through it links the account where the application's
-// tenants have directories and a name alone links nothing.
-//
-// Naming a registration is the deployment's word that whoever that directory presents
-// under the administrator's name is the administrator, so the generator gives it only
-// where it cannot be wrong, and answers nil everywhere else:
-//
-//   - for an auth with several such methods, since nothing says which is the
-//     deployment's own directory and which a customer's or a partner's, and their order
-//     says nothing;
-//   - for a method open to more than one organization, since any of them could present
-//     the name;
-//   - for an organization's identity provider, whose sign-in names the library can hold
-//     to nothing: a provider that lets a person choose a name vouches for nobody. An
-//     author who knows the provider is the deployment's own directory names it in the
-//     foothold by hand;
-//   - for the persona method, whose provider is the test environments' and declares its
-//     names the application's own;
-//   - for a password foothold, which signs in with its password, and an auth that seeds
-//     nobody.
-func FootholdMethod(spec *Spec) *Method {
-	if Foothold(spec) != FootholdMembership {
-		return nil
-	}
-	var only *Method
-	for i := range spec.Methods {
-		m := &spec.Methods[i]
-		if !m.Directory() || m.Persona() || m.Authority != app.AuthorityApplication {
-			continue
-		}
-		if only != nil {
-			return nil
-		}
-		only = m
-	}
-	if only == nil || !only.slotted() || only.slot() != SlotOne {
-		return nil
-	}
+// InvitesAdministrator reports an auth whose first administrator the deployment
+// invites: while nobody of the auth holds the Super Administrator role, the migrate
+// command has an invitation mailed to the address the placement names
+// (AdministratorVariable), and the person accepts it by signing in through a method of
+// the auth, whichever methods it has and however many organizations a directory method
+// admits. It is every auth whose roles the application gives (Foothold) and whose
+// management the application generates (Spec.IdentityDir): the roles an invitation
+// carries are given by the generated identity client's acceptance hook, so an auth
+// without one would let the invited person in holding nothing, and invites nobody.
+// impulse check refuses such an auth (first-administrator): it has no way in.
+func InvitesAdministrator(spec *Spec) bool {
+	return Foothold(spec) && spec.IdentityDir != ""
+}
 
-	return only
+// AdministratorVariable is the setting the placement names an auth's first
+// administrator in, for each environment, under the convention bedrock reads too:
+// APP_<AUTH>_ADMINISTRATOR, the auth's name upper-cased with every hyphen an underscore.
+// It holds the person's email address.
+func AdministratorVariable(auth string) string {
+	return "APP_" + strings.ToUpper(strings.ReplaceAll(auth, "-", "_")) + "_ADMINISTRATOR"
 }
 
 // roleLiteral is the roles as a Go slice literal, nil for none.
@@ -303,8 +261,8 @@ func roleLiteral(roles []string) string {
 func newMethodView(spec *Spec, m *Method) *methodView {
 	mv := &methodView{Method: m, Auth: spec.Name, AuthPascal: names.Pascal(spec.Name), Fields: m.Fields(), SlotKind: m.slot(), SlotWords: slotWords(m), module: spec.Module}
 	mv.Field = lowerFirst(m.Pascal())
-	mv.Foothold = Foothold(spec)
 	mv.SignUpChoice = signUpChoice(spec)
+	mv.TenantDirectories = spec.TenantPolicy != nil && spec.TenantPolicy.Directories
 	for i := range mv.Fields {
 		mv.Variables = append(mv.Variables, m.Variable(spec.Name, &mv.Fields[i]))
 	}

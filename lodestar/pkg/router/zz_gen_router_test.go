@@ -94,6 +94,8 @@ func routerSessionRoutes() []routerSessionRoute {
 		{url: "/console/api/user/session", suffix: "/user/session", method: http.MethodDelete, handler: "Logout"},
 		{url: "/console/api/user/pending", suffix: "/user/pending", method: http.MethodGet, handler: "PendingStatus"},
 		{url: "/console/api/user/sign-in-means", suffix: "/user/sign-in-means", method: http.MethodGet, handler: "SignInMeans"},
+		{url: "/console/api/user/sessions", suffix: "/user/sessions", method: http.MethodGet, handler: "OwnSessions"},
+		{url: "/console/api/user/tenants", suffix: "/user/tenants", method: http.MethodGet, handler: "OwnTenants"},
 		{url: "/console/api/user/google/login", suffix: "/user/google/login", method: http.MethodGet, handler: "GoogleLogin"},
 		{url: "/console/api/user/google/callback", suffix: "/user/google/callback", method: http.MethodGet, handler: "GoogleCallback"},
 		{url: "/console/api/user/sign-up/login", suffix: "/user/sign-up/login", method: http.MethodGet, handler: "SignUpLogin"},
@@ -103,6 +105,7 @@ func routerSessionRoutes() []routerSessionRoute {
 		{url: "/console/api/user/password/login", suffix: "/user/password/login", method: http.MethodPost, handler: "PasswordLogin", xsrf: true},
 		{url: "/console/api/user/password/change", suffix: "/user/password/change", method: http.MethodPost, handler: "PasswordChange", xsrf: true},
 		{url: "/console/api/user/password/remove", suffix: "/user/password/remove", method: http.MethodPost, handler: "PasswordRemove", xsrf: true},
+		{url: "/console/api/user/password/strength", suffix: "/user/password/strength", method: http.MethodPost, handler: "PasswordStrength", xsrf: true},
 		{url: "/console/api/user/pending/confirm", suffix: "/user/pending/confirm", method: http.MethodPost, handler: "PendingConfirmWithPassword", xsrf: true},
 		{url: "/console/api/user/pending/cancel", suffix: "/user/pending/cancel", method: http.MethodPost, handler: "PendingCancel", xsrf: true},
 		{url: "/console/api/user/pending/code", suffix: "/user/pending/code", method: http.MethodPost, handler: "PendingSendCode", xsrf: true},
@@ -111,11 +114,21 @@ func routerSessionRoutes() []routerSessionRoute {
 		{url: "/console/api/user/browser/forget", suffix: "/user/browser/forget", method: http.MethodPost, handler: "ForgetBrowser", xsrf: true},
 		{url: "/console/api/user/name", suffix: "/user/name", method: http.MethodPost, handler: "ChangeName", xsrf: true},
 		{url: "/console/api/user/look", suffix: "/user/look", method: http.MethodPost, handler: "ChangeLook", xsrf: true},
+		{url: "/console/api/user/username", suffix: "/user/username", method: http.MethodPost, handler: "ChangeUsername", xsrf: true},
+		{url: "/console/api/user/username/free", suffix: "/user/username/free", method: http.MethodPost, handler: "UsernameFree", xsrf: true},
+		{url: "/console/api/user/sessions/end", suffix: "/user/sessions/end", method: http.MethodPost, handler: "EndOwnSession", xsrf: true},
+		{url: "/console/api/user/sessions/end-others", suffix: "/user/sessions/end-others", method: http.MethodPost, handler: "EndOtherSessions", xsrf: true},
+		{url: "/console/api/user/browser/forget-all", suffix: "/user/browser/forget-all", method: http.MethodPost, handler: "ForgetBrowsers", xsrf: true},
+		{url: "/console/api/user/tenants/leave", suffix: "/user/tenants/leave", method: http.MethodPost, handler: "LeaveTenant", xsrf: true},
 		{url: "/console/api/user/invitation", suffix: "/user/invitation", method: http.MethodPost, handler: "InvitationOpen", xsrf: true},
 		{url: "/console/api/user/invitation/sign-up", suffix: "/user/invitation/sign-up", method: http.MethodPost, handler: "InvitationSignUp", xsrf: true},
+		{url: "/console/api/user/email/confirm", suffix: "/user/email/confirm", method: http.MethodPost, handler: "EmailConfirm", xsrf: true},
 		{url: "/console/api/user/sign-up", suffix: "/user/sign-up", method: http.MethodPost, handler: "SignUpStart", xsrf: true},
 		{url: "/console/api/user/sign-up/open", suffix: "/user/sign-up/open", method: http.MethodPost, handler: "SignUpOpen", xsrf: true},
 		{url: "/console/api/user/sign-up/complete", suffix: "/user/sign-up/complete", method: http.MethodPost, handler: "SignUpComplete", xsrf: true},
+		{url: "/console/api/user/password-reset", suffix: "/user/password-reset", method: http.MethodPost, handler: "PasswordResetRequest", xsrf: true},
+		{url: "/console/api/user/password-reset/open", suffix: "/user/password-reset/open", method: http.MethodPost, handler: "PasswordResetOpen", xsrf: true},
+		{url: "/console/api/user/password-reset/complete", suffix: "/user/password-reset/complete", method: http.MethodPost, handler: "PasswordResetComplete", xsrf: true},
 		{url: "/console/api/user/invitation/accept", suffix: "/user/invitation/accept", method: http.MethodPost, handler: "InvitationAccept", xsrf: true, validated: true},
 		{url: "/console/api/user/email", suffix: "/user/email", method: http.MethodPost, handler: "EmailAdd", xsrf: true, validated: true},
 		{url: "/console/api/user/email/verify", suffix: "/user/email/verify", method: http.MethodPost, handler: "EmailVerify", xsrf: true, validated: true},
@@ -132,9 +145,10 @@ func routerSessionRoutes() []routerSessionRoute {
 		{url: "/portal/api/user/session", suffix: "/user/session", method: http.MethodDelete, handler: "PortalLogout"},
 		{url: "/portal/api/user/pending", suffix: "/user/pending", method: http.MethodGet, handler: "PortalPendingStatus"},
 		{url: "/portal/api/user/sign-in-means", suffix: "/user/sign-in-means", method: http.MethodGet, handler: "PortalSignInMeans"},
+		{url: "/portal/api/user/sessions", suffix: "/user/sessions", method: http.MethodGet, handler: "PortalOwnSessions"},
+		{url: "/portal/api/user/tenants", suffix: "/user/tenants", method: http.MethodGet, handler: "PortalOwnTenants"},
 		{url: "/portal/api/user/directory/login", suffix: "/user/directory/login", method: http.MethodGet, handler: "PortalDirectoryLogin"},
 		{url: "/portal/api/user/directory/callback", suffix: "/user/directory/callback", method: http.MethodGet, handler: "PortalDirectoryCallback"},
-		{url: "/portal/api/user/pending/confirm", suffix: "/user/pending/confirm", method: http.MethodPost, handler: "PortalPendingConfirmWithPassword", xsrf: true},
 		{url: "/portal/api/user/pending/cancel", suffix: "/user/pending/cancel", method: http.MethodPost, handler: "PortalPendingCancel", xsrf: true},
 		{url: "/portal/api/user/pending/code", suffix: "/user/pending/code", method: http.MethodPost, handler: "PortalPendingSendCode", xsrf: true},
 		{url: "/portal/api/user/pending/code/verify", suffix: "/user/pending/code/verify", method: http.MethodPost, handler: "PortalPendingVerifyCode", xsrf: true},
@@ -142,7 +156,14 @@ func routerSessionRoutes() []routerSessionRoute {
 		{url: "/portal/api/user/browser/forget", suffix: "/user/browser/forget", method: http.MethodPost, handler: "PortalForgetBrowser", xsrf: true},
 		{url: "/portal/api/user/name", suffix: "/user/name", method: http.MethodPost, handler: "PortalChangeName", xsrf: true},
 		{url: "/portal/api/user/look", suffix: "/user/look", method: http.MethodPost, handler: "PortalChangeLook", xsrf: true},
+		{url: "/portal/api/user/username", suffix: "/user/username", method: http.MethodPost, handler: "PortalChangeUsername", xsrf: true},
+		{url: "/portal/api/user/username/free", suffix: "/user/username/free", method: http.MethodPost, handler: "PortalUsernameFree", xsrf: true},
+		{url: "/portal/api/user/sessions/end", suffix: "/user/sessions/end", method: http.MethodPost, handler: "PortalEndOwnSession", xsrf: true},
+		{url: "/portal/api/user/sessions/end-others", suffix: "/user/sessions/end-others", method: http.MethodPost, handler: "PortalEndOtherSessions", xsrf: true},
+		{url: "/portal/api/user/browser/forget-all", suffix: "/user/browser/forget-all", method: http.MethodPost, handler: "PortalForgetBrowsers", xsrf: true},
+		{url: "/portal/api/user/tenants/leave", suffix: "/user/tenants/leave", method: http.MethodPost, handler: "PortalLeaveTenant", xsrf: true},
 		{url: "/portal/api/user/invitation", suffix: "/user/invitation", method: http.MethodPost, handler: "PortalInvitationOpen", xsrf: true},
+		{url: "/portal/api/user/email/confirm", suffix: "/user/email/confirm", method: http.MethodPost, handler: "PortalEmailConfirm", xsrf: true},
 		{url: "/portal/api/user/invitation/accept", suffix: "/user/invitation/accept", method: http.MethodPost, handler: "PortalInvitationAccept", xsrf: true, validated: true},
 		{url: "/portal/api/user/email", suffix: "/user/email", method: http.MethodPost, handler: "PortalEmailAdd", xsrf: true, validated: true},
 		{url: "/portal/api/user/email/verify", suffix: "/user/email/verify", method: http.MethodPost, handler: "PortalEmailVerify", xsrf: true, validated: true},
@@ -171,6 +192,36 @@ func serveGeneratedRouterRequest(t *testing.T, rec *routerCallRecorder, serverVe
 	router.ServeHTTP(rr, req)
 
 	return rr
+}
+
+// TestGeneratedRouterEnvironment proves every answer names the environment the server
+// reports, the answer for an address no route serves included, and that a server which
+// reports none, as production does, names none.
+func TestGeneratedRouterEnvironment(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		environment string
+		want        []string
+	}{
+		{name: "a server told its environment names it", environment: "tst", want: []string{"tst"}},
+		{name: "a server told none names none", environment: "", want: nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			stub := newRouterHandlersStub(newRouterCallRecorder())
+			stub.serverEnvironment = tt.environment
+			rr := httptest.NewRecorder()
+			New(stub, Hooks{}).ServeHTTP(rr, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/no-such-route", http.NoBody))
+
+			if got := rr.Header().Values(resource.ServerEnvironmentHeader); !slices.Equal(got, tt.want) {
+				t.Errorf("%s = %q, want %q", resource.ServerEnvironmentHeader, got, tt.want)
+			}
+		})
+	}
 }
 
 // TestGeneratedRouter drives every generated route through New: each request answers
@@ -345,6 +396,7 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/droids/feature-flags", method: http.MethodPost},
 		foreign{url: "/droids/feature-flags/testFeatureFlagName", method: http.MethodGet},
 		foreign{url: "/droids/feature-flags/testFeatureFlagName", method: http.MethodPost},
+		foreign{url: "/droids/feature-flags/testFeatureFlagName/changes", method: http.MethodGet},
 		foreign{url: "/droids/set-feature", method: http.MethodPost},
 		foreign{url: "/droids/clients", method: http.MethodGet},
 		foreign{url: "/droids/clients", method: http.MethodPost},
@@ -375,10 +427,42 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/droids/crew-group-users", method: http.MethodPost},
 		foreign{url: "/droids/crew-group-users/testCrewGroupUserGroupID/testCrewGroupUserUserID", method: http.MethodGet},
 		foreign{url: "/droids/crew-group-users/testCrewGroupUserGroupID/testCrewGroupUserUserID", method: http.MethodPost},
+		foreign{url: "/droids/crew-held-roles", method: http.MethodGet},
+		foreign{url: "/droids/crew-held-roles", method: http.MethodPost},
+		foreign{url: "/droids/crew-listed-groups", method: http.MethodGet},
+		foreign{url: "/droids/crew-listed-groups", method: http.MethodPost},
+		foreign{url: "/droids/crew-listed-groups/testCrewListedGroupID", method: http.MethodGet},
+		foreign{url: "/droids/crew-listed-groups/testCrewListedGroupID", method: http.MethodPost},
+		foreign{url: "/droids/crew-listed-group-roles", method: http.MethodGet},
+		foreign{url: "/droids/crew-listed-group-roles", method: http.MethodPost},
+		foreign{url: "/droids/crew-listed-identities", method: http.MethodGet},
+		foreign{url: "/droids/crew-listed-identities", method: http.MethodPost},
+		foreign{url: "/droids/crew-listed-identities/testCrewListedIdentityID", method: http.MethodGet},
+		foreign{url: "/droids/crew-listed-identities/testCrewListedIdentityID", method: http.MethodPost},
+		foreign{url: "/droids/crew-listed-mail-links", method: http.MethodGet},
+		foreign{url: "/droids/crew-listed-mail-links", method: http.MethodPost},
+		foreign{url: "/droids/crew-listed-mail-links/testCrewListedMailLinkID", method: http.MethodGet},
+		foreign{url: "/droids/crew-listed-mail-links/testCrewListedMailLinkID", method: http.MethodPost},
+		foreign{url: "/droids/crew-listed-sectors", method: http.MethodGet},
+		foreign{url: "/droids/crew-listed-sectors", method: http.MethodPost},
+		foreign{url: "/droids/crew-listed-sectors/testCrewListedSectorID", method: http.MethodGet},
+		foreign{url: "/droids/crew-listed-sectors/testCrewListedSectorID", method: http.MethodPost},
+		foreign{url: "/droids/crew-listed-sessions", method: http.MethodGet},
+		foreign{url: "/droids/crew-listed-sessions", method: http.MethodPost},
+		foreign{url: "/droids/crew-listed-sessions/testCrewListedSessionID", method: http.MethodGet},
+		foreign{url: "/droids/crew-listed-sessions/testCrewListedSessionID", method: http.MethodPost},
+		foreign{url: "/droids/crew-listed-sign-in-attempts", method: http.MethodGet},
+		foreign{url: "/droids/crew-listed-sign-in-attempts", method: http.MethodPost},
+		foreign{url: "/droids/crew-listed-users", method: http.MethodGet},
+		foreign{url: "/droids/crew-listed-users", method: http.MethodPost},
+		foreign{url: "/droids/crew-listed-users/testCrewListedUserID", method: http.MethodGet},
+		foreign{url: "/droids/crew-listed-users/testCrewListedUserID", method: http.MethodPost},
+		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-mission-holders", method: http.MethodGet},
+		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-mission-holders", method: http.MethodPost},
+		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-mission-holders/testCrewMissionHolderRecordID/testCrewMissionHolderMemberKind/testCrewMissionHolderMemberID/testCrewMissionHolderRole", method: http.MethodGet},
+		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-mission-holders/testCrewMissionHolderRecordID/testCrewMissionHolderMemberKind/testCrewMissionHolderMemberID/testCrewMissionHolderRole", method: http.MethodPost},
 		foreign{url: "/droids/crew-roles", method: http.MethodGet},
 		foreign{url: "/droids/crew-roles", method: http.MethodPost},
-		foreign{url: "/droids/crew-role-grants", method: http.MethodGet},
-		foreign{url: "/droids/crew-role-grants", method: http.MethodPost},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-groups", method: http.MethodGet},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-groups", method: http.MethodPost},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-groups/testCrewSectorGroupID", method: http.MethodGet},
@@ -391,6 +475,8 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-group-users", method: http.MethodPost},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-group-users/testCrewSectorGroupUserGroupID/testCrewSectorGroupUserUserID", method: http.MethodGet},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-group-users/testCrewSectorGroupUserGroupID/testCrewSectorGroupUserUserID", method: http.MethodPost},
+		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-held-roles", method: http.MethodGet},
+		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-held-roles", method: http.MethodPost},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-identities", method: http.MethodGet},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-identities", method: http.MethodPost},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-identities/testCrewSectorIdentityID", method: http.MethodGet},
@@ -443,6 +529,8 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/droids/crew-session-users", method: http.MethodPost},
 		foreign{url: "/droids/crew-session-users/testCrewSessionUserID", method: http.MethodGet},
 		foreign{url: "/droids/crew-session-users/testCrewSessionUserID", method: http.MethodPost},
+		foreign{url: "/droids/crew-taken-roles", method: http.MethodGet},
+		foreign{url: "/droids/crew-taken-roles", method: http.MethodPost},
 		foreign{url: "/droids/crew-user-group-roles", method: http.MethodGet},
 		foreign{url: "/droids/crew-user-group-roles", method: http.MethodPost},
 		foreign{url: "/droids/crew-user-group-roles/testCrewUserGroupRoleUserID/testCrewUserGroupRoleGroupID/testCrewUserGroupRoleKind/testCrewUserGroupRoleAxis/testCrewUserGroupRoleDomainID/testCrewUserGroupRoleRole", method: http.MethodGet},
@@ -453,6 +541,10 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/distress-calls", method: http.MethodPost},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/distress-calls/testDistressCallID", method: http.MethodGet},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/distress-calls/testDistressCallID", method: http.MethodPost},
+		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/distress-relays", method: http.MethodGet},
+		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/distress-relays", method: http.MethodPost},
+		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/distress-relays/testDistressRelayID", method: http.MethodGet},
+		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/distress-relays/testDistressRelayID", method: http.MethodPost},
 		foreign{url: "/droids/fee-by-kinds", method: http.MethodGet},
 		foreign{url: "/droids/fee-by-kinds", method: http.MethodPost},
 		foreign{url: "/droids/fee-by-kinds/testFeeByKindKindID", method: http.MethodGet},
@@ -466,10 +558,30 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/hangar-passes", method: http.MethodPost},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/hangar-passes/testHangarPassID", method: http.MethodGet},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/hangar-passes/testHangarPassID", method: http.MethodPost},
+		foreign{url: "/droids/members-held-roles", method: http.MethodGet},
+		foreign{url: "/droids/members-held-roles", method: http.MethodPost},
+		foreign{url: "/droids/members-listed-identities", method: http.MethodGet},
+		foreign{url: "/droids/members-listed-identities", method: http.MethodPost},
+		foreign{url: "/droids/members-listed-identities/testMembersListedIdentityID", method: http.MethodGet},
+		foreign{url: "/droids/members-listed-identities/testMembersListedIdentityID", method: http.MethodPost},
+		foreign{url: "/droids/members-listed-mail-links", method: http.MethodGet},
+		foreign{url: "/droids/members-listed-mail-links", method: http.MethodPost},
+		foreign{url: "/droids/members-listed-mail-links/testMembersListedMailLinkID", method: http.MethodGet},
+		foreign{url: "/droids/members-listed-mail-links/testMembersListedMailLinkID", method: http.MethodPost},
+		foreign{url: "/droids/members-listed-sessions", method: http.MethodGet},
+		foreign{url: "/droids/members-listed-sessions", method: http.MethodPost},
+		foreign{url: "/droids/members-listed-sessions/testMembersListedSessionID", method: http.MethodGet},
+		foreign{url: "/droids/members-listed-sessions/testMembersListedSessionID", method: http.MethodPost},
+		foreign{url: "/droids/members-listed-sign-in-attempts", method: http.MethodGet},
+		foreign{url: "/droids/members-listed-sign-in-attempts", method: http.MethodPost},
+		foreign{url: "/droids/members-listed-users", method: http.MethodGet},
+		foreign{url: "/droids/members-listed-users", method: http.MethodPost},
+		foreign{url: "/droids/members-listed-users/testMembersListedUserID", method: http.MethodGet},
+		foreign{url: "/droids/members-listed-users/testMembersListedUserID", method: http.MethodPost},
 		foreign{url: "/droids/members-roles", method: http.MethodGet},
 		foreign{url: "/droids/members-roles", method: http.MethodPost},
-		foreign{url: "/droids/members-role-grants", method: http.MethodGet},
-		foreign{url: "/droids/members-role-grants", method: http.MethodPost},
+		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/members-sector-held-roles", method: http.MethodGet},
+		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/members-sector-held-roles", method: http.MethodPost},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/members-sector-identities", method: http.MethodGet},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/members-sector-identities", method: http.MethodPost},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/members-sector-identities/testMembersSectorIdentityID", method: http.MethodGet},
@@ -598,8 +710,22 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/wings/testWingID", method: http.MethodPost},
 		foreign{url: "/droids/briefing-templates", method: http.MethodGet},
 		foreign{url: "/droids/briefing-templates", method: http.MethodPost},
+		foreign{url: "/droids/crew-givable-roles", method: http.MethodGet},
+		foreign{url: "/droids/crew-givable-roles", method: http.MethodPost},
 		foreign{url: "/droids/crew-invited-sectors", method: http.MethodGet},
 		foreign{url: "/droids/crew-invited-sectors", method: http.MethodPost},
+		foreign{url: "/droids/crew-invited-sector-roles", method: http.MethodGet},
+		foreign{url: "/droids/crew-invited-sector-roles", method: http.MethodPost},
+		foreign{url: "/droids/crew-listed-audit-records", method: http.MethodGet},
+		foreign{url: "/droids/crew-listed-audit-records", method: http.MethodPost},
+		foreign{url: "/droids/crew-listed-role-grants", method: http.MethodGet},
+		foreign{url: "/droids/crew-listed-role-grants", method: http.MethodPost},
+		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-mission-roles", method: http.MethodGet},
+		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-mission-roles", method: http.MethodPost},
+		foreign{url: "/droids/crew-remember-lengths", method: http.MethodGet},
+		foreign{url: "/droids/crew-remember-lengths", method: http.MethodPost},
+		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-audit-records", method: http.MethodGet},
+		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-audit-records", method: http.MethodPost},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-directory-roles", method: http.MethodGet},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-directory-roles", method: http.MethodPost},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-roles", method: http.MethodGet},
@@ -608,13 +734,31 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-sign-in-ways", method: http.MethodPost},
 		foreign{url: "/droids/crew-sign-in-methods", method: http.MethodGet},
 		foreign{url: "/droids/crew-sign-in-methods", method: http.MethodPost},
+		foreign{url: "/droids/crew-sign-in-settings", method: http.MethodGet},
+		foreign{url: "/droids/crew-sign-in-settings", method: http.MethodPost},
 		foreign{url: "/droids/crew-sign-in-ways", method: http.MethodGet},
 		foreign{url: "/droids/crew-sign-in-ways", method: http.MethodPost},
+		foreign{url: "/droids/crew-take-lengths", method: http.MethodGet},
+		foreign{url: "/droids/crew-take-lengths", method: http.MethodPost},
+		foreign{url: "/droids/crew-takeable-roles", method: http.MethodGet},
+		foreign{url: "/droids/crew-takeable-roles", method: http.MethodPost},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/expense-manifests", method: http.MethodGet},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/expense-manifests", method: http.MethodPost},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/expense-manifests/testExpenseManifestMissionID", method: http.MethodGet},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/expense-manifests/testExpenseManifestMissionID", method: http.MethodPost},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/expense-manifests/testExpenseManifestMissionID/content", method: http.MethodGet},
+		foreign{url: "/droids/members-listed-audit-records", method: http.MethodGet},
+		foreign{url: "/droids/members-listed-audit-records", method: http.MethodPost},
+		foreign{url: "/droids/members-listed-role-grants", method: http.MethodGet},
+		foreign{url: "/droids/members-listed-role-grants", method: http.MethodPost},
+		foreign{url: "/droids/members-remember-lengths", method: http.MethodGet},
+		foreign{url: "/droids/members-remember-lengths", method: http.MethodPost},
+		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/members-sector-audit-records", method: http.MethodGet},
+		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/members-sector-audit-records", method: http.MethodPost},
+		foreign{url: "/droids/members-sign-in-methods", method: http.MethodGet},
+		foreign{url: "/droids/members-sign-in-methods", method: http.MethodPost},
+		foreign{url: "/droids/members-sign-in-settings", method: http.MethodGet},
+		foreign{url: "/droids/members-sign-in-settings", method: http.MethodPost},
 		foreign{url: "/droids/pilot-cards", method: http.MethodGet},
 		foreign{url: "/droids/pilot-cards", method: http.MethodPost},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/sector-hazard-boards", method: http.MethodGet},
@@ -637,8 +781,6 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/complete-mission", method: http.MethodPost},
 		foreign{url: "/droids/create-crew-group", method: http.MethodPost},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/create-crew-sector-group", method: http.MethodPost},
-		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/create-crew-sector-user", method: http.MethodPost},
-		foreign{url: "/droids/create-crew-user", method: http.MethodPost},
 		foreign{url: "/droids/delete-crew-group", method: http.MethodPost},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/delete-crew-sector-group", method: http.MethodPost},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/delete-crew-sector-user", method: http.MethodPost},
@@ -665,6 +807,8 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/fail-flight-test", method: http.MethodPost},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/fail-mission", method: http.MethodPost},
 		foreign{url: "/droids/give-crew-group-role", method: http.MethodPost},
+		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/give-crew-group-role-on-mission", method: http.MethodPost},
+		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/give-crew-role-on-mission", method: http.MethodPost},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/give-crew-sector-group-role", method: http.MethodPost},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/hail-ship", method: http.MethodPost},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/hold-mission", method: http.MethodPost},
@@ -683,13 +827,18 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/remove-crew-sector-group-member", method: http.MethodPost},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/remove-crew-sector-password", method: http.MethodPost},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/remove-crew-sector-role", method: http.MethodPost},
+		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/remove-crew-sector-user", method: http.MethodPost},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/rename-crew-sector-user", method: http.MethodPost},
 		foreign{url: "/droids/rename-crew-user", method: http.MethodPost},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/rename-members-sector-user", method: http.MethodPost},
 		foreign{url: "/droids/rename-members-user", method: http.MethodPost},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/replace-mission-document", method: http.MethodPost},
 		foreign{url: "/droids/require-crew-password-change", method: http.MethodPost},
+		foreign{url: "/droids/require-crew-second-factor", method: http.MethodPost},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/require-crew-sector-password-change", method: http.MethodPost},
+		foreign{url: "/droids/require-members-second-factor", method: http.MethodPost},
+		foreign{url: "/droids/resend-crew-invitation", method: http.MethodPost},
+		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/resend-crew-sector-invitation", method: http.MethodPost},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/resume-mission", method: http.MethodPost},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/revoke-crew-sector-user-trusted-devices", method: http.MethodPost},
 		foreign{url: "/droids/revoke-crew-session-token", method: http.MethodPost},
@@ -697,12 +846,15 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/revoke-members-sector-user-trusted-devices", method: http.MethodPost},
 		foreign{url: "/droids/revoke-members-user-trusted-devices", method: http.MethodPost},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/scrap-ship", method: http.MethodPost},
-		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/set-crew-sector-temporary-password", method: http.MethodPost},
+		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/send-crew-sector-user-password-reset-link", method: http.MethodPost},
+		foreign{url: "/droids/send-crew-user-password-reset-link", method: http.MethodPost},
+		foreign{url: "/droids/set-crew-remembered-browsers", method: http.MethodPost},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/set-crew-sector-user-email", method: http.MethodPost},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/set-crew-sector-user-name", method: http.MethodPost},
-		foreign{url: "/droids/set-crew-temporary-password", method: http.MethodPost},
+		foreign{url: "/droids/set-crew-self-service-reset", method: http.MethodPost},
 		foreign{url: "/droids/set-crew-user-email", method: http.MethodPost},
 		foreign{url: "/droids/set-crew-user-name", method: http.MethodPost},
+		foreign{url: "/droids/set-members-remembered-browsers", method: http.MethodPost},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/set-members-sector-user-email", method: http.MethodPost},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/set-members-sector-user-name", method: http.MethodPost},
 		foreign{url: "/droids/set-members-user-email", method: http.MethodPost},
@@ -710,7 +862,12 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/set-sector-pilot-clearance", method: http.MethodPost},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/stand-down-mission", method: http.MethodPost},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/start-flight-test", method: http.MethodPost},
+		foreign{url: "/droids/stop-requiring-crew-second-factor", method: http.MethodPost},
+		foreign{url: "/droids/stop-requiring-members-second-factor", method: http.MethodPost},
 		foreign{url: "/droids/take-crew-group-role", method: http.MethodPost},
+		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/take-crew-group-role-on-mission", method: http.MethodPost},
+		foreign{url: "/droids/take-crew-role", method: http.MethodPost},
+		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/take-crew-role-on-mission", method: http.MethodPost},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/take-crew-sector-group-role", method: http.MethodPost},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/unlink-crew-sector-session-identity", method: http.MethodPost},
 		foreign{url: "/droids/unlink-crew-session-identity", method: http.MethodPost},
@@ -746,10 +903,42 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/portal/api/crew-group-users", method: http.MethodPost},
 		foreign{url: "/portal/api/crew-group-users/testCrewGroupUserGroupID/testCrewGroupUserUserID", method: http.MethodGet},
 		foreign{url: "/portal/api/crew-group-users/testCrewGroupUserGroupID/testCrewGroupUserUserID", method: http.MethodPost},
+		foreign{url: "/portal/api/crew-held-roles", method: http.MethodGet},
+		foreign{url: "/portal/api/crew-held-roles", method: http.MethodPost},
+		foreign{url: "/portal/api/crew-listed-groups", method: http.MethodGet},
+		foreign{url: "/portal/api/crew-listed-groups", method: http.MethodPost},
+		foreign{url: "/portal/api/crew-listed-groups/testCrewListedGroupID", method: http.MethodGet},
+		foreign{url: "/portal/api/crew-listed-groups/testCrewListedGroupID", method: http.MethodPost},
+		foreign{url: "/portal/api/crew-listed-group-roles", method: http.MethodGet},
+		foreign{url: "/portal/api/crew-listed-group-roles", method: http.MethodPost},
+		foreign{url: "/portal/api/crew-listed-identities", method: http.MethodGet},
+		foreign{url: "/portal/api/crew-listed-identities", method: http.MethodPost},
+		foreign{url: "/portal/api/crew-listed-identities/testCrewListedIdentityID", method: http.MethodGet},
+		foreign{url: "/portal/api/crew-listed-identities/testCrewListedIdentityID", method: http.MethodPost},
+		foreign{url: "/portal/api/crew-listed-mail-links", method: http.MethodGet},
+		foreign{url: "/portal/api/crew-listed-mail-links", method: http.MethodPost},
+		foreign{url: "/portal/api/crew-listed-mail-links/testCrewListedMailLinkID", method: http.MethodGet},
+		foreign{url: "/portal/api/crew-listed-mail-links/testCrewListedMailLinkID", method: http.MethodPost},
+		foreign{url: "/portal/api/crew-listed-sectors", method: http.MethodGet},
+		foreign{url: "/portal/api/crew-listed-sectors", method: http.MethodPost},
+		foreign{url: "/portal/api/crew-listed-sectors/testCrewListedSectorID", method: http.MethodGet},
+		foreign{url: "/portal/api/crew-listed-sectors/testCrewListedSectorID", method: http.MethodPost},
+		foreign{url: "/portal/api/crew-listed-sessions", method: http.MethodGet},
+		foreign{url: "/portal/api/crew-listed-sessions", method: http.MethodPost},
+		foreign{url: "/portal/api/crew-listed-sessions/testCrewListedSessionID", method: http.MethodGet},
+		foreign{url: "/portal/api/crew-listed-sessions/testCrewListedSessionID", method: http.MethodPost},
+		foreign{url: "/portal/api/crew-listed-sign-in-attempts", method: http.MethodGet},
+		foreign{url: "/portal/api/crew-listed-sign-in-attempts", method: http.MethodPost},
+		foreign{url: "/portal/api/crew-listed-users", method: http.MethodGet},
+		foreign{url: "/portal/api/crew-listed-users", method: http.MethodPost},
+		foreign{url: "/portal/api/crew-listed-users/testCrewListedUserID", method: http.MethodGet},
+		foreign{url: "/portal/api/crew-listed-users/testCrewListedUserID", method: http.MethodPost},
+		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-mission-holders", method: http.MethodGet},
+		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-mission-holders", method: http.MethodPost},
+		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-mission-holders/testCrewMissionHolderRecordID/testCrewMissionHolderMemberKind/testCrewMissionHolderMemberID/testCrewMissionHolderRole", method: http.MethodGet},
+		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-mission-holders/testCrewMissionHolderRecordID/testCrewMissionHolderMemberKind/testCrewMissionHolderMemberID/testCrewMissionHolderRole", method: http.MethodPost},
 		foreign{url: "/portal/api/crew-roles", method: http.MethodGet},
 		foreign{url: "/portal/api/crew-roles", method: http.MethodPost},
-		foreign{url: "/portal/api/crew-role-grants", method: http.MethodGet},
-		foreign{url: "/portal/api/crew-role-grants", method: http.MethodPost},
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-groups", method: http.MethodGet},
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-groups", method: http.MethodPost},
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-groups/testCrewSectorGroupID", method: http.MethodGet},
@@ -762,6 +951,8 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-group-users", method: http.MethodPost},
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-group-users/testCrewSectorGroupUserGroupID/testCrewSectorGroupUserUserID", method: http.MethodGet},
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-group-users/testCrewSectorGroupUserGroupID/testCrewSectorGroupUserUserID", method: http.MethodPost},
+		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-held-roles", method: http.MethodGet},
+		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-held-roles", method: http.MethodPost},
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-identities", method: http.MethodGet},
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-identities", method: http.MethodPost},
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-identities/testCrewSectorIdentityID", method: http.MethodGet},
@@ -814,12 +1005,18 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/portal/api/crew-session-users", method: http.MethodPost},
 		foreign{url: "/portal/api/crew-session-users/testCrewSessionUserID", method: http.MethodGet},
 		foreign{url: "/portal/api/crew-session-users/testCrewSessionUserID", method: http.MethodPost},
+		foreign{url: "/portal/api/crew-taken-roles", method: http.MethodGet},
+		foreign{url: "/portal/api/crew-taken-roles", method: http.MethodPost},
 		foreign{url: "/portal/api/crew-user-group-roles", method: http.MethodGet},
 		foreign{url: "/portal/api/crew-user-group-roles", method: http.MethodPost},
 		foreign{url: "/portal/api/crew-user-group-roles/testCrewUserGroupRoleUserID/testCrewUserGroupRoleGroupID/testCrewUserGroupRoleKind/testCrewUserGroupRoleAxis/testCrewUserGroupRoleDomainID/testCrewUserGroupRoleRole", method: http.MethodGet},
 		foreign{url: "/portal/api/crew-user-group-roles/testCrewUserGroupRoleUserID/testCrewUserGroupRoleGroupID/testCrewUserGroupRoleKind/testCrewUserGroupRoleAxis/testCrewUserGroupRoleDomainID/testCrewUserGroupRoleRole", method: http.MethodPost},
 		foreign{url: "/portal/api/crew-user-roles", method: http.MethodGet},
 		foreign{url: "/portal/api/crew-user-roles", method: http.MethodPost},
+		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/distress-relays", method: http.MethodGet},
+		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/distress-relays", method: http.MethodPost},
+		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/distress-relays/testDistressRelayID", method: http.MethodGet},
+		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/distress-relays/testDistressRelayID", method: http.MethodPost},
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/droid-reports", method: http.MethodGet},
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/droid-reports", method: http.MethodPost},
 		foreign{url: "/portal/api/fee-by-kinds", method: http.MethodGet},
@@ -908,8 +1105,22 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/wings", method: http.MethodPost},
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/wings/testWingID", method: http.MethodGet},
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/wings/testWingID", method: http.MethodPost},
+		foreign{url: "/portal/api/crew-givable-roles", method: http.MethodGet},
+		foreign{url: "/portal/api/crew-givable-roles", method: http.MethodPost},
 		foreign{url: "/portal/api/crew-invited-sectors", method: http.MethodGet},
 		foreign{url: "/portal/api/crew-invited-sectors", method: http.MethodPost},
+		foreign{url: "/portal/api/crew-invited-sector-roles", method: http.MethodGet},
+		foreign{url: "/portal/api/crew-invited-sector-roles", method: http.MethodPost},
+		foreign{url: "/portal/api/crew-listed-audit-records", method: http.MethodGet},
+		foreign{url: "/portal/api/crew-listed-audit-records", method: http.MethodPost},
+		foreign{url: "/portal/api/crew-listed-role-grants", method: http.MethodGet},
+		foreign{url: "/portal/api/crew-listed-role-grants", method: http.MethodPost},
+		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-mission-roles", method: http.MethodGet},
+		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-mission-roles", method: http.MethodPost},
+		foreign{url: "/portal/api/crew-remember-lengths", method: http.MethodGet},
+		foreign{url: "/portal/api/crew-remember-lengths", method: http.MethodPost},
+		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-audit-records", method: http.MethodGet},
+		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-audit-records", method: http.MethodPost},
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-directory-roles", method: http.MethodGet},
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-directory-roles", method: http.MethodPost},
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-roles", method: http.MethodGet},
@@ -918,8 +1129,14 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-sign-in-ways", method: http.MethodPost},
 		foreign{url: "/portal/api/crew-sign-in-methods", method: http.MethodGet},
 		foreign{url: "/portal/api/crew-sign-in-methods", method: http.MethodPost},
+		foreign{url: "/portal/api/crew-sign-in-settings", method: http.MethodGet},
+		foreign{url: "/portal/api/crew-sign-in-settings", method: http.MethodPost},
 		foreign{url: "/portal/api/crew-sign-in-ways", method: http.MethodGet},
 		foreign{url: "/portal/api/crew-sign-in-ways", method: http.MethodPost},
+		foreign{url: "/portal/api/crew-take-lengths", method: http.MethodGet},
+		foreign{url: "/portal/api/crew-take-lengths", method: http.MethodPost},
+		foreign{url: "/portal/api/crew-takeable-roles", method: http.MethodGet},
+		foreign{url: "/portal/api/crew-takeable-roles", method: http.MethodPost},
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/expense-manifests", method: http.MethodGet},
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/expense-manifests", method: http.MethodPost},
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/expense-manifests/testExpenseManifestMissionID", method: http.MethodGet},
@@ -947,8 +1164,6 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/complete-mission", method: http.MethodPost},
 		foreign{url: "/portal/api/create-crew-group", method: http.MethodPost},
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/create-crew-sector-group", method: http.MethodPost},
-		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/create-crew-sector-user", method: http.MethodPost},
-		foreign{url: "/portal/api/create-crew-user", method: http.MethodPost},
 		foreign{url: "/portal/api/delete-crew-group", method: http.MethodPost},
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/delete-crew-sector-group", method: http.MethodPost},
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/delete-crew-sector-user", method: http.MethodPost},
@@ -966,6 +1181,8 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/fail-flight-test", method: http.MethodPost},
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/fail-mission", method: http.MethodPost},
 		foreign{url: "/portal/api/give-crew-group-role", method: http.MethodPost},
+		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/give-crew-group-role-on-mission", method: http.MethodPost},
+		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/give-crew-role-on-mission", method: http.MethodPost},
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/give-crew-sector-group-role", method: http.MethodPost},
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/hail-ship", method: http.MethodPost},
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/hold-mission", method: http.MethodPost},
@@ -986,25 +1203,35 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/remove-crew-sector-group-member", method: http.MethodPost},
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/remove-crew-sector-password", method: http.MethodPost},
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/remove-crew-sector-role", method: http.MethodPost},
+		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/remove-crew-sector-user", method: http.MethodPost},
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/rename-crew-sector-user", method: http.MethodPost},
 		foreign{url: "/portal/api/rename-crew-user", method: http.MethodPost},
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/replace-mission-document", method: http.MethodPost},
 		foreign{url: "/portal/api/require-crew-password-change", method: http.MethodPost},
+		foreign{url: "/portal/api/require-crew-second-factor", method: http.MethodPost},
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/require-crew-sector-password-change", method: http.MethodPost},
+		foreign{url: "/portal/api/resend-crew-invitation", method: http.MethodPost},
+		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/resend-crew-sector-invitation", method: http.MethodPost},
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/resume-mission", method: http.MethodPost},
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/revoke-crew-sector-user-trusted-devices", method: http.MethodPost},
 		foreign{url: "/portal/api/revoke-crew-session-token", method: http.MethodPost},
 		foreign{url: "/portal/api/revoke-crew-user-trusted-devices", method: http.MethodPost},
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/scrap-ship", method: http.MethodPost},
-		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/set-crew-sector-temporary-password", method: http.MethodPost},
+		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/send-crew-sector-user-password-reset-link", method: http.MethodPost},
+		foreign{url: "/portal/api/send-crew-user-password-reset-link", method: http.MethodPost},
+		foreign{url: "/portal/api/set-crew-remembered-browsers", method: http.MethodPost},
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/set-crew-sector-user-email", method: http.MethodPost},
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/set-crew-sector-user-name", method: http.MethodPost},
-		foreign{url: "/portal/api/set-crew-temporary-password", method: http.MethodPost},
+		foreign{url: "/portal/api/set-crew-self-service-reset", method: http.MethodPost},
 		foreign{url: "/portal/api/set-crew-user-email", method: http.MethodPost},
 		foreign{url: "/portal/api/set-crew-user-name", method: http.MethodPost},
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/set-sector-pilot-clearance", method: http.MethodPost},
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/start-flight-test", method: http.MethodPost},
+		foreign{url: "/portal/api/stop-requiring-crew-second-factor", method: http.MethodPost},
 		foreign{url: "/portal/api/take-crew-group-role", method: http.MethodPost},
+		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/take-crew-group-role-on-mission", method: http.MethodPost},
+		foreign{url: "/portal/api/take-crew-role", method: http.MethodPost},
+		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/take-crew-role-on-mission", method: http.MethodPost},
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/take-crew-sector-group-role", method: http.MethodPost},
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/unlink-crew-sector-session-identity", method: http.MethodPost},
 		foreign{url: "/portal/api/unlink-crew-session-identity", method: http.MethodPost},
@@ -1669,10 +1896,20 @@ func newRouterCallRecorder() *routerCallRecorder {
 	return &routerCallRecorder{generatedCallRecorder: newGeneratedCallRecorder()}
 }
 
-// Middleware returns middleware that appends its name to the chain when it runs.
+// routerBindRecorded marks a request whose bind to an auth the chain records already.
+type routerBindRecorded struct{}
+
+// Middleware returns middleware that appends its name to the chain when it runs. The
+// first recorded middleware that runs on a request bound to an auth (resource.BindAuth,
+// which the router mounts itself) appends the bind in front of its own name, so the
+// chain shows where the router's bind sits.
 func (rec *routerCallRecorder) Middleware(name string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if auth := resource.BoundAuth(r.Context()); auth != "" && r.Context().Value(routerBindRecorded{}) == nil {
+				rec.chain = append(rec.chain, "BindAuth("+auth+")")
+				r = r.WithContext(context.WithValue(r.Context(), routerBindRecorded{}, true))
+			}
 			rec.chain = append(rec.chain, name)
 			next.ServeHTTP(w, r)
 		})
@@ -1704,6 +1941,14 @@ func (s *routerDefaultSessionStub) PendingStatus() http.HandlerFunc {
 
 func (s *routerDefaultSessionStub) SignInMeans() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "SignInMeans")
+}
+
+func (s *routerDefaultSessionStub) OwnSessions() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "OwnSessions")
+}
+
+func (s *routerDefaultSessionStub) OwnTenants() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "OwnTenants")
 }
 
 func (s *routerDefaultSessionStub) GoogleLogin() http.HandlerFunc {
@@ -1742,6 +1987,10 @@ func (s *routerDefaultSessionStub) PasswordRemove() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "PasswordRemove")
 }
 
+func (s *routerDefaultSessionStub) PasswordStrength() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "PasswordStrength")
+}
+
 func (s *routerDefaultSessionStub) PendingConfirmWithPassword() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "PendingConfirmWithPassword")
 }
@@ -1774,12 +2023,40 @@ func (s *routerDefaultSessionStub) ChangeLook() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "ChangeLook")
 }
 
+func (s *routerDefaultSessionStub) ChangeUsername() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "ChangeUsername")
+}
+
+func (s *routerDefaultSessionStub) UsernameFree() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "UsernameFree")
+}
+
+func (s *routerDefaultSessionStub) EndOwnSession() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "EndOwnSession")
+}
+
+func (s *routerDefaultSessionStub) EndOtherSessions() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "EndOtherSessions")
+}
+
+func (s *routerDefaultSessionStub) ForgetBrowsers() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "ForgetBrowsers")
+}
+
+func (s *routerDefaultSessionStub) LeaveTenant() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "LeaveTenant")
+}
+
 func (s *routerDefaultSessionStub) InvitationOpen() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "InvitationOpen")
 }
 
 func (s *routerDefaultSessionStub) InvitationSignUp() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "InvitationSignUp")
+}
+
+func (s *routerDefaultSessionStub) EmailConfirm() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "EmailConfirm")
 }
 
 func (s *routerDefaultSessionStub) SignUpStart() http.HandlerFunc {
@@ -1792,6 +2069,18 @@ func (s *routerDefaultSessionStub) SignUpOpen() http.HandlerFunc {
 
 func (s *routerDefaultSessionStub) SignUpComplete() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "SignUpComplete")
+}
+
+func (s *routerDefaultSessionStub) PasswordResetRequest() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "PasswordResetRequest")
+}
+
+func (s *routerDefaultSessionStub) PasswordResetOpen() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "PasswordResetOpen")
+}
+
+func (s *routerDefaultSessionStub) PasswordResetComplete() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "PasswordResetComplete")
 }
 
 func (s *routerDefaultSessionStub) InvitationAccept() http.HandlerFunc {
@@ -1893,16 +2182,20 @@ func (s *routerPortalSessionStub) SignInMeans() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "SignInMeans")
 }
 
+func (s *routerPortalSessionStub) OwnSessions() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "OwnSessions")
+}
+
+func (s *routerPortalSessionStub) OwnTenants() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "OwnTenants")
+}
+
 func (s *routerPortalSessionStub) DirectoryLogin() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "DirectoryLogin")
 }
 
 func (s *routerPortalSessionStub) DirectoryCallback() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "DirectoryCallback")
-}
-
-func (s *routerPortalSessionStub) PendingConfirmWithPassword() http.HandlerFunc {
-	return s.rec.RecordHandlerCall(s.prefix + "PendingConfirmWithPassword")
 }
 
 func (s *routerPortalSessionStub) PendingCancel() http.HandlerFunc {
@@ -1933,8 +2226,36 @@ func (s *routerPortalSessionStub) ChangeLook() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "ChangeLook")
 }
 
+func (s *routerPortalSessionStub) ChangeUsername() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "ChangeUsername")
+}
+
+func (s *routerPortalSessionStub) UsernameFree() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "UsernameFree")
+}
+
+func (s *routerPortalSessionStub) EndOwnSession() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "EndOwnSession")
+}
+
+func (s *routerPortalSessionStub) EndOtherSessions() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "EndOtherSessions")
+}
+
+func (s *routerPortalSessionStub) ForgetBrowsers() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "ForgetBrowsers")
+}
+
+func (s *routerPortalSessionStub) LeaveTenant() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "LeaveTenant")
+}
+
 func (s *routerPortalSessionStub) InvitationOpen() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "InvitationOpen")
+}
+
+func (s *routerPortalSessionStub) EmailConfirm() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "EmailConfirm")
 }
 
 func (s *routerPortalSessionStub) InvitationAccept() http.HandlerFunc {
@@ -1993,6 +2314,8 @@ type routerHandlersStub struct {
 	// serverVersion is the release the stub reports; empty, no release, so a case that
 	// sets none is never refused.
 	serverVersion string
+	// serverEnvironment is the environment's name the stub reports; empty, production's.
+	serverEnvironment string
 	// exporter is where the request log goes when a test sets one, the console for the
 	// request log test; nil hands the router the recording stub.
 	exporter logger.Exporter
@@ -2000,6 +2323,10 @@ type routerHandlersStub struct {
 
 func (s *routerHandlersStub) ServerVersion() string {
 	return s.serverVersion
+}
+
+func (s *routerHandlersStub) ServerEnvironment() string {
+	return s.serverEnvironment
 }
 
 // ResourceClient answers with a mock client carrying what New requires: every file
@@ -2051,10 +2378,6 @@ func (s *routerHandlersStub) Portal() PortalSession {
 
 func (s *routerHandlersStub) Droids() DroidsTokens {
 	return s.droids
-}
-
-func (s *routerHandlersStub) BindAuth(name string) func(http.Handler) http.Handler {
-	return s.rec.Middleware("BindAuth(" + name + ")")
 }
 
 func (s *routerHandlersStub) SchedulerAuth(next http.Handler) http.Handler {

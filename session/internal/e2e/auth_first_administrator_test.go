@@ -1,0 +1,668 @@
+//go:build !skipAuth
+
+// The first administrator's invitation through the real handlers on both backends: a
+// release mails the address the deployment names one invitation while nobody of the
+// Auth holds the Super Administrator role, the person accepts it with a password or
+// through a directory, however wide the directory's method is, and what a later
+// release, a changed address, an account that holds nothing, a holder of the role and
+// the operations action each do to the link that stands.
+
+package e2e
+
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"slices"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/go-playground/errors/v5"
+	"github.com/google/go-cmp/cmp"
+	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/session"
+	"github.com/impulseframework/impulse/session/google"
+	"github.com/impulseframework/impulse/session/internal/oidctest"
+	"github.com/impulseframework/impulse/session/mail"
+	"github.com/impulseframework/impulse/session/sessioninfo"
+)
+
+// The first administrator the scenarios' deployment names, another person of the same
+// directory, and the roles the invitation gives.
+const (
+	firstAdministrator = "ada@lakeside.edu"
+	sameDirectory      = "grace@lakeside.edu"
+)
+
+var firstAdministratorRoles = []string{"Administrator", "SuperAdministrator"}
+
+// firstAdministratorApp is an application a deployment has just released: the password
+// method beside a Google registration, in an application whose tenants have directories
+// (the directory admission is set, and one tenant has the Lakeside Workspace as its
+// own). Its acceptance hook keeps the roles it gave, by the username it gave them to,
+// and the application is the role store the release asks who holds the Super
+// Administrator role (session.RoleHolders): the people the hook gave it to, and the
+// personas a scenario seeds holding it.
+type firstAdministratorApp[Tx any] struct {
+	*authApp[Tx]
+	google *oidctest.FakeIDP
+
+	mu    sync.Mutex
+	given map[string][]string
+	// super are the holders of the Super Administrator role, as a permission store
+	// names them: by the id of their account.
+	super []accesstypes.User
+}
+
+// firstAdministratorShape is what one scenario's application is built with.
+type firstAdministratorShape struct {
+	// workspaces is whom the Google registration admits: one Workspace (lakesideAlone),
+	// or a method open to more than one organization.
+	workspaces google.WorkspaceSet
+	// sender is the Auth's mail sender; nil is a recorder, which delivers.
+	sender mail.Sender
+	// stands is how long an invitation stands; zero is the library's seven days.
+	stands time.Duration
+}
+
+// lakesideAlone is a Google registration of one organization: the Lakeside Workspace.
+func lakesideAlone() google.WorkspaceSet {
+	return google.Workspace("lakeside", hostedDomain)
+}
+
+func newFirstAdministratorApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx], shape firstAdministratorShape) *firstAdministratorApp[Tx] {
+	t.Helper()
+
+	h := &hooks[Tx]{rows: be.rows}
+	db, store := be.newStore(ctx, t)
+	googleIDP := oidctest.NewFakeIDP(t, "google-client")
+	recorder := &mail.Recorder{}
+	sender := shape.sender
+	if sender == nil {
+		sender = recorder
+	}
+	auth, err := session.NewAuth[appSessionData, appUserData](withCustomData(t, store, h), cookieKey, session.NoSuperAdministrators(),
+		session.MailSettings{Sender: sender, Application: "Lakeside", LoginURL: "https://app.example/login", InvitationTimeout: shape.stands})
+	if err != nil {
+		t.Fatalf("session.NewAuth() error = %v", err)
+	}
+	a := &firstAdministratorApp[Tx]{google: googleIDP, given: map[string][]string{}}
+	auth.SetSignInPolicy(h.signInPolicy)
+	auth.SetInvitationAccepted(a.accepted)
+	// The application's tenants have directories: a name alone links no account, and a
+	// stranger from a tenant's directory needs the tenant's default seat or an
+	// invitation.
+	auth.SetDirectoryAdmission(be.rows.directoryLookup, seatIn[Tx](&tenantRoles{}))
+	password := session.PasswordSignIn(auth)
+	googleIssuerMu.Lock()
+	issuer := google.IssuerURL
+	google.IssuerURL = googleIDP.Server.URL
+	workspace := google.SignIn(auth, "google", nil, &google.Config{
+		RoleSync: google.DisableRoleSync(), Workspaces: shape.workspaces,
+		ClientID: "google-client", ClientSecret: "secret", RedirectURL: "https://app.example/google/callback",
+	})
+	google.IssuerURL = issuer
+	googleIssuerMu.Unlock()
+
+	r := chi.NewRouter()
+	mountAuth(r, auth, func(r chi.Router) {
+		r.With(auth.ValidateXSRFToken).Post("/login", password.Login())
+		r.With(auth.ValidateXSRFToken).Post("/invitation/sign-up", auth.Invitation().SignUp())
+		r.Get("/google/login", workspace.Login())
+		r.Get("/google/callback", workspace.Callback())
+	})
+	server := httptest.NewTLSServer(r)
+	t.Cleanup(server.Close)
+	a.authApp = &authApp[Tx]{db: db, rows: be.rows, server: server, api: auth.API(), hooks: h, mail: recorder}
+	// A tenant has the Lakeside Workspace as its directory and names no default seat.
+	db.declareTenant(ctx, t, tenantLakeside, false, lakesideWorkspace)
+
+	return a
+}
+
+// accepted is the application's acceptance hook: it keeps the roles the invitation
+// gave, under the username it gave them to, and the person as a holder of the Super
+// Administrator role where the invitation gave it.
+func (a *firstAdministratorApp[Tx]) accepted(_ context.Context, _ Tx, userID impulse.UUID, username string, inv *sessioninfo.Invitation) (func(context.Context), error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.given[username] = append(a.given[username], inv.RoleNames...)
+	if slices.Contains(inv.RoleNames, string(accesstypes.SuperAdministrator)) {
+		a.super = append(a.super, accesstypes.User(userID.String()))
+	}
+
+	return nil, nil
+}
+
+// RoleUsers answers the release's question as a permission store does: the holders of
+// the Super Administrator role in the global partition, and nobody for anything else.
+func (a *firstAdministratorApp[Tx]) RoleUsers(_ context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) ([]accesstypes.User, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if scope != accesstypes.GlobalPolicyScope() || role != accesstypes.SuperAdministrator {
+		return nil, nil
+	}
+
+	return slices.Clone(a.super), nil
+}
+
+// strangersHold makes the role store name holders of the Super Administrator role who
+// are no account of this Auth.
+func (a *firstAdministratorApp[Tx]) strangersHold(holders ...accesstypes.User) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.super = append(a.super, holders...)
+}
+
+// persona seeds an account under username the way a test environment's cast does, with
+// no password and no sign-in behind it, holding the Super Administrator role when super
+// is set and nothing otherwise, and answers its id.
+func (a *firstAdministratorApp[Tx]) persona(ctx context.Context, t *testing.T, username string, super bool) impulse.UUID {
+	t.Helper()
+
+	id, err := a.api.CreateSessionUser(ctx, &session.CreateUserRequest{Username: username})
+	if err != nil {
+		t.Fatalf("CreateSessionUser(%s) error = %v", username, err)
+	}
+	if super {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		a.super = append(a.super, accesstypes.User(id.String()))
+	}
+
+	return id
+}
+
+// holds are the roles the hook gave username, sorted.
+func (a *firstAdministratorApp[Tx]) holds(username string) []string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	held := slices.Clone(a.given[username])
+	slices.Sort(held)
+
+	return held
+}
+
+// release runs the release's step for the address and fails on an error.
+func (a *firstAdministratorApp[Tx]) release(ctx context.Context, t *testing.T, email string) *session.FirstAdministrator {
+	t.Helper()
+
+	result, err := a.api.InviteFirstAdministrator(ctx, a, &session.FirstAdministratorRequest{Email: email, RoleNames: firstAdministratorRoles})
+	if err != nil {
+		t.Fatalf("InviteFirstAdministrator(%s) error = %v", email, err)
+	}
+
+	return result
+}
+
+// mailed are the addresses mailed so far, in order.
+func (a *firstAdministratorApp[Tx]) mailed() []string {
+	var to []string
+	for _, msg := range a.mail.Messages() {
+		to = append(to, msg.To)
+	}
+
+	return to
+}
+
+// open opens the invitation token names in b and returns the status.
+func (a *firstAdministratorApp[Tx]) open(ctx context.Context, b *browser, token string) int {
+	b.t.Helper()
+
+	status, _ := b.do(ctx, http.MethodPost, "/invitation", map[string]string{"token": token}, b.xsrfToken())
+
+	return status
+}
+
+// users are the usernames of the Auth's accounts.
+func (a *firstAdministratorApp[Tx]) users(ctx context.Context, t *testing.T) []string {
+	t.Helper()
+
+	users, err := a.api.Users(ctx)
+	if err != nil {
+		t.Fatalf("Users() error = %v", err)
+	}
+	names := make([]string, 0, len(users))
+	for _, u := range users {
+		names = append(names, u.Username)
+	}
+
+	return names
+}
+
+// TestAuthSeams_FirstAdministrator runs the first administrator's scenarios on each
+// backend.
+func TestAuthSeams_FirstAdministrator(t *testing.T) {
+	t.Parallel()
+
+	t.Run(postgresBackend.name, func(t *testing.T) {
+		t.Parallel()
+		runFirstAdministratorSeams(t, postgresBackend)
+	})
+	t.Run(spannerBackend.name, func(t *testing.T) {
+		t.Parallel()
+		runFirstAdministratorSeams(t, spannerBackend)
+	})
+}
+
+func runFirstAdministratorSeams[Tx any](t *testing.T, be backend[Tx]) {
+	tests := []struct {
+		name string
+		run  func(ctx context.Context, t *testing.T, be backend[Tx])
+	}{
+		{
+			name: "a first release mails the address one invitation; the person chooses a password from it, enters the code mailed to the address and holds the roles; no account stood before, and a release after it mails nothing",
+			run:  seamFirstAdministratorByPassword[Tx],
+		},
+		{
+			name: "a directory of one organization, where tenants have directories: another person of the directory gets nothing, with the link or without it, and the invited person's first sign-in through it makes the account holding the roles",
+			run: func(ctx context.Context, t *testing.T, be backend[Tx]) {
+				seamFirstAdministratorThroughDirectory(ctx, t, be, lakesideAlone())
+			},
+		},
+		{
+			name: "a directory method open to more than one organization, where tenants have directories: the same, since the invitation and not the method's width ties the sign-in to the roles",
+			run: func(ctx context.Context, t *testing.T, be backend[Tx]) {
+				seamFirstAdministratorThroughDirectory(ctx, t, be, google.Workspaces(lakesideAlone(), google.AnyGoogleAccount()))
+			},
+		},
+		{
+			name: "a second release while the invitation stands mails nothing, and a release after it ran out mails a new one, the old link dead",
+			run:  seamFirstAdministratorReleases[Tx],
+		},
+		{
+			name: "a changed address withdraws the old invitation: its link no longer opens, and the new address is mailed",
+			run:  seamFirstAdministratorChangedAddress[Tx],
+		},
+		{
+			name: "somebody came to hold the Super Administrator role before the invited person accepted, and the address changed: nobody is invited, and the link mailed to the address taken back no longer opens",
+			run:  seamFirstAdministratorTakenBack[Tx],
+		},
+		{
+			name: "the operations action mails a fresh invitation and the earlier link no longer opens; it refuses once somebody holds the Super Administrator role",
+			run:  seamFirstAdministratorSentAgain[Tx],
+		},
+		{
+			name: "accounts that hold no role stop nothing, and neither does a holder the role store names who is no account of the Auth: with a persona and a person who came in holding nothing, the release mails the address and the operations action mails a fresh one, until the invited person accepts",
+			run:  seamFirstAdministratorAccountsWithoutTheRole[Tx],
+		},
+		{
+			name: "a holder of the Super Administrator role stops the invitation: a persona seeded holding it means nobody is invited, with no address named and mail written to the log, and the operations action refuses; the holder's account disabled changes nothing",
+			run:  seamFirstAdministratorHolder[Tx],
+		},
+		{
+			name: "an application that writes its mail to the log is refused, and no invitation is made that a log could hold",
+			run:  seamFirstAdministratorNoMailbox[Tx],
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			tt.run(t.Context(), t, be)
+		})
+	}
+}
+
+// seamFirstAdministratorByPassword is the scenario "a first release mails the address
+// one invitation".
+func seamFirstAdministratorByPassword[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
+	a := newFirstAdministratorApp(ctx, t, be, firstAdministratorShape{workspaces: lakesideAlone()})
+
+	first := a.release(ctx, t, firstAdministrator)
+	if first.Outcome != session.FirstAdministratorInvited || first.Email != firstAdministrator {
+		t.Fatalf("the first release = %+v, want an invitation mailed to %s", first, firstAdministrator)
+	}
+	if diff := cmp.Diff([]string{firstAdministrator}, a.mailed()); diff != "" {
+		t.Errorf("addresses mailed by the first release (-want +got):\n%s", diff)
+	}
+	if users := a.users(ctx, t); len(users) != 0 {
+		t.Errorf("accounts after the first release = %v, want none: the invitation creates no account and no password", users)
+	}
+
+	b := a.browser(t)
+	b.prime(ctx)
+	if status := a.open(ctx, b, lastInvitationToken(t, a.mail)); status != http.StatusOK {
+		t.Fatalf("opening the invitation = %d, want 200", status)
+	}
+	a.signUpInvited(ctx, b, "ada", firstAdministrator)
+	signedInAs(ctx, t, b, "ada")
+	if diff := cmp.Diff(firstAdministratorRoles, a.holds("ada")); diff != "" {
+		t.Errorf("the roles the acceptance gave (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff([]string{"ada"}, a.users(ctx, t)); diff != "" {
+		t.Errorf("accounts after the acceptance (-want +got): the person's own, and none named administrator\n%s", diff)
+	}
+	user, err := a.api.UserByUsername(ctx, "ada")
+	if err != nil {
+		t.Fatalf("UserByUsername(ada) error = %v", err)
+	}
+	if user.Email == nil || *user.Email != firstAdministrator || !user.EmailVerified() {
+		t.Errorf("the account's address = %v (verified %v), want %s, proven by the code mailed to it", user.Email, user.EmailVerified(), firstAdministrator)
+	}
+
+	after := a.release(ctx, t, firstAdministrator)
+	if after.Outcome != session.FirstAdministratorRoleHeld {
+		t.Errorf("the release after the person accepted = %+v, want nobody invited: they hold the Super Administrator role", after)
+	}
+	if diff := cmp.Diff([]string{firstAdministrator, firstAdministrator}, a.mailed()); diff != "" {
+		t.Errorf("addresses mailed in all (-want +got): the one invitation and the code that accepted it\n%s", diff)
+	}
+}
+
+// seamFirstAdministratorThroughDirectory is the scenario of a first administrator who
+// signs in through a directory admitting workspaces.
+func seamFirstAdministratorThroughDirectory[Tx any](ctx context.Context, t *testing.T, be backend[Tx], workspaces google.WorkspaceSet) {
+	a := newFirstAdministratorApp(ctx, t, be, firstAdministratorShape{workspaces: workspaces})
+	a.release(ctx, t, firstAdministrator)
+	token := lastInvitationToken(t, a.mail)
+
+	// Another person of the same directory signs in first, without the link: the
+	// directory is a tenant's, which names no default seat, so they are a stranger.
+	stranger := a.browser(t)
+	assertRedirect(t, stranger.oidcSignIn(ctx, a.google, "/google", googleClaims("sub-grace", sameDirectory)), "/login", url.Values{"code": {"invitation_only"}})
+	a.assertNoRow(ctx, t, stranger, sameDirectory)
+
+	// The same person holding the link: the invitation is for another address.
+	holder := a.browser(t)
+	holder.prime(ctx)
+	if status := a.open(ctx, holder, token); status != http.StatusOK {
+		t.Fatalf("opening the invitation = %d, want 200", status)
+	}
+	assertRedirect(t, holder.oidcSignIn(ctx, a.google, "/google", googleClaims("sub-grace", sameDirectory)), "/login", url.Values{"code": {"invitation_address"}})
+	a.assertNoRow(ctx, t, holder, sameDirectory)
+	if got := a.holds(sameDirectory); len(got) != 0 {
+		t.Errorf("roles given to %s = %v, want none", sameDirectory, got)
+	}
+	if standing := a.standingInvitations(ctx, t); len(standing) != 1 {
+		t.Fatalf("standing invitations after the refusals = %d, want the first administrator's still standing", len(standing))
+	}
+
+	// The invited person: their first sign-in through the directory makes the account,
+	// linked to the directory's identity, and gives the roles.
+	b := a.browser(t)
+	b.prime(ctx)
+	if status := a.open(ctx, b, token); status != http.StatusOK {
+		t.Fatalf("opening the invitation = %d, want 200", status)
+	}
+	assertRedirect(t, b.oidcSignIn(ctx, a.google, "/google", googleClaims("sub-ada", firstAdministrator)), "/home", url.Values{})
+	v := signedInAs(ctx, t, b, firstAdministrator)
+	if diff := cmp.Diff(firstAdministratorRoles, a.holds(firstAdministrator)); diff != "" {
+		t.Errorf("the roles the acceptance gave (-want +got):\n%s", diff)
+	}
+	assertOneLink(t, a.links(ctx, t, v.UserID), "lakeside", tenantLakeside)
+	if diff := cmp.Diff([]string{firstAdministrator}, a.users(ctx, t)); diff != "" {
+		t.Errorf("accounts after the acceptance (-want +got):\n%s", diff)
+	}
+	if standing := a.standingInvitations(ctx, t); len(standing) != 0 {
+		t.Errorf("standing invitations after the acceptance = %d, want none: the link is spent", len(standing))
+	}
+}
+
+// seamFirstAdministratorReleases is the scenario "a second release while the
+// invitation stands mails nothing".
+func seamFirstAdministratorReleases[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
+	a := newFirstAdministratorApp(ctx, t, be, firstAdministratorShape{workspaces: lakesideAlone(), stands: 2 * time.Second})
+
+	first := a.release(ctx, t, firstAdministrator)
+	old := lastInvitationToken(t, a.mail)
+	second := a.release(ctx, t, firstAdministrator)
+	// A database keeps the moment to its own precision, a microsecond on PostgreSQL.
+	if second.Outcome != session.FirstAdministratorStanding || second.ExpiresAt.Sub(first.ExpiresAt).Abs() > time.Millisecond {
+		t.Errorf("the second release = %+v, want the first release's invitation left standing until %s", second, first.ExpiresAt)
+	}
+	if got := len(a.mailed()); got != 1 {
+		t.Fatalf("messages mailed after the second release = %d, want the first release's one", got)
+	}
+
+	// The invitation runs out.
+	time.Sleep(2*time.Second + 200*time.Millisecond)
+	third := a.release(ctx, t, firstAdministrator)
+	if third.Outcome != session.FirstAdministratorInvited || len(third.Withdrawn) != 0 {
+		t.Errorf("the release after the invitation ran out = %+v, want a new one mailed and nothing to withdraw", third)
+	}
+	if diff := cmp.Diff([]string{firstAdministrator, firstAdministrator}, a.mailed()); diff != "" {
+		t.Errorf("addresses mailed (-want +got):\n%s", diff)
+	}
+	b := a.browser(t)
+	b.prime(ctx)
+	if status := a.open(ctx, b, old); status != http.StatusNotFound {
+		t.Errorf("opening the invitation that ran out = %d, want 404", status)
+	}
+	if status := a.open(ctx, b, lastInvitationToken(t, a.mail)); status != http.StatusOK {
+		t.Errorf("opening the new invitation = %d, want 200", status)
+	}
+}
+
+// seamFirstAdministratorChangedAddress is the scenario "a changed address withdraws the
+// old invitation".
+func seamFirstAdministratorChangedAddress[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
+	a := newFirstAdministratorApp(ctx, t, be, firstAdministratorShape{workspaces: lakesideAlone()})
+
+	a.release(ctx, t, sameDirectory)
+	old := lastInvitationToken(t, a.mail)
+	changed := a.release(ctx, t, firstAdministrator)
+	if changed.Outcome != session.FirstAdministratorInvited || changed.Email != firstAdministrator {
+		t.Errorf("the release naming another address = %+v, want %s invited", changed, firstAdministrator)
+	}
+	if diff := cmp.Diff([]string{sameDirectory}, changed.Withdrawn); diff != "" {
+		t.Errorf("the addresses whose invitations were withdrawn (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff([]string{sameDirectory, firstAdministrator}, a.mailed()); diff != "" {
+		t.Errorf("addresses mailed (-want +got):\n%s", diff)
+	}
+	b := a.browser(t)
+	b.prime(ctx)
+	if status := a.open(ctx, b, old); status != http.StatusNotFound {
+		t.Errorf("opening the invitation mailed to the address taken back = %d, want 404", status)
+	}
+	if status := a.open(ctx, b, lastInvitationToken(t, a.mail)); status != http.StatusOK {
+		t.Errorf("opening the invitation mailed to the new address = %d, want 200", status)
+	}
+	standing := a.standingInvitations(ctx, t)
+	if len(standing) != 1 || standing[0].Email != firstAdministrator {
+		t.Errorf("standing invitations = %+v, want the one to %s", standing, firstAdministrator)
+	}
+}
+
+// seamFirstAdministratorTakenBack is the scenario "somebody came to hold the Super
+// Administrator role before the invited person accepted, and the address changed": a
+// test environment's cast gains a persona who holds the role after a release invited,
+// so the next release finds a holder and invites nobody, and a link mailed to an
+// address the deployment took back must not stay open until it runs out.
+func seamFirstAdministratorTakenBack[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
+	a := newFirstAdministratorApp(ctx, t, be, firstAdministratorShape{workspaces: lakesideAlone()})
+
+	a.release(ctx, t, sameDirectory)
+	old := lastInvitationToken(t, a.mail)
+	a.persona(ctx, t, "a-seeded-persona", true)
+
+	// A release that still names the address leaves its invitation to be accepted.
+	same := a.release(ctx, t, sameDirectory)
+	if same.Outcome != session.FirstAdministratorRoleHeld || len(same.Withdrawn) != 0 {
+		t.Errorf("the release naming the same address, once somebody holds the role = %+v, want nobody invited and nothing withdrawn", same)
+	}
+	b := a.browser(t)
+	b.prime(ctx)
+	if status := a.open(ctx, b, old); status != http.StatusOK {
+		t.Errorf("opening the invitation to the address still named = %d, want 200", status)
+	}
+
+	// The address changes: nobody is invited, and the old link is dead.
+	changed := a.release(ctx, t, firstAdministrator)
+	if changed.Outcome != session.FirstAdministratorRoleHeld {
+		t.Errorf("the release naming another address, once somebody holds the role = %+v, want nobody invited", changed)
+	}
+	if diff := cmp.Diff([]string{sameDirectory}, changed.Withdrawn); diff != "" {
+		t.Errorf("the addresses whose invitations were withdrawn (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff([]string{sameDirectory}, a.mailed()); diff != "" {
+		t.Errorf("addresses mailed (-want +got):\n%s", diff)
+	}
+	if status := a.open(ctx, b, old); status != http.StatusNotFound {
+		t.Errorf("opening the invitation mailed to the address taken back = %d, want 404", status)
+	}
+	if standing := a.standingInvitations(ctx, t); len(standing) != 0 {
+		t.Errorf("standing invitations = %+v, want none", standing)
+	}
+}
+
+// seamFirstAdministratorSentAgain is the scenario "the operations action mails a fresh
+// invitation".
+func seamFirstAdministratorSentAgain[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
+	a := newFirstAdministratorApp(ctx, t, be, firstAdministratorShape{workspaces: lakesideAlone()})
+	req := &session.FirstAdministratorRequest{Email: firstAdministrator, RoleNames: firstAdministratorRoles}
+
+	a.release(ctx, t, firstAdministrator)
+	lost := lastInvitationToken(t, a.mail)
+	again, err := a.api.ReinviteFirstAdministrator(ctx, a, req)
+	if err != nil {
+		t.Fatalf("ReinviteFirstAdministrator() error = %v", err)
+	}
+	if again.Outcome != session.FirstAdministratorInvited || !slices.Equal(again.Withdrawn, []string{firstAdministrator}) {
+		t.Errorf("the action = %+v, want the standing invitation withdrawn and a fresh one mailed", again)
+	}
+	fresh := lastInvitationToken(t, a.mail)
+	if fresh == lost {
+		t.Fatal("the fresh invitation carries the earlier link's token, want one of its own")
+	}
+	b := a.browser(t)
+	b.prime(ctx)
+	if status := a.open(ctx, b, lost); status != http.StatusNotFound {
+		t.Errorf("opening the earlier link = %d, want 404", status)
+	}
+	if status := a.open(ctx, b, fresh); status != http.StatusOK {
+		t.Fatalf("opening the fresh invitation = %d, want 200", status)
+	}
+	a.signUpInvited(ctx, b, "ada", firstAdministrator)
+	signedInAs(ctx, t, b, "ada")
+
+	// The person holds the Super Administrator role: the action refuses, and mails
+	// nothing.
+	if _, err := a.api.ReinviteFirstAdministrator(ctx, a, req); !errors.Is(err, session.ErrFirstAdministratorRoleHeld) {
+		t.Errorf("ReinviteFirstAdministrator() once the person holds the role: error = %v, want %v", err, session.ErrFirstAdministratorRoleHeld)
+	}
+	if got := len(a.mailed()); got != 3 {
+		t.Errorf("messages mailed in all = %d, want 3: the release's, the action's and the code that accepted the invitation", got)
+	}
+}
+
+// seamFirstAdministratorAccountsWithoutTheRole is the scenario "accounts that hold no
+// role stop nothing": the invitation exists so that somebody administers the Auth, and
+// a persona a test environment seeds or a person who came in holding nothing
+// administers nothing. Neither does a holder the role store names who has no account
+// here, which the database is asked about by the id.
+func seamFirstAdministratorAccountsWithoutTheRole[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
+	a := newFirstAdministratorApp(ctx, t, be, firstAdministratorShape{workspaces: lakesideAlone()})
+	req := &session.FirstAdministratorRequest{Email: firstAdministrator, RoleNames: firstAdministratorRoles}
+	a.persona(ctx, t, "a-seeded-persona", false)
+	a.persona(ctx, t, "came-in-holding-nothing", false)
+	// The role store also names holders who are no account of this Auth: the id of an
+	// account that is not here, as a row left behind or a person of another Auth over
+	// the same store is, and a name that is no account's id. They are nobody of this Auth.
+	a.strangersHold(accesstypes.User(impulse.Must(impulse.NewUUID()).String()), "a-name-and-no-id")
+
+	first := a.release(ctx, t, firstAdministrator)
+	if first.Outcome != session.FirstAdministratorInvited || first.Email != firstAdministrator {
+		t.Fatalf("the release of an Auth whose accounts hold no role = %+v, want an invitation mailed to %s", first, firstAdministrator)
+	}
+	if diff := cmp.Diff([]string{firstAdministrator}, a.mailed()); diff != "" {
+		t.Errorf("addresses mailed by the release (-want +got):\n%s", diff)
+	}
+	second := a.release(ctx, t, firstAdministrator)
+	if second.Outcome != session.FirstAdministratorStanding {
+		t.Errorf("the second release = %+v, want the invitation left standing", second)
+	}
+
+	// The operations action is not refused either: nobody is there to invite the others.
+	lost := lastInvitationToken(t, a.mail)
+	again, err := a.api.ReinviteFirstAdministrator(ctx, a, req)
+	if err != nil {
+		t.Fatalf("ReinviteFirstAdministrator() while the accounts hold no role: error = %v, want a fresh invitation", err)
+	}
+	if again.Outcome != session.FirstAdministratorInvited || !slices.Equal(again.Withdrawn, []string{firstAdministrator}) {
+		t.Errorf("the action = %+v, want the standing invitation withdrawn and a fresh one mailed", again)
+	}
+	b := a.browser(t)
+	b.prime(ctx)
+	if status := a.open(ctx, b, lost); status != http.StatusNotFound {
+		t.Errorf("opening the earlier link = %d, want 404", status)
+	}
+
+	// The invited person accepts, and holds the role: from then on nobody is invited.
+	if status := a.open(ctx, b, lastInvitationToken(t, a.mail)); status != http.StatusOK {
+		t.Fatalf("opening the fresh invitation = %d, want 200", status)
+	}
+	a.signUpInvited(ctx, b, "ada", firstAdministrator)
+	signedInAs(ctx, t, b, "ada")
+	after := a.release(ctx, t, firstAdministrator)
+	if after.Outcome != session.FirstAdministratorRoleHeld {
+		t.Errorf("the release after the person accepted = %+v, want nobody invited", after)
+	}
+	if _, err := a.api.ReinviteFirstAdministrator(ctx, a, req); !errors.Is(err, session.ErrFirstAdministratorRoleHeld) {
+		t.Errorf("ReinviteFirstAdministrator() once the person holds the role: error = %v, want %v", err, session.ErrFirstAdministratorRoleHeld)
+	}
+	if got := len(a.mailed()); got != 3 {
+		t.Errorf("messages mailed in all = %d, want 3: the release's, the action's and the code that accepted the invitation", got)
+	}
+}
+
+// seamFirstAdministratorHolder is the scenario "a holder of the Super Administrator role
+// stops the invitation": a test environment whose cast holds the role, with no mailbox
+// and no address named, as a developer's own run is.
+func seamFirstAdministratorHolder[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
+	a := newFirstAdministratorApp(ctx, t, be, firstAdministratorShape{workspaces: lakesideAlone(), sender: mail.Log{}})
+	unnamed := &session.FirstAdministratorRequest{RoleNames: firstAdministratorRoles}
+	named := &session.FirstAdministratorRequest{Email: firstAdministrator, RoleNames: firstAdministratorRoles}
+	a.persona(ctx, t, "holds-nothing", false)
+	holder := a.persona(ctx, t, "the-cast-administrator", true)
+
+	held := func(when string) {
+		t.Helper()
+
+		for _, req := range []*session.FirstAdministratorRequest{unnamed, named} {
+			result, err := a.api.InviteFirstAdministrator(ctx, a, req)
+			if err != nil {
+				t.Fatalf("InviteFirstAdministrator(%q) %s: error = %v, want nobody invited and nothing refused", req.Email, when, err)
+			}
+			if result.Outcome != session.FirstAdministratorRoleHeld || len(result.Withdrawn) != 0 {
+				t.Errorf("InviteFirstAdministrator(%q) %s = %+v, want nobody invited", req.Email, when, result)
+			}
+		}
+		if _, err := a.api.ReinviteFirstAdministrator(ctx, a, named); !errors.Is(err, session.ErrFirstAdministratorRoleHeld) {
+			t.Errorf("ReinviteFirstAdministrator() %s: error = %v, want %v", when, err, session.ErrFirstAdministratorRoleHeld)
+		}
+		if standing := a.standingInvitations(ctx, t); len(standing) != 0 {
+			t.Errorf("standing invitations %s = %d, want none: nobody was invited", when, len(standing))
+		}
+	}
+	held("while a persona holds the role")
+
+	// The holder's account is disabled: a holder still, since the question is who holds
+	// the role and not who can sign in.
+	if err := a.api.DeactivateSessionUser(ctx, holder); err != nil {
+		t.Fatalf("DeactivateSessionUser() error = %v", err)
+	}
+	held("once the holder's account is disabled")
+}
+
+// seamFirstAdministratorNoMailbox is the scenario "an application that writes its mail
+// to the log is refused".
+func seamFirstAdministratorNoMailbox[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
+	a := newFirstAdministratorApp(ctx, t, be, firstAdministratorShape{workspaces: lakesideAlone(), sender: mail.Log{}})
+
+	_, err := a.api.InviteFirstAdministrator(ctx, a, &session.FirstAdministratorRequest{Email: firstAdministrator, RoleNames: firstAdministratorRoles})
+	if !errors.Is(err, session.ErrFirstAdministratorNoMailbox) {
+		t.Fatalf("InviteFirstAdministrator() with mail written to the log: error = %v, want %v", err, session.ErrFirstAdministratorNoMailbox)
+	}
+	if standing := a.standingInvitations(ctx, t); len(standing) != 0 {
+		t.Errorf("standing invitations after the refusal = %d, want none: no link was made", len(standing))
+	}
+	if users := a.users(ctx, t); len(users) != 0 {
+		t.Errorf("accounts after the refusal = %v, want none", users)
+	}
+}

@@ -1,6 +1,7 @@
 package generation
 
 import (
+	"cmp"
 	"fmt"
 	"go/types"
 	"iter"
@@ -14,6 +15,7 @@ import (
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/generation/parser"
 	"github.com/impulseframework/impulse/generation/parser/genlang"
+	"github.com/impulseframework/impulse/internal/words"
 	"github.com/impulseframework/impulse/resource"
 
 	"github.com/ettle/strcase"
@@ -40,6 +42,11 @@ const (
 	// with it.
 	reservedCursorColumnPrefix = "zzCursor"
 
+	// reservedNameColumnPrefix begins the reserved output columns a read
+	// statement selects a looked-up name under (zzName followed by the name
+	// field, resource.NameField); resource columns must not begin with it.
+	reservedNameColumnPrefix = "zzName"
+
 	// reservedTenantColumn is the reserved output column a list across tenants
 	// selects each row's tenant under, and the reserved per-row JSON property that
 	// carries it (resource.TenantProperty); resource columns must not collide with it.
@@ -50,7 +57,7 @@ const (
 type Generator interface {
 	Generate() error
 	// Warnings reports the schema findings the last Generate raised: informational,
-	// never a refusal, performance matters the application decides (see Warning).
+	// never a refusal, each a matter the application decides (see Warning).
 	// Nil before Generate runs.
 	Warnings() []Warning
 	// Audit reports the advisory findings the last Generate raised: shapes the
@@ -93,6 +100,11 @@ const (
 	// declaration and follows the list handler, never named by an author (no @suppress
 	// argument), so it stays out of handlerTypes.
 	acrossTenantsHandler HandlerType = "acrossTenantsHandler"
+	// changeHistoryHandler is the handler of a record's change history: GET under the
+	// read route of every table-backed resource that has one. It is derived from the
+	// read route, never named by an author (no @suppress argument), so it stays out of
+	// handlerTypes.
+	changeHistoryHandler HandlerType = "changeHistoryHandler"
 )
 
 // RouteType describes a route or set of routes for a resource-driven API.
@@ -173,6 +185,8 @@ func (h HandlerType) template() string {
 		return listTemplate
 	case PatchHandler:
 		return patchTemplate
+	case changeHistoryHandler:
+		return changeHistoryTemplate
 	default:
 		panic(fmt.Sprintf("template(): unknown handler type: %s", h))
 	}
@@ -181,7 +195,7 @@ func (h HandlerType) template() string {
 // method returns the proper http method type for a HandlerType
 func (h HandlerType) method() string {
 	switch h {
-	case ReadHandler, ListHandler, fileHandler, acrossTenantsHandler:
+	case ReadHandler, ListHandler, fileHandler, acrossTenantsHandler, changeHistoryHandler:
 		return http.MethodGet
 	case PatchHandler:
 		return http.MethodPatch
@@ -244,26 +258,39 @@ const (
 	// record's create-your-tenant handler (Create<Record>), written where the record's
 	// creation shape admits self-service; a singular stem like the roster's.
 	tenantCreationOutputName = "tenant_creation"
+	// tenantDirectoryFactorOutputName names the handler package's file carrying the two
+	// methods of a tenant's word for its directory's second factor, written where the
+	// directories record carries the column; a singular stem like the roster's.
+	tenantDirectoryFactorOutputName = "tenant_directory_factor"
+	// tenantDirectoryTakeOutputName names the handler package's file carrying the method
+	// that takes a tenant's directory, written where the tenant record declares a
+	// directories record; a singular stem like the roster's.
+	tenantDirectoryTakeOutputName = "tenant_directory_take"
 	// tenantDirectoryOnlyOutputName names the handler package's file carrying the
-	// tenant record's directory-only switch: the method that turns it and its two
-	// reads, written where the record declares the switch; a singular stem like the
-	// roster's.
+	// tenant record's directory-only switch: the two methods that turn it, written
+	// where the record declares the switch; a singular stem like the roster's.
 	tenantDirectoryOnlyOutputName = "tenant_directory_only"
 	// tenantDirectoryRoleOutputName names the handler package's file carrying the two
 	// methods that say how a tenant admits its directory's people, written where the
 	// directories record carries a default seat; a singular stem like the roster's.
 	tenantDirectoryRoleOutputName = "tenant_directory_role"
-	permissionsOutputName         = "permissions"
-	liveOutputName                = "live"
-	liveDerivationsOutputName     = "live_derivations"
-	decodersOutputName            = "decoders"
-	appContractOutputName         = "app_contract"
-	routesOutputName              = "routes"
-	routerTestOutputName          = "routes_test"
-	servedRouterOutputName        = "router"
-	servedRouterTestOutputName    = "router_test"
-	consolidatedHandlerOutputName = "consolidated_handler"
-	collectionOutputName          = "collection"
+	// tenantSignInSettingsOutputName names the handler package's file carrying the read
+	// of a tenant's sign-in settings, written where an outlet serves one of the
+	// tenant's own sign-in methods; a singular stem like the roster's.
+	tenantSignInSettingsOutputName = "tenant_sign_in_settings"
+	permissionsOutputName          = "permissions"
+	liveOutputName                 = "live"
+	liveDerivationsOutputName      = "live_derivations"
+	nameViewsOutputName            = "name_views"
+	namedRowSourcesOutputName      = "named_row_sources"
+	decodersOutputName             = "decoders"
+	appContractOutputName          = "app_contract"
+	routesOutputName               = "routes"
+	routerTestOutputName           = "routes_test"
+	servedRouterOutputName         = "router"
+	servedRouterTestOutputName     = "router_test"
+	consolidatedHandlerOutputName  = "consolidated_handler"
+	collectionOutputName           = "collection"
 	// releaseOutputName is the stem of the router package's release file,
 	// resource.ReleaseFileName, which names each outlet's oldest answered release.
 	releaseOutputName = "release"
@@ -296,22 +323,28 @@ type reservedOutput struct {
 // resource or computed resource whose plural file stem is one of them is refused at
 // capture (rejectReservedStem), naming the generator's file and what it carries.
 var reservedOutputStems = map[string]reservedOutput{
-	resourceInterfaceOutputName:   {file: generatedGoFileName(resourceInterfaceOutputName), carries: "the resource interfaces"},
-	resourceEnumsFileName:         {file: generatedGoFileName(resourceEnumsFileName), carries: "the enumerations"},
-	domainGuardOutputName:         {file: generatedGoFileName(domainGuardOutputName), carries: "the domain guard"},
-	tenantRosterOutputName:        {file: generatedGoFileName(tenantRosterOutputName), carries: "the tenant roster constructor"},
-	tenantCreationOutputName:      {file: generatedGoFileName(tenantCreationOutputName), carries: "the create-your-tenant handler"},
-	tenantDirectoryOnlyOutputName: {file: generatedGoFileName(tenantDirectoryOnlyOutputName), carries: "the directory-only switch's handlers"},
-	tenantDirectoryRoleOutputName: {file: generatedGoFileName(tenantDirectoryRoleOutputName), carries: "the handlers of a directory's default role"},
-	permissionsOutputName:         {file: generatedGoFileName(permissionsOutputName), carries: "the permission endpoints"},
-	liveOutputName:                {file: generatedGoFileName(liveOutputName), carries: "the live handlers"},
-	decodersOutputName:            {file: generatedGoFileName(decodersOutputName), carries: "the decoders"},
-	appContractOutputName:         {file: generatedGoFileName(appContractOutputName), carries: "the application contract"},
-	consolidatedHandlerOutputName: {file: generatedGoFileName(consolidatedHandlerOutputName), carries: "the consolidated handler"},
-	featuresOutputName:            {file: generatedGoFileName(featuresOutputName), carries: "the feature flags"},
-	fileHoldersOutputName:         {file: generatedGoFileName(fileHoldersOutputName), carries: "the file holders"},
-	secretHoldersOutputName:       {file: generatedGoFileName(secretHoldersOutputName), carries: "the secret holders"},
-	releaseOutputName:             {file: resource.ReleaseFileName, carries: "the release file"},
+	resourceInterfaceOutputName:     {file: generatedGoFileName(resourceInterfaceOutputName), carries: "the resource interfaces"},
+	resourceEnumsFileName:           {file: generatedGoFileName(resourceEnumsFileName), carries: "the enumerations"},
+	domainGuardOutputName:           {file: generatedGoFileName(domainGuardOutputName), carries: "the domain guard"},
+	tenantRosterOutputName:          {file: generatedGoFileName(tenantRosterOutputName), carries: "the tenant roster constructor"},
+	tenantCreationOutputName:        {file: generatedGoFileName(tenantCreationOutputName), carries: "the create-your-tenant handler"},
+	tenantDirectoryOnlyOutputName:   {file: generatedGoFileName(tenantDirectoryOnlyOutputName), carries: "the directory-only switch's handlers"},
+	tenantDirectoryRoleOutputName:   {file: generatedGoFileName(tenantDirectoryRoleOutputName), carries: "the handlers of a directory's default role"},
+	tenantDirectoryFactorOutputName: {file: generatedGoFileName(tenantDirectoryFactorOutputName), carries: "the handlers of a tenant's word for its directory's second factor"},
+	tenantDirectoryTakeOutputName:   {file: generatedGoFileName(tenantDirectoryTakeOutputName), carries: "the handler of the method that takes a tenant's directory"},
+	tenantSignInSettingsOutputName:  {file: generatedGoFileName(tenantSignInSettingsOutputName), carries: "the read of a tenant's sign-in settings"},
+	permissionsOutputName:           {file: generatedGoFileName(permissionsOutputName), carries: "the permission endpoints"},
+	liveOutputName:                  {file: generatedGoFileName(liveOutputName), carries: "the live handlers"},
+	liveDerivationsOutputName:       {file: generatedGoFileName(liveDerivationsOutputName), carries: "the live derivations"},
+	nameViewsOutputName:             {file: generatedGoFileName(nameViewsOutputName), carries: "the name views"},
+	namedRowSourcesOutputName:       {file: generatedGoFileName(namedRowSourcesOutputName), carries: "the named-row sources"},
+	decodersOutputName:              {file: generatedGoFileName(decodersOutputName), carries: "the decoders"},
+	appContractOutputName:           {file: generatedGoFileName(appContractOutputName), carries: "the application contract"},
+	consolidatedHandlerOutputName:   {file: generatedGoFileName(consolidatedHandlerOutputName), carries: "the consolidated handler"},
+	featuresOutputName:              {file: generatedGoFileName(featuresOutputName), carries: "the feature flags"},
+	fileHoldersOutputName:           {file: generatedGoFileName(fileHoldersOutputName), carries: "the file holders"},
+	secretHoldersOutputName:         {file: generatedGoFileName(secretHoldersOutputName), carries: "the secret holders"},
+	releaseOutputName:               {file: resource.ReleaseFileName, carries: "the release file"},
 }
 
 type informationSchemaResult struct {
@@ -328,10 +361,10 @@ type informationSchemaResult struct {
 	OrdinalPosition      int64   `spanner:"ORDINAL_POSITION"`
 	KeyOrdinalPosition   int64   `spanner:"KEY_ORDINAL_POSITION"`
 	HasDefault           bool    `spanner:"HAS_DEFAULT"`
+	ColumnDefault        *string `spanner:"COLUMN_DEFAULT"`
 	IsInterleaved        bool    `spanner:"IS_INTERLEAVED"`
 	ParentTable          *string `spanner:"PARENT_TABLE_NAME"`
 	OnDeleteAction       *string `spanner:"ON_DELETE_ACTION"`
-	DeleteRule           *string `spanner:"DELETE_RULE"`
 }
 
 type enumData struct {
@@ -353,6 +386,32 @@ type indexSchemaResult struct {
 	ColumnOrdering  *string `spanner:"COLUMN_ORDERING"`
 }
 
+// foreignKeySchemaResult is one column of one foreign key, as the foreign key query
+// reads it: the constraint's columns arrive in constraint order, each beside the column
+// it references.
+type foreignKeySchemaResult struct {
+	TableName        string  `spanner:"TABLE_NAME"`
+	ConstraintName   string  `spanner:"CONSTRAINT_NAME"`
+	ColumnName       string  `spanner:"COLUMN_NAME"`
+	ReferencedTable  *string `spanner:"REFERENCED_TABLE"`
+	ReferencedColumn *string `spanner:"REFERENCED_COLUMN"`
+	DeleteRule       *string `spanner:"DELETE_RULE"`
+}
+
+// foreignKeyMeta is one foreign key of a table: its columns in constraint order, the
+// table it references and the referenced columns in the same order. The referenced
+// columns are the other table's key or any other columns the constraint names: a
+// foreign key to columns that are not the key reads like any other. One the read could
+// not match column by column has no referenced table, and nothing follows it.
+type foreignKeyMeta struct {
+	Name              string
+	Columns           []string
+	ReferencedTable   string
+	ReferencedColumns []string
+	// DeleteRule is the constraint's ON DELETE action: CASCADE or NO ACTION.
+	DeleteRule string
+}
+
 type tableMetadata struct {
 	Columns       map[string]columnMeta
 	PkCount       int
@@ -360,14 +419,17 @@ type tableMetadata struct {
 	// ParentTable is the table this one is interleaved in, "" for a top-level table.
 	ParentTable string
 	// OnDeleteCascade marks an interleaved child declared ON DELETE CASCADE: the
-	// database deletes its rows with the parent's, outside the patch machinery. The
-	// audit pass reads it for a table that stores files (CascadeReleaseFinding).
+	// database deletes its rows with the parent's, outside the patch machinery.
 	OnDeleteCascade bool
 	// Indexes is the table's index composition as the information schema reports it:
 	// the primary key (PRIMARY_KEY), every declared index, and the indexes Spanner
 	// manages for foreign keys. The per-column index flags derive from it
 	// (deriveIndexFlags), and the generation-time index warning reads it.
 	Indexes []indexMeta
+	// ForeignKeys is the table's foreign keys, each whole: the per-column facts name one
+	// referenced table for a column and cannot tell a key of two columns from two keys
+	// of one. What is under a record is read from these (deletecascade.go).
+	ForeignKeys []foreignKeyMeta
 }
 
 // indexMeta is one index of a table: its key in order, with each column's
@@ -397,13 +459,11 @@ type indexColumn struct {
 }
 
 type columnMeta struct {
+	// The yes or no facts stand together, so that they take one word between them: a
+	// column is copied wherever the columns of a table are ranged over.
 	IsPrimaryKey bool
 	IsForeignKey bool
 	IsNullable   bool
-	// SpannerType is the column's declared type as INFORMATION_SCHEMA.COLUMNS spells
-	// it: STRING(64), STRING(MAX), NUMERIC, ARRAY<STRING(4)>. The patch request structs
-	// carry it as sqltype where the decoder sizes the field's value against it.
-	SpannerType string
 	// IsIndex marks a column that leads some index of the table, the PRIMARY_KEY index
 	// and Spanner's managed foreign-key indexes included: a filter on it alone has a
 	// seek path. A trailing key column and a stored column are not marked; a predicate
@@ -414,17 +474,22 @@ type columnMeta struct {
 	// the PRIMARY_KEY index included, has exactly this column as its key. A column of
 	// a composite key or composite unique index is not one; the database enforces
 	// nothing per value of it.
-	IsUniqueIndex      bool
+	IsUniqueIndex bool
+	// HasDefault marks a column that declares a DEFAULT, whose expression Default holds.
+	HasDefault bool
+	// SpannerType is the column's declared type as INFORMATION_SCHEMA.COLUMNS spells
+	// it: STRING(64), STRING(MAX), NUMERIC, ARRAY<STRING(4)>. The patch request structs
+	// carry it as sqltype where the decoder sizes the field's value against it.
+	SpannerType        string
 	OrdinalPosition    int64
 	KeyOrdinalPosition int64
 	ReferencedTable    string
 	ReferencedColumn   string
-	// DeleteRule is the foreign key's delete rule as REFERENTIAL_CONSTRAINTS spells it,
-	// CASCADE or NO ACTION, on a foreign-key column; "" otherwise. A CASCADE deletes the
-	// row with the referenced one, outside the patch machinery, which the audit pass
-	// reads for a table that stores files (CascadeReleaseFinding).
-	DeleteRule string
-	HasDefault bool
+	// Default is the column's DEFAULT expression as INFORMATION_SCHEMA.COLUMNS spells
+	// it, without the parentheses the DDL wraps it in ("TRUE", "false", "0"); "" where
+	// the column declares none, which HasDefault says. A yes or no column's reaches
+	// the browser metadata (resourceField.YesOrNoDefault).
+	Default string
 	// GenerationExpression is a generated column's expression as
 	// INFORMATION_SCHEMA.COLUMNS spells it, "" on a plain column. A TOKENLIST column's
 	// names the tokenizer the search facts derive from, and a LOWER(col) column
@@ -456,7 +521,8 @@ type generatedRoute struct {
 	FormerPath    string
 	FormerTestURL string
 	// Source names the declaration a stored-file route comes from, the resource and its
-	// key column (Photo.Key), for the release file; empty on every other route.
+	// key column (Photo.Key), for the release file, and the resource a record's change
+	// history route serves; empty on every other route.
 	Source string
 	// SelfBounded marks a route whose handler bounds its own request body (an RPC
 	// method, at its declared maximum or the router's BodyLimit; an upload at its
@@ -548,6 +614,14 @@ type routeTestParam struct {
 	Value string
 }
 
+// rpcOfferingRow is a resource struct whose rows offer a method that names no row
+// (@callerEnters(Row, ...)): the struct's name and its resource's, the two names rpcTarget
+// carries for a row a method names.
+type rpcOfferingRow struct {
+	RootStruct   string
+	RootResource string
+}
+
 type rpcMethodInfo struct {
 	*parser.Struct
 	outletMembership
@@ -582,6 +656,20 @@ type rpcMethodInfo struct {
 	// targeted method (a transition's Target aliases its embedded rpcTarget);
 	// nil for a method with no target row.
 	Target *rpcTarget
+	// CallerEnters is the method's validated @callerEnters: its row offers it only to a
+	// caller whose session enters every tenant the row names, which the target's struct
+	// names (TenantsToEnter). Only a method with a Target carries it.
+	CallerEnters bool
+	// OfferedOn is the method's validated @callerEnters(Row, ...): the resource structs whose
+	// rows offer a method that names no row, each only to a caller whose session enters every
+	// tenant the row names (TenantsToEnter), in the order declared. Only a method with no Target
+	// carries it.
+	OfferedOn []rpcOfferingRow
+	// NotOnOwnAccount is the method's validated @notOnOwnAccount: the column of the row the
+	// method names that holds the id of the account the row is of, as the row's statement
+	// names it; the row does not offer the method to the person whose account it is. Empty
+	// for a method without the declaration; only a method with a Target carries it.
+	NotOnOwnAccount string
 	// Statuses is the method's validated @answers declaration: the statuses
 	// its result may choose per response, in declaration order. Nil for a
 	// method that answers 200.
@@ -608,6 +696,11 @@ type rpcMethodInfo struct {
 	// page runs the method through holds its confirm button for the typed word. Nil
 	// for a method that declares none.
 	Warning *rpcWarning
+	// DeleteToken is the field that carries the token the method's delete goes on
+	// (@deleteToken), always Token: its handler asks the delete's question before it opens
+	// its transaction while the field is empty, and stamps the token into the context
+	// (resource.WithDeleteToken). Empty for a method that declares none.
+	DeleteToken string
 	// Feature is the method's @feature: the flag its route and its digest entry are
 	// gated behind; nil when the method is not gated.
 	Feature *featureGate
@@ -615,6 +708,10 @@ type rpcMethodInfo struct {
 	// method never renamed. The router answers the former route beside the current
 	// one, and the collection carries the name for the role migration.
 	Formerly string
+	// Classes are the classes the method carries (@class on the struct), sorted: what
+	// a permission mask refers to when it refuses a class of actions. The collection
+	// carries them for the masked check. Empty for a method of no class.
+	Classes []accesstypes.ActionClass
 	// Schedule is the method's @schedule: when Cloud Scheduler calls it. A scheduled
 	// method is served under the scheduled prefix alone, behind the scheduler's token
 	// check, and never on an outlet; nil for a method a person calls.
@@ -625,6 +722,10 @@ type rpcMethodInfo struct {
 	// outlet's.
 	RequestLog RequestLog
 	Traces     Traces
+	// pickedRows are the request's picked fields that name a row of another resource the
+	// application lists, in field order (resolvePickedRows): the generated handler holds
+	// each to the rows its caller can list (PickedRows).
+	pickedRows []*namedRow
 }
 
 // FormerRouteName is the kebab-cased former name the method's former route is served
@@ -965,6 +1066,20 @@ func (r *rpcField) applyEnumeration(src enumerationSource) {
 	r.EnumerationValues = src.Values
 }
 
+// IsDecimal reports whether the request field is a decimal, or a list of decimals: the
+// metadata marks it beside its number display type, so a form sends what was typed as
+// text, which is what the field's JSON is.
+func (r *rpcField) IsDecimal() bool {
+	if r.IsEnumerated() {
+		return false
+	}
+	if r.wire != nil {
+		return r.wire.IsDecimal()
+	}
+
+	return isDecimalRow(r.typescriptType)
+}
+
 func (r *rpcField) TypescriptDisplayType() string {
 	if r.IsEnumerated() {
 		if r.isList() {
@@ -989,6 +1104,7 @@ type computedResource struct {
 	identity *identityInstance
 	pagingDecl
 	rowsOfDecl
+	rowWordsDecl
 	publishDecl
 	// Shape is the struct's wire shape: the fields as the handlers' local mirrors
 	// declare them, with every struct they reach. A nested field is opaque: one
@@ -1014,6 +1130,11 @@ type computedResource struct {
 	// field: the library judges the rows the resource's function yields against
 	// them, in Go.
 	Attributes []resource.AttributeData
+
+	// recordWays are the ways a row of the resource is under a record a role can be
+	// held on: a shared record's roles to give, by the record each row is listed for
+	// (identityInstance.recordWaysOf), whose attribute is among Attributes.
+	recordWays []resource.RecordWayData
 }
 
 // IsDomainScoped reports whether the resource's @permissionScope resolves to the
@@ -1106,11 +1227,6 @@ func (c *computedResource) KeyParamList() string {
 	return keyParamList(c.HasCompoundPrimaryKey(), names)
 }
 
-// KeyFormat renders one %v per key part, slash-joined, for a refusal naming the row.
-func (c *computedResource) KeyFormat() string {
-	return keyFormat(len(c.PrimaryKeys()))
-}
-
 // Converters renders the closures a handler needs to build the named root mirror
 // from a computed row; empty for a flat resource, which converts whole.
 func (c *computedResource) Converters(rootMirror string) string {
@@ -1136,6 +1252,9 @@ type computedField struct {
 	// enumerateArg is the field-scope @enumerate argument as written, resolved once
 	// every kind is extracted (resolveFieldEnumerations); nil when none is declared.
 	enumerateArg *genlang.Arg
+	// roleOfDeclaration is the field's @roleOf, resolved once every kind is extracted
+	// (resolveRoleFields).
+	roleOfDeclaration
 	// A picker's source, from that declaration: enumeratedResource is the name as
 	// written — the resource whose rows the picker lists, or an enumeration table
 	// whose values ride inline (Enumeration names the type, EnumerationValues its rows).
@@ -1179,6 +1298,19 @@ func (c *computedField) MirrorType() string {
 	}
 
 	return c.wire.MirrorType()
+}
+
+// IsDecimal reports whether the field is a decimal, or a list of decimals: the metadata
+// marks it beside its number display type, as a column's does (resourceField.IsDecimal).
+func (c *computedField) IsDecimal() bool {
+	if c.IsEnumerated {
+		return false
+	}
+	if c.wire != nil {
+		return c.wire.IsDecimal()
+	}
+
+	return isDecimalRow(c.typescriptType)
 }
 
 // TypescriptDisplayType is the field's display type in generated metadata: enumerated
@@ -1270,6 +1402,13 @@ func (c *computedField) TypescriptFilterable() string {
 	return ""
 }
 
+// Unordered reports whether the server refuses a sort by the field, so the TypeScript
+// field metadata says sortable: false and a table draws the column's heading as words;
+// see resourceField.Unordered.
+func (c *computedField) Unordered() bool {
+	return c.Field != nil && !ordersType(c.GoType())
+}
+
 // PermTag renders the perm:"-" primary-key exemption marker on @primarykey fields; see
 // resourceField.PermTag.
 func (c *computedField) PermTag() string {
@@ -1300,6 +1439,7 @@ type resourceInfo struct {
 	identity *identityInstance
 	pagingDecl
 	rowsOfDecl
+	rowWordsDecl
 	publishDecl
 	Fields []*resourceField
 	// ColumnShapes are the structs the resource's columns hold, leaves first, each
@@ -1322,6 +1462,27 @@ type resourceInfo struct {
 	DefaultsUpdateType string
 	ValidateCreateType string
 	ValidateUpdateType string
+	ValidateDeleteType string
+	// deleteCascade is the resource's @deleteCascade as written, nil where it declares
+	// none, and DeleteTree the description resolved from it once every resource is
+	// extracted (resolveDeleteTrees), which the tenant record has with no declaration,
+	// and so has any record with a kind of row under it that refuses its plain delete.
+	deleteCascade *deleteCascadeDecl
+	DeleteTree    *deleteTree
+	// holdsRoles marks the resource as a record a role can be held on (@holdsRoles), and
+	// heldRecord is what the collection says of it once every resource is extracted
+	// (resolveRecordRoles). recordWays are the ways a row of the resource is under such
+	// records, and recordAttributes the attributes those ways and the records' names of
+	// it read: the generator's own, registered in the collection beside the written ones
+	// and listed nowhere an author's bindings are.
+	holdsRoles       bool
+	heldRecord       *resource.RecordData
+	recordWays       []resource.RecordWayData
+	recordAttributes []resource.AttributeData
+	// takenFromAnotherPackage marks a record of the application's that a record of an
+	// auth's takes with it (resolveLibraryDeleteTrees): its file declares the function
+	// that delete deletes a row through (<Name>TakenRows).
+	takenFromAnotherPackage bool
 	// EnumerationType names the @enumerate type whose table this struct backs. Such a
 	// resource is read-only by derivation: the table's rows are the program's
 	// constants, so no mutation handler is generated and its permissions stop at
@@ -1337,6 +1498,19 @@ type resourceInfo struct {
 	DomainBinding *domainBinding
 	SubjectSets   []*subjectBinding
 	SubjectValues []*subjectBinding
+	// subjectReadThroughs are the record's columns that facts about people declared on
+	// other records are read through (attachSubjectReadThroughs).
+	subjectReadThroughs []subjectReadThrough
+
+	// groupColumns are the columns of a tenant's resource that name a group of people
+	// of an auth, found once the generated management's sets are known
+	// (nameGroupColumns).
+	groupColumns []*groupColumn
+
+	// namedRows are the columns that name a row of another resource the application
+	// lists, found once the enumerations and every resource's routes are known
+	// (resolveNamedRows).
+	namedRows []*namedRow
 
 	// Files are the resource's @file routes, one per field-scope declaration: a
 	// stored file served under the read route, its key column off the wire.
@@ -1373,24 +1547,45 @@ type resourceInfo struct {
 	// people know it; nil where the record marks none, and the tenant list names each
 	// tenant by its key.
 	TenantNameField *resourceField
+	// TenantSinceField is the tenant record's @tenantSince column, when a tenant was made;
+	// nil where the record marks none, and the list of tenants then has no Since.
+	TenantSinceField *resourceField
+	// RowNameField is the field the resource's rows are known by (@name); nil where it
+	// declares none, and a field pointing to one of its rows shows the stored value.
+	RowNameField *resourceField
+	// NameFields are the name fields the generator adds beside the resource's id fields
+	// that point to a row with a name (resolveNameFields), in field order.
+	NameFields []*nameField
+	// RecordedNames are the names the resource's change records keep: one for each field
+	// that points at a row with a name (resolveRecordedNames), in field order.
+	RecordedNames []*nameField
 	// DirectoryOnlyField is the tenant record's @directoryOnly column, the BOOL saying
 	// the tenant's people enter through its directories only; nil when the record
 	// declares none, and every tenant admits a password.
 	DirectoryOnlyField *resourceField
+	// TenantDisabledField is the tenant record's @tenantDisabled column, the BOOL saying
+	// the tenant is disabled: the roster and the sign-in's reader read it beside the
+	// tenant's key, and the record's generated delete refuses a tenant whose column is
+	// false. Nil on every other resource.
+	TenantDisabledField *resourceField
 	// IsTenantDirectory marks the directories record (@tenantDirectory): the
 	// tenant-scoped resource whose row is the directory a tenant admits its people
 	// through, one for a tenant and one tenant's, with DirectoryMethodField
 	// (@directoryMethod) and DirectoryConnectionField (@directoryConnection) as its two
 	// columns, and DirectoryDefaultSeatField (@directoryDefaultSeat) as the column
-	// naming the role a person is seated with at their first sign-in through the
-	// directory, nil where the record carries none and every tenant admits a stranger
-	// from its directory by invitation only. Its generated write paths hold a row to the
-	// rules of a tenant's directory (resource.TenantDirectoryRules) and keep every
+	// naming the role a person is seated with when they sign in through the directory and
+	// hold nothing in the tenant, nil where the record carries none and every tenant admits a stranger
+	// from its directory by invitation only. DirectorySecondFactorField
+	// (@directorySecondFactor) is the BOOL column saying the tenant says its directory
+	// asks its people for a second factor of its own, nil where the record carries none
+	// and no tenant vouches for its directory. Its generated write paths hold a row to
+	// the rules of a tenant's directory (resource.TenantDirectoryRules) and keep every
 	// instance's tenant roster current, as the record's do.
-	IsTenantDirectory         bool
-	DirectoryMethodField      *resourceField
-	DirectoryConnectionField  *resourceField
-	DirectoryDefaultSeatField *resourceField
+	IsTenantDirectory          bool
+	DirectoryMethodField       *resourceField
+	DirectoryConnectionField   *resourceField
+	DirectoryDefaultSeatField  *resourceField
+	DirectorySecondFactorField *resourceField
 	// declaration is the tenant record's declaration of who may enter a tenant, set
 	// once the directories record is known to belong to it (validateTenantDeclaration);
 	// nil on every other resource and on a record whose package declares none.
@@ -1399,9 +1594,12 @@ type resourceInfo struct {
 	// record's declaration; nil on every other resource. The directories record's
 	// generated write paths name the record's directory rules by it, and
 	// directoryRules is the expression that builds those rules in a generated frame of
-	// the handler package (resourceGenerator.namedDirectoryRules), set with it.
-	directoryOf    *resourceInfo
-	directoryRules string
+	// the handler package (resourceGenerator.namedDirectoryRules), set with it, as is
+	// directoryCreateRefusal, the sentence the record's create is refused with
+	// (directoryCreateRefusal).
+	directoryOf            *resourceInfo
+	directoryRules         string
+	directoryCreateRefusal string
 
 	// ListsAcrossTenants marks a tenant-scoped resource whose list is also served
 	// without the tenant's segment (@listAcrossTenants): one request reads its rows in
@@ -1521,7 +1719,7 @@ func (r *resourceInfo) CreateRefusal() string {
 	if r.CreateDisabled() {
 		return fmt.Sprintf("a %s row is added by the @upload method that stores its file; a create cannot supply the file's key", r.Name())
 	}
-	word := strings.ToLower(strcase.ToCase(r.Name(), strcase.LowerCase, ' '))
+	word := words.InWords(r.Name())
 	if !r.TenantCreation.Invites() {
 		return fmt.Sprintf("%s is not created directly: the application makes one in its own code", withArticle(word))
 	}
@@ -1604,11 +1802,6 @@ func (r *resourceInfo) KeyParamList() string {
 	}))
 }
 
-// KeyFormat renders one %v per key part, slash-joined, for a refusal naming the row.
-func (r *resourceInfo) KeyFormat() string {
-	return keyFormat(r.keyCount())
-}
-
 func (r *resourceInfo) UpdateHandlerDisabled() bool {
 	return slices.Contains(r.SuppressedHandlers, PatchHandler)
 }
@@ -1637,22 +1830,35 @@ func (r *resourceInfo) HasValidateUpdateType() bool {
 	return r.ValidateUpdateType != ""
 }
 
+// HasValidateDeleteType indicates if a validate delete type has been registered
+func (r *resourceInfo) HasValidateDeleteType() bool {
+	return r.ValidateDeleteType != ""
+}
+
+// PrimaryKeys yields the resource's key fields in the key's own order: a table's in the order
+// of its PRIMARY KEY, whatever order the struct lists them in, and a view's in the order its
+// struct declares its @primarykey fields. Every place the generator spells a row's key takes it
+// from here (a route's parameters, a constructor's parameters and the key it sets, a handler's
+// key, the TypeScript client's key), so they agree with the key a delete gives the database and
+// the key a change record is filed under.
 func (r *resourceInfo) PrimaryKeys() iter.Seq2[int, *resourceField] {
-	var i int
+	return slices.All(r.keyFields())
+}
 
-	return func(yield func(int, *resourceField) bool) {
-		for _, f := range r.Fields {
-			if !f.IsPrimaryKey {
-				continue
-			}
-
-			if !yield(i, f) {
-				return
-			}
-
-			i++
+// keyFields lists the fields that are part of the key, sorted stably by their key ordinal:
+// fields whose ordinals are equal keep the struct's order.
+func (r *resourceInfo) keyFields() []*resourceField {
+	var keys []*resourceField
+	for _, f := range r.Fields {
+		if f.IsPrimaryKey {
+			keys = append(keys, f)
 		}
 	}
+	slices.SortStableFunc(keys, func(a, b *resourceField) int {
+		return cmp.Compare(a.KeyOrdinalPosition, b.KeyOrdinalPosition)
+	})
+
+	return keys
 }
 
 // IsEnumeration reports whether the struct backs an @enumerate table (read-only by derivation).
@@ -1716,23 +1922,22 @@ func (r *resourceInfo) OperationPathPattern() string {
 }
 
 func (r *resourceInfo) PrimaryKeyType() string {
-	for _, f := range r.Fields {
-		if f.IsPrimaryKey {
-			return f.Type()
-		}
+	if f := r.PrimaryKey(); f != nil {
+		return f.Type()
 	}
 
 	return ""
 }
 
+// PrimaryKey is the first field of the key in the key's order (PrimaryKeys): the whole key of a
+// resource keyed by one column.
 func (r *resourceInfo) PrimaryKey() *resourceField {
-	for _, f := range r.Fields {
-		if f.IsPrimaryKey {
-			return f
-		}
+	keys := r.keyFields()
+	if len(keys) == 0 {
+		return nil
 	}
 
-	return nil
+	return keys[0]
 }
 
 func (r *resourceInfo) IsQueryClauseEligible() bool {
@@ -1778,15 +1983,25 @@ type resourceField struct {
 	EnumerationValues []*enumData
 	ReferencedField   string
 	HasDefault        bool
+	// Default is the backing column's DEFAULT expression (columnMeta.Default); "" where
+	// the column declares none, and on a view.
+	Default string
 	// SpannerType is the backing column's declared type (columnMeta.SpannerType);
 	// empty on a view, whose fields have no schema type.
 	SpannerType string
 	// enumerateArg is the field-scope @enumerate argument as written, resolved once
 	// every kind is extracted (resolveFieldEnumerations); nil when none is declared.
 	enumerateArg *genlang.Arg
+	// roleOfDeclaration is the field's @roleOf, resolved once every kind is extracted
+	// (resolveRoleFields).
+	roleOfDeclaration
 	// declaredResource is the name that declaration wrote, once resolved; empty for
 	// an inferred enumeration, whose resource is the foreign key's target.
 	declaredResource string
+	// deletedWith marks a column that says a row of the record goes with the group or the
+	// account of an auth's it names (@deletedWith), held to the schema once the run's
+	// resources are all known (resolveLibraryDeleteTrees).
+	deletedWith bool
 
 	// The @state marker (design plan §09): IsState derives output-only decode
 	// and the ungrantable Create/Update; StateDefault is the declared initial
@@ -1827,6 +2042,13 @@ type resourceField struct {
 	// holds the role to what giving it by hand needs, and Make<Record>InviteOnly). The
 	// record's own write paths show the column and never write it.
 	IsDirectoryDefaultSeat bool
+
+	// IsDirectorySecondFactor marks the directories record's column saying the tenant
+	// vouches for its directory's own second factor (@directorySecondFactor): it decodes
+	// output-only, on create and on update, since the tenant's administrator says so with
+	// the two methods the generator writes in the tenant's scope, the one that says it
+	// behind a warning. The record's own write paths show the column and never write it.
+	IsDirectorySecondFactor bool
 
 	// IsFileKey marks the store-key column of a @file declaration: off the wire in
 	// both directions (json:"-" on the read and the patch structs, absent from the
@@ -1944,7 +2166,7 @@ func (f *resourceField) UnwrappedNullType() *string {
 
 	var hasValidColumn bool
 	for i := range fields {
-		if fields[i].Name() == "Valid" && fields[i].DerefUnqualifiedType() == boolGoType {
+		if fields[i].Name() == validField && fields[i].DerefUnqualifiedType() == boolGoType {
 			hasValidColumn = true
 		}
 	}
@@ -1954,7 +2176,7 @@ func (f *resourceField) UnwrappedNullType() *string {
 	}
 
 	for i := range fields {
-		if fields[i].Name() != "Valid" {
+		if fields[i].Name() != validField {
 			return new(fields[i].DerefResolvedType())
 		}
 	}
@@ -1963,11 +2185,11 @@ func (f *resourceField) UnwrappedNullType() *string {
 }
 
 // TypescriptDataType is the field's type in the generated interface: the table row's
-// interface type (uuid is a string, civilDate a Date, a nullable boolean the
-// NullBoolean value type), with [] for a list, or the final type a derived struct or
-// a declared type carries.
+// interface type (uuid and a decimal are strings, civilDate a Date, a nullable boolean
+// the NullBoolean value type), with [] for a list, or the final type a derived struct
+// or a declared type carries.
 func (f *resourceField) TypescriptDataType() string {
-	if f.typescriptDisplay != "" {
+	if f.typescriptDisplay != "" && !f.IsDecimal() {
 		return f.typescriptType
 	}
 	if f.IsNullable && f.typescriptType == booleanStr {
@@ -1993,6 +2215,21 @@ func (f *resourceField) TypescriptDisplayType() string {
 	}
 
 	return f.typescriptType
+}
+
+// IsDecimal reports whether the column is the table's decimal row, or a list of it: the
+// one built-in row that carries a display type of its own (number), where every other
+// field that carries one holds its final interface type already. The metadata marks such
+// a field beside its display type, so a form sends what was typed as text and no digit
+// is lost to a floating-point number.
+func (f *resourceField) IsDecimal() bool {
+	return f.tsImport == nil && isDecimalRow(f.typescriptType)
+}
+
+// isDecimalRow reports whether a leaf, as the built-in table names it and with or without
+// the [] of a list, is the decimal row.
+func isDecimalRow(leaf string) bool {
+	return strings.TrimSuffix(leaf, sliceSuffix) == decimalTSType
 }
 
 // setColumnType records a column's resolved TypeScript type: the leaf's table type, or
@@ -2153,13 +2390,15 @@ func (f *resourceField) IsOutputOnly() bool {
 	// column too: only Go code writes it, as an @upload body does. And a
 	// generated column: the database computes it, and refuses a write. The
 	// directories record's method and connection are the same shape as the
-	// tenant key: the generated create stamps them from the caller's sign-in,
-	// so the wire cannot type a directory in. And the tenant record's
+	// tenant key: the tenant's own method that takes a directory stamps them
+	// from the caller's sign-in, so the wire cannot type a directory in. And the tenant record's
 	// directory-only switch: the tenant's own method turns it, held to its
 	// rules, so the record's global write paths cannot. And the directories
 	// record's default seat: the tenant's own methods set and clear it, the
 	// one that sets it behind a warning and the rule of who may give the role.
-	if f.IsState || f.IsTenantKey || f.IsFileKey || f.IsGenerated || f.IsDirectoryKey || f.IsDirectoryOnly || f.IsDirectoryDefaultSeat {
+	// And the directories record's word for its directory's second factor: the
+	// tenant's own methods say it and take it back.
+	if f.IsState || f.IsTenantKey || f.IsFileKey || f.IsGenerated || f.IsDirectoryKey || f.IsDirectoryOnly || f.IsDirectoryDefaultSeat || f.IsDirectorySecondFactor {
 		return true
 	}
 
@@ -2334,6 +2573,26 @@ func (f *resourceField) IsRequired() bool {
 	return false
 }
 
+// YesOrNoDefault is the default a BOOL column declares, as the browser metadata spells
+// it: "true" or "false" where the schema says DEFAULT (TRUE) or DEFAULT (FALSE) in
+// either case, and "" where the column declares no default, declares an expression
+// that is neither word, or is not a BOOL. A create form starts the field's box there,
+// so a form saved untouched sends what the schema would have stored.
+func (f *resourceField) YesOrNoDefault() string {
+	if f.SpannerType != "BOOL" {
+		return ""
+	}
+
+	switch strings.ToUpper(strings.TrimSpace(f.Default)) {
+	case "TRUE":
+		return "true"
+	case "FALSE":
+		return "false"
+	default:
+		return ""
+	}
+}
+
 func (f *resourceField) IsQueryClauseEligible() bool {
 	if f.IsIndex || f.IsUniqueIndex || f.Search != nil {
 		return true
@@ -2361,6 +2620,16 @@ func (f *resourceField) TypescriptFilterable() string {
 	}
 
 	return ""
+}
+
+// Unordered reports whether the server refuses a sort by the field: its type is one
+// the query decoder does not order (a list, a map, a nested struct, a type that carries
+// the resource package's Unordered mark; see ordersType).
+// The TypeScript field metadata then says sortable: false, so a table draws the
+// column's heading as words with nothing to press and never offers a sort the server
+// answers 400 to. A field the server orders carries nothing.
+func (f *resourceField) Unordered() bool {
+	return f.Field != nil && !ordersType(f.GoType())
 }
 
 func generatedGoFileName(name string) string {
@@ -2394,98 +2663,127 @@ func fileStem(name string) string {
 }
 
 const (
-	resourceKeyword             string = "resource"             // Designates a struct as a resource
-	virtualKeyword              string = "virtual"              // Designates a struct as a virtual resource
-	computedKeyword             string = "computed"             // Designates a struct as a computed resource
-	rpcKeyword                  string = "rpc"                  // Designates a struct as an RPC method; max: bounds its request body, log: and trace: declare its words: @rpc(max: 8MB, log: onEvent, trace: off)
-	enumerateKeyword            string = "enumerate"            // Generate constants based on existing values in Spanner DB (from inserts in migrations directory)
-	suppressKeyword             string = "suppress"             // Suppresses generation of specified handler types or routes for a resource
-	defaultsCreateTypeKeyword   string = "defaultsCreateType"   // Specifies a type to call "Defaults()" on for setting defaults on resource creation
-	defaultsUpdateTypeKeyword   string = "defaultsUpdateType"   // Specifies a type to call "Defaults()" on for setting defaults on resource update
-	validateCreateTypeKeyword   string = "validateCreateType"   // Specifies a type to call "Validate()" on for validating a resource on creation
-	validateUpdateTypeKeyword   string = "validateUpdateType"   // Specifies a type to call "Validate()" on for validating a resource on update
-	primarykeyKeyword           string = "primarykey"           // Designates a field as (part of) the primary key in a Computed or Virtual Resource
-	manualAddResourceKeyword    string = "manualAddResource"    // Declares a manual permission registration on an accesstypes.Resource constant
-	manualAddResourceSetKeyword string = "manualAddResourceSet" // Declares that hand-written handlers register this resource's permission Sets for the given handler types
-	permissionScopeKeyword      string = "permissionScope"      // Declares the permission scope (global or domain) all of a resource's registrations use
-	outletKeyword               string = "outlet"               // Declares the router outlets a resource's routes — or a manual registration's hand-written route — are registered under
-	orderKeyword                string = "order"                // Declares the order a list takes when the request states none; the primary key is appended
-	pageKeyword                 string = "page"                 // Declares the default and maximum page size of a list
-	attributeKeyword            string = "attribute"            // Declares an attribute binding on its anchor field: a column binding, or a join-path binding via a FK
-	domainKeyword               string = "domain"               // Declares the structural tenancy binding on its anchor field (bare, or via: a FK path to the tenant key)
-	subjectSetKeyword           string = "subjectSet"           // Declares subject-side set vocabulary (subject.<name>, used with IN) anchored on a user-id column, or on a column its who: part names
-	subjectValueKeyword         string = "subjectValue"         // Declares subject-side scalar vocabulary (threshold comparisons) anchored on a unique user-id column
-	stateKeyword                string = "state"                // Marks a resource's state column (FK to its state enum table) and declares the initial state
-	stateRootKeyword            string = "stateRoot"            // Declares workflow membership on the member's anchoring FK field, naming the workflow root struct
-	transitionKeyword           string = "transition"           // Declares an RPC method as a workflow state transition: @transition(Root, from: a, b, to: c)
-	targetKeyword               string = "target"               // Marks the RPC field carrying the target row key; @target(Root) names the resource when no @transition does
-	answersKeyword              string = "answers"              // Declares the statuses an RPC method may answer with; its result chooses one per response through HTTPStatus()
-	uploadKeyword               string = "upload"               // Declares an RPC method as a multipart upload: @upload(max: 5MB[, store: S]); its Execute takes resource.Files, or resource.FilesIn[S] for the named store S
-	warningKeyword              string = "warning"              // Declares an RPC method that warns before it runs: @warning(typed: open); its Warning method writes the consequence of a call, and the dialog holds its confirm button until the word is typed
-	rowsOfKeyword               string = "rowsOf"               // Declares the table resource whose rows a virtual or computed view carries, one to one under the same key: @rowsOf(Missions)
-	changedByKeyword            string = "changedBy"            // Declares the tables whose changes change a virtual or computed resource, in place of what the generator reads off a virtual resource's query: @changedBy(Ships, DroidReports)
-	typescriptKeyword           string = "typescript"           // Declares the TypeScript type of a type used as a field, on the type's declaration: @typescript(Name, from: "module")
-	fileKeyword                 string = "file"                 // Declares a file served under the resource's read route: on the store-key field, @file[(segment[, name: Field, type: Field, log: word, trace: setting])]; on a keyed @computed struct, @file[(segment[, log: word, trace: setting])] rendered by <Name><Segment>
-	featureKeyword              string = "feature"              // Gates a resource, a field or an RPC method behind a feature flag, by the flag's constant: @feature(Debriefs)
-	tenantKeyword               string = "tenant"               // Declares the tenant record: the global, table-backed @resource whose rows are the tenants and whose key is the domain in every tenant-scoped URL
-	directoryOnlyKeyword        string = "directoryOnly"        // Marks the tenant record's BOOL column saying the tenant's people enter through its directories only, so a password does not reach it
-	tenantNameKeyword           string = "tenantName"           // Marks the tenant record's string column holding a tenant's name, which the session's tenant list carries for the tenant's own people to see
-	tenantDirectoryKeyword      string = "tenantDirectory"      // Declares the directories record: the tenant-scoped @resource whose rows are the directories a tenant admits its people through, one per declaration
-	directoryMethodKeyword      string = "directoryMethod"      // Marks the directories record's string column holding the sign-in method a directory is reached through (google, azure, workos)
-	directoryConnectionKeyword  string = "directoryConnection"  // Marks the directories record's string column holding the connection a directory's identities carry (a Google Workspace by its domain, a Microsoft Entra tenant by its tenant id)
-	directoryDefaultSeatKeyword string = "directoryDefaultSeat" // Marks the directories record's string column naming the role a stranger the directory vouches for is seated with at their first sign-in, NULL where the tenant admits them by invitation only
-	formerlyKeyword             string = "formerly"             // Declares a field's or a method's former name, answered beside the current one while older applications still send it: @formerly(Title)
-	scheduleKeyword             string = "schedule"             // Declares an RPC method a scheduled route Cloud Scheduler calls: @schedule("0 3 * * *"[, zone: "America/Denver", log: onEvent])
-	searchAlsoKeyword           string = "searchAlso"           // Declares a child table's text a table-backed resource's search box also searches, one hop down a foreign key: @searchAlso(ClientContact.DisplayName[, via: ClientId])
-	listAcrossTenantsKeyword    string = "listAcrossTenants"    // Declares that a tenant-scoped resource's list is also served without the tenant's segment, reading every tenant the session reaches in which the person may list it
+	resourceKeyword              string = "resource"              // Designates a struct as a resource
+	virtualKeyword               string = "virtual"               // Designates a struct as a virtual resource
+	computedKeyword              string = "computed"              // Designates a struct as a computed resource
+	rpcKeyword                   string = "rpc"                   // Designates a struct as an RPC method; max: bounds its request body, log: and trace: declare its words: @rpc(max: 8MB, log: onEvent, trace: off)
+	enumerateKeyword             string = "enumerate"             // Generate constants based on existing values in Spanner DB (from inserts in migrations directory)
+	suppressKeyword              string = "suppress"              // Suppresses generation of specified handler types or routes for a resource
+	defaultsCreateTypeKeyword    string = "defaultsCreateType"    // Specifies a type to call "Defaults()" on for setting defaults on resource creation
+	defaultsUpdateTypeKeyword    string = "defaultsUpdateType"    // Specifies a type to call "Defaults()" on for setting defaults on resource update
+	validateCreateTypeKeyword    string = "validateCreateType"    // Specifies a type to call "Validate()" on for validating a resource on creation
+	validateUpdateTypeKeyword    string = "validateUpdateType"    // Specifies a type to call "Validate()" on for validating a resource on update
+	validateDeleteTypeKeyword    string = "validateDeleteType"    // Specifies a type to call "Validate()" on before a row of the resource is deleted: a delete rule no grant gets around
+	primarykeyKeyword            string = "primarykey"            // Designates a field as (part of) the primary key in a Computed or Virtual Resource
+	manualAddResourceKeyword     string = "manualAddResource"     // Declares a manual permission registration on an accesstypes.Resource constant
+	manualAddPermissionKeyword   string = "manualAddPermission"   // Declares a permission with no resource on an accesstypes.Permission constant: one checked for the whole of a scope
+	manualAddResourceSetKeyword  string = "manualAddResourceSet"  // Declares that hand-written handlers register this resource's permission Sets for the given handler types
+	permissionScopeKeyword       string = "permissionScope"       // Declares the permission scope (global or domain) all of a resource's registrations use
+	outletKeyword                string = "outlet"                // Declares the router outlets a resource's routes — or a manual registration's hand-written route — are registered under
+	orderKeyword                 string = "order"                 // Declares the order a list takes when the request states none; the primary key is appended
+	pageKeyword                  string = "page"                  // Declares the default and maximum page size of a list
+	attributeKeyword             string = "attribute"             // Declares an attribute binding on its anchor field: a column binding, or a join-path binding via a FK
+	domainKeyword                string = "domain"                // Declares the structural tenancy binding on its anchor field (bare, or via: a FK path to the tenant key)
+	subjectSetKeyword            string = "subjectSet"            // Declares subject-side set vocabulary (subject.<name>, used with IN) anchored on a user-id column, or on a column its who: part names
+	subjectValueKeyword          string = "subjectValue"          // Declares subject-side scalar vocabulary (threshold comparisons) anchored on a unique user-id column
+	stateKeyword                 string = "state"                 // Marks a resource's state column (FK to its state enum table) and declares the initial state
+	stateRootKeyword             string = "stateRoot"             // Declares workflow membership on the member's anchoring FK field, naming the workflow root struct
+	transitionKeyword            string = "transition"            // Declares an RPC method as a workflow state transition: @transition(Root, from: a, b, to: c)
+	targetKeyword                string = "target"                // Marks the RPC field carrying the target row key; @target(Root) names the resource when no @transition does
+	callerEntersKeyword          string = "callerEnters"          // Declares that a row offers an RPC method only to a caller whose session enters every tenant the row names; the target's struct names them (TenantsToEnter), or, for a method that names no row, each struct the annotation names
+	notOnOwnAccountKeyword       string = "notOnOwnAccount"       // Declares that the row an RPC method names does not offer it to the person whose account the row is: @notOnOwnAccount(ID) names the row's field that holds the account's id
+	answersKeyword               string = "answers"               // Declares the statuses an RPC method may answer with; its result chooses one per response through HTTPStatus()
+	uploadKeyword                string = "upload"                // Declares an RPC method as a multipart upload: @upload(max: 5MB[, store: S]); its Execute takes resource.Files, or resource.FilesIn[S] for the named store S
+	deleteTokenKeyword           string = "deleteToken"           // Marks the field of an RPC method that carries the token its delete's question gave: the generated handler asks the question before it opens a transaction when the field is empty
+	warningKeyword               string = "warning"               // Declares an RPC method that warns before it runs: @warning, or @warning(typed: open) where a person types a word first; its Warning method writes the consequence of a call, and the dialog holds its confirm button until the server has answered and the word, where there is one, is typed
+	rowsOfKeyword                string = "rowsOf"                // Declares the table resource whose rows a virtual or computed view carries, one to one under the same key: @rowsOf(Missions)
+	changedByKeyword             string = "changedBy"             // Declares the tables whose changes change a virtual or computed resource, in place of what the generator reads off a virtual resource's query: @changedBy(Ships, DroidReports)
+	typescriptKeyword            string = "typescript"            // Declares the TypeScript type of a type used as a field, on the type's declaration: @typescript(Name, from: "module")
+	fileKeyword                  string = "file"                  // Declares a file served under the resource's read route: on the store-key field, @file[(segment[, name: Field, type: Field, log: word, trace: setting])]; on a keyed @computed struct, @file[(segment[, log: word, trace: setting])] rendered by <Name><Segment>
+	featureKeyword               string = "feature"               // Gates a resource, a field or an RPC method behind a feature flag, by the flag's constant: @feature(Debriefs)
+	tenantKeyword                string = "tenant"                // Declares the tenant record: the global, table-backed @resource whose rows are the tenants and whose key is the domain in every tenant-scoped URL
+	directoryOnlyKeyword         string = "directoryOnly"         // Marks the tenant record's BOOL column saying the tenant's people enter through its directories only, so a password does not reach it
+	tenantDisabledKeyword        string = "tenantDisabled"        // Marks the tenant record's BOOL column saying the tenant is disabled: its people are shut out while its records stay, and a super administrator alone enters it
+	tenantNameKeyword            string = "tenantName"            // Marks the tenant record's string column holding a tenant's name, which the session's tenant list carries for the tenant's own people to see
+	tenantSinceKeyword           string = "tenantSince"           // Marks the tenant record's timestamp column holding when the tenant was made, which the list of tenants an auth's generated management serves says as Since
+	nameKeyword                  string = "name"                  // Marks the string field a resource's rows are known by: a field pointing to one of its rows gains a name field beside it, read-only and stored nowhere
+	deletedWithKeyword           string = "deletedWith"           // Says a row of the record goes with the group or the account of the library's that the column names, when that group or account is deleted: no argument, on the column the schema holds to it by a foreign key
+	tenantDirectoryKeyword       string = "tenantDirectory"       // Declares the directories record: the tenant-scoped @resource whose rows are the directories a tenant admits its people through, one per declaration
+	directoryMethodKeyword       string = "directoryMethod"       // Marks the directories record's string column holding the sign-in method a directory is reached through (google, azure, workos)
+	directoryConnectionKeyword   string = "directoryConnection"   // Marks the directories record's string column holding the connection a directory's identities carry (a Google Workspace by its domain, a Microsoft Entra tenant by its tenant id)
+	directoryDefaultSeatKeyword  string = "directoryDefaultSeat"  // Marks the directories record's string column naming the role a stranger the directory vouches for is seated with at their first sign-in, NULL where the tenant admits them by invitation only
+	directorySecondFactorKeyword string = "directorySecondFactor" // Marks the directories record's BOOL column saying the tenant says its directory asks its people for a second factor of its own, so a sign-in through the directory is not asked for the application's mailed code
+	formerlyKeyword              string = "formerly"              // Declares a field's or a method's former name, answered beside the current one while older applications still send it: @formerly(Title)
+	scheduleKeyword              string = "schedule"              // Declares an RPC method a scheduled route Cloud Scheduler calls: @schedule("0 3 * * *"[, zone: "America/Denver", log: onEvent])
+	searchAlsoKeyword            string = "searchAlso"            // Declares a child table's text a table-backed resource's search box also searches, one hop down a foreign key: @searchAlso(ClientContact.DisplayName[, via: ClientId])
+	listAcrossTenantsKeyword     string = "listAcrossTenants"     // Declares that a tenant-scoped resource's list is also served without the tenant's segment, reading every tenant the session reaches in which the person may list it
+	rowWordKeyword               string = "rowWord"               // States the word a person calls one row of a resource by, where the resource's name split into words is not it: @rowWord(pass[, plural: passes])
+	classKeyword                 string = "class"                 // Marks an action, an RPC method or a manual registration of Execute, with the classes a permission mask refers to: @class(credential)
+	roleOfKeyword                string = "roleOf"                // Marks a string field, or a list of strings, that holds the name of a role of the auth named: a list writes it in words and filters it by picking a role: @roleOf(Staff)
+	holdsRolesKeyword            string = "holdsRoles"            // Marks a tenant's record as one a role can be held on: a role whose heldOn names it is given on one row, and counts on that row and what it reaches
 )
 
 func resourceKeywords() map[string]genlang.KeywordOpts {
 	return map[string]genlang.KeywordOpts{
-		resourceKeyword:             {genlang.ScanStruct: genlang.NoArgs | genlang.Exclusive},
-		virtualKeyword:              {genlang.ScanStruct: genlang.NoArgs | genlang.Exclusive},
-		computedKeyword:             {genlang.ScanStruct: genlang.NoArgs | genlang.Exclusive},
-		rpcKeyword:                  {genlang.ScanStruct: genlang.Exclusive},
-		enumerateKeyword:            {genlang.ScanNamedType: genlang.ArgsRequired | genlang.Exclusive, genlang.ScanField: genlang.ArgsRequired | genlang.Exclusive},
-		suppressKeyword:             {genlang.ScanStruct: genlang.ArgsRequired},
-		defaultsCreateTypeKeyword:   {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
-		defaultsUpdateTypeKeyword:   {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
-		validateCreateTypeKeyword:   {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
-		validateUpdateTypeKeyword:   {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
-		primarykeyKeyword:           {genlang.ScanField: genlang.NoArgs},
-		manualAddResourceKeyword:    {genlang.ScanConstant: genlang.ArgsRequired},
-		manualAddResourceSetKeyword: {genlang.ScanStruct: genlang.ArgsRequired},
-		permissionScopeKeyword:      {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
-		outletKeyword:               {genlang.ScanStruct: genlang.ArgsRequired, genlang.ScanConstant: genlang.ArgsRequired},
-		orderKeyword:                {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
-		pageKeyword:                 {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
-		attributeKeyword:            {genlang.ScanField: genlang.ArgsRequired | genlang.Exclusive},
-		domainKeyword:               {genlang.ScanField: genlang.Exclusive},
-		subjectSetKeyword:           {genlang.ScanField: genlang.ArgsRequired | subjectBindingArgSpec().ScanFlags()},
-		subjectValueKeyword:         {genlang.ScanField: genlang.ArgsRequired | subjectBindingArgSpec().ScanFlags()},
-		stateKeyword:                {genlang.ScanField: genlang.ArgsRequired | genlang.Exclusive},
-		stateRootKeyword:            {genlang.ScanField: genlang.ArgsRequired | genlang.Exclusive},
-		transitionKeyword:           {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
-		targetKeyword:               {genlang.ScanField: genlang.Exclusive},
-		answersKeyword:              {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
-		uploadKeyword:               {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
-		warningKeyword:              {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
-		rowsOfKeyword:               {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
-		changedByKeyword:            {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
-		typescriptKeyword:           {genlang.ScanNamedType: genlang.ArgsRequired | genlang.Exclusive, genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
-		fileKeyword:                 {genlang.ScanField: genlang.Exclusive, genlang.ScanStruct: genlang.Exclusive},
-		featureKeyword:              {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive, genlang.ScanField: genlang.ArgsRequired | genlang.Exclusive},
-		tenantKeyword:               {genlang.ScanStruct: genlang.Exclusive},
-		directoryOnlyKeyword:        {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
-		tenantNameKeyword:           {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
-		tenantDirectoryKeyword:      {genlang.ScanStruct: genlang.NoArgs | genlang.Exclusive},
-		directoryMethodKeyword:      {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
-		directoryConnectionKeyword:  {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
-		directoryDefaultSeatKeyword: {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
-		formerlyKeyword:             {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive, genlang.ScanField: genlang.ArgsRequired | genlang.Exclusive},
-		scheduleKeyword:             {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
-		searchAlsoKeyword:           {genlang.ScanStruct: genlang.ArgsRequired},
-		listAcrossTenantsKeyword:    {genlang.ScanStruct: genlang.NoArgs | genlang.Exclusive},
+		resourceKeyword:              {genlang.ScanStruct: genlang.NoArgs | genlang.Exclusive},
+		virtualKeyword:               {genlang.ScanStruct: genlang.NoArgs | genlang.Exclusive},
+		computedKeyword:              {genlang.ScanStruct: genlang.NoArgs | genlang.Exclusive},
+		rpcKeyword:                   {genlang.ScanStruct: genlang.Exclusive},
+		enumerateKeyword:             {genlang.ScanNamedType: genlang.ArgsRequired | genlang.Exclusive, genlang.ScanField: genlang.ArgsRequired | genlang.Exclusive},
+		suppressKeyword:              {genlang.ScanStruct: genlang.ArgsRequired},
+		defaultsCreateTypeKeyword:    {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
+		defaultsUpdateTypeKeyword:    {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
+		validateCreateTypeKeyword:    {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
+		validateUpdateTypeKeyword:    {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
+		validateDeleteTypeKeyword:    {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
+		deleteCascadeKeyword:         {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
+		holdsRolesKeyword:            {genlang.ScanStruct: genlang.NoArgs | genlang.Exclusive},
+		primarykeyKeyword:            {genlang.ScanField: genlang.NoArgs},
+		manualAddResourceKeyword:     {genlang.ScanConstant: genlang.ArgsRequired},
+		manualAddPermissionKeyword:   {genlang.ScanConstant: genlang.NoArgs | genlang.Exclusive},
+		manualAddResourceSetKeyword:  {genlang.ScanStruct: genlang.ArgsRequired},
+		permissionScopeKeyword:       {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
+		outletKeyword:                {genlang.ScanStruct: genlang.ArgsRequired, genlang.ScanConstant: genlang.ArgsRequired},
+		orderKeyword:                 {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
+		pageKeyword:                  {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
+		attributeKeyword:             {genlang.ScanField: genlang.ArgsRequired | genlang.Exclusive},
+		domainKeyword:                {genlang.ScanField: genlang.Exclusive},
+		subjectSetKeyword:            {genlang.ScanField: genlang.ArgsRequired | subjectBindingArgSpec().ScanFlags()},
+		subjectValueKeyword:          {genlang.ScanField: genlang.ArgsRequired | subjectBindingArgSpec().ScanFlags()},
+		stateKeyword:                 {genlang.ScanField: genlang.ArgsRequired | genlang.Exclusive},
+		stateRootKeyword:             {genlang.ScanField: genlang.ArgsRequired | genlang.Exclusive},
+		transitionKeyword:            {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
+		targetKeyword:                {genlang.ScanField: genlang.Exclusive},
+		callerEntersKeyword:          {genlang.ScanStruct: genlang.Exclusive},
+		notOnOwnAccountKeyword:       {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
+		answersKeyword:               {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
+		uploadKeyword:                {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
+		warningKeyword:               {genlang.ScanStruct: genlang.Exclusive},
+		deleteTokenKeyword:           {genlang.ScanField: genlang.Exclusive},
+		rowsOfKeyword:                {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
+		changedByKeyword:             {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
+		typescriptKeyword:            {genlang.ScanNamedType: genlang.ArgsRequired | genlang.Exclusive, genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
+		fileKeyword:                  {genlang.ScanField: genlang.Exclusive, genlang.ScanStruct: genlang.Exclusive},
+		featureKeyword:               {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive, genlang.ScanField: genlang.ArgsRequired | genlang.Exclusive},
+		tenantKeyword:                {genlang.ScanStruct: genlang.Exclusive},
+		directoryOnlyKeyword:         {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
+		tenantDisabledKeyword:        {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
+		tenantNameKeyword:            {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
+		tenantSinceKeyword:           {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
+		nameKeyword:                  {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
+		deletedWithKeyword:           {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
+		tenantDirectoryKeyword:       {genlang.ScanStruct: genlang.NoArgs | genlang.Exclusive},
+		directoryMethodKeyword:       {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
+		directoryConnectionKeyword:   {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
+		directoryDefaultSeatKeyword:  {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
+		directorySecondFactorKeyword: {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
+		formerlyKeyword:              {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive, genlang.ScanField: genlang.ArgsRequired | genlang.Exclusive},
+		scheduleKeyword:              {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
+		searchAlsoKeyword:            {genlang.ScanStruct: genlang.ArgsRequired},
+		listAcrossTenantsKeyword:     {genlang.ScanStruct: genlang.NoArgs | genlang.Exclusive},
+		rowWordKeyword:               {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
+		classKeyword:                 {genlang.ScanStruct: genlang.ArgsRequired, genlang.ScanConstant: genlang.ArgsRequired},
+		roleOfKeyword:                {genlang.ScanField: genlang.ArgsRequired | genlang.Exclusive},
 	}
 }
 

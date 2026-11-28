@@ -1,6 +1,10 @@
 package resources
 
-import "github.com/impulseframework/impulse"
+import (
+	"time"
+
+	"github.com/impulseframework/impulse"
+)
 
 type (
 	// Tenant is the tenant record (@tenant) as the portal declares it: the table the
@@ -25,5 +29,18 @@ type (
 		// carries it, so the place switcher shows it to them.
 		// @tenantName
 		Name string `spanner:"Name"`
+		// CreatedAt is when the tenant was made: the database writes it with the row, at the
+		// commit that makes the tenant, whichever way it is made, and nothing changes it
+		// afterward. The list of tenants says it as Since.
+		// @tenantSince
+		CreatedAt time.Time `spanner:"CreatedAt" conditions:"output_only" default_create_fn:"resource.CommitTimestamp"`
+		// Disabled says the tenant is disabled: its people are shut out while its records
+		// stay, and nobody enters it but a super administrator, the tenant's own
+		// administrators included. It is an ordinary field of the record: whoever holds
+		// Update on it disables a tenant and enables it again, and enabling gives everyone
+		// back what they held. A tenant is disabled before it is deleted: the record's
+		// delete refuses one that is not.
+		// @tenantDisabled
+		Disabled bool `spanner:"Disabled"`
 	}
 )

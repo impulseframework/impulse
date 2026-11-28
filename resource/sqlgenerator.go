@@ -62,6 +62,10 @@ type sqlGenerator struct {
 	// where a tenant's own statement filters them to its one tenant
 	// (branchTenancy).
 	acrossTenants bool
+	// nameFilters renders each of the filter's conditions on a name field, by
+	// the condition: the pointed-to rows its id is tested against
+	// (name_filter.go). Nil where the filter names no name.
+	nameFilters map[*ConditionNode]*nameFilter
 }
 
 // searchGrant is one search field's standing under the caller's grants.
@@ -199,8 +203,12 @@ func (s *sqlGenerator) conditionColumn(column string) string {
 
 // generateConditionSQL renders one condition. Its values bind through paramValue, the
 // typing the lowered nodes use, so a decimal filter value meets a NUMERIC column as a
-// NUMERIC parameter rather than the STRING Spanner would otherwise type it as.
+// NUMERIC parameter rather than the STRING Spanner would otherwise type it as. A
+// condition on a name field tests the id beside it (generateNameConditionSQL).
 func (s *sqlGenerator) generateConditionSQL(cn *ConditionNode) (string, []QueryParam, error) {
+	if cn.Condition.name != "" {
+		return s.generateNameConditionSQL(cn)
+	}
 	field := s.conditionColumn(cn.Condition.Field)
 	op := strings.ToLower(cn.Condition.Operator)
 	var params []QueryParam

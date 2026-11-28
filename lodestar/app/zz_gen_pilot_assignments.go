@@ -19,11 +19,11 @@ import (
 
 func (a *App) PilotAssignments() http.HandlerFunc {
 	type pilotAssignment struct {
-		SquadronID   impulse.UUID `json:"squadronId"   index:"true" perm:"-"`
-		UserID       string       `json:"userId"       index:"true" perm:"-"`
+		SquadronID   impulse.UUID `json:"squadronId"   index:"true"        perm:"-"`
+		UserID       string       `json:"userId"       index:"true"        perm:"-"`
 		SectorID     impulse.UUID `json:"sectorId"     index:"true"`
-		SquadronName string       `json:"squadronName" index:"true"`
 		WingName     string       `json:"wingName"     index:"true"`
+		SquadronName *string      `json:"squadronName" nameof:"SquadronID" index:"true" search:"token=Name_Search;index=SquadronsSearch;role=text;anchors=prefix,suffix;contains"`
 	}
 
 	type response []map[string]any
@@ -42,8 +42,9 @@ func (a *App) PilotAssignments() http.HandlerFunc {
 		}
 
 		// A live list registers before the query runs, so a commit that lands during
-		// the query is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, a.LiveService(), querySet, live.ListSubscription(querySet.Resource(), domain))
+		// the query is not missed; a refused request registers nothing. With it the
+		// request registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, a.LiveService(), querySet, live.ListSubscription(querySet.Resource(), domain))
 
 		res := virtualresources.NewPilotAssignmentQueryFromQuerySet(querySet)
 
@@ -62,7 +63,7 @@ func (a *App) PilotAssignments() http.HandlerFunc {
 			if !page.Add(row) {
 				break
 			}
-			rec := (*pilotAssignment)(&row.Data)
+			rec := &row.Data
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
@@ -78,14 +79,15 @@ func (a *App) PilotAssignments() http.HandlerFunc {
 					if !row.Masked("sectorId") {
 						rmap["sectorId"] = rec.SectorID
 					}
-				case "SquadronName":
-					if !row.Masked("squadronName") {
-						rmap["squadronName"] = rec.SquadronName
-					}
 				case "WingName":
 					if !row.Masked("wingName") {
 						rmap["wingName"] = rec.WingName
 					}
+				}
+			}
+			for _, name := range querySet.Names() {
+				if looked := row.Name(name.Field); looked != nil {
+					rmap[name.JSONName] = *looked
 				}
 			}
 			if capabilities := row.Capabilities(); capabilities != nil {
@@ -109,11 +111,11 @@ func (a *App) PilotAssignments() http.HandlerFunc {
 
 func (a *App) PilotAssignment() http.HandlerFunc {
 	type response struct {
-		SquadronID   impulse.UUID `json:"squadronId"   index:"true" perm:"-"`
-		UserID       string       `json:"userId"       index:"true" perm:"-"`
+		SquadronID   impulse.UUID `json:"squadronId"   index:"true"        perm:"-"`
+		UserID       string       `json:"userId"       index:"true"        perm:"-"`
 		SectorID     impulse.UUID `json:"sectorId"`
-		SquadronName string       `json:"squadronName"`
 		WingName     string       `json:"wingName"`
+		SquadronName *string      `json:"squadronName" nameof:"SquadronID"`
 	}
 
 	decoder := NewQueryDecoder[virtualresources.PilotAssignment, response](a, accesstypes.Read)
@@ -132,8 +134,9 @@ func (a *App) PilotAssignment() http.HandlerFunc {
 		}
 
 		// A live row registers before the read runs, so a commit that lands during the
-		// read is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, a.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(squadronID, userID)))
+		// read is not missed; a refused request registers nothing. With it the request
+		// registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, a.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(squadronID, userID)))
 
 		res := virtualresources.NewPilotAssignmentQueryFromQuerySet(querySet).SetSquadronID(squadronID).SetUserID(userID)
 
@@ -141,7 +144,7 @@ func (a *App) PilotAssignment() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		rec := (*response)(&row.Data)
+		rec := &row.Data
 		rmap := make(map[string]any)
 		for _, field := range querySet.Fields() {
 			switch string(field) {
@@ -157,14 +160,15 @@ func (a *App) PilotAssignment() http.HandlerFunc {
 				if !row.Masked("sectorId") {
 					rmap["sectorId"] = rec.SectorID
 				}
-			case "SquadronName":
-				if !row.Masked("squadronName") {
-					rmap["squadronName"] = rec.SquadronName
-				}
 			case "WingName":
 				if !row.Masked("wingName") {
 					rmap["wingName"] = rec.WingName
 				}
+			}
+		}
+		for _, name := range querySet.Names() {
+			if looked := row.Name(name.Field); looked != nil {
+				rmap[name.JSONName] = *looked
 			}
 		}
 		if capabilities := row.Capabilities(); capabilities != nil {

@@ -29,17 +29,19 @@ type (
 	//
 	// Mission is served on the portal outlet too: clients track their own missions under
 	// a grant whose width never includes assignedSquadron, notes, or settlement. Change
-	// tracking is on, feeding the ship's log. The list is ordered by deadline and paged at
+	// tracking is on, feeding the mission's history. The list is ordered by deadline and paged at
 	// twenty-five, the size the flight deck reads from the descriptor.
 	//
 	// Two fields declare which resource their picker lists (the field-scope form of
 	// the enumerate annotation). ClientID is a foreign key into Clients, and it names
 	// ClientRosters, a sector-scoped view over Clients keyed by the same id that carries
 	// the contact and mission counts a booking picker wants; the constraint stays the
-	// guard at write time, and the roster's maximum makes it a bounded source the picker
+	// guard at write time, the library holds a write to the clients the writer's list of
+	// the roster shows, and the roster's maximum makes it a bounded source the picker
 	// pages and reads by key. BriefingTemplateID is a plain column with no foreign key: it
 	// holds an identifier from the BriefingTemplates catalog, which lives in Go, not in
-	// the schema, so nothing but the declaration says what the picker lists.
+	// the schema, so nothing but the declaration says what the picker lists, and the
+	// library takes only an id the writer's list of the catalog shows.
 	//
 	// Fee is allow_filter on an unindexed column, so its metadata says filterable:
 	// withIndexed — the browser offers a fee filter only beside one on an indexed
@@ -84,12 +86,43 @@ type (
 	// order across sectors, storing the sector; MissionsBySectorIdDeadline stays the
 	// sector's own.
 	//
+	// A mission's sorties, their expenses and its documents go with it, in code: the
+	// mission's delete takes each one through its own delete (@deleteCascade, below).
+	// Whoever deletes a mission must be allowed to delete them, each row's delete rule is
+	// asked, its change event is written, and a document's stored file is released.
+	//
 	// Demonstrates: list.across-tenants.
 	//
-	// Demonstrates: @state, @attribute, @attribute.decimal, @attribute.timestamp, @attribute.nullable-fk, output_only, default_create_fn, @defaultsCreateType, @validateCreateType, change-tracking, outlet.shared, @order, @page, cell-masking, paging.masked-sort, masking.positional, filter.typed-values, filter.validated-at-decode, condition.now, condition.not-in, condition.prefix-not, condition.subject-scalar, condition.old-vs-new, write-grouping, @attribute.join-path-global, @enumerate.plain-column, @enumerate.key-view, metadata.filterable, index.tenant-second, commit.constraint-refusal, decode.value-limit, search.box, search.date, search.partitioned, condition.key-only-read.
+	// A mission's delete is declared (@deleteCascade): its sorties, their expenses and its
+	// documents are the kinds of row under a mission, and the declaration names all three
+	// as going with it. The generator holds the list to the schema and writes the
+	// description (DeleteTree in the generated file): expenses first, then sorties and
+	// documents.
+	//
+	// A role can be held on one mission (@holdsRoles): the crew's MissionObserver and
+	// MissionLead name Missions in their heldOn, and the sector's administrator gives either
+	// to a person or a group of the sector on one mission, from the mission's Sharing list.
+	// Its grants then count on that mission, on its sorties, their expenses and its
+	// documents, which are under it by the schema, and on the squadron it names
+	// (AssignedSquadronId), and on nothing else: a person who holds nothing else in the
+	// sector enters it for that mission alone, and the sector's people list says so. A lead
+	// shares the mission with observers, and the mission's delete takes the roles held on
+	// it. What a lead picks from the sector's own lists she picks by a second role, held in
+	// the sector, that lists it: a sortie's ship (the Harbormaster's role lists the ships
+	// and gives nothing else), a group to share the mission with (Sector Crew lists the
+	// groups she is in herself) and a person to share it with (the Muster Clerk's role lists
+	// the sector's people and its groups, and gives nothing else). Her role sets neither the
+	// mission's client nor its briefing sheet: a role held on one mission lists neither the
+	// roster nor the catalog.
+	//
+	// Demonstrates: @holdsRoles.
+	//
+	// Demonstrates: @state, @attribute, @attribute.decimal, @attribute.timestamp, @attribute.nullable-fk, output_only, default_create_fn, @defaultsCreateType, @validateCreateType, change-tracking, outlet.shared, @order, @page, cell-masking, paging.masked-sort, masking.positional, filter.typed-values, filter.validated-at-decode, condition.now, condition.not-in, condition.prefix-not, condition.subject-scalar, condition.old-vs-new, write-grouping, @attribute.join-path-global, @enumerate.plain-column, @enumerate.key-view, metadata.filterable, index.tenant-second, commit.referential-refusal, commit.constraint-refusal, decode.value-limit, search.box, search.date, search.partitioned, condition.key-only-read, @deleteCascade.
 	//
 	// @resource
 	// @permissionScope(domain)
+	// @deleteCascade(Sortie, SortieExpense, MissionDocument)
+	// @holdsRoles
 	// @listAcrossTenants
 	// @outlet(default, portal)
 	// @order(Deadline asc)
@@ -104,9 +137,10 @@ type (
 		// @enumerate(ClientRosters)
 		ClientID impulse.UUID `spanner:"ClientId"`
 		// @attribute(kind)
-		KindID string  `spanner:"KindId"`
-		Title  string  `spanner:"Title"`
-		Brief  *string `spanner:"Brief"`
+		KindID string `spanner:"KindId"`
+		// @name
+		Title string  `spanner:"Title"`
+		Brief *string `spanner:"Brief"`
 		// @enumerate(BriefingTemplates)
 		BriefingTemplateID *string `spanner:"BriefingTemplateId"`
 		// @attribute(hazard)
@@ -120,8 +154,8 @@ type (
 		// @attribute(requiredCert)
 		RequiredCertID *string `spanner:"RequiredCertId"`
 		// @attribute(bookedBy)
-		BookedByUserID string `spanner:"BookedByUserId"     conditions:"output_only" default_create_fn:"currentUser"`
-		BookedByName   string `spanner:"BookedByName" conditions:"output_only" default_create_fn:"currentUserName"`
+		BookedByUserID string `spanner:"BookedByUserId" conditions:"output_only" default_create_fn:"currentUser"`
+		BookedByName   string `spanner:"BookedByName"   conditions:"output_only" default_create_fn:"currentUserName"`
 		// @attribute(assignedSquadron)
 		AssignedSquadronID impulse.NullUUID `spanner:"AssignedSquadronId"`
 		// @state(default: open)
@@ -148,7 +182,7 @@ type (
 )
 
 // Config enables change tracking: Mission mutations write DataChangeEvents rows in the
-// same transaction, which the ship's log renders.
+// same transaction, which the mission's history reads back.
 func (Mission) Config() resource.Config {
 	return defaultConfig().SetTrackChanges(true)
 }

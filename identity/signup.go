@@ -10,7 +10,10 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/internal/words"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
@@ -60,6 +63,10 @@ type SignInMethodRow struct {
 	OpenedFor *string
 	// DefaultRole is the role such a person is given with their account, nil for none.
 	DefaultRole *string
+	// SelfServiceReset says a person may ask at the sign-in page for a link that
+	// resets their own password. It is read on the password method's row alone, and is
+	// written by SetSelfServiceReset alone: SetSignInMethod leaves it as it stands.
+	SelfServiceReset bool
 }
 
 // SignInMethod is one sign-in method the auth registers, with what an administrator
@@ -88,6 +95,9 @@ type SignInMethod struct {
 	// Says is the row's state as a sentence a person reads: what a person with no
 	// invitation meets at this method.
 	Says string
+	// SelfServiceReset says a person may ask at the sign-in page for a link that
+	// resets their own password: the password method's alone, false for every other.
+	SelfServiceReset bool
 }
 
 // SignUp is what opening a sign-in method to sign-up asks for.
@@ -123,19 +133,58 @@ func (m *Manager) SignInMethods(ctx context.Context, reader resource.ReadOnlyTra
 	return methods, nil
 }
 
-// AnyMethodOpen reports whether an administrator has some sign-in method of the auth
-// open to sign-up now, for the audience the method has. In an application with tenants
-// it is what lets a person who holds no tenant create one: a person who signed up
-// through an open method, and nobody while every method is invite only. A row of a
-// method the auth no longer registers opens nothing, and neither does one opened for
-// another audience than its registration has now.
-func (m *Manager) AnyMethodOpen(ctx context.Context, reader resource.ReadOnlyTransaction) (bool, error) {
+// SessionMethodOpen reports whether the sign-in method the session came through is open
+// to sign-up now, for the audience the method has. In an application with tenants it is
+// what lets a person who holds no tenant create one: a person who signed in through an
+// open method, and nobody who came through an invite-only one, whatever other methods
+// are open. The method is read from the session's first sign-in event; a session that
+// records none came through no method and is answered no. Where two registrations of one
+// kind both take the session's connection (one organization's Google Workspace beside
+// any Google account), the session came through either as far as its record says, and
+// one of them open is enough: the same account signs in through the open one.
+func (m *Manager) SessionMethodOpen(ctx context.Context, reader resource.ReadOnlyTransaction) (bool, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	through := m.sessionRegistrations(ctx)
+	if len(through) == 0 {
+		return false, nil
+	}
 	methods, err := m.SignInMethods(ctx, reader)
 	if err != nil {
 		return false, err
 	}
 
-	return slices.ContainsFunc(methods, func(method SignInMethod) bool { return method.OpenSignUp }), nil
+	return slices.ContainsFunc(methods, func(method SignInMethod) bool {
+		return method.OpenSignUp && slices.Contains(through, method.Name)
+	}), nil
+}
+
+// sessionRegistrations names the registrations the session in ctx came through, by its
+// first sign-in event: each registration of the password method for a password, and
+// for any other method the registrations that take the event's connection
+// (SessionAPI.SignsInThrough). None for a context with no session, a session that
+// records no event, an impersonation, and a method the auth no longer offers.
+func (m *Manager) sessionRegistrations(ctx context.Context) []string {
+	sess, ok := ctx.Value(sessioninfo.CtxSessionInfo).(*sessioninfo.SessionData)
+	if !ok {
+		return nil
+	}
+	event, ok := sess.EstablishedBy()
+	if !ok {
+		return nil
+	}
+	if event.Method != sessioninfo.MethodPassword {
+		return m.sessions.SignsInThrough(event.Method, event.Connection)
+	}
+	var names []string
+	for _, method := range m.sessions.SignInMethods() {
+		if method.Method == sessioninfo.MethodPassword {
+			names = append(names, method.Name)
+		}
+	}
+
+	return names
 }
 
 // signInMethod is one registered method with its row, nil for a method that has none.
@@ -143,6 +192,7 @@ func (m *Manager) signInMethod(registered *session.RegisteredMethod, row *SignIn
 	method := SignInMethod{
 		Name: registered.Name, Label: registered.Label, Admits: sentenceStart(registered.Audience.Words()),
 		OpenSignUp: false, DefaultRole: "", DirectoryGivesRoles: registered.SyncsRoles, OwnRule: registered.OwnRule, Says: "",
+		SelfServiceReset: row != nil && row.SelfServiceReset && registered.Method == sessioninfo.MethodPassword,
 	}
 	now := registered.Audience.Words()
 	switch {
@@ -250,13 +300,17 @@ func (m *Manager) OpenSignUp(ctx context.Context, txn resource.ReadWriteTransact
 		return err
 	}
 	audience := registered.Audience.Key()
-	row := &SignInMethodRow{Name: open.Method, OpenSignUp: true, OpenedFor: &audience, DefaultRole: nil}
+	// SelfServiceReset is not this write's: SetSignInMethod leaves it as it stands.
+	row := &SignInMethodRow{Name: open.Method, OpenSignUp: true, OpenedFor: &audience, DefaultRole: nil, SelfServiceReset: false}
 	switch {
 	case open.CreatesTenant && open.DefaultRole != "":
-		return httpio.NewBadRequestMessagef("no default role is chosen here: a person who signs up creates %s of their own and administers it, so send the request without a role", withArticle(m.tenantWord))
+		return httpio.NewBadRequestMessagef(
+			"No default role is chosen here, because a person who signs up creates %s of their own and administers it. Send the request without a role.",
+			withArticle(m.tenantWord),
+		)
 	case open.CreatesTenant:
 	case open.DefaultRole == "":
-		return httpio.NewBadRequestMessage("choose the default role: each person who signs up is given one, so a sign-in method cannot be opened without it")
+		return httpio.NewBadRequestMessage("Choose the default role. Each person who signs up is given one, so a sign-in method cannot be opened without it.")
 	default:
 		if err := m.requireSignUpRole(ctx, txn, open.DefaultRole); err != nil {
 			return err
@@ -267,8 +321,25 @@ func (m *Manager) OpenSignUp(ctx context.Context, txn resource.ReadWriteTransact
 	if err := m.store.SetSignInMethod(ctx, txn, row); err != nil {
 		return errors.Wrap(err, "identity.Store.SetSignInMethod()")
 	}
+	// A method opened where each person who signs up makes a tenant of their own gives no
+	// role, and its row names none.
+	opened := settingRecord(auditlog.ActSignUpOpened, auditlog.SignUpSetting(open.Method), buttonWords(registered))
+	if row.DefaultRole != nil {
+		opened.RoleNames = []string{*row.DefaultRole}
+	}
 
-	return nil
+	return m.record(ctx, txn, opened)
+}
+
+// buttonWords answers a sign-in method as the setting of its sign-up is named in the
+// audit log: by the words of its button on the login page, and by the name it is
+// registered under where the page offers none.
+func buttonWords(registered *session.RegisteredMethod) string {
+	if registered.Label != "" {
+		return registered.Label
+	}
+
+	return registered.Name
 }
 
 // OpenSignUpWarning says what opening the method would do, in the words a person reads
@@ -293,6 +364,7 @@ func (m *Manager) OpenSignUpWarning(ctx context.Context, txn resource.ReadWriteT
 	return &resource.Warning{
 		Consequence: m.consequence(registered, string(open.DefaultRole), open.CreatesTenant),
 		Names:       nil,
+		Also:        nil,
 		Confirm:     "Open to " + registered.Audience.Words(),
 	}, nil
 }
@@ -307,7 +379,8 @@ func (m *Manager) MakeInviteOnly(ctx context.Context, txn resource.ReadWriteTran
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if _, err := m.choosable(method); err != nil {
+	registered, err := m.choosable(method)
+	if err != nil {
 		return err
 	}
 	rows, err := m.store.SignInMethodRows(ctx, txn)
@@ -317,11 +390,39 @@ func (m *Manager) MakeInviteOnly(ctx context.Context, txn resource.ReadWriteTran
 	if row := rowNamed(rows, method); row == nil || !row.OpenSignUp {
 		return nil
 	}
-	if err := m.store.SetSignInMethod(ctx, txn, &SignInMethodRow{Name: method, OpenSignUp: false, OpenedFor: nil, DefaultRole: nil}); err != nil {
+	// SelfServiceReset is not this write's: SetSignInMethod leaves it as it stands.
+	closed := &SignInMethodRow{Name: method, OpenSignUp: false, OpenedFor: nil, DefaultRole: nil, SelfServiceReset: false}
+	if err := m.store.SetSignInMethod(ctx, txn, closed); err != nil {
 		return errors.Wrap(err, "identity.Store.SetSignInMethod()")
 	}
 
-	return nil
+	return m.record(ctx, txn, settingRecord(auditlog.ActSignUpClosed, auditlog.SignUpSetting(method), buttonWords(registered)))
+}
+
+// SetSelfServiceReset buffers an administrator's choice of whether a person may ask at
+// the sign-in page for a link that resets their own password, in the caller's
+// transaction: the one field of the password method's row, with what else the row says
+// left as it stands. The session library reads the row on every request, so the choice
+// holds in the running application from the commit on, with no restart. A link asked
+// for while it was on still works once it is off, until it is used or runs out; a link
+// an administrator sends is never held to the choice. An auth nobody signs in to with
+// a password is refused.
+func (m *Manager) SetSelfServiceReset(ctx context.Context, txn resource.ReadWriteTransaction, on bool) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if !m.signsInWithPassword() {
+		return httpio.NewConflictMessage("Nobody signs in to this application with a password, so there is none to reset.")
+	}
+	if err := m.store.SetSelfServiceReset(ctx, txn, string(sessioninfo.MethodPassword), on); err != nil {
+		return errors.Wrap(err, "identity.Store.SetSelfServiceReset()")
+	}
+	act := auditlog.ActSelfServiceResetOff
+	if on {
+		act = auditlog.ActSelfServiceResetOn
+	}
+
+	return m.record(ctx, txn, settingRecord(act, auditlog.SettingSelfServiceReset, ""))
 }
 
 // choosable answers the registered method of the name, and refuses a name the auth
@@ -336,45 +437,73 @@ func (m *Manager) choosable(name string) (*session.RegisteredMethod, error) {
 			names = append(names, registered[j].Name)
 		}
 
-		return nil, httpio.NewNotFoundMessagef("the %s auth has no sign-in method named %q: its methods are %s", m.auth, name, strings.Join(names, ", "))
+		return nil, signInMethodNotFound(m.auth, name, names)
 	}
 	if registered[i].SyncsRoles {
-		return nil, httpio.NewConflictMessagef("the sign-in method %q takes its roles from its directory, which decides who may sign in: it is neither opened to sign-up nor made invite only here", name)
+		return nil, httpio.NewConflictMessageWithError(
+			errors.Newf("the sign-in method %q takes its roles from its directory, which decides who may sign in: it is neither opened to sign-up nor made invite only here", name),
+			"This way to sign in takes its roles from its directory, which decides who may sign in. It is neither opened to sign-up nor made invite only here.",
+		)
 	}
 	if registered[i].OwnRule {
-		return nil, httpio.NewConflictMessagef("the sign-in method %q is decided by the application's own account rule: it is neither opened to sign-up nor made invite only here", name)
+		return nil, httpio.NewConflictMessageWithError(
+			errors.Newf("the sign-in method %q is decided by the application's own account rule: it is neither opened to sign-up nor made invite only here", name),
+			"This way to sign in is decided by the application's own account rule. It is neither opened to sign-up nor made invite only here.",
+		)
 	}
 
 	return &registered[i], nil
 }
 
+// signUpRoleNotGiven is what a person is told who opens a method with a default role
+// they may not give, with the role in words (roleInWords). It is the role the request
+// named, so it reads the same of a role the application holds and of one it does not;
+// the role's code name and the advice are the refusal's cause, kept for the server's
+// log.
+func signUpRoleNotGiven(role accesstypes.Role) string {
+	return "Opening the method gives every person who signs up the role " + roleInWords(role) + ", which you may not give."
+}
+
 // requireSignUpRole holds a default role to its rule: never the Super Administrator
 // role, one the request's caller may give a person directly (mayGiveBySignUp), refused
-// with 403 naming the role otherwise, and a role held for the whole application, by the
-// rule a membership's role is held to. The grant answers before the role is looked
+// with 403 otherwise (signUpRoleNotGiven), and a role held for the whole application, by
+// the rule a membership's role is held to. The grant answers before the role is looked
 // for, so the refusal says the same of a role the application holds and of one it does
 // not: a caller learns of no role the grant keeps from them. The Super Administrator
 // role is the framework's own, the same in every application, so refusing it first
 // tells nobody anything.
 func (m *Manager) requireSignUpRole(ctx context.Context, txn resource.ReadWriteTransaction, role accesstypes.Role) error {
 	if role == accesstypes.SuperAdministrator {
-		return httpio.NewBadRequestMessagef("the %s role is never a default role: every person who signed up would administer the application; choose another role", string(role))
+		const (
+			said  = "The %s role is never a default role, because every person who signed up would administer the application. Choose another role."
+			cause = "the %s role is never a default role: every person who signed up would administer the application; choose another role"
+		)
+
+		return httpio.NewBadRequestMessageWithErrorf(errors.Newf(cause, string(role)), said, roleInWords(role))
 	}
 	may, err := m.mayGiveBySignUp(ctx, txn, role)
 	if err != nil {
 		return err
 	}
 	if !may {
-		return httpio.NewForbiddenMessagef(
-			"opening the method gives every person who signs up the role %s, which you may not give: choose a role you may give, or have someone who may give %s open the method",
-			string(role), string(role))
+		return httpio.NewForbiddenMessageWithError(
+			errors.Newf(
+				"opening the method gives every person who signs up the role %s, which you may not give: choose a role you may give, or have someone who may give %s open the method",
+				string(role), string(role)),
+			signUpRoleNotGiven(role),
+		)
 	}
 	exists, err := m.roleExistsIn(ctx, txn, role, []accesstypes.PolicyScope{accesstypes.GlobalPolicyScope()})
 	if err != nil {
 		return err
 	}
 	if !exists {
-		return httpio.NewBadRequestMessagef("%q is not a role held for the whole application: choose one of the roles the picker lists", string(role))
+		const (
+			said  = "%s is not a role held for the whole application. Choose one of the roles the picker lists."
+			cause = "%q is not a role held for the whole application: choose one of the roles the picker lists"
+		)
+
+		return httpio.NewBadRequestMessageWithErrorf(errors.Newf(cause, string(role)), said, roleInWords(role))
 	}
 
 	return nil
@@ -400,7 +529,7 @@ func sinceOpened(openedFor *string) string {
 
 // consequence is what a method open to sign-up means for the people it admits, as the
 // warning says it before the method is opened and the page says it while it is open:
-// who may sign in, and what each of them gets.
+// who may sign in, and what each of them gets. The role is said in words (roleInWords).
 func (m *Manager) consequence(registered *session.RegisteredMethod, role string, createsTenant bool) string {
 	who := sentenceStart(registered.Audience.Words())
 	act := "sign in"
@@ -413,7 +542,7 @@ func (m *Manager) consequence(registered *session.RegisteredMethod, role string,
 	case role == "":
 		return who + " will be able to " + act + " without an invitation. Choose the role each of them gets."
 	default:
-		return who + " will be able to " + act + " without an invitation. Each of them gets the role " + role + "."
+		return who + " will be able to " + act + " without an invitation. Each of them gets the role " + roleInWords(accesstypes.Role(role)) + "."
 	}
 }
 
@@ -433,13 +562,17 @@ func (m *Manager) SignedUp(auth string) session.SignUpSeatedHook[*spanner.ReadWr
 			return nil, errors.Newf("the sign-in method %q names %s as its default role, which nobody is given by signing up: make the method invite only, then open it with another role", method, role)
 		}
 		txn := resource.NewSpannerReadWriteTransaction(tx)
+		// The starting role is the sign-up's act.
+		ctx = actingOn(actingAs(ctx, eventsource.ProcessEvent(auditlog.ProcessSignUp), ""), userID, username)
 		if err := m.AssignRole(ctx, txn, accesstypes.GlobalPolicyScope(), userID, accesstypes.Role(role)); err != nil {
 			return nil, errors.Wrapf(err, "the sign-in method %q gives %q its default role %s", method, username, role)
 		}
 
 		return func(ctx context.Context) {
+			ctx, announcement := m.announcing(ctx)
 			txn.Committed(ctx)
 			logger.FromCtx(ctx).Infof("%s: %q signed up through %s and holds %s", auth, username, method, role)
+			announcement.row(m.tables.Users, userID).whole(m.tables.Identities).announce(ctx)
 		}, nil
 	}
 }
@@ -458,18 +591,14 @@ func rowNamed(rows []SignInMethodRow, name string) *SignInMethodRow {
 // withArticle is the word with its article, as a sentence names one of them: "a
 // sector", "an outlet".
 func withArticle(word string) string {
-	if word != "" && strings.ContainsRune("aeiouAEIOU", rune(word[0])) {
-		return "an " + word
-	}
-
-	return "a " + word
+	return words.WithArticle(word)
 }
 
 // sentenceStart is words with their first letter in upper case, as a sentence starts.
-func sentenceStart(words string) string {
-	if words == "" {
-		return words
+func sentenceStart(text string) string {
+	if text == "" {
+		return text
 	}
 
-	return strings.ToUpper(words[:1]) + words[1:]
+	return strings.ToUpper(text[:1]) + text[1:]
 }

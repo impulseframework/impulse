@@ -10,6 +10,7 @@ export type {
   NullBoolean,
   ResourceMap,
   ResourceMeta,
+  RowWords,
   RPCFieldMeta,
   SearchBranchMeta,
   SearchMatch,

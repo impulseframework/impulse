@@ -17,11 +17,39 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/accesstypes/condition"
 	"github.com/impulseframework/impulse/httpio"
 )
 
 // QuerySet represents a query for a resource, including fields, keys, filters, and permissions.
 type QuerySet[Resource Resourcer] struct {
+	// names are the decoder's name fields whose id the request type carries: beside
+	// an id field, the name of the row it points to, which the statement looks up
+	// (name_lookup.go). A name beside an id a flag hides is held too, so the
+	// declared order can order by it; no request may name it (nameFieldName) and no
+	// row carries it, since its id is never returned. shownNames are the names the
+	// query returns: the ones the request's columns named, or the name beside every
+	// id a request that named no columns returns. nameGrants are the decisions on
+	// the grant each name in play takes beside its id's (checkNameGrants), by name
+	// field; nil until they are asked. closedNames are the names of the declared
+	// order whose id the person may not read (closeDeclaredOrder). filterNames are
+	// the names the request's filter names, each once, in first appearance: the
+	// statement tests each through the pointed-to table (name_filter.go), and
+	// each takes its grants as a name the request sorts by does. nameViews are
+	// the decoder's views (WithNameViews), which a name read from a view is read
+	// through.
+	names       []requestName
+	shownNames  []accesstypes.Field
+	filterNames []accesstypes.Field
+	nameGrants  map[accesstypes.Field]accesstypes.Decision
+	closedNames map[accesstypes.Field]struct{}
+	nameViews   NameViews
+	// closedOrder are the fields of the declared order in force that the person
+	// may not read (closeDeclaredOrder): the statement reads each as NULL on
+	// every row (withClosedOrder), so the list comes in the order of the
+	// order's other terms.
+	closedOrder map[accesstypes.Field]struct{}
+
 	keys                   *fieldSet
 	fields                 []accesstypes.Field
 	sortFields             []SortField
@@ -47,12 +75,17 @@ type QuerySet[Resource Resourcer] struct {
 	// so a dropped field discloses nothing by its absence. droppedSearchFields
 	// records those; branchDecisions and droppedBranches record what the checks
 	// decided for the resource's @searchAlso branches, by the branch's dotted name.
-	// All empty on a hand-built QuerySet.
+	// hiddenBranches are the branches behind a flag that is off, which the box does
+	// not carry (the decode sets it from the parsed tree): no grant is asked for one,
+	// no fingerprint names it and nothing renders it. The per-tenant copies of a
+	// list across tenants share it, since the checks do not write it. All empty on
+	// a hand-built QuerySet.
 	searchBox           bool
 	searchFields        []accesstypes.Field
 	droppedSearchFields map[accesstypes.Field]struct{}
 	branchDecisions     map[string]accesstypes.Decision
 	droppedBranches     map[string]struct{}
+	hiddenBranches      map[string]struct{}
 	// keyFields are the resource's primary-key fields, in declaration order,
 	// appended to every decoded list's order so the order is total: two rows
 	// equal on every sort column are separated by the key. Stamped by the
@@ -116,6 +149,12 @@ type QuerySet[Resource Resourcer] struct {
 	// hand-built QuerySet, which errors if conditions ever need rendering.
 	collection *GeneratedCollection
 
+	// namedRowSources are the views and the computed lists a row a write names is
+	// asked of (NamedRowSources). Stamped by the decoder, or by Enforce from the
+	// caller; nil on a hand-built QuerySet, whose write refuses a column picked from a
+	// view or a computed list it must ask.
+	namedRowSources NamedRowSources
+
 	// jsonNames maps resource fields to their request-type JSON names for the
 	// masked-names column. Stamped by the decoder; a missing entry falls back
 	// to the Go field name.
@@ -135,6 +174,21 @@ type QuerySet[Resource Resourcer] struct {
 	// in, keeping capability-free statements byte-identical.
 	capabilities        []accesstypes.Permission
 	capabilityDecisions map[accesstypes.Permission]accesstypes.Decisions
+
+	// unentered are the tenants the session does not enter (unenteredDomains),
+	// asked once by the capability check where the request asked for Execute
+	// and a method that names the resource's rows is offered only to a caller
+	// whose session enters the row's tenants (@callerEnters, TenantsToEnter);
+	// nil otherwise. While it is empty nothing is rendered for it.
+	unentered []accesstypes.Domain
+
+	// ownAccounts are the accounts that are the caller's own (sessionOwnAccounts): the
+	// account the session runs as and, in a session that views as someone else, the
+	// real person's behind it, read by the capability check where the request asked
+	// for Execute and a method that names the resource's rows is kept off the row of
+	// the caller's own account (@notOnOwnAccount); nil otherwise. While it is empty
+	// nothing is rendered for it.
+	ownAccounts []string
 
 	// across is the partition of a list across tenants: the set of tenants the
 	// list reads and what the person's grants decide in each (across_tenants.go).
@@ -161,7 +215,7 @@ func (q *QuerySet[Resource]) query() (withClause, query string, params map[strin
 	var r Resource
 
 	switch t := any(r).(type) {
-	case virtualQuerier:
+	case View:
 		withClause, query, params, err := viewFromItem(r.Resource(), t)
 		if err != nil {
 			panic(err.Error())
@@ -178,7 +232,7 @@ func (q *QuerySet[Resource]) query() (withClause, query string, params map[strin
 // lifted out to lead the statement, and the parameters the query binds. A parameter
 // whose name starts with an underscore is refused: that namespace is the statement's
 // own.
-func viewFromItem(res accesstypes.Resource, view virtualQuerier) (withClause, item string, params map[string]any, err error) {
+func viewFromItem(res accesstypes.Resource, view View) (withClause, item string, params map[string]any, err error) {
 	query, params := view.Subquery()
 	for name := range params {
 		if strings.HasPrefix(name, "_") {
@@ -227,6 +281,9 @@ func (q *QuerySet[Resource]) User() accesstypes.User {
 func (q *QuerySet[Resource]) Permitted(ctx context.Context) (bool, error) {
 	if q.userPermissions == nil {
 		return false, nil
+	}
+	if q.across != nil {
+		return false, errors.Newf("resource.QuerySet.Permitted(): the %s query is a list across tenants, which no one scope gates; QuerySet.TenantsListed answers the tenants it reads", q.Resource())
 	}
 	decisions, err := q.userPermissions.Check(ctx, q.env, q.scope, q.requiredPermission, q.Resource())
 	if err != nil {
@@ -293,29 +350,59 @@ func (q *QuerySet[Resource]) checkResourcePermission(ctx context.Context) error 
 	if q.resourceSet == nil {
 		return nil
 	}
-	decisions, err := q.userPermissions.Check(ctx, q.env, q.scope, q.requiredPermission, q.resourceSet.BaseResource())
+	decisions, err := q.userPermissions.Check(q.checkContext(ctx), q.env, q.scope, q.requiredPermission, q.resourceSet.BaseResource())
 	if err != nil {
 		return errors.Wrap(err, "resource.UserPermissions.Check()")
 	}
 	if denied := decisions.DeniedResources(); len(denied) > 0 {
-		return httpio.NewForbiddenMessagef("scope (%s), user (%s) does not have (%s) on %s", q.scope, q.userPermissions.User(), q.requiredPermission, denied)
+		return NotPermitted(errors.Newf("scope (%s), user (%s) does not have (%s) on %s", q.scope, q.userPermissions.User(), q.requiredPermission, denied), q.requiredPermission, denied...)
 	}
 
 	return nil
 }
 
+// checkContext is the context an armed set asks for its permission on the resource
+// with. A create or an update says which fields it sets (withWrittenFields), all of
+// them, so a session whose mask keeps one field of a record out of a refused class is
+// kept the write that sets that field alone and refused every other. Any other check
+// says nothing.
+func (q *QuerySet[Resource]) checkContext(ctx context.Context) context.Context {
+	if q.resourceSet == nil || (q.requiredPermission != accesstypes.Create && q.requiredPermission != accesstypes.Update) {
+		return ctx
+	}
+	fields := q.Fields()
+	if len(fields) == 0 {
+		return ctx
+	}
+	written := make([]accesstypes.Resource, len(fields))
+	for i, field := range fields {
+		written[i] = q.resourceSet.Resource(field)
+	}
+
+	return withWrittenFields(ctx, q.resourceSet.BaseResource(), written)
+}
+
 func (q *QuerySet[Resource]) checkReadPermissions(ctx context.Context, dbType DBType) error {
 	if q.resourceSet != nil {
-		decisions, err := q.userPermissions.Check(ctx, q.env, q.scope, q.requiredPermission, q.resourceSet.BaseResource())
+		decisions, err := q.userPermissions.Check(q.checkContext(ctx), q.env, q.scope, q.requiredPermission, q.resourceSet.BaseResource())
 		if err != nil {
 			return errors.Wrap(err, "resource.UserPermissions.Check()")
 		}
 		if denied := decisions.DeniedResources(); len(denied) > 0 {
-			return httpio.NewForbiddenMessagef("scope (%s), user (%s) does not have (%s) on %s", q.scope, q.userPermissions.User(), q.requiredPermission, denied)
+			return NotPermitted(errors.Newf("scope (%s), user (%s) does not have (%s) on %s", q.scope, q.userPermissions.User(), q.requiredPermission, denied), q.requiredPermission, denied...)
 		}
 		q.carryConditionalDecisions(decisions)
 
+		if err := q.checkNameGrants(ctx); err != nil {
+			return err
+		}
+		if err := q.closeDeclaredOrder(ctx); err != nil {
+			return err
+		}
 		if err := q.checkQueryFieldsReadable(ctx, q.resourceSet, q.userPermissions); err != nil {
+			return err
+		}
+		if err := q.refuseQueriedName(refusedHere); err != nil {
 			return err
 		}
 		if err := q.checkSearchFieldsReadable(ctx); err != nil {
@@ -332,7 +419,9 @@ func (q *QuerySet[Resource]) checkReadPermissions(ctx context.Context, dbType DB
 	if q.resourceSet != nil {
 		resources := make([]accesstypes.Resource, 0, len(fields)+1)
 
-		for _, fieldName := range fields {
+		// A name asked for as a column is read under the grant on its id field,
+		// and under its own (refuseNamedColumns).
+		for _, fieldName := range append(slices.Clone(fields), q.shownNameKeys()...) {
 			if q.resourceSet.PermissionRequired(fieldName, q.requiredPermission) {
 				resources = append(resources, q.resourceSet.Resource(fieldName))
 			}
@@ -346,20 +435,24 @@ func (q *QuerySet[Resource]) checkReadPermissions(ctx context.Context, dbType DB
 			return errors.Wrap(err, "resource.UserPermissions.Check()")
 		}
 		if denied := decisions.DeniedResources(); len(denied) > 0 {
-			return httpio.NewForbiddenMessagef("scope (%s), user (%s) does not have (%s) on %s", q.scope, q.userPermissions.User(), q.requiredPermission, denied)
+			return NotPermitted(errors.Newf("scope (%s), user (%s) does not have (%s) on %s", q.scope, q.userPermissions.User(), q.requiredPermission, denied), q.requiredPermission, denied...)
 		}
 		q.carryConditionalDecisions(decisions)
+
+		return q.refuseNamedColumns(refusedHere)
 	}
 
 	return nil
 }
 
-// queryFields returns the fields the request orders or filters by, each once.
+// queryFields returns the fields the request orders or filters by, each once. A
+// name the request orders by counts as the id field it stands beside, whose
+// grant covers it.
 func (q *QuerySet[Resource]) queryFields() []accesstypes.Field {
 	fields := make([]accesstypes.Field, 0, len(q.sortFields)+len(q.filterFields))
 	for _, sf := range q.sortFields {
-		if !slices.Contains(fields, accesstypes.Field(sf.Field)) {
-			fields = append(fields, accesstypes.Field(sf.Field))
+		if field := q.grantField(accesstypes.Field(sf.Field)); !slices.Contains(fields, field) {
+			fields = append(fields, field)
 		}
 	}
 	for _, field := range q.filterFields {
@@ -373,14 +466,15 @@ func (q *QuerySet[Resource]) queryFields() []accesstypes.Field {
 
 // queryColumns returns the fields whose columns the statement names outside
 // the select list: the read order (the request's sort or the declared default,
-// then the key), the filter's fields, and the search box's fields that
-// survived the read checks, each once.
+// then the key), the filter's fields, the search box's fields that survived
+// the read checks, and the id field of each name the statement looks up (a
+// name it orders by or returns), each once.
 func (q *QuerySet[Resource]) queryColumns() []accesstypes.Field {
 	order := q.Order()
 	fields := make([]accesstypes.Field, 0, len(order)+len(q.filterFields)+len(q.searchFields))
 	for _, sf := range order {
-		if !slices.Contains(fields, accesstypes.Field(sf.Field)) {
-			fields = append(fields, accesstypes.Field(sf.Field))
+		if field := q.grantField(accesstypes.Field(sf.Field)); !slices.Contains(fields, field) {
+			fields = append(fields, field)
 		}
 	}
 	for _, field := range q.filterFields {
@@ -389,6 +483,11 @@ func (q *QuerySet[Resource]) queryColumns() []accesstypes.Field {
 		}
 	}
 	for _, field := range q.activeSearchFields() {
+		if !slices.Contains(fields, field) {
+			fields = append(fields, field)
+		}
+	}
+	for _, field := range q.shownNameKeys() {
 		if !slices.Contains(fields, field) {
 			fields = append(fields, field)
 		}
@@ -411,7 +510,10 @@ func (q *QuerySet[Resource]) checkQueryFieldsReadable(ctx context.Context, rSet 
 	}
 	for _, qf := range fields {
 		if decisions[qf.res].IsDenied() {
-			return httpio.NewForbiddenMessagef("scope (%s), user (%s) cannot sort or filter on %s: (%s) on %s is denied", q.scope, userPermissions.User(), q.jsonName(qf.field), q.requiredPermission, qf.res)
+			return httpio.NewForbiddenMessageWithError(
+				errors.Newf("scope (%s), user (%s) cannot sort or filter on %s: (%s) on %s is denied", q.scope, userPermissions.User(), q.jsonName(qf.field), q.requiredPermission, qf.res),
+				mayNotAskBy(bySortOrFilter, qf.res, refusedHere),
+			)
 		}
 	}
 	q.carryConditionalDecisions(decisions)
@@ -419,12 +521,15 @@ func (q *QuerySet[Resource]) checkQueryFieldsReadable(ctx context.Context, rSet 
 	return nil
 }
 
-// checkQueryFieldsGranted is the computed resource's readability rule: a sort
-// or filter field, and a field the search box searches, needs the caller's
-// unconditional grant, because the handler orders, filters and searches the
-// body's rows by the field's real values and no statement renders a visible
-// projection over them.
-func (q *QuerySet[Resource]) checkQueryFieldsGranted(ctx context.Context, rSet *Set[Resource], userPermissions UserPermissions) error {
+// checkQueryFieldsGranted is the computed resource's readability rule: a sort or filter
+// field, and a field the search box searches, needs the caller's grant with no condition,
+// or under the very condition the list's own rows are held under (rows). The handler
+// orders, filters and searches the body's rows by the field's real values and no statement
+// renders a visible projection over them; a row that fails the list's condition is dropped
+// before any of them reads it (Collect), so under that same condition a field is read only
+// on rows the caller is shown. Two conditions are the same where the engine's folded
+// decisions spell the same text. A field held under any other condition is refused.
+func (q *QuerySet[Resource]) checkQueryFieldsGranted(ctx context.Context, rSet *Set[Resource], userPermissions UserPermissions, rows condition.Expr) error {
 	queried := q.queryFields()
 	fields := slices.Clone(queried)
 	for _, field := range q.searchFields {
@@ -437,15 +542,92 @@ func (q *QuerySet[Resource]) checkQueryFieldsGranted(ctx context.Context, rSet *
 		return err
 	}
 	for _, qf := range checked {
-		if !decisions[qf.res].IsGranted() {
-			verb := "sort or filter on"
+		held, err := heldLikeRows(qf.res, decisions[qf.res], rows)
+		if err != nil {
+			return err
+		}
+		if !held {
+			verb, how := "sort or filter on", bySortOrFilter
 			if !slices.Contains(queried, qf.field) {
-				verb = "search"
+				verb, how = "search", bySearch
 			}
 
-			return httpio.NewForbiddenMessagef("scope (%s), user (%s) cannot %s %s: (%s) on %s must be granted unconditionally", q.scope, userPermissions.User(), verb, q.jsonName(qf.field), q.requiredPermission, qf.res)
+			return httpio.NewForbiddenMessageWithError(
+				errors.Newf(
+					"scope (%s), user (%s) cannot %s %s: (%s) on %s must be granted unconditionally, or under the condition the list's own rows are held under",
+					q.scope, userPermissions.User(), verb, q.jsonName(qf.field), q.requiredPermission, qf.res,
+				),
+				mayNotAskBy(how, qf.res, refusedHere),
+			)
 		}
 	}
+
+	return nil
+}
+
+// heldLikeRows reports whether the handler may read a field by its decision: granted with
+// no condition, or held under the very condition the list's own rows are held under (rows,
+// nil where the list is granted with none), the two spelled as the same text.
+func heldLikeRows(res accesstypes.Resource, decision accesstypes.Decision, rows condition.Expr) (bool, error) {
+	switch {
+	case decision.IsGranted():
+		return true, nil
+	case rows == nil || !decision.IsConditional():
+		return false, nil
+	}
+	held, err := conditionalExpr(res, decision)
+	if err != nil {
+		return false, err
+	}
+
+	return held.String() == rows.String(), nil
+}
+
+// settleDeclaredOrder is the computed resource's rule for its declared order,
+// where the request states no sort. A field of the order the caller may not read
+// is left out of the caller's order, and the list comes in the order of the
+// order's other terms, then the key. A field the caller holds under a condition
+// stays, and its condition is kept on the plan (rowConditions.order): the handler
+// sorts a row by the field's value where the condition holds for the row, and as a
+// row with no value where it does not (Collect). Nothing is refused: the caller
+// asked for no sort. The order kept is a new slice, since the one the query set
+// was given is the decoder's own, shared by every request.
+func (q *QuerySet[Resource]) settleDeclaredOrder(ctx context.Context, rSet *Set[Resource], userPermissions UserPermissions, plan *rowConditions) error {
+	fields := q.declaredOrderFields()
+	if len(fields) == 0 {
+		return nil
+	}
+	decisions, decided, err := q.queryFieldDecisions(ctx, rSet, userPermissions, fields)
+	if err != nil {
+		return err
+	}
+	kept := make([]SortField, 0, len(q.defaultOrder))
+	for _, sf := range q.defaultOrder {
+		field := q.grantField(accesstypes.Field(sf.Field))
+		if at := slices.IndexFunc(decided, func(qf queryField) bool { return qf.field == field }); at >= 0 {
+			res := decided[at].res
+			switch decision := decisions[res]; {
+			case decision.IsGranted():
+			case decision.IsConditional():
+				expr, err := conditionalExpr(res, decision)
+				if err != nil {
+					return err
+				}
+				plan.order = append(plan.order, fieldCondition{field: accesstypes.Field(sf.Field), expr: expr})
+			default:
+				continue
+			}
+		}
+		kept = append(kept, sf)
+	}
+	if len(kept) == 0 {
+		// An order with no term left is still the key's: Order() appends the
+		// key to an order it is given, and to no empty one.
+		for _, key := range q.keyFields {
+			kept = append(kept, SortField{Field: string(key), Direction: SortAscending})
+		}
+	}
+	q.defaultOrder = kept
 
 	return nil
 }
@@ -573,6 +755,7 @@ func (q *QuerySet[Resource]) addAccessibleFields(ctx context.Context, dbType DBT
 	for _, field := range fields {
 		q.AddField(field)
 	}
+	q.showNamesOf(fields)
 
 	return nil
 }
@@ -674,8 +857,17 @@ type orderColumn struct {
 
 // orderColumn resolves one sort field to the expression the statement orders
 // and pages by. A conditional field with a query override sorts on the override
-// and is nullable regardless of its Go type: its masked cells are NULL.
+// and is nullable regardless of its Go type: its masked cells are NULL. A name
+// field sorts on its lookup, text that is NULL where the id points to no row.
 func (q *QuerySet[Resource]) orderColumn(dbType DBType, rendered *renderedReadConditions, sf SortField) (orderColumn, error) {
+	if _, isName := q.requestName(accesstypes.Field(sf.Field)); isName {
+		lookup := rendered.nameLookup(accesstypes.Field(sf.Field))
+		if lookup == "" {
+			return orderColumn{}, errors.Newf("sort field '%s' is a name the statement did not look up", sf.Field)
+		}
+
+		return orderColumn{sql: lookup, nullable: true, meta: dbFieldMetadata{fieldType: reflect.TypeFor[string]()}}, nil
+	}
 	dbField, ok := q.rMeta.dbFieldMap(dbType)[accesstypes.Field(sf.Field)]
 	if !ok {
 		return orderColumn{}, errors.Newf("sort field '%s' not found in resource metadata for query", sf.Field)
@@ -695,6 +887,50 @@ func (q *QuerySet[Resource]) orderColumn(dbType DBType, rendered *renderedReadCo
 	}
 
 	return orderColumn{sql: quoted, nullable: isNullableType(dbField.fieldType), meta: dbField}, nil
+}
+
+// withClosedOrder writes, in the place of each field of the declared order the
+// person may not read (closeDeclaredOrder), a term that is NULL on every row:
+// CASE WHEN FALSE THEN <column> END, the text a list across tenants writes for a
+// field no tenant of its set shows. The order, the cursor's predicate and the
+// cursor's copy of the term read it as they read any visible projection
+// (orderColumn, cursorColumnItems), so the term stays in the order and the
+// cursor, and the rows come in the order of the order's other terms. It makes
+// the statement's rendering where the read rendered none, and leaves it as it is
+// where no field is closed.
+func (q *QuerySet[Resource]) withClosedOrder(dbType DBType, rendered *renderedReadConditions) (*renderedReadConditions, error) {
+	if len(q.closedOrder) == 0 {
+		return rendered, nil
+	}
+
+	gen, err := loweredSQLGenerator(dbType)
+	if err != nil {
+		return nil, err
+	}
+	if rendered == nil {
+		rendered = &renderedReadConditions{}
+	}
+	if rendered.queryOverrides == nil {
+		rendered.queryOverrides = make(map[accesstypes.Field]string)
+	}
+	if rendered.queryConditions == nil {
+		rendered.queryConditions = make(map[accesstypes.Field]string)
+	}
+	dbFields := q.rMeta.dbFieldMap(dbType)
+	for _, sf := range q.defaultOrder {
+		field := accesstypes.Field(sf.Field)
+		if _, closed := q.closedOrder[field]; !closed {
+			continue
+		}
+		dbField, ok := dbFields[field]
+		if !ok {
+			return nil, errors.Newf("declared order field %s not found in db struct", field)
+		}
+		rendered.queryOverrides[field] = "CASE WHEN " + sqlFalse + " THEN " + gen.quoteIdentifier(dbField.ColumnName) + " END"
+		rendered.queryConditions[field] = sqlFalse
+	}
+
+	return rendered, nil
 }
 
 // buildOrderByClause renders the ORDER BY for the QuerySet's read order: each
@@ -914,6 +1150,11 @@ func (q *QuerySet[Resource]) cursorColumnItems(dbType DBType, rendered *rendered
 			continue
 		}
 		seen[field] = struct{}{}
+		if _, isName := q.requestName(field); isName {
+			// A name the list is ordered by is selected once, for the row and for
+			// the cursor (nameItems).
+			continue
+		}
 		if slices.Contains(q.Fields(), field) && !q.positionalCase(field, rendered) {
 			continue
 		}
@@ -1011,6 +1252,11 @@ func (q *QuerySet[Resource]) astWhereClause(dbType DBType, filterAst ExpressionN
 	}
 	gen.setSearchGrants(string(q.Resource()), fieldGrants, branchGrants)
 	gen.acrossTenants = q.severalTenants() != nil
+	nameFilters, err := q.nameFilters(dbType, filterAst, rendered, registry)
+	if err != nil {
+		return nil, "", err
+	}
+	gen.setNameFilters(nameFilters)
 
 	params := make(map[string]any)
 	residual := filterAst
@@ -1142,7 +1388,7 @@ func (q *QuerySet[Resource]) stmt(dbType DBType) (*Statement, error) {
 	// tenancy predicate share it, so aliases and placeholders stay unique.
 	registry := newParamRegistry()
 
-	rendered, tenancy, err := q.readPredicates(dbType, registry)
+	rendered, tenancy, err := q.renderedRead(dbType, registry)
 	if err != nil {
 		return nil, err
 	}
@@ -1152,7 +1398,7 @@ func (q *QuerySet[Resource]) stmt(dbType DBType) (*Statement, error) {
 		return nil, errors.Wrap(err, "QuerySet.renderCapabilities()")
 	}
 
-	columns, cursorColumns, err := q.selectList(dbType, rendered, capChecksItem)
+	columns, cursorColumns, err := q.selectListWithNames(dbType, rendered, capChecksItem)
 	if err != nil {
 		return nil, err
 	}
@@ -1179,13 +1425,19 @@ func (q *QuerySet[Resource]) stmt(dbType DBType) (*Statement, error) {
 	if from != "" {
 		query = from
 	}
+	// The names read from a view that the list is ordered by are read once, as the
+	// row of names beside each row (withNameLookups).
+	query, err = rendered.namesRowFrom(dbType, query)
+	if err != nil {
+		return nil, err
+	}
 
 	orderByClause, limitClause, err := q.pageClauses(dbType, rendered)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := q.mergeStatementParams(where, subqueryParams, registry); err != nil {
+	if err := q.mergeStatementParams(where, subqueryParams, registry, capPlan); err != nil {
 		return nil, err
 	}
 
@@ -1216,9 +1468,30 @@ func (q *QuerySet[Resource]) stmt(dbType DBType) (*Statement, error) {
 	return stmt, nil
 }
 
-// mergeStatementParams folds the subquery's parameters and the registry's into the WHERE
-// clause's, refusing a name the subquery and the clause both bind.
-func (q *QuerySet[Resource]) mergeStatementParams(where *Statement, subqueryParams map[string]any, registry *paramRegistry) error {
+// renderedRead renders what a statement reads under the person's grants: the read
+// predicates (readPredicates), then the name lookups (withNameLookups), then the
+// declared order's closed terms (withClosedOrder), each over the one before.
+func (q *QuerySet[Resource]) renderedRead(dbType DBType, registry *paramRegistry) (*renderedReadConditions, string, error) {
+	rendered, tenancy, err := q.readPredicates(dbType, registry)
+	if err != nil {
+		return nil, "", err
+	}
+	rendered, err = q.withNameLookups(dbType, rendered, registry)
+	if err != nil {
+		return nil, "", errors.Wrap(err, "QuerySet.withNameLookups()")
+	}
+	rendered, err = q.withClosedOrder(dbType, rendered)
+	if err != nil {
+		return nil, "", errors.Wrap(err, "QuerySet.withClosedOrder()")
+	}
+
+	return rendered, tenancy, nil
+}
+
+// mergeStatementParams folds the subquery's parameters, the registry's and those of the
+// capability plan's TenantsToEnter query into the WHERE clause's, refusing a name two of
+// them bind.
+func (q *QuerySet[Resource]) mergeStatementParams(where *Statement, subqueryParams map[string]any, registry *paramRegistry, capPlan *capabilityPlan) error {
 	for k := range subqueryParams {
 		if _, ok := where.Params[k]; ok {
 			return errors.Newf("named parameter collision: %s subquery and where clause both contain named parameter %q", q.Resource(), k)
@@ -1226,8 +1499,11 @@ func (q *QuerySet[Resource]) mergeStatementParams(where *Statement, subqueryPara
 
 		where.Params[k] = subqueryParams[k]
 	}
+	if err := q.mergeRegistryParams(registry, where.Params); err != nil {
+		return err
+	}
 
-	return q.mergeRegistryParams(registry, where.Params)
+	return q.mergeEnteringParams(where.Params, capPlan)
 }
 
 // optimizerVersion names the query optimizer version a statement runs under:
@@ -1524,6 +1800,109 @@ func extractWithClause(query string) (withClause, remainingQuery string) {
 	}
 
 	return "", query
+}
+
+// withTableNames returns the names of the WITH tables a query opens with, as the query
+// spells them, in order: the identifier, or the string written in double quotes,
+// heading each item of the clause extractWithClause lifts (the first after WITH, each
+// one after a comma at depth 0), before its optional column list and AS (. A WITH
+// inside an item's body is the body's own and is not returned; a query that does not
+// open with WITH has none.
+func withTableNames(query string) []string {
+	lex := &memefish.Lexer{
+		File: &token.File{Buffer: query},
+	}
+	var toks []token.Token
+	for {
+		if err := lex.NextToken(); err != nil || lex.Token.Kind == token.TokenEOF {
+			break
+		}
+		toks = append(toks, lex.Token)
+	}
+	if len(toks) == 0 || !strings.EqualFold(toks[0].Raw, "WITH") {
+		return nil
+	}
+
+	i := 1
+	if i < len(toks) && strings.EqualFold(toks[i].Raw, "RECURSIVE") {
+		i++
+	}
+	var names []string
+	for i < len(toks) && namesSomething(&toks[i]) {
+		name := toks[i].AsString
+		i++
+		if i < len(toks) && toks[i].Kind == "(" {
+			i = closingParen(toks, i) + 1
+		}
+		if i+1 >= len(toks) || !strings.EqualFold(toks[i].Raw, "AS") || toks[i+1].Kind != "(" {
+			break
+		}
+		names = append(names, name)
+		i = closingParen(toks, i+1) + 1
+		if i >= len(toks) || toks[i].Kind != "," {
+			break
+		}
+		i++
+	}
+
+	return names
+}
+
+// namesSomething reports whether a token is a name: an identifier, or a string written
+// in double quotes, PostgreSQL's spelling of a name that keeps its case, which the
+// lexer reads as a string.
+func namesSomething(tok *token.Token) bool {
+	if tok.Kind == token.TokenIdent {
+		return true
+	}
+
+	return tok.Kind == token.TokenString && strings.HasPrefix(tok.Raw, `"`)
+}
+
+// firstWithTableUsed returns the first of withTables that query names, as withTables
+// spells it: the query is read in order, to its end or to the lexer's first error, and
+// each of its names is compared with the WITH tables without regard to case.
+func firstWithTableUsed(query string, withTables []string) (string, bool) {
+	if len(withTables) == 0 {
+		return "", false
+	}
+	lex := &memefish.Lexer{
+		File: &token.File{Buffer: query},
+	}
+	for {
+		if err := lex.NextToken(); err != nil || lex.Token.Kind == token.TokenEOF {
+			return "", false
+		}
+		if !namesSomething(&lex.Token) {
+			continue
+		}
+		for _, withTable := range withTables {
+			if strings.EqualFold(withTable, lex.Token.AsString) {
+				return withTable, true
+			}
+		}
+	}
+}
+
+// closingParen returns the index of the parenthesis that closes the one at open, or
+// the last index where the tokens end first.
+func closingParen(toks []token.Token, open int) int {
+	depth := 0
+	for i := open; i < len(toks); i++ {
+		switch toks[i].Kind {
+		case "(":
+			depth++
+		case ")":
+			depth--
+			if depth == 0 {
+				return i
+			}
+		default:
+			// Any other token leaves the depth as it is.
+		}
+	}
+
+	return len(toks) - 1
 }
 
 // moreThan checks if more than a given count of boolean expressions are true.

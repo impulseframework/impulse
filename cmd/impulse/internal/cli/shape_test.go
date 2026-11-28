@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"bytes"
+	"io"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -13,7 +15,6 @@ import (
 
 	"github.com/impulseframework/impulse/app"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/authpkg"
-	"github.com/impulseframework/impulse/cmd/impulse/internal/check"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/shape"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton"
 	transition_ "github.com/impulseframework/impulse/cmd/impulse/internal/transition"
@@ -30,7 +31,7 @@ var shapeCommands = []struct {
 }{
 	{name: "impulse add auth", cmd: newAddAuth, args: []string{"partners", "--method", "google:workspace", "--outlet", "portal"}, knows: "invite-only, directory-members, directory-roles, open-sign-up"},
 	{name: "impulse add method", cmd: newAddMethod, args: []string{"staff", "google"}, knows: "invite-only, directory-members, directory-roles, open-sign-up"},
-	{name: "impulse new", cmd: newNew, args: []string{"harbor", "--module", "example.com/harbor", "--auth", "staff"}, knows: "tenant-owned-users-invite-only, tenant-owned-users-by-directory, global-users-invite-only, global-users-each-tenant-chooses"},
+	{name: "impulse new", cmd: newNew, args: []string{"harbor", "--module", "example.com/harbor", "--auth", "staff"}, knows: "directory-roles, tenant-owned-users-invite-only, tenant-owned-users-by-directory, global-users-invite-only, global-users-each-tenant-chooses"},
 	{name: "impulse add tenancy", cmd: newAddTenancy, knows: "tenant-owned-users-invite-only, tenant-owned-users-by-directory, global-users-invite-only, global-users-each-tenant-chooses"},
 }
 
@@ -157,6 +158,31 @@ func TestShape_contradictingFlag(t *testing.T) {
 			want: "--one-tenant-per-person goes with --tenancy: it says a person belongs to one tenant, and the application is given none",
 		},
 		{
+			name: "new: Directory roles with tenants", cmd: newNew,
+			args: []string{"harbor", "--module", "example.com/harbor", "--auth", "staff", "--shape", "directory-roles", "--method", "google", "--organization", "fleet.example", "--tenancy"},
+			want: "--shape directory-roles and --tenancy contradict each other: Directory roles is an application without tenants, in which one organization's directory gives every role, and --tenancy is a choice of an application with tenants, which gives its roles itself, tenant by tenant. Leave --tenancy out, or start from a shape with tenants (tenant-owned-users-invite-only, tenant-owned-users-by-directory, global-users-invite-only, global-users-each-tenant-chooses)",
+		},
+		{
+			name: "new: Directory roles with one of the tenants' choices", cmd: newNew,
+			args: []string{"harbor", "--module", "example.com/harbor", "--auth", "staff", "--shape", "directory-roles", "--method", "google", "--organization", "fleet.example", "--one-tenant-per-person"},
+			want: "--shape directory-roles and --one-tenant-per-person contradict each other: Directory roles is an application without tenants, in which one organization's directory gives every role, and --one-tenant-per-person is a choice of an application with tenants, which gives its roles itself, tenant by tenant. Leave --one-tenant-per-person out, or start from a shape with tenants (tenant-owned-users-invite-only, tenant-owned-users-by-directory, global-users-invite-only, global-users-each-tenant-chooses)",
+		},
+		{
+			name: "new: a directory named with no shape", cmd: newNew,
+			args: []string{"harbor", "--module", "example.com/harbor", "--auth", "staff", "--method", "google"},
+			want: "--method goes with --shape directory-roles: it names the one directory that gives every role in that shape. Without it the first auth signs in with a password, and a directory method joins it afterwards with impulse add method",
+		},
+		{
+			name: "new: one provider named for tenant-owned users by directory", cmd: newNew,
+			args: []string{"harbor", "--module", "example.com/harbor", "--auth", "staff", "--shape", "tenant-owned-users-by-directory", "--method", "google"},
+			want: "--shape tenant-owned-users-by-directory takes no --method: the shape starts with a Google method open to any Google Workspace and a Microsoft method open to any Microsoft Entra tenant, and no flag takes one provider or another width. Leave --method out; another width is your change to what the command writes",
+		},
+		{
+			name: "new: an organization named for a shape that signs in with a password", cmd: newNew,
+			args: []string{"harbor", "--module", "example.com/harbor", "--auth", "staff", "--shape", "global-users-invite-only", "--organization", "fleet.example"},
+			want: "--shape global-users-invite-only takes no --organization: the flag names the one directory of --shape directory-roles, and in Global users, invite only the first auth signs in with a password. Leave --organization out, and add a directory method afterwards with impulse add method",
+		},
+		{
 			name: "add tenancy: tenant-owned users with several tenants per person", cmd: newAddTenancy,
 			args: []string{"--shape", "tenant-owned-users-by-directory", "--one-tenant-per-person=false"},
 			want: "--shape tenant-owned-users-by-directory and --one-tenant-per-person=false contradict each other: in Tenant-owned users, by directory a person belongs to one tenant, and --one-tenant-per-person=false lets a person be in several. Take --shape global-users-each-tenant-chooses, or leave --one-tenant-per-person out",
@@ -265,7 +291,7 @@ func Test_methodSpec_shape(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := methodSpec(newAddMethod(), tt.kind, tt.registration, tt.slot, tt.authority, false, methodsShape(t, tt.shape))
+			got, err := methodSpec(newAddMethod(), tt.kind, tt.registration, tt.slot, tt.authority, "", false, methodsShape(t, tt.shape))
 			if err != nil {
 				t.Fatalf("methodSpec() error = %v", err)
 			}
@@ -277,25 +303,30 @@ func Test_methodSpec_shape(t *testing.T) {
 
 	// Without a shape a directory method's authority is still asked, and required where
 	// nobody is at the terminal.
-	if _, err := methodSpec(newAddMethod(), "google", "", "", "", false, nil); err == nil || !strings.Contains(err.Error(), "--authority is required for a directory method") {
+	if _, err := methodSpec(newAddMethod(), "google", "", "", "", "", false, nil); err == nil || !strings.Contains(err.Error(), "--authority is required for a directory method") {
 		t.Errorf("methodSpec() without a shape error = %v, want the authority required", err)
 	}
 }
 
 // Test_settleShape composes tenancy into impulse new from each shape it offers, and
-// settles whether a person belongs to one tenant: the two tenant-owned shapes hold a
-// person to one, and the transition the creation composes carries it.
+// settles the tenants' choices: the two tenant-owned shapes hold a person to one
+// tenant, the two invite-only shapes leave the tenants without directories, and the
+// transition the creation composes carries both.
 func Test_settleShape(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		shape    string
 		wantOne  bool
-		wantSays string
+		wantNone bool
+		// wantStart is a shape with no password sign-in, whose first auth is written
+		// again before the tenants are laid in.
+		wantStart bool
+		wantSays  string
 	}{
-		{shape: "tenant-owned-users-invite-only", wantOne: true, wantSays: "A tenant's people come by invitation alone"},
-		{shape: "tenant-owned-users-by-directory", wantOne: true, wantSays: "impulse add method staff google --slot any-workspace --authority application"},
-		{shape: "global-users-invite-only", wantSays: "A tenant's people come by invitation alone"},
+		{shape: "tenant-owned-users-invite-only", wantOne: true, wantNone: true, wantSays: "A tenant's people come by invitation alone: the application has no tenant directories"},
+		{shape: "tenant-owned-users-by-directory", wantOne: true, wantStart: true, wantSays: "A tenant's people can come through its organization's directory, by the staff auth's google method and the staff auth's azure method: a tenant takes its directory when it is made, the organization its founder signs in from"},
+		{shape: "global-users-invite-only", wantNone: true, wantSays: "impulse audit reads the application as 7 Global users, invite only with it as without it."},
 		{shape: "global-users-each-tenant-chooses", wantSays: "Until then impulse audit reads the application as 7 Global users, invite only."},
 	}
 	for _, tt := range tests {
@@ -315,16 +346,40 @@ func Test_settleShape(t *testing.T) {
 			if start == nil || start.Key != tt.shape {
 				t.Fatalf("settleShape() = %v, want the %s shape", start, tt.shape)
 			}
+			nf.opts.authName = "staff"
+			if err := nf.opts.settleStart(cmd, start); err != nil {
+				t.Fatalf("settleStart() error = %v", err)
+			}
 			transitions, err := nf.opts.transitions()
 			if err != nil {
 				t.Fatal(err)
 			}
-			want := []transition{transition_.Tenancy{Table: "Tenants", OneTenantPerPerson: tt.wantOne}}
+			tenants := transition_.Tenancy{Table: "Tenants", OneTenantPerPerson: tt.wantOne, NoDirectories: tt.wantNone}
+			want := []transition{tenants}
+			if tt.wantStart {
+				// The first auth's methods come before the tenants, which build on the auth,
+				// and the start is told the tenants: it writes the application's tests for them.
+				want = append([]transition{&transition_.DirectoryStart{
+					Auth: "staff", ShapeKey: tt.shape, ShapeName: start.String(), Tenants: &tenants,
+					Methods: []authpkg.Method{
+						{Kind: app.MethodGoogle, Name: "google", Authority: app.AuthorityApplication, Slot: authpkg.SlotAnyWorkspace},
+						{Kind: app.MethodAzure, Name: "azure", Authority: app.AuthorityApplication, Slot: authpkg.SlotAny},
+						{Kind: app.MethodPersona, Authority: app.AuthorityApplication},
+					},
+				}}, want...)
+			}
 			if diff := cmp.Diff(want, transitions); diff != "" {
 				t.Errorf("the composed transitions mismatch (-want +got):\n%s", diff)
 			}
-			if says := strings.Join(start.TenantsSay([]string{"staff"}, nil), " "); !strings.Contains(says, tt.wantSays) {
+			says := strings.Join(nf.opts.startingPoint(start).says, " ")
+			if !strings.Contains(says, tt.wantSays) {
 				t.Errorf("the starting point says %q, want it to say %q", says, tt.wantSays)
+			}
+			if noPassword := strings.Contains(says, "The staff auth has no password sign-in"); noPassword != tt.wantStart {
+				t.Errorf("the starting point says the auth has no password sign-in: %v, want %v: %q", noPassword, tt.wantStart, says)
+			}
+			if signIn := nf.opts.developmentSignIn(start); (signIn != nil) != tt.wantStart {
+				t.Errorf("developmentSignIn() = %v, want one only where the start has no password sign-in: any other start keeps the base's development login", signIn)
 			}
 		})
 	}
@@ -336,11 +391,495 @@ func Test_settleShape(t *testing.T) {
 	if err := cmd.ParseFlags([]string{"--module", "example.com/harbor", "--tenancy", "--one-tenant-per-person"}); err != nil {
 		t.Fatal(err)
 	}
-	if start, err := nf.opts.settleShape(cmd); err != nil || start != nil || !nf.opts.oneTenant {
-		t.Errorf("settleShape() = %v, %v with oneTenant %v; want no shape, no error and one tenant per person", start, err, nf.opts.oneTenant)
+	if start, err := nf.opts.settleShape(cmd); err != nil || start != nil || !nf.opts.tenants.oneTenant || nf.opts.tenants.noDirectories {
+		t.Errorf("settleShape() = %v, %v with the tenants' choices %+v; want no shape, no error, one tenant per person and tenant directories", start, err, nf.opts.tenants)
 	}
 	if got, want := nf.opts.describe(), "tenancy (Tenants, one tenant per person)"; got != want {
 		t.Errorf("describe() = %q, want %q", got, want)
+	}
+}
+
+// Test_settleStart_byDirectory names what impulse new adds where it starts from
+// Tenant-owned users, by directory: the first auth's sign-in in the password's place,
+// then the tenants, read against the reference application with tenants.
+func Test_settleStart_byDirectory(t *testing.T) {
+	t.Parallel()
+
+	var nf newFlags
+	cmd := &cobra.Command{Use: "new"}
+	nf.bind(cmd)
+	if err := cmd.ParseFlags([]string{"--module", "example.com/harbor", "--shape", "tenant-owned-users-by-directory"}); err != nil {
+		t.Fatal(err)
+	}
+	start, err := nf.opts.settleShape(cmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nf.opts.authName = "members"
+	if err := nf.opts.settleStart(cmd, start); err != nil {
+		t.Fatalf("settleStart() error = %v, want none: the shape asks nothing about a provider", err)
+	}
+	if got, want := nf.opts.describe(), "the members auth's sign-in in the password's place (google, azure, persona), tenancy (Tenants, one tenant per person)"; got != want {
+		t.Errorf("describe() = %q, want %q", got, want)
+	}
+	if got := nf.opts.reference(); got != transition_.TenancyReferenceCandidate {
+		t.Errorf("reference() = %q, want the application with tenants", got)
+	}
+	// The next steps name the persona sign-in, since the bootstrap seeds no password.
+	want := &developmentSignIn{method: "persona", as: "the persona admin"}
+	if diff := cmp.Diff(want, nf.opts.developmentSignIn(start), cmp.AllowUnexported(developmentSignIn{})); diff != "" {
+		t.Errorf("developmentSignIn() mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// Test_settleStart_directoryRoles settles the one directory of a new application that
+// starts from Directory roles: --method names it and --organization its one
+// organization, each required where no person is at the terminal to ask, as a test has
+// none. The directory is a Google Workspace, a Microsoft Entra tenant or another
+// identity provider, which --organization names by its issuer, an https URL. The step
+// composed writes the directory's method alone, the directory giving the roles, and
+// nothing is composed beside it; a method that has no directory, an organization its
+// provider does not know one by, and a choice the shape rules out are refused before
+// anything is rendered.
+func Test_settleStart_directoryRoles(t *testing.T) {
+	t.Parallel()
+
+	const (
+		tenant = "0f0c7a52-6f0c-4e3b-9d7e-3f6f2f1d9a10"
+		issuer = "https://id.fleet.example"
+		// notAnIssuer is what the refusal of an organization that is no issuer says after
+		// naming it.
+		notAnIssuer = ": another identity provider's one organization is the provider, named by its issuer: an https URL with a host and no query or fragment (https://id.fleet.example), where the provider's configuration is read (<issuer>/.well-known/openid-configuration)"
+	)
+	tests := []struct {
+		name         string
+		args         []string
+		want         transition_.DirectoryStart
+		wantDescribe string
+		wantSays     []string
+		// wantMethod is the registration the next steps tell a person to sign in
+		// through, since the bootstrap seeds no password.
+		wantMethod string
+		wantErr    string
+	}{
+		{
+			name: "a Google Workspace", args: []string{"--method", "google", "--organization", "fleet.example"},
+			want: transition_.DirectoryStart{
+				Auth: "staff", ShapeKey: "directory-roles", ShapeName: "3 Directory roles", Organization: "fleet.example",
+				Methods: []authpkg.Method{{Kind: app.MethodGoogle, Name: "google", Authority: app.AuthorityDirectory}},
+			},
+			wantDescribe: "the staff auth's sign-in in the password's place (google)", wantMethod: "google",
+			wantSays: []string{
+				"The google method admits the accounts of one Google Workspace and nobody else, and its directory gives the roles",
+				"The staff auth has no password sign-in and invites no first administrator",
+			},
+		},
+		{
+			name: "a Microsoft Entra tenant under a registration name", args: []string{"--method", "azure:entra", "--organization", tenant},
+			want: transition_.DirectoryStart{
+				Auth: "staff", ShapeKey: "directory-roles", ShapeName: "3 Directory roles", Organization: tenant,
+				Methods: []authpkg.Method{{Kind: app.MethodAzure, Name: "entra", Authority: app.AuthorityDirectory}},
+			},
+			wantDescribe: "the staff auth's sign-in in the password's place (azure)", wantMethod: "entra",
+			wantSays: []string{
+				"The entra method admits the accounts of one Microsoft Entra tenant and nobody else, and its directory gives the roles",
+			},
+		},
+		{
+			name: "another identity provider, by its issuer", args: []string{"--method", "oidc:okta", "--organization", issuer},
+			want: transition_.DirectoryStart{
+				Auth: "staff", ShapeKey: "directory-roles", ShapeName: "3 Directory roles", Organization: issuer,
+				Methods: []authpkg.Method{{Kind: app.MethodOIDC, Name: "okta", Authority: app.AuthorityDirectory}},
+			},
+			wantDescribe: "the staff auth's sign-in in the password's place (oidc)", wantMethod: "okta",
+			wantSays: []string{
+				"The okta method admits the accounts of one organization's identity provider and nobody else, and its directory gives the roles",
+				"The staff auth has no password sign-in and invites no first administrator",
+			},
+		},
+		{
+			name:    "no directory named, and nobody to ask",
+			wantErr: "--method is required with --shape directory-roles: name the one directory that gives the roles, google (a Google Workspace), azure (a Microsoft Entra tenant) or oidc:<registration> (another identity provider), and its one organization with --organization",
+		},
+		{
+			name: "no organization named, and nobody to ask", args: []string{"--method", "google"},
+			wantErr: "--organization is required with --shape directory-roles: name the Google Workspace whose directory gives the roles, by its domain (fleet.example)",
+		},
+		{
+			name: "no tenant named, and nobody to ask", args: []string{"--method", "azure"},
+			wantErr: "--organization is required with --shape directory-roles: name the Microsoft Entra tenant whose directory gives the roles, by its tenant id",
+		},
+		{
+			name: "no issuer named, and nobody to ask", args: []string{"--method", "oidc:okta"},
+			wantErr: "--organization is required with --shape directory-roles: name the identity provider whose directory gives the roles, by its issuer, an https URL (https://id.fleet.example)",
+		},
+		{
+			name: "an issuer that is not https", args: []string{"--method", "oidc:okta", "--organization", "http://id.fleet.example"},
+			wantErr: "--organization http://id.fleet.example" + notAnIssuer,
+		},
+		{
+			name: "a provider named by its domain", args: []string{"--method", "oidc:okta", "--organization", "fleet.example"},
+			wantErr: "--organization fleet.example" + notAnIssuer,
+		},
+		{
+			name: "an issuer with a query", args: []string{"--method", "oidc:okta", "--organization", issuer + "/?realm=fleet"},
+			wantErr: "--organization " + issuer + "/?realm=fleet" + notAnIssuer,
+		},
+		{
+			name: "another identity provider under no registration name", args: []string{"--method", "oidc", "--organization", issuer},
+			wantErr: "--method oidc: an identity provider's registration needs a name, oidc:<registration>: the application's word for the provider (okta, company-sso), which is the segment of its routes and the connection every link made through it carries",
+		},
+		{
+			name: "the password method", args: []string{"--method", "password", "--organization", "fleet.example"},
+			wantErr: "--method password: impulse new starts Directory roles from a Google Workspace (google), a Microsoft Entra tenant (azure) or another identity provider (oidc:<registration>), and the google and azure methods take :<registration> too, to name the registration",
+		},
+		{
+			name: "a Workspace named by something that is no domain", args: []string{"--method", "google", "--organization", "Fleet Example"},
+			wantErr: "--organization Fleet Example: a Google method's one organization is a Google Workspace, named by its domain in lowercase (fleet.example)",
+		},
+		{
+			name: "a tenant named by its domain", args: []string{"--method", "azure", "--organization", "fleet.example"},
+			wantErr: "--organization fleet.example: a Microsoft method's one organization is a Microsoft Entra tenant, named by its tenant id (a GUID, as the Entra admin center shows it)",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var nf newFlags
+			cmd := &cobra.Command{Use: "new"}
+			nf.bind(cmd)
+			if err := cmd.ParseFlags(append([]string{"--module", "example.com/harbor", "--shape", "directory-roles"}, tt.args...)); err != nil {
+				t.Fatal(err)
+			}
+			start, err := nf.opts.settleShape(cmd)
+			if err != nil {
+				t.Fatalf("settleShape() error = %v", err)
+			}
+			nf.opts.authName = "staff"
+			err = nf.opts.settleStart(cmd, start)
+			if tt.wantErr != "" {
+				if err == nil || errors.Cause(err).Error() != tt.wantErr {
+					t.Fatalf("settleStart() error = %v, want %q", err, tt.wantErr)
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("settleStart() error = %v", err)
+			}
+			transitions, err := nf.opts.transitions()
+			if err != nil {
+				t.Fatal(err)
+			}
+			// The directory's method stands alone, and the application has no tenants.
+			if diff := cmp.Diff([]transition{&tt.want}, transitions); diff != "" {
+				t.Errorf("the composed transitions mismatch (-want +got):\n%s", diff)
+			}
+			if got := nf.opts.describe(); got != tt.wantDescribe {
+				t.Errorf("describe() = %q, want %q", got, tt.wantDescribe)
+			}
+			if got := nf.opts.reference(); got != transition_.ReferenceCandidate {
+				t.Errorf("reference() = %q, want the application that holds the reference directory auth", got)
+			}
+			says := strings.Join(nf.opts.startingPoint(start).says, " ")
+			for _, want := range tt.wantSays {
+				if !strings.Contains(says, want) {
+					t.Errorf("the starting point says %q, want it to say %q", says, want)
+				}
+			}
+			signIn := &developmentSignIn{method: tt.wantMethod, as: "the person APP_USERNAME names in the environment template, with the roles APP_ROLES names there"}
+			if diff := cmp.Diff(signIn, nf.opts.developmentSignIn(start), cmp.AllowUnexported(developmentSignIn{})); diff != "" {
+				t.Errorf("developmentSignIn() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// Test_settleStart_directoryRolesAsked settles the one directory of a new application
+// that starts from Directory roles where a flag does not name it and the command is given
+// an input of its own, as a person at the terminal answers: each question in turn, one
+// line each. The answers compose what the flags would; an answer the flag would be
+// refused for is refused as the flag is, with no question after it; and an empty answer
+// is refused as the missing flag is where nobody is there to ask, so Enter alone makes no
+// application.
+func Test_settleStart_directoryRolesAsked(t *testing.T) {
+	t.Parallel()
+
+	const tenant = "0f0c7a52-6f0c-4e3b-9d7e-3f6f2f1d9a10"
+	tests := []struct {
+		name    string
+		args    []string
+		answers []string
+		// asked is every question put to the person, in order.
+		asked []string
+		// sameAs are the flags that compose what the answers do.
+		sameAs  []string
+		wantErr string
+	}{
+		{
+			name: "the directory and its tenant, both answered", answers: []string{"azure:entra\n", tenant + "\n"},
+			asked: []string{directoryQuestion, tenantQuestion}, sameAs: []string{"--method", "azure:entra", "--organization", tenant},
+		},
+		{
+			name: "the Workspace answered beside the directory's flag", args: []string{"--method", "google"}, answers: []string{"fleet.example\n"},
+			asked: []string{workspaceQuestion}, sameAs: []string{"--method", "google", "--organization", "fleet.example"},
+		},
+		{
+			name: "the password method answered", answers: []string{"password\n", "fleet.example\n"}, asked: []string{directoryQuestion},
+			wantErr: "--method password: impulse new starts Directory roles from a Google Workspace (google), a Microsoft Entra tenant (azure) or another identity provider (oidc:<registration>), and the google and azure methods take :<registration> too, to name the registration",
+		},
+		{
+			name: "an empty answer for the directory", answers: []string{"\n", "fleet.example\n"}, asked: []string{directoryQuestion},
+			wantErr: "--method is required with --shape directory-roles: name the one directory that gives the roles, google (a Google Workspace), azure (a Microsoft Entra tenant) or oidc:<registration> (another identity provider), and its one organization with --organization",
+		},
+		{
+			name: "an empty answer for the Workspace", args: []string{"--method", "google"}, answers: []string{"  \n"}, asked: []string{workspaceQuestion},
+			wantErr: "--organization is required with --shape directory-roles: name the Google Workspace whose directory gives the roles, by its domain (fleet.example)",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var asked bytes.Buffer
+			got, err := settledDirectoryRoles(t, tt.args, &lineByLine{lines: tt.answers}, &asked)
+			if want := strings.Join(tt.asked, ""); asked.String() != want {
+				t.Errorf("the command asked %q, want %q", asked.String(), want)
+			}
+			if tt.wantErr != "" {
+				if err == nil || errors.Cause(err).Error() != tt.wantErr {
+					t.Fatalf("settleStart() error = %v, want %q", err, tt.wantErr)
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("settleStart() error = %v", err)
+			}
+			want, err := settledDirectoryRoles(t, tt.sameAs, nil, io.Discard)
+			if err != nil {
+				t.Fatalf("settleStart() with %q error = %v", tt.sameAs, err)
+			}
+			if diff := cmp.Diff(want, got); diff != "" {
+				t.Errorf("the transitions the answers composed mismatch the ones %q compose (-want +got):\n%s", tt.sameAs, diff)
+			}
+		})
+	}
+}
+
+// settledDirectoryRoles settles a new application that starts from Directory roles with
+// the flags, the command given the input (none where in is nil) and its questions written
+// to asked, and answers the transitions composed.
+func settledDirectoryRoles(t *testing.T, args []string, in io.Reader, asked io.Writer) ([]transition, error) {
+	t.Helper()
+
+	var nf newFlags
+	cmd := &cobra.Command{Use: "new"}
+	nf.bind(cmd)
+	if in != nil {
+		cmd.SetIn(in)
+	}
+	cmd.SetErr(asked)
+	if err := cmd.ParseFlags(append([]string{"--module", "example.com/harbor", "--shape", "directory-roles"}, args...)); err != nil {
+		t.Fatal(err)
+	}
+	start, err := nf.opts.settleShape(cmd)
+	if err != nil {
+		t.Fatalf("settleShape() error = %v", err)
+	}
+	nf.opts.authName = "staff"
+	if err := nf.opts.settleStart(cmd, start); err != nil {
+		return nil, err
+	}
+	transitions, err := nf.opts.transitions()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return transitions, nil
+}
+
+// lineByLine is a person at the terminal: it hands over one line at each read, as each
+// question reads its answer through a reader of its own.
+type lineByLine struct {
+	lines []string
+}
+
+// Read hands over what is left of the next line.
+func (r *lineByLine) Read(p []byte) (int, error) {
+	if len(r.lines) == 0 {
+		return 0, io.EOF
+	}
+	n := copy(p, r.lines[0])
+	r.lines[0] = r.lines[0][n:]
+	if r.lines[0] == "" {
+		r.lines = r.lines[1:]
+	}
+
+	return n, nil
+}
+
+// Test_settleShape_tenantDirectories settles whether a tenant can have a directory of
+// its own where impulse new is given no shape, or a flag beside one. Without a shape
+// the flag makes the choice beside --tenancy, and tenancy alone writes the tenant
+// directories as it always has. Beside a shape, a flag that says the opposite is
+// refused, naming both and the shape that agrees with the flag, and without --tenancy
+// the flag has nothing to say.
+func Test_settleShape_tenantDirectories(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		args         []string
+		wantNone     bool
+		wantDescribe string
+		wantErr      string
+	}{
+		{name: "tenancy alone writes the tenant directories", args: []string{"--tenancy"}, wantDescribe: "tenancy (Tenants)"},
+		{name: "tenancy with the flag said as it is", args: []string{"--tenancy", "--tenant-directories"}, wantDescribe: "tenancy (Tenants)"},
+		{name: "tenancy without tenant directories", args: []string{"--tenancy", "--tenant-directories=false"}, wantNone: true, wantDescribe: "tenancy (Tenants, no tenant directories)"},
+		{
+			name: "both of the tenants' choices", args: []string{"--tenancy", "--one-tenant-per-person", "--tenant-directories=false"},
+			wantNone: true, wantDescribe: "tenancy (Tenants, one tenant per person, no tenant directories)",
+		},
+		{name: "an invite-only shape, said twice", args: []string{"--shape", "global-users-invite-only", "--tenant-directories=false"}, wantNone: true, wantDescribe: "tenancy (Tenants, no tenant directories)"},
+		{name: "a directory shape, said twice", args: []string{"--shape", "global-users-each-tenant-chooses", "--tenant-directories"}, wantDescribe: "tenancy (Tenants)"},
+		{
+			name: "an invite-only shape beside tenant directories", args: []string{"--shape", "tenant-owned-users-invite-only", "--tenant-directories"},
+			wantErr: "--shape tenant-owned-users-invite-only and --tenant-directories contradict each other: in Tenant-owned users, invite only a tenant's people come by invitation alone and no tenant has a directory, and --tenant-directories lets a tenant have one. Take --shape tenant-owned-users-by-directory, or leave --tenant-directories out",
+		},
+		{
+			name: "a directory shape beside no tenant directories", args: []string{"--shape", "global-users-each-tenant-chooses", "--tenant-directories=false"},
+			wantErr: "--shape global-users-each-tenant-chooses and --tenant-directories=false contradict each other: in Global users, each tenant chooses a tenant's people come through the tenant's own directory, and --tenant-directories=false leaves the tenants without directories. Take --shape global-users-invite-only, or leave --tenant-directories out",
+		},
+		{
+			name: "the flag without tenants", args: []string{"--tenant-directories=false"},
+			wantErr: "--tenant-directories goes with --tenancy: it says whether a tenant can have a directory of its own, and the application is given no tenants",
+		},
+		{
+			name: "the flag said as it is, without tenants", args: []string{"--tenant-directories"},
+			wantErr: "--tenant-directories goes with --tenancy: it says whether a tenant can have a directory of its own, and the application is given no tenants",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var nf newFlags
+			cmd := &cobra.Command{Use: "new"}
+			nf.bind(cmd)
+			if err := cmd.ParseFlags(append([]string{"--module", "example.com/harbor"}, tt.args...)); err != nil {
+				t.Fatal(err)
+			}
+			_, err := nf.opts.settleShape(cmd)
+			if tt.wantErr != "" {
+				if err == nil || errors.Cause(err).Error() != tt.wantErr {
+					t.Fatalf("settleShape() error = %v, want %q", err, tt.wantErr)
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("settleShape() error = %v", err)
+			}
+			transitions, err := nf.opts.transitions()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(transitions) != 1 {
+				t.Fatalf("the composed transitions are %v, want the tenancy step alone", transitions)
+			}
+			tenancy, ok := transitions[0].(transition_.Tenancy)
+			if !ok || tenancy.NoDirectories != tt.wantNone {
+				t.Errorf("the composed transition is %+v, want the tenancy step with NoDirectories %v", transitions[0], tt.wantNone)
+			}
+			if got := nf.opts.describe(); got != tt.wantDescribe {
+				t.Errorf("describe() = %q, want %q", got, tt.wantDescribe)
+			}
+		})
+	}
+}
+
+// Test_tenancyAsked holds add tenancy's own flags to the step they ask for. With no
+// flag the step is the one it always was: a person can be in several tenants, and a
+// tenant can have a directory. Each flag makes its choice, a shape makes both, and a
+// flag that says the opposite of the shape is refused, naming both.
+func Test_tenancyAsked(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		args      []string
+		want      transition_.Tenancy
+		wantShape string
+		wantErr   string
+	}{
+		{name: "no flag", want: transition_.Tenancy{Table: "Tenants"}},
+		{name: "another table", args: []string{"--tenant-table", "Depots"}, want: transition_.Tenancy{Table: "Depots"}},
+		{name: "one tenant per person", args: []string{"--one-tenant-per-person"}, want: transition_.Tenancy{Table: "Tenants", OneTenantPerPerson: true}},
+		{name: "tenant directories, said as it is", args: []string{"--tenant-directories"}, want: transition_.Tenancy{Table: "Tenants"}},
+		{name: "no tenant directories", args: []string{"--tenant-directories=false"}, want: transition_.Tenancy{Table: "Tenants", NoDirectories: true}},
+		{
+			name: "shape 5", args: []string{"--shape", "tenant-owned-users-invite-only"}, wantShape: "tenant-owned-users-invite-only",
+			want: transition_.Tenancy{Table: "Tenants", OneTenantPerPerson: true, NoDirectories: true},
+		},
+		{
+			name: "shape 6", args: []string{"--shape", "tenant-owned-users-by-directory"}, wantShape: "tenant-owned-users-by-directory",
+			want: transition_.Tenancy{Table: "Tenants", OneTenantPerPerson: true},
+		},
+		{
+			name: "shape 7, with its own choice said beside it", args: []string{"--shape", "global-users-invite-only", "--tenant-directories=false", "--tenant-table", "Depots"},
+			wantShape: "global-users-invite-only", want: transition_.Tenancy{Table: "Depots", NoDirectories: true},
+		},
+		{
+			name: "shape 8", args: []string{"--shape", "global-users-each-tenant-chooses"}, wantShape: "global-users-each-tenant-chooses",
+			want: transition_.Tenancy{Table: "Tenants"},
+		},
+		{
+			name: "an invite-only shape beside tenant directories", args: []string{"--shape", "global-users-invite-only", "--tenant-directories"},
+			wantErr: "--shape global-users-invite-only and --tenant-directories contradict each other",
+		},
+		{
+			name: "a directory shape beside no tenant directories", args: []string{"--shape", "tenant-owned-users-by-directory", "--tenant-directories=false"},
+			wantErr: "--shape tenant-owned-users-by-directory and --tenant-directories=false contradict each other",
+		},
+		{
+			name: "a shape that holds a person to one tenant beside the flag turned off", args: []string{"--shape", "tenant-owned-users-invite-only", "--one-tenant-per-person=false"},
+			wantErr: "--shape tenant-owned-users-invite-only and --one-tenant-per-person=false contradict each other",
+		},
+		{name: "a shape of an application without tenants", args: []string{"--shape", "invite-only"}, wantErr: "invite-only"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cmd := newAddTenancy()
+			if err := cmd.ParseFlags(tt.args); err != nil {
+				t.Fatal(err)
+			}
+			got, start, err := tenancyAsked(cmd)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("tenancyAsked() error = %v, want one saying %q", err, tt.wantErr)
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("tenancyAsked() error = %v", err)
+			}
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("the step asked for mismatch (-want +got):\n%s", diff)
+			}
+			key := ""
+			if start != nil {
+				key = start.Key
+			}
+			if key != tt.wantShape {
+				t.Errorf("the shape started from is %q, want %q", key, tt.wantShape)
+			}
+		})
 	}
 }
 
@@ -375,38 +914,54 @@ func tenantsShape(t *testing.T, key string) *shape.Shape {
 
 // Test_tenancyStartingPoint reads each shape add tenancy offers against the application
 // it is given. On the base skeleton, whose auth signs in with a password, every shape
-// is taken: the invite-only ones are the application as it is, and the other two say
-// which impulse add method adds the directory method a tenant's people come through. On
-// an application that already registers a method through an organization's directory,
-// an invite-only shape is refused, naming the method, since with tenants the
-// application would be the shape beside it.
+// is taken: the invite-only ones leave the tenants without directories, and the other
+// two say which impulse add method adds the directory method a tenant's people come
+// through. On an application that already registers a method through an organization's
+// directory every shape is taken too: an invite-only shape names the method as a way
+// for an invited person to sign in and nothing more, since its tenants have no
+// directories whatever methods the application has, and a directory shape names it as
+// what a tenant's people can come through their own directory by.
 func Test_tenancyStartingPoint(t *testing.T) {
 	t.Parallel()
 
 	solo, withGoogle := renderedDir(t, skeleton.Base), renderedDir(t, transition_.TenancyReferenceCandidate)
+	const (
+		invited   = "The staff auth's google method (pkg/auth/staff/google.go:N) is a way for an invited person to sign in and nothing more, and impulse audit reads the application as "
+		directory = "A tenant's people can come through its organization's directory, by the staff auth's google method (pkg/auth/staff/google.go:N)"
+	)
 	tests := []struct {
 		shape    string
 		wantSays string
-		// refused is the refusal on the application with the Google method.
-		refused string
+		// wantGoogle is what the shape says on the application with the Google method.
+		wantGoogle string
 	}{
 		{
-			shape: "tenant-owned-users-invite-only", wantSays: "A directory method added later with the application giving the roles (impulse add method) makes the application 6 Tenant-owned users, by directory.",
-			refused: "--shape tenant-owned-users-invite-only: in Tenant-owned users, invite only a tenant's people come by invitation alone, and the application registers the staff auth's google method (pkg/auth/staff/google.go:N), through which a tenant's people could come by their organization's directory, so with tenants it would be 6 Tenant-owned users, by directory. Take --shape tenant-owned-users-by-directory, or run the command without --shape",
+			shape:      "tenant-owned-users-invite-only",
+			wantSays:   "A Google, Microsoft or other provider's method added with impulse add method, the application giving its roles, is a way for an invited person to sign in and nothing more, and impulse audit reads the application as 5 Tenant-owned users, invite only with it as without it. Going to 6 Tenant-owned users, by directory is the author's act",
+			wantGoogle: invited + "5 Tenant-owned users, invite only with it as without it.",
 		},
-		{shape: "tenant-owned-users-by-directory", wantSays: "impulse add method staff azure --slot any --authority application for Microsoft Entra. Until then impulse audit reads the application as 5 Tenant-owned users, invite only."},
 		{
-			shape: "global-users-invite-only", wantSays: "makes the application 8 Global users, each tenant chooses.",
-			refused: "--shape global-users-invite-only: in Global users, invite only a tenant's people come by invitation alone, and the application registers the staff auth's google method (pkg/auth/staff/google.go:N), through which a tenant's people could come by their organization's directory, so with tenants it would be 8 Global users, each tenant chooses. Take --shape global-users-each-tenant-chooses, or run the command without --shape",
+			shape:      "tenant-owned-users-by-directory",
+			wantSays:   "A tenant's people can come through its organization's directory, by the staff auth's google method and the staff auth's azure method: a tenant takes its directory when it is made",
+			wantGoogle: directory,
 		},
-		{shape: "global-users-each-tenant-chooses", wantSays: "Until then impulse audit reads the application as 7 Global users, invite only."},
+		{
+			shape:      "global-users-invite-only",
+			wantSays:   "Going to 8 Global users, each tenant chooses is the author's act, laying the tenant directories in",
+			wantGoogle: invited + "7 Global users, invite only with it as without it.",
+		},
+		{
+			shape:      "global-users-each-tenant-chooses",
+			wantSays:   "Until then impulse audit reads the application as 7 Global users, invite only.",
+			wantGoogle: directory,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.shape, func(t *testing.T) {
 			t.Parallel()
 
 			s := tenantsShape(t, tt.shape)
-			start, err := tenancyStartingPoint(s, solo)
+			start, _, err := tenancyStartingPoint(s, solo)
 			if err != nil {
 				t.Fatalf("tenancyStartingPoint() error = %v", err)
 			}
@@ -414,19 +969,169 @@ func Test_tenancyStartingPoint(t *testing.T) {
 				t.Errorf("the starting point is %s and says %q, want %s saying %q", start.shape, says, s, tt.wantSays)
 			}
 
-			start, err = tenancyStartingPoint(s, withGoogle)
-			if tt.refused != "" {
-				if err == nil || positionRE.ReplaceAllString(errors.Cause(err).Error(), ".go:N") != tt.refused {
-					t.Fatalf("tenancyStartingPoint() over a directory method error = %v, want %q", err, tt.refused)
-				}
-
-				return
-			}
+			start, _, err = tenancyStartingPoint(s, withGoogle)
 			if err != nil {
-				t.Fatalf("tenancyStartingPoint() over a directory method error = %v", err)
+				t.Fatalf("tenancyStartingPoint() over a directory method error = %v, want none: every shape with tenants takes any sign-in method", err)
 			}
-			if want, says := "A tenant's people can come through its organization's directory, by the staff auth's google method (pkg/auth/staff/google.go:N)", positionRE.ReplaceAllString(strings.Join(start.says, " "), ".go:N"); !strings.Contains(says, want) {
-				t.Errorf("the starting point says %q, want it to say %q", says, want)
+			if says := positionRE.ReplaceAllString(strings.Join(start.says, " "), ".go:N"); start.shape != *s || !strings.Contains(says, tt.wantGoogle) {
+				t.Errorf("over a directory method the starting point is %s and says %q, want %s saying %q", start.shape, says, s, tt.wantGoogle)
+			}
+		})
+	}
+}
+
+// Test_tenancyStartingPoint_byDirectory holds add tenancy to what Tenant-owned users, by
+// directory, is: every person of a tenant signs in through the tenant's own directory.
+// On an auth that registers neither a Google nor a Microsoft method the command writes
+// both, each as impulse add method would, ahead of the tenancy step; an auth that has
+// either is left as its author made it. It removes no method: of an auth with the
+// password method it says that the method keeps the application outside the shape, and
+// names the hand step. No other shape writes a method or says anything of a password.
+func Test_tenancyStartingPoint_byDirectory(t *testing.T) {
+	t.Parallel()
+
+	solo, withGoogle := renderedDir(t, skeleton.Base), renderedDir(t, transition_.TenancyReferenceCandidate)
+	const (
+		writes = "The staff auth registered neither a Google nor a Microsoft method, so the command writes both"
+		keeps  = "The staff auth keeps its password method, since no command removes a sign-in method, and the method keeps the application outside 6 Tenant-owned users, by directory"
+		byHand = "Taking it out is a hand step (remove pkg/auth/staff/password.go and the registerPassword call in pkg/auth/staff/staff.go"
+	)
+	s := tenantsShape(t, "tenant-owned-users-by-directory")
+
+	start, steps, err := tenancyStartingPoint(s, solo)
+	if err != nil {
+		t.Fatalf("tenancyStartingPoint() error = %v", err)
+	}
+	want := []transition{
+		&transition_.Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodGoogle, Name: "google", Authority: app.AuthorityApplication, Slot: authpkg.SlotAnyWorkspace}},
+		&transition_.Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodAzure, Name: "azure", Authority: app.AuthorityApplication, Slot: authpkg.SlotAny}},
+	}
+	if diff := cmp.Diff(want, steps); diff != "" {
+		t.Errorf("the steps ahead of the tenancy step mismatch (-want +got):\n%s", diff)
+	}
+	says := strings.Join(start.says, " ")
+	for _, want := range []string{writes, keeps, byHand} {
+		if !strings.Contains(says, want) {
+			t.Errorf("the starting point says %q, want it to say %q", says, want)
+		}
+	}
+	a, err := app.Discover(solo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, step := range steps {
+		if err := step.Validate(a); err != nil {
+			t.Errorf("a step the command composes is refused by the application it is composed for: %v", err)
+		}
+	}
+
+	// The auth has a Google method: nothing is written, and the password is still named.
+	start, steps, err = tenancyStartingPoint(s, withGoogle)
+	if err != nil {
+		t.Fatalf("tenancyStartingPoint() over a directory method error = %v", err)
+	}
+	if len(steps) != 0 {
+		t.Errorf("over an auth with a Google method the command composes %d step(s), want none: the auth is left as its author made it", len(steps))
+	}
+	says = strings.Join(start.says, " ")
+	if strings.Contains(says, writes) || !strings.Contains(says, keeps) || !strings.Contains(says, byHand) {
+		t.Errorf("over an auth with a Google method and the password method the starting point says %q, want the password named with its hand step and no method written", says)
+	}
+
+	for _, key := range []string{"tenant-owned-users-invite-only", "global-users-invite-only", "global-users-each-tenant-chooses"} {
+		other := tenantsShape(t, key)
+		start, steps, err := tenancyStartingPoint(other, solo)
+		if err != nil {
+			t.Fatalf("%s: tenancyStartingPoint() error = %v", key, err)
+		}
+		if says := strings.Join(start.says, " "); len(steps) != 0 || strings.Contains(says, "keeps its password method") {
+			t.Errorf("%s composes %d step(s) and says %q, want no method written and nothing said of the password: the shape signs in with one", key, len(steps), says)
+		}
+	}
+}
+
+// Test_byDirectorySteps holds what add tenancy does about the methods of each auth it
+// starts as Tenant-owned users, by directory, to what the auth registers: the shape's two
+// methods are written on an auth whose roles the application gives that registers
+// neither a Google nor a Microsoft method, an auth that has either is left as its author
+// made it, an auth whose directory gives the roles holds no tenant's people and gets
+// neither a method nor a word, and the password method is named wherever it stands. A
+// construction outside an auth package is no auth of the application's.
+func Test_byDirectorySteps(t *testing.T) {
+	t.Parallel()
+
+	s := tenantsShape(t, "tenant-owned-users-by-directory")
+	password := app.Method{Kind: app.MethodPassword, Name: "password", Authority: app.AuthorityApplication}
+	google := app.Method{Kind: app.MethodGoogle, Name: "google", Authority: app.AuthorityApplication}
+	azure := app.Method{Kind: app.MethodAzure, Name: "entra", Authority: app.AuthorityApplication}
+	directory := app.Method{Kind: app.MethodGoogle, Name: "google", Authority: app.AuthorityDirectory}
+	written := func(auth string) []transition {
+		return []transition{
+			&transition_.Method{Auth: auth, Spec: authpkg.Method{Kind: app.MethodGoogle, Name: "google", Authority: app.AuthorityApplication, Slot: authpkg.SlotAnyWorkspace}},
+			&transition_.Method{Auth: auth, Spec: authpkg.Method{Kind: app.MethodAzure, Name: "azure", Authority: app.AuthorityApplication, Slot: authpkg.SlotAny}},
+		}
+	}
+	tests := []struct {
+		name        string
+		auths       []app.Auth
+		wantSteps   []transition
+		wantWritten []string
+		// wantSays are the starts of the lines said, in order.
+		wantSays []string
+	}{
+		{
+			name:        "the password alone: both methods written, and the password named",
+			auths:       []app.Auth{{File: "pkg/auth/staff/staff.go", Methods: []app.Method{password}}},
+			wantSteps:   written("staff"),
+			wantWritten: []string{"the staff auth's google method", "the staff auth's azure method"},
+			wantSays:    []string{"The staff auth registered neither a Google nor a Microsoft method, so the command writes both", "The staff auth keeps its password method"},
+		},
+		{
+			name:     "a Google method beside the password: nothing written, and the password named",
+			auths:    []app.Auth{{File: "pkg/auth/staff/staff.go", Methods: []app.Method{password, google}}},
+			wantSays: []string{"The staff auth keeps its password method"},
+		},
+		{
+			name:  "a Microsoft method alone: left as its author made it",
+			auths: []app.Auth{{File: "pkg/auth/staff/staff.go", Methods: []app.Method{azure}}},
+		},
+		{
+			name:  "an auth whose directory gives the roles: neither a method nor a word",
+			auths: []app.Auth{{File: "pkg/auth/fleet/fleet.go", Methods: []app.Method{directory}}},
+		},
+		{
+			name: "two auths, one whose directory gives the roles: the other's methods alone",
+			auths: []app.Auth{
+				{File: "pkg/auth/fleet/fleet.go", Methods: []app.Method{directory}},
+				{File: "pkg/auth/members/members.go", Methods: []app.Method{password}},
+			},
+			wantSteps:   written("members"),
+			wantWritten: []string{"the members auth's google method", "the members auth's azure method"},
+			wantSays:    []string{"The members auth registered neither a Google nor a Microsoft method, so the command writes both", "The members auth keeps its password method"},
+		},
+		{
+			name:  "a construction outside an auth package: no auth of the application's",
+			auths: []app.Auth{{File: "main.go", Methods: []app.Method{password}}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			steps, wrote, says := byDirectorySteps(s, &app.App{Auths: tt.auths})
+			if diff := cmp.Diff(tt.wantSteps, steps); diff != "" {
+				t.Errorf("byDirectorySteps() steps mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tt.wantWritten, wrote); diff != "" {
+				t.Errorf("byDirectorySteps() written mismatch (-want +got):\n%s", diff)
+			}
+			if len(says) != len(tt.wantSays) {
+				t.Fatalf("byDirectorySteps() says %q, want %d line(s) starting %q", says, len(tt.wantSays), tt.wantSays)
+			}
+			for i, want := range tt.wantSays {
+				if !strings.HasPrefix(says[i], want) {
+					t.Errorf("byDirectorySteps() says[%d] = %q, want it to start %q", i, says[i], want)
+				}
 			}
 		})
 	}
@@ -481,11 +1186,11 @@ func Test_methodStartingPoints(t *testing.T) {
 	}
 
 	// Open sign-up on an auth with no password method, where the application's tenants
-	// have directories, is refused before anything is written: its first administrator
-	// could not sign in. The same methods are a starting point where no tenant has a
-	// directory (above), and with the password method beside them.
-	if _, err := authStartingPoint(open, outlets, app.DefaultOutletName, []authpkg.Method{google}); err == nil || !strings.Contains(err.Error(), "could not sign in, and impulse check refuses it (first-administrator)") {
-		t.Errorf("add auth with a directory method alone under Open sign-up, where tenants have directories: error = %v, want the first administrator's refusal", err)
+	// have directories, is a starting point like any other: the auth's first administrator
+	// comes in by an invitation, which gives the person the roles at the sign-in through
+	// the directory that accepts it, however many organizations the method admits.
+	if _, err := authStartingPoint(open, outlets, app.DefaultOutletName, []authpkg.Method{google}); err != nil {
+		t.Errorf("add auth with a directory method alone under Open sign-up, where tenants have directories: error = %v, want the starting point", err)
 	}
 
 	// Under Directory members add auth says the password method beside the directory
@@ -502,10 +1207,7 @@ func Test_methodStartingPoints(t *testing.T) {
 }
 
 // Test_startingPoint_write pins what a command given --shape prints beside its change:
-// the shape by number and name with what it filled in, and, after the check's report,
-// what the author does next where the check refuses the first administrator the
-// starting point's auth would be seeded with, in the check's own words. Any other
-// outcome of that check, and any other check's failure, adds nothing.
+// the shape by number and name with what it filled in.
 func Test_startingPoint_write(t *testing.T) {
 	t.Parallel()
 
@@ -514,42 +1216,5 @@ func Test_startingPoint_write(t *testing.T) {
 	start.write(&out)
 	if want := "Starting point: 4 Open sign-up.\n  - The google method admits any Google account, and the application gives the roles.\n\n"; out.String() != want {
 		t.Errorf("write() mismatch (-want +got):\n%s", cmp.Diff(want, out.String()))
-	}
-
-	const finding = "pkg/auth/partners/foothold.go:60: the first administrator the migrate command seeds for the partners auth cannot sign in"
-	tests := []struct {
-		name    string
-		results []check.Result
-		want    string
-	}{
-		{
-			name:    "the check refuses the first administrator",
-			results: []check.Result{{Name: "session-tables", Status: check.Pass}, {Name: firstAdministratorCheck, Status: check.Fail, Summary: "1 auth(s) seed a first administrator who cannot sign in", Details: []string{finding}}},
-			want:    "\nWith the Open sign-up starting point written, the migrate command would seed a first administrator who cannot sign in, which impulse check refuses (first-administrator). What to do next, in the check's words:\n  - " + finding + "\n",
-		},
-		{name: "the check passes", results: []check.Result{{Name: firstAdministratorCheck, Status: check.Pass}}},
-		{name: "the check is skipped", results: []check.Result{{Name: firstAdministratorCheck, Status: check.Skip}}},
-		{name: "another check fails", results: []check.Result{{Name: "session-tables", Status: check.Fail, Details: []string{"a table is missing"}}}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			var out strings.Builder
-			start.writeHeld(&out, tt.results)
-			if out.String() != tt.want {
-				t.Errorf("writeHeld() mismatch (-want +got):\n%s", cmp.Diff(tt.want, out.String()))
-			}
-		})
-	}
-
-	// The check the starting point answers for is one impulse check runs, under the name
-	// the command reads its result by.
-	named := false
-	for _, c := range check.All() {
-		named = named || c.Name() == firstAdministratorCheck
-	}
-	if !named {
-		t.Errorf("impulse check runs no check named %q; the starting point reads its result by that name", firstAdministratorCheck)
 	}
 }

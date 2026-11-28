@@ -1,11 +1,13 @@
 import { ApplicationRef } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { ActivatedRoute, convertToParamMap } from '@angular/router';
+import { ActivatedRoute, convertToParamMap, provideRouter, Router } from '@angular/router';
+import { RouterTestingHarness } from '@angular/router/testing';
 import {
   ApiDescriptor,
   createClient,
   LoginMethod,
   LoginMethods,
+  MAILED_LINK_KINDS,
   TransportRequest,
   TransportResponse,
 } from '@impulseframework/resource';
@@ -19,8 +21,8 @@ import { of } from 'rxjs';
 import packageJson from '../package.json';
 import {
   LoginMethodsComponent,
+  NO_PASSWORD_CONFIRMATION,
   PAGE_OLDER_THAN_SERVER,
-  PASSWORDS_DIFFER,
   SIGN_IN_STEPS,
 } from './login-methods.component';
 
@@ -31,7 +33,9 @@ import {
 // the list names, with a cancel back to the list. A session that must change its password
 // gets the change form in the list's place, posting to the change path the list names, and
 // the page recorded at the sign-in is emitted once the change is accepted. The mailed links
-// arrive here with their token: an invitation is opened and stands over the list until a
+// arrive here with their token in the address's fragment, which the component takes out of
+// the address before its first request and posts in a request's body; a parameter of a
+// link's name in the address's query is not a link, and the page reads none there: an invitation is opened and stands over the list until a
 // sign-in, an acceptance or an account with a password accepts it, and one the browser is
 // found carrying, with no token in the URL, stands the same way; a sign-up link opens the
 // account form; a confirmation link is posted once a session stands. The component ends no
@@ -87,7 +91,13 @@ const pendingRoutes = {
   enrollEmail: '/console/api/user/pending/email',
 };
 const changePath = '/console/api/user/password/change';
-const consoleList: LoginMethods = { methods: [password, google], pending: pendingRoutes, changePassword: changePath };
+const strengthPath = '/console/api/user/password/strength';
+const consoleList: LoginMethods = {
+  methods: [password, google],
+  pending: pendingRoutes,
+  changePassword: changePath,
+  passwordStrength: strengthPath,
+};
 const invitationRoutes = {
   open: '/console/api/user/invitation',
   accept: '/console/api/user/invitation/accept',
@@ -99,6 +109,12 @@ const signUpRoutes = {
   open: '/console/api/user/sign-up/open',
   complete: '/console/api/user/sign-up/complete',
 };
+const resetRoutes = {
+  request: '/console/api/user/password-reset',
+  open: '/console/api/user/password-reset/open',
+  complete: '/console/api/user/password-reset/complete',
+};
+const emailConfirmRoute = '/console/api/user/email/confirm';
 /** The list of a server that sends mail: invitations, the address step and an open sign-up. */
 const mailingList: LoginMethods = {
   ...consoleList,
@@ -106,15 +122,25 @@ const mailingList: LoginMethods = {
   email: emailRoutes,
   signUp: signUpRoutes,
 };
+/**
+ * What opening an invitation answers for a person nobody holds an account for, whom the
+ * Google registration could admit.
+ */
 const invited = {
   email: 'ensign@fleet.example',
+  name: '',
   tenantId: '5d1c8e2a-7b3f-4a9e-b6d0-2c4f8a1e9b37',
   tenantName: 'Anvil',
   expiresAt: '2026-10-30T12:00:00Z',
   signUp: true,
   usernameIsEmail: false,
+  methods: ['google'],
+  accountExists: false,
+  hasPassword: false,
 };
-const dead = { status: 404, body: { message: 'the link has expired or was already used' } };
+/** The same invitation for a person whose account holds the address and signs in with a password. */
+const invitedHolder = { ...invited, accountExists: true, hasPassword: true };
+const dead = { status: 404, body: { message: 'That link has expired or was already used. Ask for a new one' } };
 const waiting = {
   reason: 'confirmation',
   email: 'nova@fleet.example',
@@ -123,6 +149,19 @@ const waiting = {
 };
 /** What the send and enrollment routes answer: the masked address the code went to, and when it stops being accepted. */
 const codeMailed = { codeEmail: 'n•••@fleet.example', codeSent: true, codeExpiresAt: '2026-10-17T12:10:00Z' };
+/**
+ * The step a sign-in that accepts an invitation waits on where it does not prove the
+ * invited address: the code goes to the invited address, which the status names masked,
+ * and nobody types one.
+ */
+const invitedCodeStep = {
+  reason: 'mfa',
+  email: '',
+  expiresAt: '2026-10-17T12:10:00Z',
+  returnUrl: '',
+  factors: ['email-code'],
+  emailCode: { codeEmail: 'n•••@fleet.example', codeSent: false },
+};
 
 /** What the server answers each route with; a spec changes an entry to script a step. */
 interface Server {
@@ -135,6 +174,8 @@ interface Server {
   enrollEmail: TransportResponse;
   /** What the change route answers; a server that accepts the change also clears the mark. */
   change: TransportResponse;
+  /** What the strength route answers about every password: strong enough by default. */
+  strength: TransportResponse;
   invitationOpen: TransportResponse;
   invitationAccept: TransportResponse;
   invitationSignUp: TransportResponse;
@@ -142,13 +183,21 @@ interface Server {
   signUpStart: TransportResponse;
   signUpOpen: TransportResponse;
   signUpComplete: TransportResponse;
+  resetRequest: TransportResponse;
+  resetOpen: TransportResponse;
+  resetComplete: TransportResponse;
+  emailConfirm: TransportResponse;
   authenticated: boolean;
-  /** The session's operator-set password must change before anything else is served. */
+  /** An administrator required a new password, which the person chooses before anything else is served. */
   passwordChangeRequired: boolean;
   /** The browser arrives signed in: the session read answers authenticated before any sign-in. */
   arrivesSignedIn: boolean;
   /** The address the signed-in account holds, as the session read answers it; none by default. */
   sessionEmail?: string;
+  /** The signed-in person's name, as the session read answers it; none by default. */
+  sessionName?: string;
+  /** The signed-in account has not confirmed the address it holds; an address is confirmed by default. */
+  sessionEmailUnconfirmed?: boolean;
 }
 
 function server(overrides: Partial<Server> = {}): Server {
@@ -161,11 +210,17 @@ function server(overrides: Partial<Server> = {}): Server {
     verifyCode: { status: 200, body: { mfaIsRequired: false } },
     enrollEmail: { status: 200, body: codeMailed },
     change: { status: 200, body: undefined },
+    strength: { status: 200, body: { strongEnough: true, strength: 80, minimum: 50 } },
     invitationOpen: { status: 200, body: invited },
     invitationAccept: { status: 200, body: { accepted: true } },
-    invitationSignUp: { status: 200, body: { mfaIsRequired: false } },
+    // The link proves nothing of who holds it: the sign-up makes nobody and waits for the code.
+    invitationSignUp: { status: 200, body: { mfaIsRequired: true } },
     emailVerify: { status: 200, body: { email: 'pax@fleet.example' } },
     signUpStart: { status: 200, body: {} },
+    resetRequest: { status: 200, body: {} },
+    resetOpen: { status: 200, body: { username: 'mate' } },
+    resetComplete: { status: 200, body: { username: 'mate' } },
+    emailConfirm: { status: 200, body: { email: 'mate@harbor.example' } },
     signUpOpen: { status: 200, body: { email: 'rookie@fleet.example', usernameIsEmail: false } },
     signUpComplete: { status: 200, body: { mfaIsRequired: false } },
     authenticated: true,
@@ -201,6 +256,14 @@ function transportOf(state: Server): ScriptedTransport {
         return state.emailVerify;
       case `POST ${signUpRoutes.start}`:
         return state.signUpStart;
+      case `POST ${resetRoutes.request}`:
+        return state.resetRequest;
+      case `POST ${resetRoutes.open}`:
+        return state.resetOpen;
+      case `POST ${resetRoutes.complete}`:
+        return state.resetComplete;
+      case `POST ${emailConfirmRoute}`:
+        return state.emailConfirm;
       case `POST ${signUpRoutes.open}`:
         return state.signUpOpen;
       case `POST ${signUpRoutes.complete}`:
@@ -222,6 +285,8 @@ function transportOf(state: Server): ScriptedTransport {
           state.passwordChangeRequired = false;
         }
         return state.change;
+      case `POST ${strengthPath}`:
+        return state.strength;
       case 'GET /console/api/user/session':
         return {
           status: 200,
@@ -230,6 +295,8 @@ function transportOf(state: Server): ScriptedTransport {
             username: 'overseer',
             passwordChangeRequired: state.passwordChangeRequired,
             ...(state.sessionEmail === undefined ? {} : { email: state.sessionEmail }),
+            ...(state.sessionName === undefined ? {} : { name: state.sessionName }),
+            emailVerified: state.sessionEmail !== undefined && state.sessionEmailUnconfirmed !== true,
           },
         };
       case 'DELETE /console/api/user/session':
@@ -254,18 +321,31 @@ interface Page {
   transport: ScriptedTransport;
   /** Where the component sent the browser, in order. */
   left: string[];
+  /** How many times the component took a mailed link out of the address. */
+  dropped: number;
   signedIn: string[];
   cancelled: number;
   settle(): Promise<void>;
   element: HTMLElement;
 }
 
-/** The component over the transport, arrived with the query, before its first change detection. */
+/**
+ * The component over the transport, arrived at an address, before its first change
+ * detection. `address` is what the address carries, by name. A mailed link's token, named
+ * by its kind (invitation, signUp, reset, address, verify), is in the fragment, where the
+ * server writes it; everything else is in the query. With `inQuery` the token is in the
+ * query instead, under the link's name, where the server writes none.
+ */
 async function mount(
   transport: ScriptedTransport,
-  query: Record<string, string> = {},
+  address: Record<string, string> = {},
   inputs: Record<string, unknown> = {},
+  inQuery = false,
 ): Promise<Page> {
+  const kinds: readonly string[] = MAILED_LINK_KINDS;
+  const linked = Object.entries(address).filter(([name]) => kinds.includes(name) && !inQuery);
+  const query = Object.fromEntries(Object.entries(address).filter(([name]) => !kinds.includes(name) || inQuery));
+  const fragment = linked.length === 0 ? null : new URLSearchParams(linked).toString();
   const params = convertToParamMap(query);
   await TestBed.configureTestingModule({
     imports: [LoginMethodsComponent],
@@ -274,7 +354,10 @@ async function mount(
         transport,
         client: (t) => createClient(descriptor, { baseUrl: '/console/api', transport: t }),
       }),
-      { provide: ActivatedRoute, useValue: { queryParamMap: of(params), snapshot: { queryParamMap: params } } },
+      {
+        provide: ActivatedRoute,
+        useValue: { queryParamMap: of(params), snapshot: { queryParamMap: params, fragment } },
+      },
     ],
   }).compileComponents();
   const fixture = TestBed.createComponent(LoginMethodsComponent);
@@ -293,6 +376,7 @@ async function mount(
     component,
     transport,
     left,
+    dropped: 0,
     signedIn,
     cancelled: 0,
     element: fixture.nativeElement as HTMLElement,
@@ -303,21 +387,50 @@ async function mount(
     },
   };
   component.cancelled.subscribe(() => page.cancelled++);
+  // The route is a stub the router cannot navigate on: the call is counted, with the
+  // requests made by then, and the address itself is proved over a real router below.
+  vi.spyOn(component as unknown as { dropLink(): Promise<void> }, 'dropLink').mockImplementation(() => {
+    page.dropped++;
+    droppedBefore.push(transport.requests.length);
+    return Promise.resolve();
+  });
   return page;
 }
 
-/** The component over the server, arrived with the query, settled. */
+/** For each mailed link a spec's pages took out of the address, how many requests the page had made by then. */
+const droppedBefore: number[] = [];
+
+/** The component over the server, arrived at the address, settled. */
 async function pageOver(
   state: Server,
-  query: Record<string, string> = {},
+  address: Record<string, string> = {},
   inputs: Record<string, unknown> = {},
+  inQuery = false,
 ): Promise<Page> {
-  const page = await mount(transportOf(state), query, inputs);
+  const page = await mount(transportOf(state), address, inputs, inQuery);
   await page.settle();
   return page;
 }
 
 const sent = (transport: ScriptedTransport): string[] => transport.requests.map((r) => `${r.method} ${r.url}`);
+/** The bodies of the questions about a new password's strength, in order. */
+const strengthAsked = (transport: ScriptedTransport): unknown[] =>
+  transport.requests.filter((r) => r.method === 'POST' && r.url === strengthPath).map((r) => r.body);
+
+/**
+ * Types into the page's box of that name, once the page has drawn what it was last told to,
+ * as a person types: a field the page binds to a box follows what is typed there, and the new
+ * password's question is asked about what is in its box, never about a field set in code.
+ */
+async function typeInto(page: Page, name: string, typed: string): Promise<void> {
+  await page.settle();
+  const box = page.element.querySelector<HTMLInputElement>(`input[name="${name}"]`);
+  if (!box) {
+    throw new Error(`no ${name} box`);
+  }
+  box.value = typed;
+  box.dispatchEvent(new Event('input'));
+}
 
 /** Mounts the application under a path for one spec, the way a base href does, and unmounts it afterwards. */
 function mountedAt(href: string): () => void {
@@ -338,6 +451,7 @@ const buttonClasses = [
   'impulse-login-redirect',
   'impulse-login-different-account',
   'impulse-login-create-account',
+  'impulse-login-existing-account',
   'impulse-login-sign-up',
 ];
 /** The buttons on screen, top to bottom, each named by its class. */
@@ -530,8 +644,11 @@ describe('LoginMethodsComponent signs in with the password', () => {
     },
     {
       name: "a wrong password shows the server's words",
-      answer: { status: 401, body: { message: 'Invalid Credentials' } },
-      want: 'Invalid Credentials',
+      answer: {
+        status: 401,
+        body: { message: 'The username or password is wrong. Check what you entered and try again' },
+      },
+      want: 'The username or password is wrong. Check what you entered and try again',
     },
     {
       name: "a refusal with a code the application holds no sentence for shows the server's words",
@@ -572,6 +689,24 @@ describe('LoginMethodsComponent signs in with the password', () => {
       want: DEFAULT_LOGIN_MESSAGES['too_many_attempts'],
     },
   ];
+  it('tells a person a directory-only organization refused what is true of how they signed in', async () => {
+    // After a password: the organization does not sign in with one here.
+    const password = await pageOver(
+      server({ login: { status: 401, body: { message: 'Sign-in denied', code: 'directory_only' } } }),
+    );
+    await signIn(password, 'overseer', 'right');
+    expect(messageOf(password)).toBe(
+      'Your organization does not sign in with a password here. Please sign in the way your organization has set up.',
+    );
+    TestBed.resetTestingModule();
+    // After Google or Microsoft with a personal account: no password was used, so none is named.
+    const personal = await pageOver(server(), { code: 'directory_only_personal_account' });
+    expect(messageOf(personal)).toBe(
+      "Your organization admits only people who sign in with the account it gave them. Sign in with your organization's account, not a personal one.",
+    );
+    expect(messageOf(personal)).not.toContain('password');
+  });
+
   for (const tt of refusals) {
     it(tt.name, async () => {
       const page = await pageOver(server({ login: tt.answer }));
@@ -590,12 +725,20 @@ describe('LoginMethodsComponent signs in with the password', () => {
   }
 
   it("a refusal's sentence replaces the one the URL carried, and a later sign-in clears it", async () => {
-    const page = await pageOver(server({ login: { status: 401, body: { message: 'Invalid Credentials' } } }), {
-      code: 'no_roles',
-    });
+    const page = await pageOver(
+      server({
+        login: {
+          status: 401,
+          body: { message: 'The username or password is wrong. Check what you entered and try again' },
+        },
+      }),
+      {
+        code: 'no_roles',
+      },
+    );
     expect(messageOf(page)).toBe(DEFAULT_LOGIN_MESSAGES['no_roles']);
     await signIn(page, 'overseer', 'wrong');
-    expect(messageOf(page)).toBe('Invalid Credentials');
+    expect(messageOf(page)).toBe('The username or password is wrong. Check what you entered and try again');
   });
 
   it("a server fault shows the server's words in place and leaves the form", async () => {
@@ -955,6 +1098,57 @@ describe('LoginMethodsComponent renders the pending step', () => {
     });
   }
 
+  describe('on a server with no password sign-in, whose list names no confirmation route', () => {
+    const directoryList: LoginMethods = {
+      methods: [google],
+      pending: {
+        status: pendingRoutes.status,
+        cancel: pendingRoutes.cancel,
+        sendCode: pendingRoutes.sendCode,
+        verifyCode: pendingRoutes.verifyCode,
+        enrollEmail: pendingRoutes.enrollEmail,
+      },
+    };
+
+    it('a sign-in that waits for the mailed code shows the code form', async () => {
+      const body = { ...waiting, reason: 'mfa', factors: ['email-code'], emailCode: { ...codeMailed } };
+      const page = await pageOver(server({ methods: directoryList, status: { status: 200, body } }), {
+        pending: 'mfa',
+      });
+      expect(page.component.confirmOffered()).toBe(false);
+      expect(page.element.querySelector('input[name="code"]')).not.toBeNull();
+      expect(page.element.querySelector('input[name="confirmation"]')).toBeNull();
+      expect(page.element.querySelector('button.impulse-login-cancel')).not.toBeNull();
+    });
+
+    it('a sign-in that waits for a password offers no password form, says why, and posts nothing but the cancel', async () => {
+      const page = await pageOver(server({ methods: directoryList, status: { status: 200, body: waiting } }), {
+        pending: 'confirmation',
+      });
+      expect(page.element.querySelector('input[name="confirmation"]')).toBeNull();
+      expect(page.element.querySelector('.impulse-login-pending-note')?.textContent?.trim()).toBe(
+        NO_PASSWORD_CONFIRMATION,
+      );
+      page.component.confirmation = 'lodestar';
+      await page.component.confirm();
+      expect(sent(page.transport)).toEqual(['GET /console/api/user/methods', 'GET /console/api/user/pending']);
+      expect(page.element.querySelector('button.impulse-login-cancel')).not.toBeNull();
+      await page.component.cancel();
+      expect(sent(page.transport).slice(2)).toEqual([
+        'GET /console/api/user/methods',
+        'POST /console/api/user/pending/cancel',
+      ]);
+    });
+  });
+
+  it('a list that names the confirmation route offers the password form', async () => {
+    const page = await pageOver(server({ status: { status: 200, body: waiting } }), { pending: 'confirmation' });
+    expect(page.component.confirmOffered()).toBe(true);
+    expect(page.element.querySelector('.impulse-login-pending-note')?.textContent?.trim()).not.toBe(
+      NO_PASSWORD_CONFIRMATION,
+    );
+  });
+
   it('declares the steps it renders in the package as in the code', () => {
     expect(packageJson.impulseframework.signInSteps).toEqual([...SIGN_IN_STEPS]);
   });
@@ -1031,12 +1225,15 @@ describe('LoginMethodsComponent renders the pending step', () => {
     const page = await pageOver(
       server({
         status: { status: 200, body: waiting },
-        confirm: { status: 401, body: { message: 'Invalid Credentials' } },
+        confirm: {
+          status: 401,
+          body: { message: 'The username or password is wrong. Check what you entered and try again' },
+        },
       }),
       { pending: 'confirmation' },
     );
     await confirmWith(page, 'wrong');
-    expect(messageOf(page)).toBe('Invalid Credentials');
+    expect(messageOf(page)).toBe('The username or password is wrong. Check what you entered and try again');
     expect(page.component.pending()).toEqual(waiting);
     expect(page.element.querySelector('input[name="confirmation"]')).not.toBeNull();
   });
@@ -1116,22 +1313,28 @@ describe('LoginMethodsComponent renders the pending step', () => {
 });
 
 describe('LoginMethodsComponent runs the sign-in code step', () => {
-  /** The sign-in waits for the code; none stands yet, and the account holds an address. */
+  /**
+   * The sign-in waits for the code; none stands yet, and the account holds an address. The
+   * application remembers browsers, so the step offers it.
+   */
   const codeStep = {
     ...waiting,
     reason: 'mfa',
     factors: ['email-code'],
-    emailCode: { codeEmail: 'n•••@fleet.example', codeSent: false },
+    emailCode: { codeEmail: 'n•••@fleet.example', codeSent: false, rememberOffered: true },
   };
   /** A code stands, as after a reload of the step. */
-  const standing = { ...codeStep, emailCode: codeMailed };
+  const standing = { ...codeStep, emailCode: { ...codeMailed, rememberOffered: true } };
+  /** A code stands where an administrator turned remembering off: the server leaves the field out. */
+  const standingNotRemembered = { ...codeStep, emailCode: codeMailed };
   /** The account holds no address: one is asked for before a code can be sent. */
-  const noAddress = { ...codeStep, emailCode: { enrollEmail: true, codeSent: false } };
+  const noAddress = { ...codeStep, emailCode: { enrollEmail: true, codeSent: false, rememberOffered: true } };
   const mailed = {
     codeEmail: 'n•••@fleet.example',
     enrollEmail: false,
     codeSent: true,
     codeExpiresAt: '2026-10-17T12:10:00Z',
+    rememberOffered: true,
   };
   const noteOf = (page: Page): string | null =>
     page.element.querySelector('.impulse-login-pending-note')?.textContent?.trim() ?? null;
@@ -1314,6 +1517,27 @@ describe('LoginMethodsComponent runs the sign-in code step', () => {
     expect(page.transport.requests[3].body).toEqual({ code: '123456', rememberDevice: false });
   });
 
+  it('draws "Remember this browser" while the step offers it', async () => {
+    const page = await pageOver(server({ status: { status: 200, body: standing } }), { pending: 'mfa' });
+    expect(page.element.querySelector('.impulse-login-remember')?.textContent?.trim()).toBe('Remember this browser');
+  });
+
+  it('draws no "Remember this browser" where the step does not offer it, and posts false whatever the box held', async () => {
+    const page = await pageOver(server({ status: { status: 200, body: standingNotRemembered } }), { pending: 'mfa' });
+    expect(page.element.querySelector('input[name="code"]')).not.toBeNull();
+    expect(page.element.querySelector('.impulse-login-remember')).toBeNull();
+    await enterCode(page, '123456', true);
+    expect(page.transport.requests[3].body).toEqual({ code: '123456', rememberDevice: false });
+  });
+
+  it('keeps the offer of the step it had when a new code is sent', async () => {
+    const page = await pageOver(server({ status: { status: 200, body: standingNotRemembered } }), { pending: 'mfa' });
+    await page.component.sendCode();
+    await page.settle();
+    expect(page.component.pending()?.emailCode?.rememberOffered).toBe(false);
+    expect(page.element.querySelector('.impulse-login-remember')).toBeNull();
+  });
+
   const wrongCodes: { name: string; answer: TransportResponse; want: string }[] = [
     {
       name: 'a wrong code shows its sentence and keeps the form',
@@ -1482,7 +1706,7 @@ describe('LoginMethodsComponent runs the sign-in code step', () => {
   });
 });
 
-describe('LoginMethodsComponent changes a password the operator set', () => {
+describe('LoginMethodsComponent changes a password when an administrator required a new one', () => {
   async function signIn(page: Page): Promise<void> {
     page.component.username = 'overseer';
     page.component.password = 'lodestar';
@@ -1490,10 +1714,11 @@ describe('LoginMethodsComponent changes a password the operator set', () => {
     await page.settle();
   }
 
-  async function change(page: Page, oldPassword: string, newPassword: string, again = newPassword): Promise<void> {
-    page.component.oldPassword = oldPassword;
-    page.component.newPassword = newPassword;
-    page.component.newPasswordAgain = again;
+  /** Types the two passwords, waits for the server's word on the new one, and posts the form. */
+  async function change(page: Page, oldPassword: string, newPassword: string): Promise<void> {
+    await typeInto(page, 'oldPassword', oldPassword);
+    await typeInto(page, 'newPassword', newPassword);
+    await page.settle();
     await page.component.changePassword();
     await page.settle();
   }
@@ -1507,24 +1732,16 @@ describe('LoginMethodsComponent changes a password the operator set', () => {
     await signIn(page);
     expect(page.signedIn).toEqual([]);
     expect(page.component.changing()).toBe(true);
-    expect(fieldsOf(page)).toEqual(['oldPassword', 'newPassword', 'newPasswordAgain']);
+    expect(fieldsOf(page)).toEqual(['oldPassword', 'newPassword']);
     expect(buttonsOf(page)).toEqual([]);
+    // The sentence says what happened: an administrator asked for a new password, and
+    // nobody but the person ever set one.
     expect(page.element.querySelector('.impulse-login-change-note')?.textContent?.trim()).toBe(
-      DEFAULT_LOGIN_MESSAGES['password_change_required'],
+      'An administrator asked you to choose a new password. Choose one to continue.',
     );
     expect(sent(page.transport)).not.toContain('GET /console/api/permission-digest');
     expect(TestBed.inject(AuthService).authenticated()).toBe(true);
     expect(page.component.password).toBe('');
-  });
-
-  it('two new passwords that differ are refused on the page, with no request', async () => {
-    const page = await pageOver(server({ passwordChangeRequired: true }));
-    await signIn(page);
-    const before = sent(page.transport).length;
-    await change(page, 'lodestar', 'anvil-run-9', 'anvil-run-8');
-    expect(sent(page.transport)).toHaveLength(before);
-    expect(messageOf(page)).toBe(PASSWORDS_DIFFER);
-    expect(page.component.changing()).toBe(true);
   });
 
   it('a change the server accepts reads the list again, posts to the change path, checks the session and emits the page recorded at the sign-in', async () => {
@@ -1534,10 +1751,14 @@ describe('LoginMethodsComponent changes a password the operator set', () => {
     const before = sent(page.transport).length;
     await change(page, 'lodestar', 'anvil-run-9');
     const requests = sent(page.transport).slice(before);
-    expect(requests.slice(0, 2)).toEqual(['GET /console/api/user/methods', `POST ${changePath}`]);
-    expect(page.transport.requests[before + 1].body).toEqual({ oldPassword: 'lodestar', newPassword: 'anvil-run-9' });
-    expect(requests.slice(2)).toContain('GET /console/api/user/session');
-    expect(requests.slice(2)).toContain('GET /console/api/permission-digest');
+    expect(requests.slice(0, 3)).toEqual([
+      `POST ${strengthPath}`,
+      'GET /console/api/user/methods',
+      `POST ${changePath}`,
+    ]);
+    expect(page.transport.requests[before + 2].body).toEqual({ oldPassword: 'lodestar', newPassword: 'anvil-run-9' });
+    expect(requests.slice(3)).toContain('GET /console/api/user/session');
+    expect(requests.slice(3)).toContain('GET /console/api/permission-digest');
     expect(page.signedIn).toEqual(['/missions/m-7']);
     expect(page.component.changing()).toBe(false);
     expect(page.component.oldPassword).toBe('');
@@ -1568,7 +1789,7 @@ describe('LoginMethodsComponent changes a password the operator set', () => {
     });
   }
 
-  it('cancelling the change ends the session, shows the list again and emits cancelled', async () => {
+  it('canceling the change ends the session, shows the list again and emits cancelled', async () => {
     const page = await pageOver(server({ passwordChangeRequired: true }));
     await signIn(page);
     await page.component.cancelChange();
@@ -1603,7 +1824,7 @@ describe('LoginMethodsComponent opens an invitation', () => {
   const titleOf = (page: Page): string | null =>
     page.element.querySelector('.impulse-login-invitation-title')?.textContent?.trim() ?? null;
 
-  it('entered with ?invitation=, posts the token after the list and keeps the invitation over the list, checking for a session', async () => {
+  it('entered with #invitation=, posts the token after the list and keeps the invitation over the list, checking for a session', async () => {
     const page = await pageOver(server({ methods: mailingList }), { invitation: 'tok-1' });
     expect(sent(page.transport)).toEqual([
       'GET /console/api/user/methods',
@@ -1614,11 +1835,9 @@ describe('LoginMethodsComponent opens an invitation', () => {
     expect(page.transport.requests[2].body).toEqual({ token: 'tok-1' });
     expect(page.component.invitation()).toEqual(invited);
     expect(titleOf(page)).toBe("You're invited to Anvil");
-    // An older server did not say what holds the address: every path is offered, as before.
-    expect(noteOf(page)).toBe(
-      'The invitation is for ensign@fleet.example. Sign in to accept it, or create an account with a password.',
-    );
-    expect(page.element.querySelector('input[name="username"]')).not.toBeNull();
+    expect(noteOf(page)).toBe('The invitation is for ensign@fleet.example.');
+    // No account holds the address: the password form stays behind its button.
+    expect(page.element.querySelector('input[name="username"]')).toBeNull();
     // The invitation names the account: the button continues as it, and no "Use a different account" is offered.
     expect(buttonsOf(page)).toEqual(['Continue with Google as ensign@fleet.example']);
     expect(page.element.querySelector('.impulse-login-different-account')).toBeNull();
@@ -1629,20 +1848,31 @@ describe('LoginMethodsComponent opens an invitation', () => {
   });
 
   it('offers the account last, under the password form and the redirect buttons, where the open sign-up stands without an invitation', async () => {
-    const invited = await pageOver(server({ methods: mailingList }), { invitation: 'tok-1' });
-    expect(orderOf(invited)).toEqual([
+    const stranger = await pageOver(server({ methods: mailingList }), { invitation: 'tok-1' });
+    expect(orderOf(stranger)).toEqual([
+      'impulse-login-redirect',
+      'impulse-login-create-account',
+      'impulse-login-existing-account',
+    ]);
+    // The password form, once the person says they have an account, stands over both.
+    stranger.component.signInWithExistingAccount();
+    await stranger.settle();
+    expect(orderOf(stranger)).toEqual([
       'impulse-login-submit',
       'impulse-login-redirect',
       'impulse-login-create-account',
     ]);
     TestBed.resetTestingModule();
-    const signedIn = await pageOver(server({ methods: mailingList, arrivesSignedIn: true }), { invitation: 'tok-1' });
-    expect(orderOf(signedIn)).toEqual([
-      'impulse-login-accept',
-      'impulse-login-submit',
-      'impulse-login-redirect',
-      'impulse-login-create-account',
-    ]);
+    const signedIn = await pageOver(
+      server({
+        methods: mailingList,
+        invitationOpen: { status: 200, body: invitedHolder },
+        arrivesSignedIn: true,
+        sessionEmail: 'ensign@fleet.example',
+      }),
+      { invitation: 'tok-1' },
+    );
+    expect(orderOf(signedIn)).toEqual(['impulse-login-accept', 'impulse-login-submit', 'impulse-login-redirect']);
     TestBed.resetTestingModule();
     const open = await pageOver(server({ methods: mailingList }));
     expect(orderOf(open)).toEqual([
@@ -1671,7 +1901,7 @@ describe('LoginMethodsComponent opens an invitation', () => {
       { invitation: 'tok-1' },
     );
     expect(titleOf(page)).toBe("You're invited");
-    expect(noteOf(page)).toBe('The invitation is for ensign@fleet.example. Sign in to accept it.');
+    expect(noteOf(page)).toBe('The invitation is for ensign@fleet.example.');
     expect(page.element.querySelector('.impulse-login-create-account')).toBeNull();
   });
 
@@ -1693,9 +1923,9 @@ describe('LoginMethodsComponent opens an invitation', () => {
     expect(page.component.invitation()).toBeUndefined();
   });
 
-  it('a person found signed in is offered to accept it as they are; the acceptance posts, checks the session and emits the page', async () => {
+  it('a person found signed in as the account that holds the invited address is offered to accept it as they are; the acceptance posts, checks the session and emits the page', async () => {
     const page = await pageOver(
-      server({ methods: mailingList, arrivesSignedIn: true }),
+      server({ methods: mailingList, arrivesSignedIn: true, sessionEmail: invited.email }),
       { invitation: 'tok-1' },
       { home: '/dashboard' },
     );
@@ -1719,6 +1949,7 @@ describe('LoginMethodsComponent opens an invitation', () => {
       server({
         methods: mailingList,
         arrivesSignedIn: true,
+        sessionEmail: invited.email,
         invitationAccept: { status: 404, body: { message: 'the browser carries no live invitation' } },
       }),
       { invitation: 'tok-1' },
@@ -1730,7 +1961,7 @@ describe('LoginMethodsComponent opens an invitation', () => {
     expect(page.signedIn).toEqual([]);
   });
 
-  it('offers the acceptance to a signed-in account that holds the invited address, in any letter case, or no address', async () => {
+  it('offers the acceptance to a signed-in account that holds the invited address confirmed, in any letter case, and to none that holds no address or has not confirmed it', async () => {
     const holder = await pageOver(
       server({ methods: mailingList, arrivesSignedIn: true, sessionEmail: 'Ensign@Fleet.example' }),
       { invitation: 'tok-1' },
@@ -1742,8 +1973,72 @@ describe('LoginMethodsComponent opens an invitation', () => {
     const addressless = await pageOver(server({ methods: mailingList, arrivesSignedIn: true }), {
       invitation: 'tok-1',
     });
-    expect(addressless.component.acceptOffered()).toBe(true);
-    expect(addressless.element.querySelector('.impulse-login-accept')).not.toBeNull();
+    // The link proves nothing of who holds it: an account with no address accepts by the code, not by a click.
+    expect(addressless.component.acceptOffered()).toBe(false);
+    expect(addressless.element.querySelector('.impulse-login-accept')).toBeNull();
+    addressless.transport.requests.length = 0;
+    await addressless.component.accept();
+    expect(addressless.transport.requests).toEqual([]);
+    TestBed.resetTestingModule();
+    const unconfirmed = await pageOver(
+      server({
+        methods: mailingList,
+        arrivesSignedIn: true,
+        sessionEmail: invited.email,
+        sessionEmailUnconfirmed: true,
+        invitationOpen: { status: 200, body: { ...invited, methods: [], accountExists: true, hasPassword: true } },
+      }),
+      { invitation: 'tok-1' },
+    );
+    expect(unconfirmed.component.acceptOffered()).toBe(false);
+    expect(unconfirmed.component.signedInUnproven()).toBe('unconfirmed');
+    expect(unconfirmed.element.querySelector('.impulse-login-accept')).toBeNull();
+    expect(unconfirmed.element.querySelector('.impulse-login-signed-in-other')?.textContent?.trim()).toBe(
+      'You are signed in as overseer, and that account has not confirmed ensign@fleet.example yet. To accept this invitation, sign in again. A code will be sent to that address to confirm it is yours.',
+    );
+    // The account that holds the address signs in with a password: its form stands under the note.
+    expect(unconfirmed.element.querySelector('input[name="username"]')).not.toBeNull();
+    unconfirmed.transport.requests.length = 0;
+    await unconfirmed.component.accept();
+    expect(unconfirmed.transport.requests).toEqual([]);
+  });
+
+  it('tells a signed-in account that holds no address to sign in again for the code, over the password form, where a stranger would get the account form', async () => {
+    const state = server({
+      methods: mailingList,
+      arrivesSignedIn: true,
+      invitationOpen: { status: 200, body: { ...invited, methods: [], accountExists: false, hasPassword: false } },
+      login: { status: 200, body: { mfaIsRequired: true } },
+    });
+    const page = await pageOver(state, { invitation: 'tok-1' }, { home: '/dashboard' });
+    expect(page.component.signedInUnproven()).toBe('none');
+    expect(page.component.account()).toBeUndefined();
+    expect(page.element.querySelector('.impulse-login-accept')).toBeNull();
+    expect(page.element.querySelector('.impulse-login-signed-in-other')?.textContent?.trim()).toBe(
+      'You are signed in as overseer, and that account has no email address yet. To accept this invitation, sign in again. A code will be sent to ensign@fleet.example to confirm the address is yours.',
+    );
+    expect(page.element.querySelector('.impulse-login-password-note')?.textContent?.trim()).toBe(
+      'Sign in with your password to accept it.',
+    );
+    expect(page.element.querySelector('input[name="username"]')).not.toBeNull();
+    expect(buttonsOf(page)).toEqual([]);
+    expect(page.element.querySelector('.impulse-login-create-account')).toBeNull();
+    expect(page.element.querySelector('.impulse-login-existing-account')).toBeNull();
+    // The sign-in is held for the code, which the server mails to the invited address.
+    state.status = { status: 200, body: invitedCodeStep };
+    page.transport.requests.length = 0;
+    page.component.username = 'overseer';
+    page.component.password = 'lodestar';
+    await page.component.login();
+    await page.settle();
+    expect(sent(page.transport)).toContain('POST /console/api/user/pending/code');
+    expect(page.element.querySelector('input[name="code"]')).not.toBeNull();
+    expect(page.signedIn).toEqual([]);
+    page.component.signInCode = '482913';
+    await page.component.verifyCode();
+    await page.settle();
+    expect(page.signedIn).toEqual(['/dashboard']);
+    expect(page.component.invitation()).toBeUndefined();
   });
 
   it('tells a signed-in account that holds another address whose the invitation is, offering the ways to sign in as it and no acceptance', async () => {
@@ -1767,6 +2062,7 @@ describe('LoginMethodsComponent opens an invitation', () => {
       server({
         methods: mailingList,
         arrivesSignedIn: true,
+        sessionEmail: invited.email,
         invitationAccept: {
           status: 403,
           body: { message: 'This invitation is for ensign@fleet.example. Sign in with that account.' },
@@ -1781,13 +2077,40 @@ describe('LoginMethodsComponent opens an invitation', () => {
     expect(page.signedIn).toEqual([]);
   });
 
-  it('the account form takes a username and the password twice, posts them to the sign-up route and follows the sign-in', async () => {
-    const page = await pageOver(server({ methods: mailingList }), { invitation: 'tok-1' }, { home: '/dashboard' });
+  it("an acceptance the server refuses because the account has not confirmed the address after all shows the server's own sentence, which says what to do, the invitation and the password form still standing", async () => {
+    const sentence =
+      "To accept this invitation, sign in again from the invitation's link. A code will be sent to ensign@fleet.example to confirm the address is yours.";
+    const opened = { ...invited, methods: [], accountExists: true, hasPassword: true };
+    const page = await pageOver(
+      server({
+        methods: mailingList,
+        arrivesSignedIn: true,
+        sessionEmail: invited.email,
+        invitationOpen: { status: 200, body: opened },
+        invitationAccept: { status: 403, body: { message: sentence, code: 'invitation_address' } },
+      }),
+      { invitation: 'tok-1' },
+    );
+    await page.component.accept();
+    await page.settle();
+    expect(messageOf(page)).toBe(sentence);
+    expect(page.component.invitation()).toEqual(opened);
+    expect(page.element.querySelector('input[name="username"]')).not.toBeNull();
+    expect(page.signedIn).toEqual([]);
+  });
+
+  it('the account form takes a username and the password once, posts them to the sign-up route, and the code mailed to the invited address finishes it', async () => {
+    const page = await pageOver(
+      server({ methods: mailingList, status: { status: 200, body: invitedCodeStep } }),
+      { invitation: 'tok-1' },
+      { home: '/dashboard' },
+    );
     page.component.openAccountForm();
     await page.settle();
     expect(page.component.account()).toEqual({
       source: 'invitation',
       email: 'ensign@fleet.example',
+      name: '',
       usernameIsEmail: false,
     });
     expect(page.element.querySelector('input[name="accountUsername"]')).not.toBeNull();
@@ -1796,17 +2119,75 @@ describe('LoginMethodsComponent opens an invitation', () => {
       'Choose a username and a password for your account. ensign@fleet.example is its email address.',
     );
     page.transport.requests.length = 0;
-    page.component.accountUsername = 'ensign';
-    page.component.accountPassword = 'orbit-and-anchor';
-    page.component.accountPasswordAgain = 'orbit-and-anchor';
+    await typeInto(page, 'accountUsername', 'ensign');
+    await typeInto(page, 'newPassword', 'orbit-and-anchor');
+    await page.settle();
     await page.component.createAccount();
+    await page.settle();
+    // The link alone makes nobody: the server holds the sign-up, and the page has the code mailed.
+    expect(sent(page.transport)).toEqual([
+      `POST ${strengthPath}`,
+      'GET /console/api/user/methods',
+      `POST ${invitationRoutes.signUp}`,
+      'GET /console/api/user/pending',
+      'GET /console/api/user/methods',
+      'POST /console/api/user/pending/code',
+    ]);
+    expect(page.transport.requests[2].body).toEqual({ password: 'orbit-and-anchor', username: 'ensign' });
+    expect(page.signedIn).toEqual([]);
+    // The server took the password: the page holds it no longer.
+    expect(page.component.accountPassword).toBe('');
+    expect(page.element.querySelector('impulse-new-password')).toBeNull();
+    expect(page.element.querySelector('.impulse-login-pending-note')?.textContent?.trim()).toBe(
+      'We sent a sign-in code to n•••@fleet.example. Enter it to finish signing in.',
+    );
+    expect(page.element.querySelector('input[name="code"]')).not.toBeNull();
+    page.transport.requests.length = 0;
+    page.component.signInCode = '482913';
+    await page.component.verifyCode();
     await page.settle();
     expect(sent(page.transport).slice(0, 3)).toEqual([
       'GET /console/api/user/methods',
-      `POST ${invitationRoutes.signUp}`,
+      'POST /console/api/user/pending/code/verify',
       'GET /console/api/user/session',
     ]);
-    expect(page.transport.requests[1].body).toEqual({ password: 'orbit-and-anchor', username: 'ensign' });
+    expect(page.signedIn).toEqual(['/dashboard']);
+    expect(page.component.account()).toBeUndefined();
+    expect(page.component.invitation()).toBeUndefined();
+  });
+
+  it('a sign-up canceled at the code step returns to the account form, its passwords emptied and the invitation standing', async () => {
+    const page = await pageOver(server({ methods: mailingList, status: { status: 200, body: invitedCodeStep } }), {
+      invitation: 'tok-1',
+    });
+    page.component.openAccountForm();
+    await typeInto(page, 'accountUsername', 'ensign');
+    await typeInto(page, 'newPassword', 'orbit-and-anchor');
+    await page.settle();
+    await page.component.createAccount();
+    await page.settle();
+    expect(page.element.querySelector('input[name="code"]')).not.toBeNull();
+    await page.component.cancel();
+    await page.settle();
+    expect(page.component.pending()).toBeUndefined();
+    expect(page.component.invitation()).toEqual(invited);
+    expect(page.element.querySelector('impulse-new-password')).not.toBeNull();
+    expect(page.component.accountPassword).toBe('');
+    expect(page.signedIn).toEqual([]);
+  });
+
+  it('a sign-up the server answers with a session is followed as any sign-in', async () => {
+    const page = await pageOver(
+      server({ methods: mailingList, invitationSignUp: { status: 200, body: { mfaIsRequired: false } } }),
+      { invitation: 'tok-1' },
+      { home: '/dashboard' },
+    );
+    page.component.openAccountForm();
+    await typeInto(page, 'accountUsername', 'ensign');
+    await typeInto(page, 'newPassword', 'orbit-and-anchor');
+    await page.settle();
+    await page.component.createAccount();
+    await page.settle();
     expect(page.signedIn).toEqual(['/dashboard']);
     expect(page.component.account()).toBeUndefined();
     expect(page.component.accountPassword).toBe('');
@@ -1824,26 +2205,26 @@ describe('LoginMethodsComponent opens an invitation', () => {
       'Choose a password for your account. You will sign in as ensign@fleet.example.',
     );
     page.transport.requests.length = 0;
-    page.component.accountPassword = 'orbit-and-anchor';
-    page.component.accountPasswordAgain = 'orbit-and-anchor';
+    await typeInto(page, 'newPassword', 'orbit-and-anchor');
+    await page.settle();
     await page.component.createAccount();
-    expect(page.transport.requests[1].body).toEqual({ password: 'orbit-and-anchor' });
+    expect(sent(page.transport).slice(0, 3)).toEqual([
+      `POST ${strengthPath}`,
+      'GET /console/api/user/methods',
+      `POST ${invitationRoutes.signUp}`,
+    ]);
+    expect(page.transport.requests[2].body).toEqual({ password: 'orbit-and-anchor' });
   });
 
-  it('two passwords that differ are refused without a request; a taken name is shown on the form; a gone invitation returns to the list', async () => {
+  it('a taken name is shown on the form, the password the server called strong enough still in it; a gone invitation returns to the list', async () => {
     const state = server({ methods: mailingList });
     const page = await pageOver(state, { invitation: 'tok-1' });
     page.component.openAccountForm();
-    page.transport.requests.length = 0;
-    page.component.accountPassword = 'one';
-    page.component.accountPasswordAgain = 'two';
-    await page.component.createAccount();
+    await typeInto(page, 'newPassword', 'orbit-and-anchor');
     await page.settle();
-    expect(messageOf(page)).toBe(PASSWORDS_DIFFER);
-    expect(page.transport.requests).toEqual([]);
+    expect(page.component.strongEnough()).toBe(true);
 
     state.invitationSignUp = { status: 409, body: { message: 'the username is taken' } };
-    page.component.accountPasswordAgain = 'one';
     await page.component.createAccount();
     await page.settle();
     expect(messageOf(page)).toBe('the username is taken');
@@ -1858,7 +2239,7 @@ describe('LoginMethodsComponent opens an invitation', () => {
     expect(page.element.querySelector('input[name="username"]')).not.toBeNull();
   });
 
-  it('cancelling the account form shows the list with the invitation still standing, and emits cancelled', async () => {
+  it('canceling the account form shows the list with the invitation still standing, and emits cancelled', async () => {
     const page = await pageOver(server({ methods: mailingList }), { invitation: 'tok-1' });
     page.component.openAccountForm();
     page.component.cancelAccount();
@@ -1873,27 +2254,127 @@ describe('LoginMethodsComponent opens an invitation', () => {
       server({
         methods: mailingList,
         invitationOpen: { status: 200, body: { ...invited, methods: [], accountExists: false, hasPassword: false } },
+        status: { status: 200, body: invitedCodeStep },
       }),
       { invitation: 'tok-1' },
       { home: '/dashboard' },
     );
     expect(page.component.invitation()).toEqual({ ...invited, methods: [], accountExists: false, hasPassword: false });
-    expect(page.component.invitationPaths()).toEqual({ known: true, redirects: [], password: false, create: true });
-    expect(page.component.account()).toEqual({ source: 'invitation', email: invited.email, usernameIsEmail: false });
+    expect(page.component.invitationPaths()).toEqual({
+      redirects: [],
+      password: false,
+      create: true,
+      existing: true,
+    });
+    expect(page.component.account()).toEqual({
+      source: 'invitation',
+      email: invited.email,
+      name: '',
+      usernameIsEmail: false,
+    });
     expect(titleOf(page)).toBe("You're invited to Anvil");
     expect(page.element.querySelector('input[name="accountUsername"]')).not.toBeNull();
     expect(page.element.querySelector('.impulse-login-cancel')).toBeNull();
     page.transport.requests.length = 0;
-    page.component.accountUsername = 'ensign';
-    page.component.accountPassword = 'orbit-and-anchor';
-    page.component.accountPasswordAgain = 'orbit-and-anchor';
+    await typeInto(page, 'accountUsername', 'ensign');
+    await typeInto(page, 'newPassword', 'orbit-and-anchor');
+    await page.settle();
     await page.component.createAccount();
+    await page.settle();
+    page.component.signInCode = '482913';
+    await page.component.verifyCode();
     await page.settle();
     expect(page.signedIn).toEqual(['/dashboard']);
     expect(page.component.accountOpenedItself()).toBe(false);
   });
 
-  it('where the server says a directory admits the address, offers "Continue with … as …" alone, naming the account to the provider', async () => {
+  it('where people choose their username and no account holds the address, also offers the password form to a person who already has an account, behind a button, and that sign-in is held for the code', async () => {
+    const state = server({
+      methods: mailingList,
+      invitationOpen: { status: 200, body: { ...invited, methods: [], accountExists: false, hasPassword: false } },
+      login: { status: 200, body: { mfaIsRequired: true } },
+      status: { status: 404, body: { message: 'no pending sign-in' } },
+    });
+    const page = await pageOver(state, { invitation: 'tok-1' }, { home: '/dashboard' });
+    // The account form opened by itself, and the way to an account the person already has stands under it.
+    expect(page.component.account()).not.toBeUndefined();
+    const existing = page.element.querySelector<HTMLButtonElement>('.impulse-login-existing-account');
+    expect(existing?.textContent?.trim()).toBe('Sign in with an account you already have');
+    existing?.click();
+    await page.settle();
+    expect(page.component.account()).toBeUndefined();
+    expect(page.component.invitationPaths()).toEqual({
+      redirects: [],
+      password: true,
+      create: true,
+      existing: false,
+    });
+    expect(page.element.querySelector('.impulse-login-password-note')?.textContent?.trim()).toBe(
+      'Sign in with your password to accept it. A code will be sent to ensign@fleet.example to confirm the address is yours.',
+    );
+    expect(page.element.querySelector('input[name="username"]')).not.toBeNull();
+    // The account form is still a button away, and choosing it puts the password form back behind its own.
+    expect(orderOf(page)).toEqual(['impulse-login-submit', 'impulse-login-create-account']);
+    state.status = { status: 200, body: invitedCodeStep };
+    page.component.username = 'ensign';
+    page.component.password = 'lodestar';
+    await page.component.login();
+    await page.settle();
+    expect(sent(page.transport)).toContain('POST /console/api/user/pending/code');
+    expect(page.element.querySelector('input[name="code"]')).not.toBeNull();
+    page.component.signInCode = '482913';
+    await page.component.verifyCode();
+    await page.settle();
+    expect(page.signedIn).toEqual(['/dashboard']);
+  });
+
+  it('choosing the account form again puts the password form back behind its button', async () => {
+    const page = await pageOver(
+      server({
+        methods: mailingList,
+        invitationOpen: { status: 200, body: { ...invited, methods: [], accountExists: false, hasPassword: false } },
+      }),
+      { invitation: 'tok-1' },
+    );
+    page.component.signInWithExistingAccount();
+    await page.settle();
+    expect(page.element.querySelector('input[name="username"]')).not.toBeNull();
+    page.element.querySelector<HTMLButtonElement>('.impulse-login-create-account')?.click();
+    await page.settle();
+    expect(page.component.account()).not.toBeUndefined();
+    expect(page.component.signingInExisting()).toBe(false);
+    page.component.cancelAccount();
+    await page.settle();
+    expect(page.element.querySelector('input[name="username"]')).toBeNull();
+    expect(orderOf(page)).toEqual(['impulse-login-create-account', 'impulse-login-existing-account']);
+  });
+
+  it('offers no account the person already has where the username is the address, or where an account holds the invited address', async () => {
+    const addressed = await pageOver(
+      server({
+        methods: mailingList,
+        invitationOpen: {
+          status: 200,
+          body: { ...invited, usernameIsEmail: true, methods: [], accountExists: false, hasPassword: false },
+        },
+      }),
+      { invitation: 'tok-1' },
+    );
+    expect(addressed.component.invitationPaths()?.existing).toBe(false);
+    expect(addressed.element.querySelector('.impulse-login-existing-account')).toBeNull();
+    TestBed.resetTestingModule();
+    const held = await pageOver(
+      server({
+        methods: mailingList,
+        invitationOpen: { status: 200, body: { ...invited, methods: [], accountExists: true, hasPassword: true } },
+      }),
+      { invitation: 'tok-1' },
+    );
+    expect(held.component.invitationPaths()?.existing).toBe(false);
+    expect(held.element.querySelector('.impulse-login-existing-account')).toBeNull();
+  });
+
+  it('where no account holds the address and a directory admits it, offers "Continue with … as …", naming the account to the provider, and under it the account with a password, which a new person may choose instead', async () => {
     const page = await pageOver(
       server({
         methods: { ...mailingList, methods: [password, google, fleetGoogle] },
@@ -1906,14 +2387,80 @@ describe('LoginMethodsComponent opens an invitation', () => {
       { home: '/dashboard' },
     );
     expect(buttonsOf(page)).toEqual(['Continue with Fleet Google as ensign@fleet.example']);
+    // No account holds the address: no password is asked for until the person says they already have
+    // an account, which people who choose their username may, under the account with a password.
     expect(page.element.querySelector('input[name="username"]')).toBeNull();
-    expect(page.element.querySelector('.impulse-login-create-account')).toBeNull();
+    expect(orderOf(page)).toEqual([
+      'impulse-login-redirect',
+      'impulse-login-create-account',
+      'impulse-login-existing-account',
+    ]);
+    expect(page.element.querySelector('.impulse-login-create-account')?.textContent?.trim()).toBe(
+      'Create an account with a password',
+    );
     expect(page.element.querySelector('.impulse-login-different-account')).toBeNull();
+    // The form does not open by itself while another way stands.
     expect(page.component.account()).toBeUndefined();
     page.component.signInThrough(fleetGoogle);
     expect(page.left).toEqual([
       `/console/api/user/google-one/login?returnUrl=${encodeURIComponent('/dashboard')}&login_hint=${encodeURIComponent('ensign@fleet.example')}`,
     ]);
+  });
+
+  it('the account with a password, chosen beside a directory, opens the account form with a Cancel and creates the account from the invitation', async () => {
+    const page = await pageOver(
+      server({
+        methods: { ...mailingList, methods: [password, google, fleetGoogle] },
+        invitationOpen: {
+          status: 200,
+          body: { ...invited, methods: ['google-one'], accountExists: false, hasPassword: false },
+        },
+        status: { status: 200, body: invitedCodeStep },
+      }),
+      { invitation: 'tok-1' },
+      { home: '/dashboard' },
+    );
+    page.element.querySelector<HTMLButtonElement>('.impulse-login-create-account')?.click();
+    await page.settle();
+    expect(page.component.account()).toEqual({
+      source: 'invitation',
+      email: 'ensign@fleet.example',
+      name: '',
+      usernameIsEmail: false,
+    });
+    expect(page.component.accountOpenedItself()).toBe(false);
+    expect(page.element.querySelector('.impulse-login-cancel')).not.toBeNull();
+    page.transport.requests.length = 0;
+    await typeInto(page, 'accountUsername', 'ensign');
+    await typeInto(page, 'newPassword', 'orbit-and-anchor');
+    await page.settle();
+    await page.component.createAccount();
+    await page.settle();
+    const created = page.transport.requests.find((r) => r.url === invitationRoutes.signUp);
+    expect(created?.body).toEqual({ username: 'ensign', password: 'orbit-and-anchor' });
+    expect(page.signedIn).toEqual([]);
+    page.component.signInCode = '482913';
+    await page.component.verifyCode();
+    await page.settle();
+    expect(page.signedIn).toEqual(['/dashboard']);
+  });
+
+  it('a person found signed in as another account is not offered a new account: the invitation says whose it is', async () => {
+    const page = await pageOver(
+      server({
+        methods: { ...mailingList, methods: [password, google, fleetGoogle] },
+        arrivesSignedIn: true,
+        sessionEmail: 'overseer@fleet.example',
+        invitationOpen: {
+          status: 200,
+          body: { ...invited, methods: ['google-one'], accountExists: false, hasPassword: false },
+        },
+      }),
+      { invitation: 'tok-1' },
+    );
+    expect(page.component.signedInAs()).toBe('overseer');
+    expect(page.element.querySelector('.impulse-login-create-account')).toBeNull();
+    expect(page.component.account()).toBeUndefined();
   });
 
   it('where an account with a password holds the address, offers the password form, saying so, beside the directory button', async () => {
@@ -1953,20 +2500,22 @@ describe('LoginMethodsComponent opens an invitation', () => {
     expect(page.element.querySelector('.impulse-login-create-account')).toBeNull();
   });
 
-  it('a person found signed in is offered the acceptance alone, where a stranger would get the account form', async () => {
+  it('a person found signed in as the account that holds the address is offered the acceptance, and the password form of that account under it', async () => {
     const page = await pageOver(
       server({
         methods: mailingList,
         arrivesSignedIn: true,
-        invitationOpen: { status: 200, body: { ...invited, methods: [], accountExists: false, hasPassword: false } },
+        sessionEmail: invited.email,
+        invitationOpen: { status: 200, body: { ...invited, methods: [], accountExists: true, hasPassword: true } },
       }),
       { invitation: 'tok-1' },
     );
     expect(page.component.account()).toBeUndefined();
     expect(page.element.querySelector('.impulse-login-accept')?.textContent?.trim()).toBe('Accept as overseer');
-    expect(page.element.querySelector('input[name="username"]')).toBeNull();
+    expect(page.element.querySelector('input[name="username"]')).not.toBeNull();
     expect(buttonsOf(page)).toEqual([]);
     expect(page.element.querySelector('.impulse-login-create-account')).toBeNull();
+    expect(page.element.querySelector('.impulse-login-existing-account')).toBeNull();
   });
 });
 
@@ -1978,6 +2527,7 @@ describe('LoginMethodsComponent opens an invitation that makes a tenant', () => 
   /** What opening the invitation answers: no tenant exists yet, and the name is the one it will have. */
   const founding = {
     email: 'founder@dawn.example',
+    name: '',
     tenantId: '',
     tenantName: 'Dawn',
     newTenant: true,
@@ -2002,7 +2552,12 @@ describe('LoginMethodsComponent opens an invitation that makes a tenant', () => 
     expect(page.component.invitation()).toEqual({ ...founding, methods: [], accountExists: false, hasPassword: false });
     expect(titleOf(page)).toBe("You're invited to set up Dawn");
     // No account holds the address and no directory could admit it: the account form opened by itself, under the heading.
-    expect(page.component.account()).toEqual({ source: 'invitation', email: founding.email, usernameIsEmail: false });
+    expect(page.component.account()).toEqual({
+      source: 'invitation',
+      email: founding.email,
+      name: '',
+      usernameIsEmail: false,
+    });
     page.component.cancelAccount();
     await page.settle();
     expect(noteOf(page)).toBe('The invitation is for founder@dawn.example.');
@@ -2028,10 +2583,10 @@ describe('LoginMethodsComponent opens an invitation that makes a tenant', () => 
     expect(titleOf(holder)).toBe("You're invited to set up Dawn");
     expect(noteOf(holder)).toBe(`The invitation is for founder@dawn.example. ${organizationSentence}`);
     expect(holder.component.invitationPaths()).toEqual({
-      known: true,
       redirects: [google],
       password: false,
       create: false,
+      existing: false,
     });
     expect(holder.element.querySelector('input[name="username"]')).toBeNull();
     expect(holder.element.querySelector('.impulse-login-password-note')).toBeNull();
@@ -2051,23 +2606,29 @@ describe('LoginMethodsComponent opens an invitation that makes a tenant', () => 
     expect(stranger.element.querySelector('input[name="username"]')).toBeNull();
     expect(buttonsOf(stranger)).toEqual([]);
     TestBed.resetTestingModule();
-    // An older answer that says nothing of the account offers every path for any other
-    // invitation, and here the directory alone.
-    const unknown = await pageOver(
-      server({ methods: mailingList, invitationOpen: { status: 200, body: { ...closed, signUp: true } } }),
+    // An answer that names the sign-up for such an invitation still offers no account with a password.
+    const signUpNamed = await pageOver(
+      server({
+        methods: mailingList,
+        invitationOpen: {
+          status: 200,
+          body: { ...closed, signUp: true, methods: ['google'], accountExists: false, hasPassword: false },
+        },
+      }),
       { invitation: 'tok-1' },
     );
-    expect(unknown.element.querySelector('input[name="username"]')).toBeNull();
-    expect(unknown.element.querySelector('.impulse-login-create-account')).toBeNull();
-    unknown.component.openAccountForm();
-    await unknown.settle();
-    expect(unknown.component.account()).toBeUndefined();
-    expect(noteOf(unknown)).toBe(`The invitation is for founder@dawn.example. ${organizationSentence}`);
+    expect(signUpNamed.element.querySelector('input[name="username"]')).toBeNull();
+    expect(signUpNamed.element.querySelector('.impulse-login-create-account')).toBeNull();
+    signUpNamed.component.openAccountForm();
+    await signUpNamed.settle();
+    expect(signUpNamed.component.account()).toBeUndefined();
+    expect(noteOf(signUpNamed)).toBe(`The invitation is for founder@dawn.example. ${organizationSentence}`);
   });
 
   it('found carried by the browser after a refused sign-in, stands again with the refusal under it and still offers no password', async () => {
     const standing = {
       email: closed.email,
+      name: closed.name,
       tenantId: '',
       tenantName: 'Dawn',
       newTenant: true,
@@ -2105,6 +2666,7 @@ describe('LoginMethodsComponent opens an invitation that makes a tenant', () => 
       server({
         methods: mailingList,
         arrivesSignedIn: true,
+        sessionEmail: closed.email,
         invitationOpen: {
           status: 200,
           body: { ...closed, methods: ['google'], accountExists: true, hasPassword: true },
@@ -2128,6 +2690,7 @@ describe('LoginMethodsComponent opens an invitation that makes a tenant', () => 
       server({
         methods: mailingList,
         arrivesSignedIn: true,
+        sessionEmail: closed.email,
         invitationOpen: {
           status: 200,
           body: { ...closed, directoryOnly: false, methods: ['google'], accountExists: true, hasPassword: true },
@@ -2149,6 +2712,7 @@ describe('LoginMethodsComponent opens an invitation that makes a tenant', () => 
       server({
         methods: mailingList,
         arrivesSignedIn: true,
+        sessionEmail: closed.email,
         invitationOpen: {
           status: 200,
           body: { ...closed, directoryOnly: false, methods: ['google'], accountExists: true, hasPassword: true },
@@ -2168,10 +2732,14 @@ describe('LoginMethodsComponent finds the invitation the browser carries', () =>
   /** The invitation as the methods list names it under `invitation.standing`: what opening it answered, less `signUp`. */
   const standing = {
     email: invited.email,
+    name: invited.name,
     tenantId: invited.tenantId,
     tenantName: invited.tenantName,
     expiresAt: invited.expiresAt,
     usernameIsEmail: false,
+    methods: invited.methods,
+    accountExists: false,
+    hasPassword: false,
   };
   /** The list of a server whose browser carries the invitation. */
   const carryingList: LoginMethods = { ...mailingList, invitation: { ...invitationRoutes, standing } };
@@ -2182,19 +2750,26 @@ describe('LoginMethodsComponent finds the invitation the browser carries', () =>
     const page = await pageOver(server({ methods: carryingList }), { code: 'not_workspace_member' });
     expect(sent(page.transport)).toEqual(['GET /console/api/user/methods', 'GET /console/api/user/session']);
     expect(page.component.invitation()).toEqual(invited);
-    expect(noteOf(page)).toBe(
-      'The invitation is for ensign@fleet.example. Sign in to accept it, or create an account with a password.',
-    );
-    expect(page.element.querySelector('input[name="username"]')).not.toBeNull();
+    expect(noteOf(page)).toBe('The invitation is for ensign@fleet.example.');
+    expect(page.element.querySelector('input[name="username"]')).toBeNull();
     // The button continues as the invited account; after the refusal it also asks the provider for its chooser.
     expect(buttonsOf(page)).toEqual(['Continue with Google as ensign@fleet.example']);
-    expect(orderOf(page)).toEqual(['impulse-login-submit', 'impulse-login-redirect', 'impulse-login-create-account']);
+    expect(orderOf(page)).toEqual([
+      'impulse-login-redirect',
+      'impulse-login-create-account',
+      'impulse-login-existing-account',
+    ]);
     expect(page.element.querySelector('.impulse-login-sign-up')).toBeNull();
     expect(page.element.querySelector('.impulse-login-accept')).toBeNull();
     expect(messageOf(page)).toBe(DEFAULT_LOGIN_MESSAGES['not_workspace_member']);
     page.component.openAccountForm();
     await page.settle();
-    expect(page.component.account()).toEqual({ source: 'invitation', email: invited.email, usernameIsEmail: false });
+    expect(page.component.account()).toEqual({
+      source: 'invitation',
+      email: invited.email,
+      name: '',
+      usernameIsEmail: false,
+    });
   });
 
   it('offers no account where the block names no sign-up route, and the acceptance to a person found signed in', async () => {
@@ -2202,13 +2777,18 @@ describe('LoginMethodsComponent finds the invitation the browser carries', () =>
       server({
         methods: {
           ...mailingList,
-          invitation: { open: invitationRoutes.open, accept: invitationRoutes.accept, standing },
+          invitation: {
+            open: invitationRoutes.open,
+            accept: invitationRoutes.accept,
+            standing: { ...standing, accountExists: true, hasPassword: true },
+          },
         },
         arrivesSignedIn: true,
+        sessionEmail: invited.email,
       }),
     );
-    expect(page.component.invitation()).toEqual({ ...invited, signUp: false });
-    expect(noteOf(page)).toBe('The invitation is for ensign@fleet.example. Sign in to accept it.');
+    expect(page.component.invitation()).toEqual({ ...invitedHolder, signUp: false });
+    expect(noteOf(page)).toBe('The invitation is for ensign@fleet.example.');
     expect(page.element.querySelector('.impulse-login-create-account')).toBeNull();
     expect(page.element.querySelector('.impulse-login-accept')?.textContent?.trim()).toBe('Accept as overseer');
     // The session found standing is offered the acceptance, not Continue and Sign out.
@@ -2281,48 +2861,44 @@ describe('LoginMethodsComponent finds the invitation the browser carries', () =>
 describe('LoginMethodsComponent shows the directory buttons that could admit the invitee', () => {
   const standing = {
     email: invited.email,
+    name: invited.name,
     tenantId: invited.tenantId,
     tenantName: invited.tenantName,
     expiresAt: invited.expiresAt,
     usernameIsEmail: false,
+    methods: invited.methods,
+    accountExists: false,
+    hasPassword: false,
   };
   /** The list of a server with two Google registrations, whose browser carries the invitation, named as `methods` says. */
-  const listNaming = (methods?: readonly string[]): LoginMethods => ({
+  const listNaming = (methods: readonly string[]): LoginMethods => ({
     ...mailingList,
     methods: [password, google, fleetGoogle],
-    invitation: {
-      ...invitationRoutes,
-      standing: methods === undefined ? standing : { ...standing, methods },
-    },
+    invitation: { ...invitationRoutes, standing: { ...standing, methods } },
   });
-  const noteOf = (page: Page): string | null =>
-    page.element.querySelector('.impulse-login-invitation-note')?.textContent?.trim() ?? null;
 
-  it('shows only the registrations the standing invitation names, the password form and the account staying', async () => {
+  it('shows only the registrations the standing invitation names, the account staying', async () => {
     const page = await pageOver(server({ methods: listNaming(['google-one']) }));
     expect(page.component.invitation()).toEqual({ ...invited, methods: ['google-one'] });
     expect(buttonsOf(page)).toEqual(['Continue with Fleet Google as ensign@fleet.example']);
-    expect(page.element.querySelector('input[name="username"]')).not.toBeNull();
-    expect(orderOf(page)).toEqual(['impulse-login-submit', 'impulse-login-redirect', 'impulse-login-create-account']);
+    expect(orderOf(page)).toEqual([
+      'impulse-login-redirect',
+      'impulse-login-create-account',
+      'impulse-login-existing-account',
+    ]);
   });
 
-  it('shows no redirect button when the invitation names none, the note and the account still there', async () => {
+  it('shows no redirect button when the invitation names none: the account form opens by itself', async () => {
     const page = await pageOver(server({ methods: listNaming([]) }));
     expect(buttonsOf(page)).toEqual([]);
-    expect(noteOf(page)).toBe(
-      'The invitation is for ensign@fleet.example. Sign in to accept it, or create an account with a password.',
-    );
-    expect(page.element.querySelector('.impulse-login-create-account')).not.toBeNull();
-    expect(page.element.querySelector('input[name="username"]')).not.toBeNull();
-  });
-
-  it('shows every redirect button when the invitation does not say, as an older server answers', async () => {
-    const page = await pageOver(server({ methods: listNaming() }));
-    expect(page.component.invitation()).toEqual(invited);
-    expect(buttonsOf(page)).toEqual([
-      'Continue with Google as ensign@fleet.example',
-      'Continue with Fleet Google as ensign@fleet.example',
-    ]);
+    expect(page.component.account()).toEqual({
+      source: 'invitation',
+      email: invited.email,
+      name: '',
+      usernameIsEmail: false,
+    });
+    expect(page.element.querySelector('input[name="accountUsername"]')).not.toBeNull();
+    expect(page.element.querySelector('input[name="username"]')).toBeNull();
   });
 
   it('narrows the buttons the same way for an invitation opened from its token', async () => {
@@ -2342,6 +2918,86 @@ describe('LoginMethodsComponent shows the directory buttons that could admit the
     await page.settle();
     expect(page.component.invitation()).toBeUndefined();
     expect(buttonsOf(page)).toEqual(['Sign in with Google', 'Sign in with Fleet Google']);
+  });
+});
+
+describe('LoginMethodsComponent over an auth that registers no password method', () => {
+  /**
+   * What the methods route of such an auth answers: its two directory methods, and none
+   * of the password method's routes (the change of a password, the reset of one, signing
+   * up with one, an account with a password for an invitation), which the server names
+   * only where the method is registered.
+   */
+  const directoryList: LoginMethods = {
+    methods: [google, entra],
+    pending: pendingRoutes,
+    invitation: { open: invitationRoutes.open, accept: invitationRoutes.accept },
+    email: emailRoutes,
+  };
+
+  it('offers the directory buttons alone: no password form, no "Forgot your password?" and no account to create', async () => {
+    const page = await pageOver(server({ methods: directoryList }));
+    expect(buttonsOf(page)).toEqual(['Sign in with Google', 'Sign in with Lakeside staff']);
+    expect(page.element.querySelector('input[name="username"]')).toBeNull();
+    expect(page.element.querySelector('input[type="password"]')).toBeNull();
+    expect(page.element.querySelector('.impulse-login-forgot')).toBeNull();
+    expect(page.element.querySelector('.impulse-login-sign-up')).toBeNull();
+    expect(page.element.querySelector('.impulse-login-create-account')).toBeNull();
+    expect(orderOf(page)).toEqual([
+      'impulse-login-redirect',
+      'impulse-login-redirect',
+      'impulse-login-different-account',
+    ]);
+    // Nothing of the password method is asked for, whatever is called.
+    page.transport.requests.length = 0;
+    page.component.username = 'gale';
+    page.component.password = 'orbit-and-anchor';
+    await page.component.login();
+    page.component.beginReset();
+    page.component.beginSignUp();
+    await page.settle();
+    expect(sent(page.transport)).toEqual([]);
+    expect(page.element.querySelector('input[type="password"]')).toBeNull();
+  });
+
+  it('an invitation is accepted through a directory button: no password form and no account with a password', async () => {
+    const page = await pageOver(
+      server({
+        methods: directoryList,
+        invitationOpen: {
+          status: 200,
+          body: {
+            ...invited,
+            signUp: false,
+            methods: ['google', 'lakeside-entra'],
+            accountExists: false,
+            hasPassword: false,
+          },
+        },
+      }),
+      { invitation: 'tok-1' },
+      { home: '/dashboard' },
+    );
+    expect(page.component.invitationPaths()).toEqual({
+      redirects: [google, entra],
+      password: false,
+      create: false,
+      existing: false,
+    });
+    expect(buttonsOf(page)).toEqual([
+      'Continue with Google as ensign@fleet.example',
+      'Continue with Lakeside staff as ensign@fleet.example',
+    ]);
+    expect(page.element.querySelector('.impulse-login-invitation-note')?.textContent?.trim()).toBe(
+      'The invitation is for ensign@fleet.example.',
+    );
+    expect(page.element.querySelector('input[type="password"]')).toBeNull();
+    expect(page.element.querySelector('.impulse-login-create-account')).toBeNull();
+    expect(page.component.account()).toBeUndefined();
+    page.component.signInThrough(entra);
+    expect(page.left).toEqual([
+      `/console/api/user/lakeside-entra/login?returnUrl=${encodeURIComponent('/dashboard')}&login_hint=${encodeURIComponent('ensign@fleet.example')}`,
+    ]);
   });
 });
 
@@ -2392,32 +3048,36 @@ describe('LoginMethodsComponent signs a person up', () => {
     expect(page.element.querySelector<HTMLButtonElement>('button.impulse-login-submit')?.disabled).toBe(true);
   });
 
-  it('entered with ?signUp=, opens the link after the list and renders the account form, which completes the sign-up with the token', async () => {
+  it('entered with #signUp=, opens the link after the list and renders the account form, which completes the sign-up with the token', async () => {
     const page = await pageOver(server({ methods: mailingList }), { signUp: 'tok-s' }, { home: '/dashboard' });
+    // The form's box asks the server about the empty password once, to learn where its mark sits.
     expect(sent(page.transport)).toEqual([
       'GET /console/api/user/methods',
       'GET /console/api/user/methods',
       `POST ${signUpRoutes.open}`,
+      `POST ${strengthPath}`,
     ]);
     expect(page.component.account()).toEqual({
       source: 'signUp',
       token: 'tok-s',
       email: 'rookie@fleet.example',
+      name: '',
       usernameIsEmail: false,
     });
     expect(page.element.querySelector('input[name="accountUsername"]')).not.toBeNull();
     page.transport.requests.length = 0;
-    page.component.accountUsername = 'rookie';
-    page.component.accountPassword = 'orbit-and-anchor';
-    page.component.accountPasswordAgain = 'orbit-and-anchor';
+    await typeInto(page, 'accountUsername', 'rookie');
+    await typeInto(page, 'newPassword', 'orbit-and-anchor');
+    await page.settle();
     await page.component.createAccount();
     await page.settle();
-    expect(sent(page.transport).slice(0, 3)).toEqual([
+    expect(sent(page.transport).slice(0, 4)).toEqual([
+      `POST ${strengthPath}`,
       'GET /console/api/user/methods',
       `POST ${signUpRoutes.complete}`,
       'GET /console/api/user/session',
     ]);
-    expect(page.transport.requests[1].body).toEqual({
+    expect(page.transport.requests[2].body).toEqual({
       token: 'tok-s',
       password: 'orbit-and-anchor',
       username: 'rookie',
@@ -2433,12 +3093,179 @@ describe('LoginMethodsComponent signs a person up', () => {
   });
 });
 
+describe('LoginMethodsComponent resets a password', () => {
+  /** A server whose administrator lets people reset their own password: the list names where a link is asked for. */
+  const selfService: LoginMethods = { ...mailingList, passwordReset: resetRoutes };
+  /** The same server with that turned off: a mailed link is still opened and completed, and none is asked for here. */
+  const administratorOnly: LoginMethods = {
+    ...mailingList,
+    passwordReset: { open: resetRoutes.open, complete: resetRoutes.complete },
+  };
+
+  it('offers "Forgot your password?" while the list names where a link is asked for', async () => {
+    const on = await pageOver(server({ methods: selfService }));
+    expect(on.element.querySelector('.impulse-login-forgot')?.textContent).toContain('Forgot your password?');
+  });
+
+  it('offers no "Forgot your password?" while the list names no place to ask, and asks for none', async () => {
+    const off = await pageOver(server({ methods: administratorOnly }));
+    expect(off.element.querySelector('.impulse-login-forgot')).toBeNull();
+    off.component.beginReset();
+    await off.settle();
+    expect(off.component.forgetting()).toBe(false);
+    expect(off.element.querySelector('input[name="resetEmail"]')).toBeNull();
+  });
+
+  it('offers no "Forgot your password?" where the list names no password reset at all', async () => {
+    const none = await pageOver(server({ methods: mailingList }));
+    expect(none.element.querySelector('.impulse-login-forgot')).toBeNull();
+  });
+
+  it("asks for a link with the address, and promises one only if the address is an account's", async () => {
+    const page = await pageOver(server({ methods: selfService }));
+    page.component.beginReset();
+    await page.settle();
+    expect(page.element.querySelector('input[name="resetEmail"]')).not.toBeNull();
+    expect(page.element.querySelector('input[name="username"]')).toBeNull();
+    page.transport.requests.length = 0;
+    page.component.resetEmail = 'mate@harbor.example';
+    await page.component.sendResetLink();
+    await page.settle();
+    expect(sent(page.transport)).toEqual(['GET /console/api/user/methods', `POST ${resetRoutes.request}`]);
+    expect(page.transport.requests[1].body).toEqual({ email: 'mate@harbor.example' });
+    const note = page.element.querySelector('.impulse-login-reset-note')?.textContent ?? '';
+    expect(note).toContain('If mate@harbor.example is the email address of an account with a password');
+    page.component.leaveLink();
+    await page.settle();
+    expect(page.component.resetAsked()).toBeUndefined();
+    expect(page.element.querySelector('input[name="username"]')).not.toBeNull();
+  });
+
+  it('a mailbox sent too many reset links is refused with the sentence, the address field staying', async () => {
+    const page = await pageOver(
+      server({
+        methods: selfService,
+        resetRequest: { status: 429, body: { message: 'Too many links', code: 'too_many_emails', retryAfter: 600 } },
+      }),
+    );
+    page.component.beginReset();
+    page.component.resetEmail = 'mate@harbor.example';
+    await page.component.sendResetLink();
+    await page.settle();
+    expect(page.component.resetAsked()).toBeUndefined();
+    expect(page.element.querySelector('input[name="resetEmail"]')).not.toBeNull();
+    expect(messageOf(page)).not.toBeNull();
+    // The server counts reset links apart from codes: the hold is the reset form's alone.
+    expect(page.component.resetHeld()).toBe(true);
+    expect(page.component.mailHeld()).toBe(false);
+    const send = page.element.querySelector<HTMLButtonElement>('.impulse-login-forgetting .impulse-login-submit');
+    expect(send?.disabled).toBe(true);
+  });
+
+  it('says to ask an administrator when resetting was turned off after the page was drawn, and posts no address', async () => {
+    const state = server({ methods: selfService });
+    const page = await pageOver(state);
+    page.component.beginReset();
+    await page.settle();
+    state.methods = administratorOnly;
+    page.transport.requests.length = 0;
+    page.component.resetEmail = 'mate@harbor.example';
+    await page.component.sendResetLink();
+    await page.settle();
+    expect(sent(page.transport)).toEqual(['GET /console/api/user/methods']);
+    expect(messageOf(page)).toBe(
+      'Resetting your own password is turned off here. Ask an administrator to send you a reset link',
+    );
+    expect(page.component.resetAsked()).toBeUndefined();
+  });
+
+  it("a password that changed while the reader was choosing shows the server's words, the form staying", async () => {
+    const changed = 'Your password was changed while you were choosing a new one, so this link did not change it.';
+    const page = await pageOver(
+      server({ methods: administratorOnly, resetComplete: { status: 409, body: { message: changed } } }),
+      { reset: 'tok-reset' },
+    );
+    await typeInto(page, 'newPassword', 'a new password');
+    await page.settle();
+    await page.component.completeReset();
+    await page.settle();
+    expect(messageOf(page)).toBe(changed);
+    expect(page.component.resetDone()).toBe(false);
+    expect(page.component.resetting()).toBeDefined();
+  });
+
+  it('a reset link opens the new password form, and completing it sends the person back to sign in', async () => {
+    const page = await pageOver(server({ methods: administratorOnly }), { reset: 'tok-reset' });
+    expect(
+      page.transport.requests.some(
+        (r) => r.url === resetRoutes.open && (r.body as { token: string }).token === 'tok-reset',
+      ),
+    ).toBe(true);
+    expect(page.element.querySelector('.impulse-login-reset-note')?.textContent).toContain('mate');
+    expect(page.element.querySelector('input[name="username"]')).toBeNull();
+
+    await typeInto(page, 'newPassword', 'a new password');
+    await page.settle();
+    await page.component.completeReset();
+    await page.settle();
+    const completed = page.transport.requests.find((r) => r.url === resetRoutes.complete);
+    expect(completed?.body).toEqual({ token: 'tok-reset', password: 'a new password' });
+    expect(page.element.querySelector('.impulse-login-reset-note')?.textContent).toContain(
+      'you are signed out everywhere',
+    );
+    expect(page.signedIn).toEqual([]);
+
+    page.component.leaveLink();
+    await page.settle();
+    expect(page.component.username).toBe('mate');
+    expect(page.element.querySelector('input[name="password"]')).not.toBeNull();
+  });
+
+  it("a dead reset link shows the server's words and the list", async () => {
+    const page = await pageOver(server({ methods: administratorOnly, resetOpen: dead }), { reset: 'tok-dead' });
+    expect(page.component.resetting()).toBeUndefined();
+    expect(messageOf(page)).toBe(dead.body.message);
+    expect(page.element.querySelector('input[name="username"]')).not.toBeNull();
+  });
+});
+
+describe('LoginMethodsComponent confirms an address an administrator set', () => {
+  const confirming: LoginMethods = { ...mailingList, email: { ...emailRoutes, confirm: emailConfirmRoute } };
+
+  it('posts nothing on arrival, confirms when the reader says so, and names the address the account now holds', async () => {
+    const page = await pageOver(server({ methods: confirming }), { address: 'tok-address' });
+    expect(page.transport.requests.some((r) => r.url === emailConfirmRoute)).toBe(false);
+    expect(page.element.querySelector('.impulse-login-address-note')?.textContent).toContain('Confirm it');
+    expect(page.element.querySelector('input[name="username"]')).toBeNull();
+
+    await page.component.confirmAddress();
+    await page.settle();
+    const posted = page.transport.requests.find((r) => r.url === emailConfirmRoute);
+    expect(posted?.body).toEqual({ token: 'tok-address' });
+    expect(page.element.querySelector('.impulse-login-address-note')?.textContent).toContain(
+      'mate@harbor.example is now the email address of your account.',
+    );
+
+    page.component.leaveLink();
+    await page.settle();
+    expect(page.element.querySelector('input[name="username"]')).not.toBeNull();
+  });
+
+  it("a dead link shows the server's words and stays on the question", async () => {
+    const page = await pageOver(server({ methods: confirming, emailConfirm: dead }), { address: 'tok-dead' });
+    await page.component.confirmAddress();
+    await page.settle();
+    expect(page.component.addressConfirmed()).toBeUndefined();
+    expect(messageOf(page)).toBe(dead.body.message);
+  });
+});
+
 describe('LoginMethodsComponent confirms an email address', () => {
   /** The requests of the journey itself, without the digest, domains and flags the first authenticated session read loads. */
   const stepsOf = (page: Page): string[] =>
     sent(page.transport).filter((request) => !/permission-digest|user-domains|features/.test(request));
 
-  it('entered with ?verify= signed out, waits for the sign-in, then posts the token, shows the address and emits the page on Continue', async () => {
+  it('entered with #verify= signed out, waits for the sign-in, then posts the token, shows the address and emits the page on Continue', async () => {
     const page = await pageOver(server({ methods: mailingList }), { verify: 'tok-v' }, { home: '/dashboard' });
     expect(sent(page.transport)).toEqual(['GET /console/api/user/methods', 'GET /console/api/user/session']);
     expect(page.component.landed()).toBeUndefined();
@@ -2469,7 +3296,37 @@ describe('LoginMethodsComponent confirms an email address', () => {
     expect(page.component.landed()).toBeUndefined();
   });
 
-  it('entered with ?verify= signed in, posts the token at once', async () => {
+  it('entered with #verify= signed out, says that signing in confirms the address, and the sentence goes once the address is confirmed', async () => {
+    const page = await pageOver(server({ methods: mailingList }), { verify: 'tok-v' });
+    expect(page.element.querySelector('.impulse-login-verify-note')?.textContent?.trim()).toBe(
+      'Sign in to confirm your email address.',
+    );
+    expect(page.element.querySelector('input[name="username"]')).not.toBeNull();
+    page.component.username = 'pax';
+    page.component.password = 'lodestar';
+    await page.component.login();
+    await page.settle();
+    expect(page.element.querySelector('.impulse-login-verify-note')).toBeNull();
+    expect(page.element.querySelector('.impulse-login-landed-note')?.textContent?.trim()).toBe(
+      'pax@fleet.example is confirmed as your email address.',
+    );
+  });
+
+  it('entered with #verify= signed out by a person who must change their password, the sentence goes while the change form shows', async () => {
+    const page = await pageOver(server({ methods: mailingList, passwordChangeRequired: true }), { verify: 'tok-v' });
+    expect(page.element.querySelector('.impulse-login-verify-note')?.textContent?.trim()).toBe(
+      'Sign in to confirm your email address.',
+    );
+    page.component.username = 'pax';
+    page.component.password = 'lodestar';
+    await page.component.login();
+    await page.settle();
+    expect(page.component.changing()).toBe(true);
+    expect(page.element.querySelector('.impulse-login-change-note')).not.toBeNull();
+    expect(page.element.querySelector('.impulse-login-verify-note')).toBeNull();
+  });
+
+  it('entered with #verify= signed in, posts the token at once', async () => {
     const page = await pageOver(server({ methods: mailingList, arrivesSignedIn: true }), { verify: 'tok-v' });
     expect(stepsOf(page)).toEqual([
       'GET /console/api/user/methods',
@@ -2481,6 +3338,7 @@ describe('LoginMethodsComponent confirms an email address', () => {
     ]);
     expect(page.component.verified()).toBe('pax@fleet.example');
     expect(page.component.landed()).toEqual({ url: '/', load: false });
+    expect(page.element.querySelector('.impulse-login-verify-note')).toBeNull();
   });
 
   it("a dead or another account's link shows the server's words with Continue, the session standing", async () => {
@@ -2488,18 +3346,228 @@ describe('LoginMethodsComponent confirms an email address', () => {
       verify: 'tok-v',
     });
     expect(page.component.verified()).toBeUndefined();
+    expect(page.element.querySelector('.impulse-login-verify-note')).toBeNull();
     expect(messageOf(page)).toBe(dead.body.message);
     expect(page.element.querySelector('.impulse-login-continue')).not.toBeNull();
     page.component.proceed();
     expect(page.signedIn).toEqual(['/']);
   });
 
-  it('a redirect method returns to this page with the token, so the confirmation follows the round trip', async () => {
+  it('a redirect method returns to this page without the token, which waits in the browser: the confirmation follows the round trip and the token is in no address', async () => {
     const page = await pageOver(server({ methods: mailingList }), { verify: 'tok-v' });
     page.component.signInThrough(google);
-    expect(page.left).toEqual([
-      `/console/api/user/google/login?returnUrl=${encodeURIComponent('/login?verify=tok-v')}`,
+    expect(page.left).toEqual([`/console/api/user/google/login?returnUrl=${encodeURIComponent('/login')}`]);
+    expect(page.left.join(' ')).not.toContain('tok-v');
+    expect(sessionStorage.getItem('impulse.login.verify')).toBe('tok-v');
+
+    // The provider sends the browser back to the page, signed in, with nothing in the address.
+    TestBed.resetTestingModule();
+    const back = await pageOver(server({ methods: mailingList, arrivesSignedIn: true }));
+    expect(back.transport.requests.find((r) => r.url === emailRoutes.verify)?.body).toEqual({ token: 'tok-v' });
+    expect(back.component.verified()).toBe('pax@fleet.example');
+    // The token is taken once: nothing is left for a later page of the tab.
+    expect(sessionStorage.getItem('impulse.login.verify')).toBeNull();
+  });
+
+  it('a token kept for a round trip that never came back is dropped when this page posts it: no copy waits for a later page of the tab', async () => {
+    const page = await pageOver(server({ methods: mailingList }), { verify: 'tok-v' });
+    page.component.signInThrough(google);
+    expect(sessionStorage.getItem('impulse.login.verify')).toBe('tok-v');
+    // The person comes back to this same page (the browser restores it) and signs in with a password.
+    page.component.username = 'pax';
+    page.component.password = 'lodestar';
+    await page.component.login();
+    await page.settle();
+    expect(page.transport.requests.find((r) => r.url === emailRoutes.verify)?.body).toEqual({ token: 'tok-v' });
+    expect(sessionStorage.getItem('impulse.login.verify')).toBeNull();
+  });
+
+  it('a kept token is taken back on arrival even where the page was opened with a link of its own, so the older one is never posted later', async () => {
+    sessionStorage.setItem('impulse.login.verify', 'tok-old');
+    const page = await pageOver(server({ methods: mailingList, arrivesSignedIn: true }), { verify: 'tok-new' });
+    expect(page.transport.requests.filter((r) => r.url === emailRoutes.verify).map((r) => r.body)).toEqual([
+      { token: 'tok-new' },
     ]);
+    expect(sessionStorage.getItem('impulse.login.verify')).toBeNull();
+  });
+
+  it('a kept token is taken back on arrival with a link of its own before anything is posted, so a page the person leaves holds none for later', async () => {
+    sessionStorage.setItem('impulse.login.verify', 'tok-old');
+    const page = await pageOver(server({ methods: mailingList }), { verify: 'tok-new' });
+    expect(page.transport.requests.filter((r) => r.url === emailRoutes.verify)).toEqual([]);
+    expect(sessionStorage.getItem('impulse.login.verify')).toBeNull();
+  });
+
+  it('a browser that refuses the storage keeps nothing, and the method still returns to this page without the token', async () => {
+    const page = await pageOver(server({ methods: mailingList }), { verify: 'tok-v' });
+    const refuse = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('denied', 'SecurityError');
+    });
+    try {
+      page.component.signInThrough(google);
+    } finally {
+      refuse.mockRestore();
+    }
+    expect(page.left).toEqual([`/console/api/user/google/login?returnUrl=${encodeURIComponent('/login')}`]);
+    expect(sessionStorage.getItem('impulse.login.verify')).toBeNull();
+  });
+});
+
+describe('LoginMethodsComponent takes a mailed link out of the address', () => {
+  /** A server that opens and completes a mailed reset link and offers no "Forgot your password?". */
+  const administratorOnly: LoginMethods = {
+    ...mailingList,
+    passwordReset: { open: resetRoutes.open, complete: resetRoutes.complete },
+  };
+
+  it('reads each kind of link from the fragment, clears the address before its first request, and posts the token in a body, never in a request line', async () => {
+    const opens: Record<string, { server: Parameters<typeof server>[0]; posted: string | undefined }> = {
+      invitation: { server: { methods: mailingList }, posted: invitationRoutes.open },
+      signUp: { server: { methods: mailingList }, posted: signUpRoutes.open },
+      reset: { server: { methods: administratorOnly }, posted: resetRoutes.open },
+      // Nothing is posted on arrival for an address an administrator set: the page asks first.
+      address: { server: { methods: administratorOnly }, posted: undefined },
+      verify: { server: { methods: mailingList, arrivesSignedIn: true }, posted: emailRoutes.verify },
+    };
+    expect(Object.keys(opens)).toEqual([...MAILED_LINK_KINDS]);
+    for (const [kind, opened] of Object.entries(opens)) {
+      TestBed.resetTestingModule();
+      droppedBefore.length = 0;
+      const page = await pageOver(server(opened.server), { [kind]: 'tok-9' });
+      expect([kind, page.dropped, droppedBefore]).toEqual([kind, 1, [0]]);
+      for (const request of page.transport.requests) {
+        expect([kind, request.url.includes('tok-9')]).toEqual([kind, false]);
+      }
+      if (opened.posted !== undefined) {
+        expect([kind, page.transport.requests.find((r) => r.url === opened.posted)?.body]).toEqual([
+          kind,
+          { token: 'tok-9' },
+        ]);
+      }
+    }
+  });
+
+  it('an address that carries no link is left alone', async () => {
+    const page = await pageOver(server(), { code: 'identity_rejected', returnUrl: '/missions' });
+    expect(page.dropped).toBe(0);
+    expect(page.element.querySelector('.impulse-login-verify-note')).toBeNull();
+  });
+
+  it("reads no link from the query: a parameter of a link's name there is sent nowhere, the address is left as it came, and the card is the list with no refusal", async () => {
+    for (const kind of MAILED_LINK_KINDS) {
+      TestBed.resetTestingModule();
+      const page = await pageOver(server({ methods: mailingList }), { [kind]: 'tok-query' }, {}, true);
+      expect([kind, page.dropped]).toEqual([kind, 0]);
+      expect([kind, sent(page.transport)]).toEqual([
+        kind,
+        ['GET /console/api/user/methods', 'GET /console/api/user/session'],
+      ]);
+      for (const request of page.transport.requests) {
+        expect(JSON.stringify([request.url, request.body ?? null])).not.toContain('tok-query');
+      }
+      expect([kind, messageOf(page)]).toEqual([kind, null]);
+      expect(page.component.invitation()).toBeUndefined();
+      expect(page.component.confirming()).toBeUndefined();
+      expect(page.element.querySelector('input[name="username"]')).not.toBeNull();
+    }
+  });
+
+  /** The page as the router opens it at url, over a route of its own: the address is the router's, and nothing of the page is stubbed. */
+  async function opened(url: string): Promise<{ router: Router; transport: ScriptedTransport }> {
+    const transport = transportOf(server({ methods: administratorOnly }));
+    await TestBed.configureTestingModule({
+      providers: [
+        provideResourceTesting({
+          transport,
+          client: (t) => createClient(descriptor, { baseUrl: '/console/api', transport: t }),
+        }),
+        provideRouter([{ path: 'login', component: LoginMethodsComponent }]),
+      ],
+    }).compileComponents();
+    const harness = await RouterTestingHarness.create(url);
+    harness.detectChanges();
+    await TestBed.inject(ApplicationRef).whenStable();
+    harness.detectChanges();
+    return { router: TestBed.inject(Router), transport };
+  }
+
+  it('over a real router, leaves the address with no token and no fragment, keeps the rest of it, and posts the token in a body', async () => {
+    const page = await opened('/login?returnUrl=%2Fhome#reset=tok-9');
+    expect(page.router.url).toBe('/login?returnUrl=%2Fhome');
+    expect(page.transport.requests.find((r) => r.url === resetRoutes.open)?.body).toEqual({ token: 'tok-9' });
+    for (const request of page.transport.requests) {
+      expect(request.url).not.toContain('tok-9');
+    }
+  });
+
+  it("over a real router, a parameter of a link's name in the query is no link: the address stays as it came and the value is sent nowhere", async () => {
+    const page = await opened('/login?reset=tok-query&returnUrl=%2Fhome');
+    expect(page.router.url).toBe('/login?reset=tok-query&returnUrl=%2Fhome');
+    for (const request of page.transport.requests) {
+      expect(JSON.stringify([request.url, request.body ?? null])).not.toContain('tok-query');
+    }
+  });
+
+  it('over a real router, keeps a query parameter that shares a name with a kind of link when it takes the fragment out', async () => {
+    const page = await opened('/login?verify=later&returnUrl=%2Fhome#reset=tok-9');
+    expect(page.router.url).toBe('/login?verify=later&returnUrl=%2Fhome');
+    expect(page.transport.requests.find((r) => r.url === resetRoutes.open)?.body).toEqual({ token: 'tok-9' });
+  });
+
+  /** Stands in for the page loading itself again, and counts the times it was asked to. */
+  function loadsAgain(): ReturnType<typeof vi.spyOn> {
+    return vi
+      .spyOn(LoginMethodsComponent.prototype as unknown as { loadAgain(): void }, 'loadAgain')
+      .mockImplementation(() => undefined);
+  }
+
+  it('loads the page again for a mailed link opened in the tab that already shows it, and leaves the link in the address for the page that comes', async () => {
+    const loads = loadsAgain();
+    const page = await opened('/login?returnUrl=%2Fhome');
+    await page.router.navigateByUrl('/login?returnUrl=%2Fhome#invitation=tok-2');
+    expect(loads).toHaveBeenCalledTimes(1);
+    expect(page.router.url).toBe('/login?returnUrl=%2Fhome#invitation=tok-2');
+    for (const request of page.transport.requests) {
+      expect(JSON.stringify([request.url, request.body ?? null])).not.toContain('tok-2');
+    }
+    loads.mockRestore();
+  });
+
+  it('loads the page again for a second link, after it has used the one it was opened with', async () => {
+    const loads = loadsAgain();
+    const page = await opened('/login#reset=tok-9');
+    expect(loads).not.toHaveBeenCalled();
+    expect(page.router.url).toBe('/login');
+    await page.router.navigateByUrl('/login#invitation=tok-2');
+    expect(loads).toHaveBeenCalledTimes(1);
+    loads.mockRestore();
+  });
+
+  it('does not load the page again for a fragment that is no link', async () => {
+    const loads = loadsAgain();
+    const page = await opened('/login');
+    await page.router.navigateByUrl('/login#help');
+    expect(loads).not.toHaveBeenCalled();
+    expect(page.router.url).toBe('/login#help');
+    loads.mockRestore();
+  });
+
+  it('Try again, after reads that failed, opens the link read on arrival: the address no longer carries it', async () => {
+    let down = true;
+    const answering = transportOf(server({ methods: mailingList }));
+    const transport = scriptedTransport((request: TransportRequest) =>
+      down ? { status: 502, body: undefined } : answering(request),
+    );
+    const page = await mount(transport, { invitation: 'tok-1' });
+    await page.settle();
+    expect(page.component.unreachable()).toBe(true);
+    expect(page.dropped).toBe(1);
+    down = false;
+    page.component.retry();
+    await page.settle();
+    expect(page.dropped).toBe(1);
+    expect(page.transport.requests.find((r) => r.url === invitationRoutes.open)?.body).toEqual({ token: 'tok-1' });
+    expect(page.component.invitation()?.email).toBe('ensign@fleet.example');
   });
 });
 
@@ -2576,9 +3644,9 @@ describe('LoginMethodsComponent finds a session standing', () => {
     expect(page.component.changing()).toBe(true);
     expect(page.component.signedInAlone()).toBeUndefined();
     expect(page.element.querySelector('input[name="oldPassword"]')).not.toBeNull();
-    page.component.oldPassword = 'set-by-operator';
-    page.component.newPassword = 'mine';
-    page.component.newPasswordAgain = 'mine';
+    await typeInto(page, 'oldPassword', 'set-by-operator');
+    await typeInto(page, 'newPassword', 'mine');
+    await page.settle();
     await page.component.changePassword();
     await page.settle();
     expect(page.signedIn).toEqual(['/dashboard']);
@@ -2664,7 +3732,7 @@ describe("LoginMethodsComponent holds the list back while the arrival's reads an
   const heldBack = (page: Page): boolean =>
     page.element.querySelector('mat-progress-bar') === null && (page.element.textContent?.trim() ?? '') === '';
 
-  it('with ?verify=, the password form is not in the DOM before the session read answers; nothing renders', async () => {
+  it('with #verify=, the password form is not in the DOM before the session read answers; nothing renders', async () => {
     const held = holdingSession(server({ methods: mailingList }));
     const page = await mount(held.transport, { verify: 'tok-v' });
     page.fixture.detectChanges();
@@ -2680,13 +3748,14 @@ describe("LoginMethodsComponent holds the list back while the arrival's reads an
     expect(page.element.querySelector('input[name="password"]')).toBeNull();
     expect(page.element.querySelector('input[name="username"]')).toBeNull();
     expect(page.element.querySelector('form')).toBeNull();
+    expect(page.element.querySelector('.impulse-login-verify-note')).toBeNull();
     expect(buttonsOf(page)).toEqual([]);
     held.answer();
     await page.settle();
     expect(page.component.arriving()).toBe(false);
   });
 
-  it('with ?verify=, a session read that finds nobody signed in ends the hold and shows the form, which still waits for the sign-in', async () => {
+  it('with #verify=, a session read that finds nobody signed in ends the hold and shows the form, which still waits for the sign-in', async () => {
     const held = holdingSession(server({ methods: mailingList }));
     const page = await mount(held.transport, { verify: 'tok-v' }, { home: '/dashboard' });
     await arrivedAt(held, page);
@@ -2707,7 +3776,7 @@ describe("LoginMethodsComponent holds the list back while the arrival's reads an
     expect(page.component.landed()).toEqual({ url: '/dashboard', load: false });
   });
 
-  it('with ?verify=, a session read that finds the person signed in moves straight on to the confirmation, with no form in between', async () => {
+  it('with #verify=, a session read that finds the person signed in moves straight on to the confirmation, with no form in between', async () => {
     const held = holdingSession(server({ methods: mailingList, arrivesSignedIn: true }));
     const page = await mount(held.transport, { verify: 'tok-v' }, { home: '/dashboard' });
     const forms = formsAdded(page);
@@ -2728,8 +3797,8 @@ describe("LoginMethodsComponent holds the list back while the arrival's reads an
     expect(sent(page.transport)).toContain(`POST ${emailRoutes.verify}`);
   });
 
-  it('with ?invitation=, nothing renders until the invitation and the session are read, then the note and the form show', async () => {
-    const held = holdingSession(server({ methods: mailingList }));
+  it('with #invitation=, nothing renders until the invitation and the session are read, then the note and the form show', async () => {
+    const held = holdingSession(server({ methods: mailingList, invitationOpen: { status: 200, body: invitedHolder } }));
     const page = await mount(held.transport, { invitation: 'tok-1' });
     await arrivedAt(held, page);
     expect(page.element.querySelector('.impulse-login-invitation-note')).toBeNull();
@@ -2740,8 +3809,15 @@ describe("LoginMethodsComponent holds the list back while the arrival's reads an
     expect(page.element.querySelector('input[name="username"]')).not.toBeNull();
   });
 
-  it('with ?invitation=, a person found signed in is offered the acceptance once the reads answer, with no form shown before', async () => {
-    const held = holdingSession(server({ methods: mailingList, arrivesSignedIn: true }));
+  it('with #invitation=, a person found signed in is offered the acceptance once the reads answer, with no form shown before', async () => {
+    const held = holdingSession(
+      server({
+        methods: mailingList,
+        invitationOpen: { status: 200, body: invitedHolder },
+        arrivesSignedIn: true,
+        sessionEmail: invited.email,
+      }),
+    );
     const page = await mount(held.transport, { invitation: 'tok-1' });
     const forms = formsAdded(page);
     await arrivedAt(held, page);
@@ -2790,5 +3866,211 @@ describe("LoginMethodsComponent holds the list back while the arrival's reads an
     expect(page.component.arriving()).toBe(false);
     expect(messageOf(page)).toBe(dead.body.message);
     expect(page.element.querySelector('input[name="username"]')).not.toBeNull();
+  });
+});
+
+describe('LoginMethodsComponent asks for a new password once, and posts it only once the server calls it strong enough', () => {
+  const weak: TransportResponse = {
+    status: 200,
+    body: { strongEnough: false, strength: 20, minimum: 50, reason: 'This password is too easy to guess.' },
+  };
+  const strong: TransportResponse = { status: 200, body: { strongEnough: true, strength: 80, minimum: 50 } };
+  const resetList: LoginMethods = { ...mailingList, passwordReset: resetRoutes };
+  const submitOf = (page: Page): HTMLButtonElement | null => page.element.querySelector('button.impulse-login-submit');
+  const boxesOf = (page: Page): string[] =>
+    Array.from(page.element.querySelectorAll<HTMLInputElement>('input')).map((input) => input.name);
+  const labelOf = (page: Page): string | undefined =>
+    page.element.querySelector('impulse-new-password mat-label')?.textContent?.trim();
+
+  /** One of the three forms that set a password: how to reach it, type its new password, and post it. */
+  interface Form {
+    name: string;
+    state: (overrides: Partial<Server>) => Server;
+    open: (state: Server) => Promise<Page>;
+    type: (page: Page, typed: string) => Promise<void>;
+    submit: (page: Page) => Promise<void>;
+    /** The path that sets the password. */
+    posts: string;
+  }
+  const forms: Form[] = [
+    {
+      name: 'the change form',
+      state: (overrides) => server({ arrivesSignedIn: true, passwordChangeRequired: true, ...overrides }),
+      open: async (state) => {
+        const page = await pageOver(state);
+        await typeInto(page, 'oldPassword', 'lodestar');
+        return page;
+      },
+      type: async (page, typed) => {
+        await typeInto(page, 'newPassword', typed);
+      },
+      submit: (page) => page.component.changePassword(),
+      posts: changePath,
+    },
+    {
+      name: "an invitation's account form",
+      state: (overrides) => server({ methods: mailingList, ...overrides }),
+      open: async (state) => {
+        const page = await pageOver(state, { invitation: 'tok-1' });
+        page.component.openAccountForm();
+        await typeInto(page, 'accountUsername', 'ensign');
+        await page.settle();
+        return page;
+      },
+      type: async (page, typed) => {
+        await typeInto(page, 'newPassword', typed);
+      },
+      submit: (page) => page.component.createAccount(),
+      posts: invitationRoutes.signUp,
+    },
+    {
+      name: 'the reset form',
+      state: (overrides) => server({ methods: resetList, ...overrides }),
+      open: (state) => pageOver(state, { reset: 'tok-reset' }),
+      type: async (page, typed) => {
+        await typeInto(page, 'newPassword', typed);
+      },
+      submit: (page) => page.component.completeReset(),
+      posts: resetRoutes.complete,
+    },
+  ];
+
+  it('each form draws one box for the new password and no second one', async () => {
+    const changing = await forms[0].open(forms[0].state({}));
+    expect(boxesOf(changing)).toEqual(['oldPassword', 'newPassword']);
+    expect(labelOf(changing)).toBe('New password');
+    TestBed.resetTestingModule();
+    const account = await forms[1].open(forms[1].state({}));
+    expect(boxesOf(account)).toEqual(['accountUsername', 'newPassword']);
+    expect(labelOf(account)).toBe('Password');
+    TestBed.resetTestingModule();
+    const reset = await forms[2].open(forms[2].state({}));
+    expect(boxesOf(reset)).toEqual(['newPassword']);
+    expect(labelOf(reset)).toBe('New password');
+  });
+
+  for (const form of forms) {
+    it(`${form.name} keeps its button disabled and posts nothing until the server calls the new password strong enough`, async () => {
+      const state = form.state({ strength: weak });
+      const page = await form.open(state);
+      expect(submitOf(page)?.disabled).toBe(true);
+      await form.type(page, 'kestrel');
+      await page.settle();
+      expect(page.component.strongEnough()).toBe(false);
+      expect(submitOf(page)?.disabled).toBe(true);
+      await form.submit(page);
+      await page.settle();
+      expect(sent(page.transport)).not.toContain(`POST ${form.posts}`);
+      expect(messageOf(page)).toBeNull();
+
+      state.strength = strong;
+      await form.type(page, 'kestrel-vaughn-orbit');
+      await page.settle();
+      expect(page.component.strongEnough()).toBe(true);
+      expect(submitOf(page)?.disabled).toBe(false);
+      await form.submit(page);
+      await page.settle();
+      expect(sent(page.transport)).toContain(`POST ${form.posts}`);
+    });
+  }
+
+  it("the change form's button also stays disabled, and the form posts nothing, until the current password is given", async () => {
+    const page = await pageOver(server({ arrivesSignedIn: true, passwordChangeRequired: true }));
+    await typeInto(page, 'newPassword', 'anvil-run-9');
+    await page.settle();
+    expect(page.component.strongEnough()).toBe(true);
+    expect(submitOf(page)?.disabled).toBe(true);
+    await page.component.changePassword();
+    await page.settle();
+    expect(sent(page.transport)).not.toContain(`POST ${changePath}`);
+    await typeInto(page, 'oldPassword', 'lodestar');
+    await page.settle();
+    expect(submitOf(page)?.disabled).toBe(false);
+  });
+
+  it("the change form asks with the session's username, name and address", async () => {
+    const page = await pageOver(
+      server({
+        arrivesSignedIn: true,
+        passwordChangeRequired: true,
+        sessionName: 'Overseer Hale',
+        sessionEmail: 'overseer@fleet.example',
+      }),
+    );
+    await typeInto(page, 'newPassword', 'anvil-run-9');
+    await page.settle();
+    expect(strengthAsked(page.transport).at(-1)).toEqual({
+      password: 'anvil-run-9',
+      username: 'overseer',
+      name: 'Overseer Hale',
+      email: 'overseer@fleet.example',
+    });
+  });
+
+  it("an invitation's account form asks with the username typed, the name the inviter gave and the invited address", async () => {
+    const page = await pageOver(
+      server({ methods: mailingList, invitationOpen: { status: 200, body: { ...invited, name: 'Ensign Vale' } } }),
+      { invitation: 'tok-1' },
+    );
+    page.component.openAccountForm();
+    expect(page.component.account()?.name).toBe('Ensign Vale');
+    await typeInto(page, 'accountUsername', 'ensign');
+    await typeInto(page, 'newPassword', 'orbit-and-anchor');
+    await page.settle();
+    expect(strengthAsked(page.transport).at(-1)).toEqual({
+      password: 'orbit-and-anchor',
+      username: 'ensign',
+      name: 'Ensign Vale',
+      email: 'ensign@fleet.example',
+    });
+  });
+
+  it('an account form whose username is the address asks with the address as the username', async () => {
+    const page = await pageOver(
+      server({
+        methods: mailingList,
+        invitationOpen: { status: 200, body: { ...invited, name: 'Ensign Vale', usernameIsEmail: true } },
+      }),
+      { invitation: 'tok-1' },
+    );
+    page.component.openAccountForm();
+    await typeInto(page, 'newPassword', 'orbit-and-anchor');
+    await page.settle();
+    expect(strengthAsked(page.transport).at(-1)).toEqual({
+      password: 'orbit-and-anchor',
+      username: 'ensign@fleet.example',
+      name: 'Ensign Vale',
+      email: 'ensign@fleet.example',
+    });
+  });
+
+  it("a sign-up's account form asks with the username typed and the address, and no name", async () => {
+    const page = await pageOver(server({ methods: mailingList }), { signUp: 'tok-s' });
+    await typeInto(page, 'accountUsername', 'rookie');
+    await typeInto(page, 'newPassword', 'orbit-and-anchor');
+    await page.settle();
+    expect(strengthAsked(page.transport).at(-1)).toEqual({
+      password: 'orbit-and-anchor',
+      username: 'rookie',
+      email: 'rookie@fleet.example',
+    });
+  });
+
+  it("the reset form asks with the link's username, name and address", async () => {
+    const page = await pageOver(
+      server({
+        methods: resetList,
+        resetOpen: { status: 200, body: { username: 'mate', name: 'Mate Corran', email: 'mate@harbor.example' } },
+      }),
+      { reset: 'tok-reset' },
+    );
+    await typeInto(page, 'newPassword', 'a new password');
+    await page.settle();
+    expect(strengthAsked(page.transport).at(-1)).toEqual({
+      password: 'a new password',
+      username: 'mate',
+      name: 'Mate Corran',
+      email: 'mate@harbor.example',
+    });
   });
 });

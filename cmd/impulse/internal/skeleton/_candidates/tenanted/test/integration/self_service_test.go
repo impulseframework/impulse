@@ -16,11 +16,11 @@ import (
 	"github.com/impulseframework/impulse/session"
 )
 
-// The create-your-tenant route's answer while every sign-in method is invite only, and
-// what the Sign-in page's dialog shows before an administrator opens the password
-// method.
+// The create-your-tenant route's answer to a session that did not sign in through a
+// method open to sign-up, and what the Sign-in page's dialog shows before an
+// administrator opens the password method.
 const (
-	signUpClosed      = "sign-up is not open, so you cannot create a tenant of your own: ask an administrator of the application to create one for you, or to invite you to one"
+	signUpClosed      = "Sign-up is not open for the way you signed in, so you cannot create a tenant of your own. Ask an administrator of the application to create one for you, or to invite you to one."
 	passwordOpenWarns = "Anyone with an email address will be able to sign up and create a tenant of their own, without an invitation."
 )
 
@@ -38,7 +38,7 @@ const (
 // never here; and the body is held to the record, so a refused body writes nothing.
 // Made invite only again, the route refuses the next person and the tenant created
 // meanwhile stays its creator's. The same route, read with GET, tells a page whether the
-// caller may create a tenant now, by the two facts the creation refuses on, so that the
+// caller may create a tenant now, by the facts the creation refuses on, so that the
 // page offers it only to a person the route would serve: true for a person who holds no
 // tenant while a method is open, and false for everyone else at every step.
 func TestSelfService_aSignedInStrangerCreatesTheirTenant(t *testing.T) {

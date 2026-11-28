@@ -55,6 +55,10 @@ func (capStubPermissions) Reaches(context.Context, accesstypes.Domain) (bool, er
 	return true, nil
 }
 
+func (capStubPermissions) HeldDomains(context.Context) ([]accesstypes.Domain, error) {
+	return []accesstypes.Domain{}, nil
+}
+
 func (capStubPermissions) User() accesstypes.User { return "u1" }
 
 // TestQuerySet_stmt_capabilities pins the capability envelope's statement
@@ -796,6 +800,62 @@ func TestQuerySet_capabilities_writeOnly(t *testing.T) {
 			got := stmt.capabilityPlan.assemble(tt.checks)
 			if diff := cmp.Diff(map[accesstypes.Permission]any{accesstypes.Update: tt.want}, got); diff != "" {
 				t.Errorf("capabilityPlan.assemble() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestCapabilityPlan_assembleMarks pins how a method's marks gate it: a method is
+// listed where its condition's boolean holds, or it has none, and each of its mark
+// booleans holds; one whose condition holds and one of whose marks does not is left
+// out, and a method with no condition and no mark is listed on every row.
+func TestCapabilityPlan_assembleMarks(t *testing.T) {
+	t.Parallel()
+
+	plan := &capabilityPlan{
+		checksColumn: capabilityChecksColumnName,
+		groups:       3,
+		perms: []plannedCapability{{perm: accesstypes.Execute, group: -1, fields: []capabilityField{
+			{jsonName: "ConditionAndTwoMarks", group: 0, marks: []int{1, 2}},
+			{jsonName: "ConditionAlone", group: 0},
+			{jsonName: "MarkAlone", group: -1, marks: []int{2}},
+			{jsonName: "Structural", group: -1},
+		}}},
+	}
+
+	tests := []struct {
+		name   string
+		checks []bool
+		want   []string
+	}{
+		{
+			name:   "every boolean holds",
+			checks: []bool{true, true, true},
+			want:   []string{"ConditionAndTwoMarks", "ConditionAlone", "MarkAlone", "Structural"},
+		},
+		{
+			name:   "the condition holds and one of the marks does not",
+			checks: []bool{true, true, false},
+			want:   []string{"ConditionAlone", "Structural"},
+		},
+		{
+			name:   "the condition holds and the other mark does not",
+			checks: []bool{true, false, true},
+			want:   []string{"ConditionAlone", "MarkAlone", "Structural"},
+		},
+		{
+			name:   "the marks hold and the condition does not",
+			checks: []bool{false, true, true},
+			want:   []string{"MarkAlone", "Structural"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := plan.assemble(tt.checks)
+			if diff := cmp.Diff(map[accesstypes.Permission]any{accesstypes.Execute: tt.want}, got); diff != "" {
+				t.Errorf("capabilityPlan.assemble(%v) mismatch (-want +got):\n%s", tt.checks, diff)
 			}
 		})
 	}

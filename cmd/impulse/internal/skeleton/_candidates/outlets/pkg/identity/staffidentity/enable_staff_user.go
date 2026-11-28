@@ -14,11 +14,15 @@ import (
 // EnableStaffUser enables a disabled person of the Staff auth, who may sign
 // in again. The sessions that ended when they were disabled stay ended.
 //
+// A row offers it only to a caller whose session enters every tenant the person
+// administers (@callerEnters); the method refuses anyone else.
+//
 // @rpc
+// @callerEnters
 // @outlet(default)
 // @answers(204)
 type EnableStaffUser struct {
-	// @target(StaffSessionUser)
+	// @target(StaffListedUser)
 	UserID impulse.UUID
 }
 

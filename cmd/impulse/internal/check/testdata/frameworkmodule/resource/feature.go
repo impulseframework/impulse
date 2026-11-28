@@ -1,6 +1,6 @@
-// Package resource stands in for the resource module in the module cache: the check
-// reads FeatureFlagsDDL from its source, so this fixture carries the function in the
-// library's shape and nothing else.
+// Package resource stands in for the resource module in the module cache: the checks
+// read FeatureFlagsDDL, DataChangeEventsDDL and DeleteTokensDDL from its source, so this
+// fixture carries the functions in the library's shape and nothing else.
 package resource
 
 // DBType is the database kind.
@@ -28,7 +28,15 @@ func FeatureFlagsDDL(dbType DBType) []string {
   Name STRING(64) NOT NULL,
   ChangedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   Enabled BOOL NOT NULL,
-  ChangedBy STRING(MAX) NOT NULL,
+  Auth STRING(MAX),
+  ActorUserId STRING(MAX),
+  ActorUsername STRING(MAX),
+  PrincipalUserId STRING(MAX),
+  PrincipalUsername STRING(MAX),
+  PrincipalRole STRING(MAX),
+  SessionId STRING(MAX),
+  Process STRING(MAX),
+  Rpc STRING(MAX),
 ) PRIMARY KEY (Name, ChangedAt)`,
 		}
 	case PostgresDBType:

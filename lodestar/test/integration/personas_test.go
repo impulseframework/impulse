@@ -90,7 +90,8 @@ func TestDemoPersonaViews(t *testing.T) {
 		{name: "the cadet has no hangar deck", user: "cadet", target: sectorPath(anvil, "refits"), wantStatus: http.StatusForbidden},
 		{name: "the armorer's hangars are the two a pass opens to his squadron", user: "armorer", target: sectorPath(anvil, "hangars"), wantStatus: http.StatusOK, wantRows: 2},
 		{name: "the armorer holds nothing else of the sector: no wings", user: "armorer", target: sectorPath(anvil, "wings"), wantStatus: http.StatusForbidden},
-		{name: "the client's grants answer by company wherever her session group binds them", user: "client", target: sectorPath(anvil, "missions?limit=200"), wantStatus: http.StatusOK, wantRows: 10},
+		{name: "the sentry's hangar is the one a pass opens to his group", user: "sentry", target: sectorPath(anvil, "hangars"), wantStatus: http.StatusOK, wantRows: 1},
+		{name: "the sentry holds nothing else of the sector: no wings", user: "sentry", target: sectorPath(anvil, "wings"), wantStatus: http.StatusForbidden},
 		{name: "the bulletin officer issues a bulletin while the authorization holds", user: "marshal", target: "/console/api/issue-bulletin", wantStatus: http.StatusOK},
 		{name: "a crew member without the authorization is refused", user: "cadet", target: "/console/api/issue-bulletin", wantStatus: http.StatusForbidden},
 	}

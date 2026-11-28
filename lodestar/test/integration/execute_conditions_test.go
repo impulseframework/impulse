@@ -3,9 +3,10 @@ package integration
 
 // execute_conditions_test (design plan §9): for each conditional Execute grant in §7,
 // the row's Execute list carries the method exactly when the condition holds; firing
-// it on a row where it does not yields the uniform refusal naming method and row (no
-// from-set or condition detail on the wire); HailShip and ReleaseConsignment prove the
-// plain @target(Root) form, including NotFound for a cross-sector key.
+// it on a row where it does not yields the uniform refusal, which says the record in a
+// person's words and nothing else (no method's name, no id, no from-set or condition
+// detail on the wire); HailShip and ReleaseConsignment prove the plain @target(Root)
+// form, including NotFound for a cross-sector key.
 
 import (
 	"fmt"
@@ -120,16 +121,17 @@ func TestExecuteConditionsOnRows(t *testing.T) {
 		{
 			// The Marshal's grants are unconditional: every legal edge lights, the
 			// contrast row to the Pilot's. AttachMissionDocument is a plain @target
-			// method with no transition, so it lights on every row.
+			// method with no transition, so it lights on every row, and so do the four
+			// that give and take a role on the mission, a person's or a group's.
 			name:   "marshal: every legal edge lights",
 			user:   "marshal",
 			target: sectorPath(anvil, "missions?capabilities=Execute"),
 			want: map[string][]any{
-				missionHaulerID:  {"AttachMissionDocument", "ClaimMission", "StandDownMission"},
-				missionCorvidID:  {"AttachMissionDocument", "LaunchMission", "StandDownMission"},
-				missionConvoyID:  {"AttachMissionDocument", "CompleteMission", "FailMission", "HoldMission"},
-				missionCourierID: {"AttachMissionDocument", "ResumeMission", "StandDownMission"},
-				missionPodID:     {"AttachMissionDocument"},
+				missionHaulerID:  {"AttachMissionDocument", "ClaimMission", "GiveCrewGroupRoleOnMission", "GiveCrewRoleOnMission", "StandDownMission", "TakeCrewGroupRoleOnMission", "TakeCrewRoleOnMission"},
+				missionCorvidID:  {"AttachMissionDocument", "GiveCrewGroupRoleOnMission", "GiveCrewRoleOnMission", "LaunchMission", "StandDownMission", "TakeCrewGroupRoleOnMission", "TakeCrewRoleOnMission"},
+				missionConvoyID:  {"AttachMissionDocument", "CompleteMission", "FailMission", "GiveCrewGroupRoleOnMission", "GiveCrewRoleOnMission", "HoldMission", "TakeCrewGroupRoleOnMission", "TakeCrewRoleOnMission"},
+				missionCourierID: {"AttachMissionDocument", "GiveCrewGroupRoleOnMission", "GiveCrewRoleOnMission", "ResumeMission", "StandDownMission", "TakeCrewGroupRoleOnMission", "TakeCrewRoleOnMission"},
+				missionPodID:     {"AttachMissionDocument", "GiveCrewGroupRoleOnMission", "GiveCrewRoleOnMission", "TakeCrewGroupRoleOnMission", "TakeCrewRoleOnMission"},
 			},
 		},
 		{
@@ -191,6 +193,8 @@ func TestExecuteConditionsFired(t *testing.T) {
 		route      string
 		body       string
 		wantStatus int
+		// wantSaid is the whole sentence a refused caller is told.
+		wantSaid string
 	}{
 		{
 			name:       "cadet claims a hazard-2 mission",
@@ -207,6 +211,7 @@ func TestExecuteConditionsFired(t *testing.T) {
 			route:      "claim-mission",
 			body:       fmt.Sprintf(`{"missionId":%q,"squadronId":%q}`, missionConvoyID, squadronTongsID),
 			wantStatus: http.StatusForbidden,
+			wantSaid:   "You may not do this to this mission.",
 		},
 		{
 			name:       "booking may not stand down the marshal's booking",
@@ -215,6 +220,7 @@ func TestExecuteConditionsFired(t *testing.T) {
 			route:      "stand-down-mission",
 			body:       fmt.Sprintf(`{"missionId":%q}`, missionConvoyID),
 			wantStatus: http.StatusForbidden,
+			wantSaid:   "You may not do this to this mission.",
 		},
 		{
 			name:       "lead may not complete another squadron's mission",
@@ -223,6 +229,7 @@ func TestExecuteConditionsFired(t *testing.T) {
 			route:      "complete-mission",
 			body:       fmt.Sprintf(`{"missionId":%q}`, missionCourierID),
 			wantStatus: http.StatusForbidden,
+			wantSaid:   "You may not do this to this mission.",
 		},
 		{
 			name:       "pilot hails a docked ship (plain located-row form): a touch answers No Content",
@@ -239,6 +246,7 @@ func TestExecuteConditionsFired(t *testing.T) {
 			route:      "hail-ship",
 			body:       fmt.Sprintf(`{"shipId":%q}`, shipLanternID),
 			wantStatus: http.StatusForbidden,
+			wantSaid:   "You may not do this to this ship.",
 		},
 		{
 			name:       "a Bastion ship through Anvil's route is NotFound, never Forbidden",
@@ -247,6 +255,16 @@ func TestExecuteConditionsFired(t *testing.T) {
 			route:      "hail-ship",
 			body:       fmt.Sprintf(`{"shipId":%q}`, shipBastionWatchID),
 			wantStatus: http.StatusNotFound,
+			wantSaid:   "This ship does not exist.",
+		},
+		{
+			name:       "a ship that is nowhere is NotFound in the same words, so neither says a row is there",
+			user:       "marshal",
+			sector:     anvil,
+			route:      "hail-ship",
+			body:       `{"shipId":"70000000-0000-4000-8000-0000000000ff"}`,
+			wantStatus: http.StatusNotFound,
+			wantSaid:   "This ship does not exist.",
 		},
 		{
 			name:       "supercargo releases a consignment once",
@@ -263,6 +281,7 @@ func TestExecuteConditionsFired(t *testing.T) {
 			route:      "release-consignment",
 			body:       fmt.Sprintf(`{"consignmentId":%q}`, consignmentBullionID),
 			wantStatus: http.StatusForbidden,
+			wantSaid:   "You may not do this to this consignment.",
 		},
 		{
 			name:       "a Bastion consignment through Anvil's route is NotFound",
@@ -271,6 +290,7 @@ func TestExecuteConditionsFired(t *testing.T) {
 			route:      "release-consignment",
 			body:       fmt.Sprintf(`{"consignmentId":%q}`, consignmentRelayID),
 			wantStatus: http.StatusNotFound,
+			wantSaid:   "This consignment does not exist.",
 		},
 	}
 	for _, tt := range fires {
@@ -281,9 +301,14 @@ func TestExecuteConditionsFired(t *testing.T) {
 			if status != tt.wantStatus {
 				t.Fatalf("status = %d, want %d: %s", status, tt.wantStatus, body)
 			}
+			if tt.wantStatus == http.StatusNotFound {
+				if got := refusalMessage(t, body); got != tt.wantSaid {
+					t.Errorf("answer = %q, want %q: the record in a person's words, and neither its struct's name nor the row's id", got, tt.wantSaid)
+				}
+			}
 			if tt.wantStatus == http.StatusForbidden {
-				if !strings.Contains(string(body), "may not run against") {
-					t.Errorf("refusal must name method and row: %s", body)
+				if got := refusalMessage(t, body); got != tt.wantSaid {
+					t.Errorf("refusal = %q, want %q: the record in a person's words, and neither the method nor the row", got, tt.wantSaid)
 				}
 				for _, leak := range []string{"hazard", "subject", "IN (", "from", "condition"} {
 					if strings.Contains(string(body), leak) {

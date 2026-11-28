@@ -180,6 +180,7 @@ func Test_snapshotEngine_policyPropagation(t *testing.T) {
 			channel := &signaltest.Channel{}
 			newEngine := func() *snapshotEngine {
 				opts := defaultClientOptions()
+				opts.collection = fixtureCollection
 				opts.heartbeatInterval = tt.heartbeat
 				if tt.withSignal {
 					opts.signal = policySignal(channel)
@@ -230,11 +231,11 @@ func Test_snapshotEngine_policyPropagation(t *testing.T) {
 
 				return
 			}
-			// The writer announces on a goroutine of its own, and the reader can have seen
-			// the change already by a load of its own loop, so the signal is waited for.
-			waitUntil(t, "the writer never signaled the policy kind", func() bool {
-				return slices.Contains(channel.Signals(), policyKind)
-			})
+			// The writer announced before its write returned, so the signal was on the
+			// channel before either check above was made.
+			if signals := channel.Signals(); !slices.Contains(signals, policyKind) {
+				t.Errorf("channel.Signals() = %v, want the policy kind the writer signaled", signals)
+			}
 		})
 	}
 }

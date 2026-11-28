@@ -20,13 +20,15 @@ import (
 
 func (a *App) Sorties() http.HandlerFunc {
 	type sortie struct {
-		ID          impulse.UUID `json:"id"          index:"true" perm:"-"`
+		ID          impulse.UUID `json:"id"          index:"true"       perm:"-"`
 		MissionID   impulse.UUID `json:"missionId"   index:"true"`
 		ShipID      impulse.UUID `json:"shipId"      index:"true"`
 		PilotUserID string       `json:"pilotUserId"`
 		LaunchedAt  time.Time    `json:"launchedAt"`
 		ReturnedAt  *time.Time   `json:"returnedAt"`
 		Debrief     *string      `json:"debrief"`
+		MissionName *string      `json:"missionName" nameof:"MissionID" allow_filter:"true" search:"token=Title_Search;index=MissionsSearch;role=text;contains"`
+		ShipName    *string      `json:"shipName"    nameof:"ShipID"`
 	}
 
 	type response []map[string]any
@@ -45,8 +47,9 @@ func (a *App) Sorties() http.HandlerFunc {
 		}
 
 		// A live list registers before the query runs, so a commit that lands during
-		// the query is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, a.LiveService(), querySet, live.ListSubscription(querySet.Resource(), domain))
+		// the query is not missed; a refused request registers nothing. With it the
+		// request registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, a.LiveService(), querySet, live.ListSubscription(querySet.Resource(), domain))
 
 		res := resources.NewSortieQueryFromQuerySet(querySet)
 
@@ -65,7 +68,7 @@ func (a *App) Sorties() http.HandlerFunc {
 			if !page.Add(row) {
 				break
 			}
-			rec := (*sortie)(&row.Data)
+			rec := &row.Data
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
@@ -99,6 +102,11 @@ func (a *App) Sorties() http.HandlerFunc {
 					}
 				}
 			}
+			for _, name := range querySet.Names() {
+				if looked := row.Name(name.Field); looked != nil {
+					rmap[name.JSONName] = *looked
+				}
+			}
 			if capabilities := row.Capabilities(); capabilities != nil {
 				rmap[resource.CapabilitiesProperty] = capabilities
 			}
@@ -120,13 +128,15 @@ func (a *App) Sorties() http.HandlerFunc {
 
 func (a *App) Sortie() http.HandlerFunc {
 	type response struct {
-		ID          impulse.UUID `json:"id"          index:"true" perm:"-"`
+		ID          impulse.UUID `json:"id"          index:"true"       perm:"-"`
 		MissionID   impulse.UUID `json:"missionId"`
 		ShipID      impulse.UUID `json:"shipId"`
 		PilotUserID string       `json:"pilotUserId"`
 		LaunchedAt  time.Time    `json:"launchedAt"`
 		ReturnedAt  *time.Time   `json:"returnedAt"`
 		Debrief     *string      `json:"debrief"`
+		MissionName *string      `json:"missionName" nameof:"MissionID"`
+		ShipName    *string      `json:"shipName"    nameof:"ShipID"`
 	}
 
 	decoder := NewQueryDecoder[resources.Sortie, response](a, accesstypes.Read)
@@ -144,8 +154,9 @@ func (a *App) Sortie() http.HandlerFunc {
 		}
 
 		// A live row registers before the read runs, so a commit that lands during the
-		// read is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, a.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(id)))
+		// read is not missed; a refused request registers nothing. With it the request
+		// registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, a.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(id)))
 
 		res := resources.NewSortieQueryFromQuerySet(querySet).SetID(id)
 
@@ -153,7 +164,7 @@ func (a *App) Sortie() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		rec := (*response)(&row.Data)
+		rec := &row.Data
 		rmap := make(map[string]any)
 		for _, field := range querySet.Fields() {
 			switch string(field) {
@@ -187,11 +198,55 @@ func (a *App) Sortie() http.HandlerFunc {
 				}
 			}
 		}
+		for _, name := range querySet.Names() {
+			if looked := row.Name(name.Field); looked != nil {
+				rmap[name.JSONName] = *looked
+			}
+		}
 		if capabilities := row.Capabilities(); capabilities != nil {
 			rmap[resource.CapabilitiesProperty] = capabilities
 		}
 		live.SetCacheControl(w, r)
 
 		return httpio.NewEncoder(w).Ok(rmap)
+	})
+}
+
+// SortieChangeHistory answers a page of one sortie's change records, newest first, to whoever may read the record, with the fields they may see on it. It answers 404 while the resource does not track its changes.
+func (a *App) SortieChangeHistory() http.HandlerFunc {
+	type response struct {
+		ID          impulse.UUID `json:"id"          index:"true"       perm:"-"`
+		MissionID   impulse.UUID `json:"missionId"`
+		ShipID      impulse.UUID `json:"shipId"`
+		PilotUserID string       `json:"pilotUserId"`
+		LaunchedAt  time.Time    `json:"launchedAt"`
+		ReturnedAt  *time.Time   `json:"returnedAt"`
+		Debrief     *string      `json:"debrief"`
+		MissionName *string      `json:"missionName" nameof:"MissionID"`
+		ShipName    *string      `json:"shipName"    nameof:"ShipID"`
+	}
+
+	decoder := NewQueryDecoder[resources.Sortie, response](a, accesstypes.Read)
+
+	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := tracer.Start(r.Context())
+		defer span.End()
+
+		id := httpio.Param[impulse.UUID](r, router.SortieID)
+
+		domain := httpio.Param[accesstypes.Domain](r, router.Domain)
+		history, err := decoder.DecodeChangeHistory(r, a.UserPermissions(r), accesstypes.DomainScope(domain))
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		resources.NewSortieQueryFromQuerySet(history.QuerySet()).SetID(id)
+
+		page, err := history.Read(ctx, a.ResourceClient())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok(page)
 	})
 }

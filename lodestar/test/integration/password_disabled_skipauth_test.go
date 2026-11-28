@@ -1,0 +1,212 @@
+//go:build skipAuth
+
+package integration
+
+import (
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
+	"strings"
+	"testing"
+
+	"github.com/impulseframework/impulse/lodestar/pkg/auth"
+	"github.com/impulseframework/impulse/lodestar/pkg/auth/crew"
+	"github.com/impulseframework/impulse/session/sessioninfo"
+)
+
+// TestPasswordDisabled_followsTheSectorsSwitch proves on the served stack that a person
+// is told their password is disabled exactly where Bastion's directory-only switch
+// refuses a password to them: in what they read of how they sign in, and in the first
+// password they are refused.
+//
+// Bastion is directory only, and its directory is the persona provider of the test
+// environments. The rookie, a cadet in every sector in the cast, is made one of Bastion's
+// crew alone by the governor, and signs in through Bastion's directory. Every sector that
+// seats him is directory only, he administers none of them and he holds no role outside
+// them, so a password would not sign him in: the read of what he signs in with says his
+// password is disabled, and he is refused the code of a first password and the password
+// itself, with the reason, and nothing is mailed. The marshal's role at Bastion itself,
+// which keeps its holder a way in with a password, makes the read say it is not. A role
+// at Anvil does not, though Anvil is not directory only: his account signs in through
+// Bastion's directory, and Bastion's switch disables its password whichever sectors seat
+// him. The rigger, who holds roles at Anvil and Bastion and whose account is linked
+// through no directory, reads that hers is not. The switch turned off makes the read say
+// it is not, after which his request for the code is no longer refused for it. Each role
+// taken back, the read says disabled again at once: the answer is the sign-in rule's,
+// asked when the page reads it.
+//
+// Demonstrates: tenancy.directory-only, auth.persona.
+func TestPasswordDisabled_followsTheSectorsSwitch(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	s := newServedWith(ctx, t, servedOptions{persona: &auth.Persona{Issuer: "https://persona.example.com", ClientID: "lodestar-pr12"}})
+	if _, err := s.crew.SeedCast(ctx, io.Discard); err != nil {
+		t.Fatalf("SeedCast() error = %v", err)
+	}
+	governor := newBrowser(t, s, consoleAPI)
+	governor.signIn(ctx, "governor")
+	rookieID := crewUserID(ctx, t, governor, "rookie").String()
+	// role gives or takes a role of the rookie's as the governor, a super administrator.
+	role := func(what, method string, body map[string]any) {
+		t.Helper()
+
+		if status, answer := governor.do(ctx, http.MethodPost, crewMethod(method), jsonBody(t, body)); status != http.StatusOK && status != http.StatusNoContent {
+			t.Fatalf("%s as the governor: status %d: %s", what, status, answer)
+		}
+	}
+	held := func(role, sector string) map[string]any {
+		return map[string]any{"userId": rookieID, "role": role, "domain": sector}
+	}
+
+	// The rookie is one of Bastion's crew alone, and signs in through its directory.
+	role("making the rookie a cadet at Bastion", "assign-crew-role", held("Cadet", bastion))
+	role("taking the rookie's cadet role in every sector", "remove-crew-role", map[string]any{"userId": rookieID, "role": "Cadet", "everyDomain": true})
+	rookie := newBrowser(t, s, consoleAPI)
+	rookie.signInAsPersona(ctx, "rookie")
+
+	// reads holds what a person reads of how they sign in to want.
+	reads := func(b *browser, who, state string, want bool) {
+		t.Helper()
+
+		status, body := b.do(ctx, http.MethodGet, consoleAPI+"/user/sign-in-means", nil)
+		var means struct {
+			PasswordDisabled *bool `json:"passwordDisabled"`
+		}
+		if status != http.StatusOK || json.Unmarshal(body, &means) != nil || means.PasswordDisabled == nil {
+			t.Fatalf("reading what %s signs in with, %s: status %d: %s", who, state, status, body)
+		}
+		if *means.PasswordDisabled != want {
+			t.Errorf("%s's password is disabled, %s = %v, want %v: %s", who, state, *means.PasswordDisabled, want, body)
+		}
+	}
+	disabled := func(state string, want bool) {
+		t.Helper()
+
+		reads(rookie, "the rookie", state, want)
+	}
+	disabled("one of Bastion's crew alone while it is directory only", true)
+
+	// He is refused a first password, the code and the password alike, before anything
+	// is mailed: it would not sign him in.
+	const refused = "Your organization does not sign in with a password here, so there is none to choose. Keep signing in the way your organization has set up"
+	firstPassword := consoleAPI + "/user/first-password"
+	s.codeMu.Lock()
+	before := len(s.mail.Messages())
+	status, body := rookie.do(ctx, http.MethodPost, firstPassword+"/code", nil)
+	mailed := len(s.mail.Messages()) - before
+	s.codeMu.Unlock()
+	if status != http.StatusForbidden || !strings.Contains(string(body), refused) {
+		t.Errorf("asking for the code of a first password as the rookie: status %d, want 403 saying %q: %s", status, refused, body)
+	}
+	if mailed != 0 {
+		t.Errorf("asking for the code of a first password as the rookie mailed %d message(s), want none", mailed)
+	}
+	chosen := jsonBody(t, map[string]string{"code": "000000", "password": personaPassword})
+	if status, body := rookie.do(ctx, http.MethodPost, firstPassword, chosen); status != http.StatusForbidden || !strings.Contains(string(body), refused) {
+		t.Errorf("choosing a first password as the rookie: status %d, want 403 saying %q: %s", status, refused, body)
+	}
+
+	// Bastion's own marshal keeps the way in with a password.
+	role("making the rookie a marshal of Bastion itself", "assign-crew-role", held("SectorMarshal", bastion))
+	disabled("a marshal of Bastion itself", false)
+	role("taking the marshal's role at Bastion back", "remove-crew-role", held("SectorMarshal", bastion))
+	disabled("one of Bastion's crew alone again", true)
+
+	// A sector that is not directory only does not give him his password back: his
+	// account signs in through Bastion's directory, and Bastion's switch disables its
+	// password whichever sectors seat him.
+	role("making the rookie a cadet at Anvil too", "assign-crew-role", held("Cadet", anvil))
+	disabled("a cadet at Anvil too, his account signing in through Bastion's directory", true)
+	role("taking the cadet role at Anvil back", "remove-crew-role", held("Cadet", anvil))
+	disabled("one of Bastion's crew alone once more", true)
+
+	// The rigger, one of the crew at Anvil and at Bastion, has signed in through no
+	// directory: Anvil admits her password, and it is not disabled.
+	rigger := newBrowser(t, s, consoleAPI)
+	rigger.signIn(ctx, "rigger")
+	reads(rigger, "the rigger", "one of the crew at Anvil and Bastion, linked through no directory", false)
+
+	// The switch turned off, a password signs him in again.
+	if status, body := governor.do(ctx, http.MethodPost, sectorPath(bastion, "end-sector-directory-only"), []byte(`{}`)); status != http.StatusOK {
+		t.Fatalf("turning Bastion's directory only off as the governor: status %d, want 200: %s", status, body)
+	}
+	disabled("one of Bastion's crew alone, with its directory only turned off", false)
+	if status, body := rookie.do(ctx, http.MethodPost, firstPassword+"/code", nil); status == http.StatusForbidden || strings.Contains(string(body), refused) {
+		t.Errorf("asking for the code of a first password as the rookie, with Bastion's directory only turned off: status %d, want no refusal for a disabled password: %s", status, body)
+	}
+}
+
+// TestDirectoryOnly_keepsItsDirectoryPeopleToTheDirectory proves on the served stack that
+// an account that signs in through a directory-only sector's directory signs in through
+// that directory alone, whichever sectors seat the person. The bosun, one of Bastion's
+// crew by password, is made a cadet at Anvil by the governor, so his password signs him
+// in: Anvil is not directory only. Once he has signed in through the persona provider,
+// Bastion's directory, his password is refused naming the rule (directory_only), though
+// Anvil still seats him; with Bastion's directory only turned off by the governor it
+// signs him in again.
+//
+// Demonstrates: tenancy.directory-only, auth.persona.
+func TestDirectoryOnly_keepsItsDirectoryPeopleToTheDirectory(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	s := newServedWith(ctx, t, servedOptions{persona: &auth.Persona{Issuer: "https://persona.example.com", ClientID: "lodestar-pr12"}})
+	governor := newBrowser(t, s, consoleAPI)
+	governor.signIn(ctx, "governor")
+	atAnvil := map[string]any{"userId": crewUserID(ctx, t, governor, "bosun").String(), "role": "Cadet", "domain": anvil}
+	if status, answer := governor.do(ctx, http.MethodPost, crewMethod("assign-crew-role"), jsonBody(t, atAnvil)); status != http.StatusOK && status != http.StatusNoContent {
+		t.Fatalf("making the bosun a cadet at Anvil as the governor: status %d: %s", status, answer)
+	}
+	// login signs the bosun in with his password, from a browser of its own.
+	login := func() (status int, body []byte) {
+		t.Helper()
+
+		return primedBrowser(ctx, t, s).login(ctx, "bosun", personaPassword)
+	}
+	if status, body := login(); status != http.StatusOK {
+		t.Fatalf("the bosun's password sign-in, a cadet at Anvil: status %d, want 200: %s", status, body)
+	}
+
+	// He signs in through the persona provider, Bastion's directory. His login has a
+	// password, so the sign-in waits for it, which links the identity and opens the
+	// session.
+	persona := primedBrowser(ctx, t, s)
+	func() {
+		simulatedLogin.Lock()
+		defer simulatedLogin.Unlock()
+		if err := os.Setenv("APP_PERSONA_USERNAME", "bosun"); err != nil {
+			t.Fatal(err)
+		}
+		held := consoleLogin + "?pending=confirmation&returnUrl=" + url.QueryEscape(consolePage)
+		if status, location := persona.loginThrough(ctx, "/user/"+crew.PersonaRegistration+"/login", consolePage); status != http.StatusFound || location != held {
+			t.Fatalf("the bosun's persona login: status %d to %q, want %d to %q", status, location, http.StatusFound, held)
+		}
+	}()
+	if status, body := persona.do(ctx, http.MethodPost, consoleAPI+"/user/pending/confirm", jsonBody(t, map[string]string{"password": personaPassword})); status != http.StatusOK {
+		t.Fatalf("confirming the bosun's persona sign-in with his password: status %d: %s", status, body)
+	}
+	if sess := persona.session(ctx); sess["authenticated"] != true || sess["username"] != "bosun" {
+		t.Fatalf("the session after the bosun's persona sign-in = %v, want authenticated as the bosun", sess)
+	}
+
+	// His account now signs in through Bastion's directory: his password is refused,
+	// though Anvil seats him.
+	status, body := login()
+	var refusal struct {
+		Code string `json:"code"`
+	}
+	if status != http.StatusUnauthorized || json.Unmarshal(body, &refusal) != nil || refusal.Code != string(sessioninfo.RefusedDirectoryOnly) {
+		t.Errorf("the bosun's password sign-in once his account signs in through Bastion's directory: status %d, want 401 with the code %q: %s", status, sessioninfo.RefusedDirectoryOnly, body)
+	}
+
+	// Bastion's directory only turned off, the password signs him in again.
+	if status, body := governor.do(ctx, http.MethodPost, sectorPath(bastion, "end-sector-directory-only"), []byte(`{}`)); status != http.StatusOK {
+		t.Fatalf("turning Bastion's directory only off as the governor: status %d, want 200: %s", status, body)
+	}
+	if status, body := login(); status != http.StatusOK {
+		t.Errorf("the bosun's password sign-in with Bastion's directory only turned off: status %d, want 200: %s", status, body)
+	}
+}

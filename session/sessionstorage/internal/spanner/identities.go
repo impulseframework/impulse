@@ -4,12 +4,15 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/internal/spannertxn"
 	"github.com/impulseframework/impulse/securehash"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/session/sessioninfo"
@@ -88,24 +91,27 @@ func queryIdentities(ctx context.Context, q querier, stmt spanner.Statement) ([]
 	return identities, nil
 }
 
-// Transact runs fn in a read-write transaction, which Spanner may retry, and commits
-// when fn returns nil.
+// Transact runs fn in a read-write transaction at the serializable isolation level
+// (spannertxn.Serializable), which Spanner may retry, and commits when fn returns nil.
 func (s *SessionStorageDriver) Transact(ctx context.Context, fn func(ctx context.Context, tx *spanner.ReadWriteTransaction) error) error {
-	if _, err := s.spanner.ReadWriteTransaction(ctx, fn); err != nil {
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+	if _, err := spannertxn.Serializable(ctx, s.spanner, fn); err != nil {
+		return errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return nil
 }
 
 // SignInConflict classifies an AlreadyExists a sign-in's transaction ended with: the
-// user table's username indexes, or else the identities table's key.
+// user table's username indexes, its address index, or else the identities table's key.
 func (s *SessionStorageDriver) SignInConflict(err error) dbtype.SignInConflict {
 	if spanner.ErrCode(err) != codes.AlreadyExists {
 		return dbtype.NoSignInConflict
 	}
 	if s.usernameConflict(err) {
 		return dbtype.UsernameConflict
+	}
+	if strings.Contains(err.Error(), s.emailIndex()) {
+		return dbtype.EmailConflict
 	}
 
 	return dbtype.IdentityConflict
@@ -164,7 +170,7 @@ func (s *SessionStorageDriver) LinkIdentityIn(
 // them zero until the commit reports it.
 func (s *SessionStorageDriver) newIdentityLink(userID impulse.UUID, identity *sessioninfo.Identity, tenant string) (*dbtype.SessionIdentity, *spanner.Mutation, error) {
 	if !dbtype.IsExternal(identity) || identity.Subject == "" {
-		return nil, nil, httpio.NewBadRequestMessage("only an external identity with a subject can be linked")
+		return nil, nil, httpio.NewBadRequestMessage(dbtype.OnlyDirectoryIdentityLinksMessage)
 	}
 
 	id, err := impulse.NewUUID()
@@ -185,22 +191,48 @@ func (s *SessionStorageDriver) newIdentityLink(userID impulse.UUID, identity *se
 // UserIn reads the part of userID's user the sign-in decides on, inside tx. A missing
 // user is NotFound.
 func (s *SessionStorageDriver) UserIn(ctx context.Context, tx *spanner.ReadWriteTransaction, userID impulse.UUID) (*dbtype.User, error) {
-	row, err := tx.ReadRow(ctx, s.userTableName, spanner.Key{userID.String()}, []string{idColumn, usernameColumn, "PasswordHash", "Disabled"})
+	// Whether the row holds an address, and whether its person has confirmed it, is read
+	// with the row, in the same transaction: a hold for the code that confirms one, and
+	// a first link that waits for the code mailed to it, are decided on them.
+	row, err := tx.ReadRow(ctx, s.userTableName, spanner.Key{userID.String()}, []string{idColumn, usernameColumn, "PasswordHash", "Disabled", emailColumn, emailVerifiedAtColumn})
 	if err != nil {
 		if spanner.ErrCode(err) == codes.NotFound {
-			return nil, httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+			return nil, dbtype.AccountNotFound(userID)
 		}
 
 		return nil, errors.Wrap(err, "spanner.ReadWriteTransaction.ReadRow()")
 	}
+	user, err := userOf(row)
+	if err != nil {
+		return nil, err
+	}
+	var (
+		email      spanner.NullString
+		verifiedAt spanner.NullTime
+	)
+	if err := row.Column(4, &email); err != nil {
+		return nil, errors.Wrap(err, "spanner.Row.Column()")
+	}
+	if err := row.Column(5, &verifiedAt); err != nil {
+		return nil, errors.Wrap(err, "spanner.Row.Column()")
+	}
+	user.EmailConfirmed, user.EmailHeld = email.Valid && verifiedAt.Valid, email.Valid
+	if email.Valid {
+		held := email.StringVal
+		user.Email = &held
+		if verifiedAt.Valid {
+			confirmedAt := verifiedAt.Time
+			user.EmailConfirmedAt = &confirmedAt
+		}
+	}
 
-	return userOf(row)
+	return user, nil
 }
 
 // UserByUsernameIn reads the user named username inside tx, matched on the normalized
 // username as UserByUserName matches it, or nil when there is none.
 func (s *SessionStorageDriver) UserByUsernameIn(ctx context.Context, tx *spanner.ReadWriteTransaction, username string) (*dbtype.User, error) {
-	stmt := spanner.NewStatement(fmt.Sprintf(`SELECT Id, Username, PasswordHash, Disabled FROM %s WHERE NormalizedUsername = NORMALIZE_AND_CASEFOLD(@username)`, s.userTableName))
+	stmt := spanner.NewStatement(fmt.Sprintf(`SELECT Id, Username, PasswordHash, Disabled FROM %s WHERE NormalizedUsername = %s`, s.userTableName, usernameFold("@username")))
 	stmt.Params["username"] = username
 
 	var user *dbtype.User
@@ -220,8 +252,8 @@ func (s *SessionStorageDriver) UserByUsernameIn(ctx context.Context, tx *spanner
 	return user, nil
 }
 
-// userOf reads the part of a user row the flow decides on from row's columns Id,
-// Username, PasswordHash, Disabled, with the proof the row's password hash answers to:
+// userOf reads the part of a user row the flow decides on from row's first four columns,
+// Id, Username, PasswordHash, Disabled, with the proof the row's password hash answers to:
 // read in the transaction that inserts on the strength of a password proof, it is the
 // hash the row holds when that transaction commits, or Spanner runs it again.
 func userOf(row *spanner.Row) (*dbtype.User, error) {
@@ -230,8 +262,10 @@ func userOf(row *spanner.Row) (*dbtype.User, error) {
 		u    dbtype.User
 		hash spanner.NullString
 	)
-	if err := row.Columns(&id, &u.Username, &hash, &u.Disabled); err != nil {
-		return nil, errors.Wrap(err, "spanner.Row.Columns()")
+	for i, ptr := range []any{&id, &u.Username, &hash, &u.Disabled} {
+		if err := row.Column(i, ptr); err != nil {
+			return nil, errors.Wrap(err, "spanner.Row.Column()")
+		}
 	}
 	userID, err := impulse.UUIDFromString(id)
 	if err != nil {
@@ -327,7 +361,7 @@ func (s *SessionStorageDriver) newUserMutation(insertUser *dbtype.InsertSessionU
 		return nil, nil, errors.Wrap(err, "sessioninfo.CleanName()")
 	}
 	user := &dbtype.SessionUser{
-		ID: id, Username: insertUser.Username, PasswordHash: insertUser.PasswordHash, Disabled: insertUser.Disabled, PasswordChangeRequired: insertUser.PasswordChangeRequired,
+		ID: id, Username: insertUser.Username, PasswordHash: insertUser.PasswordHash, Disabled: insertUser.Disabled,
 	}
 
 	passwordHash, err := passwordHashValue(user.PasswordHash)
@@ -336,13 +370,15 @@ func (s *SessionStorageDriver) newUserMutation(insertUser *dbtype.InsertSessionU
 	}
 	row := map[string]any{
 		idColumn: user.ID, usernameColumn: user.Username, "PasswordHash": passwordHash, "Disabled": user.Disabled,
-		"PasswordChangeRequired": user.PasswordChangeRequired, createdAtColumn: spanner.CommitTimestamp,
+		// A user is created under no password change mark: the mark is the application's
+		// write, made when an administrator requires a new password.
+		"PasswordChangeRequired": false, createdAtColumn: spanner.CommitTimestamp,
 	}
 	if s.users {
 		if !s.usernameIsEmail {
-			row["Email"] = spanner.NullString{}
+			row[emailColumn] = spanner.NullString{}
 			if insertUser.Email != nil {
-				row["Email"] = spanner.NullString{StringVal: *insertUser.Email, Valid: true}
+				row[emailColumn] = spanner.NullString{StringVal: *insertUser.Email, Valid: true}
 			}
 		}
 		if insertUser.EmailVerified {
@@ -367,7 +403,7 @@ func (s *SessionStorageDriver) Identity(ctx context.Context, method sessioninfo.
 		return nil, err
 	}
 	if link == nil {
-		return nil, httpio.NewNotFoundMessagef("identity (%s, %q, %q) is not linked", method, connection, subject)
+		return nil, dbtype.SignInIdentityNotLinked(method, connection, subject)
 	}
 
 	return link, nil
@@ -379,6 +415,24 @@ func (s *SessionStorageDriver) IdentitiesByUser(ctx context.Context, userID impu
 	defer span.End()
 
 	return queryIdentities(ctx, s.spanner.Single(), s.identitiesByUserStatement(userID))
+}
+
+// IdentityByID returns the link of the id, or a NotFound error.
+func (s *SessionStorageDriver) IdentityByID(ctx context.Context, identityID impulse.UUID) (*dbtype.SessionIdentity, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	stmt := spanner.NewStatement(fmt.Sprintf(`SELECT %s FROM %s WHERE Id = @id`, identityColumns, s.identitiesTableName))
+	stmt.Params["id"] = identityID.String()
+	links, err := queryIdentities(ctx, s.spanner.Single(), stmt)
+	if err != nil {
+		return nil, err
+	}
+	if len(links) == 0 {
+		return nil, dbtype.SignInIdentityNotFound(identityID)
+	}
+
+	return links[0], nil
 }
 
 // IdentitiesByUserIn lists a user's links inside tx, oldest first.
@@ -407,7 +461,10 @@ func (s *SessionStorageDriver) LinkIdentity(ctx context.Context, userID impulse.
 	committedAt, err := s.spanner.Apply(ctx, []*spanner.Mutation{mutation})
 	if err != nil {
 		if spanner.ErrCode(err) == codes.AlreadyExists {
-			return nil, httpio.NewConflictMessagef("identity (%s, %q, %q) is already linked", identity.Method, identity.Connection, identity.Subject)
+			return nil, httpio.NewConflictMessageWithError(
+				errors.Newf("identity (%s, %q, %q) is already linked", identity.Method, identity.Connection, identity.Subject),
+				dbtype.SignInIdentityAlreadyLinkedMessage,
+			)
 		}
 
 		return nil, errors.Wrap(err, "spanner.Client.Apply()")
@@ -422,15 +479,15 @@ func (s *SessionStorageDriver) LinkIdentity(ctx context.Context, userID impulse.
 // that has no password: the link goes only while another identity linked to the user
 // is a means of sign-in by signsIn, the caller's judgment of a link, asked about the
 // identities the unlinking transaction reads (dbtype.UnlinkKeepsSignIn).
-func (s *SessionStorageDriver) UnlinkIdentity(ctx context.Context, identityID impulse.UUID, signsIn func(method sessioninfo.AuthMethod, connection string) bool) error {
+func (s *SessionStorageDriver) UnlinkIdentity(ctx context.Context, identityID impulse.UUID, signsIn func(method sessioninfo.AuthMethod, connection string) bool, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		row, err := txn.ReadRow(ctx, s.identitiesTableName, spanner.Key{identityID.String()}, []string{"UserId"})
 		if err != nil {
 			if spanner.ErrCode(err) == codes.NotFound {
-				return httpio.NewNotFoundMessagef("identity %q does not exist", identityID)
+				return dbtype.SignInIdentityNotFound(identityID)
 			}
 
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.ReadRow()")
@@ -467,10 +524,10 @@ func (s *SessionStorageDriver) UnlinkIdentity(ctx context.Context, identityID im
 			return errors.Wrap(err, "txn.BufferWrite()")
 		}
 
-		return nil
+		return s.bufferAuditRecord(txn, record)
 	})
 	if err != nil {
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return nil
@@ -489,7 +546,7 @@ const (
 // and refuses to remove the user's last means of sign-in otherwise. The user's sessions
 // stand. A user that holds no password is a BadRequest. It follows no proof of the
 // password and removes whatever hash the row holds.
-func (s *SessionStorageDriver) RemoveUserPassword(ctx context.Context, userID impulse.UUID, standing []impulse.UUID) error {
+func (s *SessionStorageDriver) RemoveUserPassword(ctx context.Context, userID impulse.UUID, standing []impulse.UUID, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -497,7 +554,7 @@ func (s *SessionStorageDriver) RemoveUserPassword(ctx context.Context, userID im
 		return errors.New("RemoveUserPassword needs the auth schema: use Auth storage")
 	}
 
-	return s.removeUserPassword(ctx, userID, false, spanner.NullString{}, standing)
+	return s.removeUserPassword(ctx, userID, false, spanner.NullString{}, standing, record)
 }
 
 // RemoveProvenUserPassword removes the password a user proved (proven), as
@@ -505,7 +562,7 @@ func (s *SessionStorageDriver) RemoveUserPassword(ctx context.Context, userID im
 // it, so the removal goes through only while the row still holds the proven one: a
 // password changed, reset or removed since the caller read it stands as it is
 // (ErrPasswordChanged, a Conflict).
-func (s *SessionStorageDriver) RemoveProvenUserPassword(ctx context.Context, userID impulse.UUID, proven *securehash.Hash, standing []impulse.UUID) error {
+func (s *SessionStorageDriver) RemoveProvenUserPassword(ctx context.Context, userID impulse.UUID, proven *securehash.Hash, standing []impulse.UUID, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -517,16 +574,18 @@ func (s *SessionStorageDriver) RemoveProvenUserPassword(ctx context.Context, use
 		return err
 	}
 
-	return s.removeUserPassword(ctx, userID, true, provenHash, standing)
+	return s.removeUserPassword(ctx, userID, true, provenHash, standing, record)
 }
 
 // removeUserPassword removes a user's password and its change mark in one transaction.
 // With followsProof set, the row must still hold proven, the hash the caller proved.
 // standing names the identities the caller judged a means of sign-in: one of them must
 // still be linked to the user when the password goes, read in the transaction that
-// writes, as an unlink reads them.
-func (s *SessionStorageDriver) removeUserPassword(ctx context.Context, userID impulse.UUID, followsProof bool, proven spanner.NullString, standing []impulse.UUID) error {
-	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+// writes, as an unlink reads them. record, nil for none, is buffered with the removal.
+func (s *SessionStorageDriver) removeUserPassword(
+	ctx context.Context, userID impulse.UUID, followsProof bool, proven spanner.NullString, standing []impulse.UUID, record *auditlog.Record,
+) error {
+	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		if followsProof {
 			if err := s.holdsProvenPasswordIn(ctx, txn, userID, proven); err != nil {
 				return err
@@ -540,7 +599,7 @@ func (s *SessionStorageDriver) removeUserPassword(ctx context.Context, userID im
 			return err
 		}
 		if !user.HasPassword {
-			return httpio.NewBadRequestMessage("the user has no password to remove")
+			return httpio.NewBadRequestMessage(dbtype.NoPasswordToRemoveMessage)
 		}
 		links, err := s.IdentitiesByUserIn(ctx, txn, userID)
 		if err != nil {
@@ -549,7 +608,7 @@ func (s *SessionStorageDriver) removeUserPassword(ctx context.Context, userID im
 		// Only an identity the caller named counts: one that signs nobody in any more
 		// is no means of sign-in, however many of them the user holds.
 		if !slices.ContainsFunc(links, func(link *dbtype.SessionIdentity) bool { return slices.Contains(standing, link.ID) }) {
-			return httpio.NewConflictMessageWithError(dbtype.ErrLastSignInMethod, "the user has no other means of sign-in: link a directory sign-in first")
+			return httpio.NewConflictMessageWithError(dbtype.ErrLastSignInMethod, dbtype.PasswordIsLastSignInMessage)
 		}
 
 		removal := spanner.UpdateMap(s.userTableName, map[string]any{idColumn: userID, passwordHashColumn: spanner.NullString{}, passwordChangeRequiredColumn: false})
@@ -557,10 +616,10 @@ func (s *SessionStorageDriver) removeUserPassword(ctx context.Context, userID im
 			return errors.Wrap(err, "txn.BufferWrite()")
 		}
 
-		return nil
+		return s.bufferAuditRecord(txn, record)
 	})
 	if err != nil {
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return nil
@@ -577,11 +636,11 @@ func (s *SessionStorageDriver) DestroyUserSessions(ctx context.Context, userID i
 		return errors.New("DestroyUserSessions needs the auth schema: use Auth storage")
 	}
 
-	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		return s.destroyUserSessionsIn(ctx, txn, userID)
 	})
 	if err != nil {
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return nil
@@ -589,8 +648,8 @@ func (s *SessionStorageDriver) DestroyUserSessions(ctx context.Context, userID i
 
 // destroyUserSessionsIn expires every live session of a user inside txn, as
 // DestroyUserSessions does in a transaction of its own: a user's own change of
-// password and an operator's replacement of it end the user's sessions in the
-// transaction that writes the password (ChangeUserPassword, ReplaceUserPassword).
+// password ends the user's sessions in the transaction that writes the password
+// (ChangeUserPassword).
 func (s *SessionStorageDriver) destroyUserSessionsIn(ctx context.Context, txn *spanner.ReadWriteTransaction, userID impulse.UUID) error {
 	// The local-actor records name the actor by username.
 	var username string
@@ -650,14 +709,14 @@ func (s *SessionStorageDriver) AppendAuthEvent(ctx context.Context, sessionID im
 		return dbtype.ErrNoAuthEvents
 	}
 	if event.Method == "" {
-		return httpio.NewBadRequestMessage("an auth event needs a method")
+		return httpio.NewBadRequestMessage(dbtype.AuthEventNeedsMethodMessage)
 	}
 
-	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		row, err := txn.ReadRow(ctx, s.sessionTableName, spanner.Key{sessionID.String()}, []string{expiredColumnName})
 		if err != nil {
 			if spanner.ErrCode(err) == codes.NotFound {
-				return httpio.NewNotFoundMessagef("session %q not found", sessionID)
+				return dbtype.SessionNotFound(sessionID)
 			}
 
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.ReadRow()")
@@ -667,7 +726,7 @@ func (s *SessionStorageDriver) AppendAuthEvent(ctx context.Context, sessionID im
 			return errors.Wrap(err, "spanner.Row.Column()")
 		}
 		if expired {
-			return httpio.NewBadRequestMessage("cannot record an auth event on an expired session")
+			return httpio.NewBadRequestMessage(dbtype.AuthEventOnExpiredSessionMessage)
 		}
 
 		last := spanner.NewStatement(fmt.Sprintf(`SELECT IFNULL(MAX(Seq), 0) FROM %s WHERE SessionId = @id`, s.authEvents.TableName))
@@ -688,7 +747,7 @@ func (s *SessionStorageDriver) AppendAuthEvent(ctx context.Context, sessionID im
 		return nil
 	})
 	if err != nil {
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return nil

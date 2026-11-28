@@ -1,4 +1,4 @@
-import { EnumeratedConfig } from '@impulseframework/resource-angular/types';
+import { EnumeratedConfig, roleInWords } from '@impulseframework/resource-angular/types';
 import {
   ApiError,
   matchesSearch,
@@ -33,17 +33,45 @@ export function optionColumns(
 }
 
 /**
- * What an option shows: the display fields the page configured, concatenated, or the
- * key itself where the page configured none (a form drawn from the metadata alone),
- * which reads well where the key is the row's name (a role).
+ * What a key reads as where the picker shows the key itself: a role's name in words where
+ * the source's key field holds one (`roleFields`), and the key as it is stored otherwise.
+ * Every place the picker shows a bare key asks here, so a role reads the same with a row
+ * and without one.
+ */
+export function keyDisplay(key: string, roleFields: ReadonlySet<string> = new Set(), keyField = 'id'): string {
+  return roleFields.has(keyField) ? roleInWords(key) : key;
+}
+
+/**
+ * What an option shows: the display fields handed in, concatenated, or the key where
+ * there are none. The picker hands in the page's, or, where the page configured none (a
+ * form drawn from the metadata alone), the field the source's metadata says its rows are
+ * known by (`nameField`); a source that declares no name is then shown by its key. A field
+ * that holds a role's name (`roleFields`, the source's fields whose metadata lists
+ * `roles`) is written in words, "Night shift lead" for `NightShiftLead`, as the server's
+ * sentences name a role: a display field among them before the fields are joined, the
+ * row handed in left as it is, and the key where the source's key field (`keyField`) is
+ * one (keyDisplay). Any other text is shown as it is stored.
  */
 export function optionDisplay(
   row: Record<string, string>,
   key: string,
   displayFields: readonly string[],
   concat: (row: Record<string, string>, ...fields: string[]) => string,
+  roleFields: ReadonlySet<string> = new Set(),
+  keyField = 'id',
 ): string {
-  return displayFields.length > 0 ? concat(row, ...displayFields) : key;
+  if (displayFields.length > 0) {
+    const written = { ...row };
+    for (const field of displayFields) {
+      const value = written[field];
+      if (roleFields.has(field) && typeof value === 'string') {
+        written[field] = roleInWords(value);
+      }
+    }
+    return concat(written, ...displayFields);
+  }
+  return keyDisplay(key, roleFields, keyField);
 }
 
 /**
@@ -117,11 +145,19 @@ export function refuseUnsearchablePicker(resource: string, display: string | und
 /**
  * The display of a stored value resolved from the option list — the path a picker takes
  * on a source read whole (no maximum page size), where the list holds every row and a
- * read route is not needed: the matching option, or the id shown as itself when the
- * list holds no match, never a blank.
+ * read route is not needed: the matching option, or the id shown by itself when the
+ * list holds no match (keyDisplay, with the source's `roleFields` and `keyField`), never
+ * a blank.
  */
-export function displayFromOptions(options: readonly PickerOption[], value: string): PickerOption {
-  return options.find((option) => option.id === value) ?? { id: value, display: value };
+export function displayFromOptions(
+  options: readonly PickerOption[],
+  value: string,
+  roleFields: ReadonlySet<string> = new Set(),
+  keyField = 'id',
+): PickerOption {
+  return (
+    options.find((option) => option.id === value) ?? { id: value, display: keyDisplay(value, roleFields, keyField) }
+  );
 }
 
 /**
@@ -161,19 +197,37 @@ export function closedSourceText(stored: boolean): string {
 export const closedRecordText = 'You do not have access to this record, so only its id is shown.';
 
 /**
- * What a picker says when its request failed for a reason that is no permission's: the
- * server's own words for a request it refused (a 400: a bounded source with no order and
- * no configured sort, say), a plain sentence for any other failure, nothing while it
- * works. A request refused as not permitted (notPermitted) is not said here: the picker
- * says a sentence of its own for it (closedSourceText, closedRecordText), never the
- * server's words. A failed picker must never read as an empty list.
+ * What a picker says under its field when the list it offers could not be read, for a
+ * reason that is no permission's: the server would not serve the request (a bounded
+ * source with no order and no configured sort, say), or the read failed. `showsId` says
+ * whether the field shows the value it holds as its id, which a form that is read does:
+ * the list would have named it. A field that is edited is a picker with nothing in it to
+ * choose from, and so is one that holds nothing. A failed picker must never read as an
+ * empty list.
  */
-export function pickerRefusal(error: unknown): string | undefined {
+export function failedSourceText(showsId: boolean): string {
+  return showsId
+    ? 'This list could not be loaded, so only the id is shown.'
+    : 'This list could not be loaded, so nothing can be chosen here.';
+}
+
+/** What a picker says under its field when the read of the row the field holds failed, for a reason that is no permission's. */
+export const failedRecordText = 'This record could not be loaded, so only its id is shown.';
+
+/**
+ * What a picker says when a request of its own failed for a reason that is no
+ * permission's, in the library's own words: one sentence for the list it offers (`read`
+ * 'list', with `showsId` as failedSourceText takes it), another for the row the field
+ * holds ('record'), nothing while it works. What the server said is never part of it: the
+ * server's message names a resource, a page size, a column or a database, and whoever
+ * looks into the failure finds it in the browser's console, where the picker writes it
+ * after the resource it reads and which of its two reads it was. A request refused as not
+ * permitted (notPermitted) is not said here: the picker says a sentence of its own for it
+ * (closedSourceText, closedRecordText).
+ */
+export function pickerRefusal(error: unknown, read: 'list' | 'record', showsId: boolean): string | undefined {
   if (error === undefined || error === null || notPermitted(error)) {
     return undefined;
   }
-  if (error instanceof ApiError && error.status === 400) {
-    return `The server refused this picker's request: ${error.message}`;
-  }
-  return `This picker could not be loaded: ${error instanceof Error ? error.message : String(error)}`;
+  return read === 'list' ? failedSourceText(showsId) : failedRecordText;
 }

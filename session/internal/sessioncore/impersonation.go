@@ -11,13 +11,16 @@ import (
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/session/internal/basesession"
+	"github.com/impulseframework/impulse/session/internal/sealed"
 	"github.com/impulseframework/impulse/session/sessioninfo"
-	"github.com/impulseframework/impulse/session/sessionstorage"
 	"github.com/impulseframework/impulse/tracer"
 )
 
-// ImpersonationRequest describes the impersonated session to establish. It is a
-// struct so future fields can be added without breaking callers.
+// ImpersonationRequest describes the impersonated session to establish, as the session
+// library works with it. An application never holds one: the public request
+// (session.ImpersonationRequest) wraps it with no field an application can set, and
+// only the declaration of the impersonation an application offers
+// (session.Impersonations) fills it in.
 type ImpersonationRequest struct {
 	// Actor is the authenticated real user the session acts on behalf of. Required.
 	Actor string
@@ -39,10 +42,17 @@ type ImpersonationRequest struct {
 	// (Auth), by the username for one that keeps none. How it becomes the session's
 	// identity depends on the session type — see StartImpersonatedSession on each API.
 	Principal accesstypes.Principal
-	// Mask attenuates the session to the listed permissions; the zero mask
-	// (accesstypes.AllowAll()) leaves it unrestricted, and
+	// Mask attenuates the session: the permission kinds it keeps and what it refuses
+	// inside them, a class of actions or a named action or record
+	// (accesstypes.PermissionMask). The mask is the control over what the session
+	// may do: the zero mask (accesstypes.AllowAll()) leaves it unrestricted, which
+	// gives the actor everything the principal holds.
 	// accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read)
-	// is a read-only session.
+	// is a read-only session, and
+	// accesstypes.AllowAll().Refusing(accesstypes.RefuseClass(accesstypes.ClassCredential))
+	// keeps everything except the credential actions. The declaration of the
+	// impersonation the application offers sets it (session.Impersonations): the
+	// kind's widest mask, narrowed by the one the actor asked for.
 	Mask accesstypes.PermissionMask
 	// Reason is a free-text justification (a ticket reference, a support note)
 	// recorded on the impersonation record. Optional; an application's guard may
@@ -100,7 +110,7 @@ func StartImpersonatedSession[T any](
 		return impulse.NilUUID, httpio.NewBadRequestMessage("impersonation requires an actor")
 	}
 	if ImpersonatedContext(ctx) {
-		return impulse.NilUUID, httpio.NewForbiddenMessage("an impersonated session cannot establish another impersonated session")
+		return impulse.NilUUID, httpio.NewForbiddenMessage(NestedStartWords)
 	}
 
 	username, userID, err := impersonatedIdentity(ctx, req, resolve)
@@ -151,6 +161,27 @@ func StartImpersonatedSession[T any](
 	return id, nil
 }
 
+const (
+	// NestedStartWords is what a person in a session that acts as someone else is told
+	// when they ask to start another: such a session starts no other, and ending it is
+	// the person's own next step.
+	NestedStartWords = "You are acting as someone else, and this session cannot start another one. End it first."
+
+	// shadowedActorWords is what a person another system signed in is told when the name
+	// they act under there is the username of an account here.
+	shadowedActorWords = "An account of this application has your username, so a session that acts as a role cannot be started for you from another system. Sign in to this application instead."
+
+	// ownAccountWords is what the person behind a session that views as a person is told
+	// when they ask for something that person's own-account routes write.
+	ownAccountWords = "You are acting as someone else, and this session cannot change their account."
+
+	// refusedOperationWords is what the own-account guard tells the person behind any
+	// other session it refuses: one that acts as a role, whose account is the actor's
+	// own, and one whose mask refuses an operation that is nobody's own. The guard knows
+	// the operation by its handler's name alone, so the sentence says no act.
+	refusedOperationWords = "You are acting as someone else, and this session cannot do this."
+)
+
 // impersonatedIdentity resolves the session's effective identity for req: the actor
 // with the zero UUID for a role principal (once the type's guard allows a foreign
 // actor's name), or the type's answer for a user principal.
@@ -181,16 +212,13 @@ func impersonatedIdentity(ctx context.Context, req *ImpersonationRequest, resolv
 	return resolve.User(ctx, user)
 }
 
-// UserStore is the user lookup the identity resolver needs: the Auth store has it.
-type UserStore interface {
-	User(ctx context.Context, id impulse.UUID) (*sessionstorage.SessionUser, error)
-	UserByUserName(ctx context.Context, username string) (*sessionstorage.SessionUser, error)
-}
-
 // UserIdentity is the identity resolver of Auth, whose users are SessionUsers records.
 // A user principal resolves against storage. A foreign actor's role principal is
-// refused when the actor's name is already a user there.
-func UserIdentity(storage UserStore) IdentityResolver {
+// refused when the actor's name is already a user there. Both are read through the
+// library's own store (sealed.User, sealed.UserByUserName), never through the exported
+// User of a store that wraps it: the account a session acts as is the one the library's
+// own row names.
+func UserIdentity(storage sealed.UserReader) IdentityResolver {
 	return IdentityResolver{
 		User: func(ctx context.Context, user accesstypes.User) (string, impulse.UUID, error) {
 			return impersonatedUser(ctx, storage, user)
@@ -221,14 +249,14 @@ func refuseActorNamedAsAccount(actor string) error {
 // principal names the user by the id of their account, as the permission store does: a
 // principal that is no id names nobody. A missing user is an error, and a disabled one
 // is refused.
-func impersonatedUser(ctx context.Context, storage UserStore, user accesstypes.User) (string, impulse.UUID, error) {
+func impersonatedUser(ctx context.Context, storage sealed.UserReader, user accesstypes.User) (string, impulse.UUID, error) {
 	id, err := impulse.UUIDFromString(string(user))
 	if err != nil {
 		return "", impulse.NilUUID, httpio.NewBadRequestMessageWithErrorf(err, "a user principal names the person by the id of their account, and %q is not one", string(user))
 	}
-	record, err := storage.User(ctx, id)
+	record, err := sealed.User(ctx, storage, id)
 	if err != nil {
-		return "", impulse.NilUUID, errors.Wrap(err, "UserStore.User()")
+		return "", impulse.NilUUID, errors.Wrap(err, "sealed.User()")
 	}
 	if record.Disabled {
 		return "", impulse.NilUUID, httpio.NewUnauthorizedMessage("User disabled")
@@ -241,16 +269,21 @@ func impersonatedUser(ctx context.Context, storage UserStore, user accesstypes.U
 // username is already a user in SessionUsers. The session row would carry that
 // name, and the store's username-keyed operations could not tell the two apart; the
 // actor logs in as that user or impersonates it as a user principal instead. A local
-// actor's name is their own user and is never checked here.
-func refuseShadowedActor(ctx context.Context, storage UserStore, actor string) error {
-	_, err := storage.UserByUserName(ctx, actor)
+// actor's name is their own user and is never checked here. The person reads one
+// sentence with nobody's name in it, and the name is the refusal's cause, which the
+// server's log prints.
+func refuseShadowedActor(ctx context.Context, storage sealed.UserReader, actor string) error {
+	_, err := sealed.UserByUserName(ctx, storage, actor)
 	switch {
 	case err == nil:
-		return httpio.NewForbiddenMessagef("%q is a user of this application: log in as that user or impersonate it as a user principal", actor)
+		return httpio.NewForbiddenMessageWithError(
+			errors.Newf("%q is a user of this application: the actor logs in as that user, or is impersonated as a user principal", actor),
+			shadowedActorWords,
+		)
 	case httpio.HasNotFound(err):
 		return nil
 	default:
-		return errors.Wrap(err, "UserStore.UserByUserName()")
+		return errors.Wrap(err, "sealed.UserByUserName()")
 	}
 }
 
@@ -259,8 +292,13 @@ func refuseShadowedActor(ctx context.Context, storage UserStore, actor string) e
 // and accepted invitations: everything a person's own-account routes write) is refused
 // in every impersonated session — it would alter the impersonated user's account, and
 // what it changes there outlives the view.
-// Other user-management operations are refused only under a mask, which declares the
-// session read-only. Refusals are evidenced as IdentityOperationBlocked events.
+// Any other operation is refused under any mask, whatever the mask keeps: this guard
+// asks no finer question of it. No handler of the library passes one today; the
+// generated management of people answers to the mask itself, through the permission
+// check (resource.Masked), which refuses what the mask refuses and nothing more.
+// Refusals are evidenced as IdentityOperationBlocked events. The person reads one
+// sentence that says no handler's name: the operation is the event's and the refusal's
+// cause, which the server's log prints.
 func RefuseImpersonated(ctx context.Context, base *basesession.BaseSession, operation string, selfOperation bool) error {
 	imp, ok := ImpersonationInCtx(ctx)
 	if !ok {
@@ -274,7 +312,12 @@ func RefuseImpersonated(ctx context.Context, base *basesession.BaseSession, oper
 		logger.FromCtx(ctx).Error(err)
 	}
 
-	return httpio.NewForbiddenMessagef("%s is not permitted in an impersonated session", operation)
+	words := ownAccountWords
+	if !selfOperation || imp.Principal.IsRole() {
+		words = refusedOperationWords
+	}
+
+	return httpio.NewForbiddenMessageWithError(errors.Newf("%s is not permitted in an impersonated session", operation), words)
 }
 
 // ImpersonationInCtx returns the impersonation record of the validated session in

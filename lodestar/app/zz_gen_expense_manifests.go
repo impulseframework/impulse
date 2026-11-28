@@ -21,7 +21,7 @@ import (
 func (a *App) ExpenseManifests() http.HandlerFunc {
 	type expenseManifest struct {
 		MissionID          impulse.UUID    `json:"missionId"          perm:"-"`
-		Title              string          `json:"title"`
+		Title              string          `json:"title"              allow_filter:"true" search:"memory"`
 		Sorties            int64           `json:"sorties"`
 		Expenses           decimal.Decimal `json:"expenses"`
 		AssignedSquadronID *impulse.UUID   `json:"assignedSquadronId"`
@@ -48,8 +48,9 @@ func (a *App) ExpenseManifests() http.HandlerFunc {
 		ctx = resource.WithCaller(ctx, querySet.Caller())
 
 		// A live list registers before the query runs, so a commit that lands during
-		// the query is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, a.LiveService(), querySet, live.ListSubscription(querySet.Resource(), domain))
+		// the query is not missed; a refused request registers nothing. With it the
+		// request registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, a.LiveService(), querySet, live.ListSubscription(querySet.Resource(), domain))
 
 		// The handler judges the rows the List function yields by the caller's
 		// grants, where one carries a condition that reads the row, and applies
@@ -124,8 +125,9 @@ func (a *App) ExpenseManifest() http.HandlerFunc {
 		ctx = resource.WithCaller(ctx, querySet.Caller())
 
 		// A live row registers before the read runs, so a commit that lands during the
-		// read is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, a.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(missionID)))
+		// read is not missed; a refused request registers nothing. With it the request
+		// registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, a.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(missionID)))
 
 		row, err := computedresources.ReadExpenseManifest(ctx, missionID, querySet, a.ResourceClient(), a.ComputedClient())
 		if err != nil {
@@ -203,7 +205,7 @@ func (a *App) ExpenseManifestContent() http.HandlerFunc {
 				return httpio.NewEncoder(w).ClientMessage(ctx, err)
 			}
 			if !shown {
-				return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewNotFoundMessagef("ExpenseManifest %v does not exist", missionID))
+				return httpio.NewEncoder(w).ClientMessage(ctx, resource.TargetNotFound("ExpenseManifest", missionID))
 			}
 		}
 

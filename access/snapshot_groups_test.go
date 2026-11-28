@@ -215,7 +215,7 @@ func Test_snapshot_groups_places(t *testing.T) {
 			{Scope: globalPolicy, Member: groupSubject("night"), Role: "Operator"},
 		},
 	}
-	snap, findings, err := newSnapshot(records, nil, nil, time.Now())
+	snap, findings, err := newSnapshot(records, nil, declaringRecords(records), time.Now())
 	if err != nil {
 		t.Fatalf("newSnapshot() error = %v", err)
 	}
@@ -271,7 +271,7 @@ func Test_snapshot_groups_places(t *testing.T) {
 func Test_snapshot_groups_superAdministrator(t *testing.T) {
 	t.Parallel()
 
-	defaults, err := compileDefaultRoles(grammarCollection{}, &RoleConfig{}, []accesstypes.Resource{"DoThing"})
+	defaults, err := compileDefaultRoles(grammarCollection{}, &RoleConfig{}, []accesstypes.Resource{"DoThing"}, fixtureAuth)
 	if err != nil {
 		t.Fatalf("compileDefaultRoles() error = %v", err)
 	}

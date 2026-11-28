@@ -23,8 +23,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"os"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -63,11 +65,12 @@ type demoUser struct {
 
 // demoTour is a tour of duty as cmd/bootstrap/users.json declares it: the roles a persona
 // holds in one sector, named by its name, for a number of days from the day the world is
-// made. Each is a role given for a period that ends.
+// made. Each is a role given for a period that ends, with the reason the file gives.
 type demoTour struct {
 	Domain string             `json:"domain"`
 	Roles  []accesstypes.Role `json:"roles"`
 	Days   int                `json:"days"`
+	Reason string             `json:"reason"`
 }
 
 // demoAccount is an identity of the file that has no password: a member of the portal,
@@ -80,13 +83,22 @@ type demoAccount struct {
 
 // demoGroup is one group of the crew as cmd/bootstrap/users.json declares it: where it is
 // kept (a sector by its name, none for the whole fleet), the roles it holds by where each
-// is held, and the personas in it by their usernames.
+// is held, the personas in it by their usernames, and the hangar passes it holds.
 type demoGroup struct {
 	Name        string             `json:"name"`
 	Description string             `json:"description"`
 	Domain      string             `json:"domain"`
 	Roles       demoRoles          `json:"roles"`
 	Members     []accesstypes.User `json:"members"`
+	Passes      []demoGroupPass    `json:"passes"`
+}
+
+// demoGroupPass is one hangar pass a group holds as the file declares it: the fixed id of
+// the pass, the hangar by its name in the group's own sector, and the level.
+type demoGroupPass struct {
+	ID     impulse.UUID `json:"id"`
+	Hangar string       `json:"hangar"`
+	Level  string       `json:"level"`
 }
 
 // demoIdentities mirrors the bootstrap's identities file.
@@ -204,6 +216,14 @@ func demoUsers(t *testing.T) []demoUser {
 	return identities.Users
 }
 
+// looseRoleFile is a role file read loosely, for a suite that changes a role or a grant
+// of the release's file and hands the file on: the auth it carries and its roles by
+// scope, each role as the JSON says it.
+type looseRoleFile struct {
+	Auth  string                      `json:"auth,omitempty"`
+	Roles map[string][]map[string]any `json:"roles"`
+}
+
 // openEngine opens a real engine over one auth's store prefix with the auth's role file,
 // validated against the generated collection the way the auth packages open theirs.
 func openEngine(db *initiator.SpannerDB, prefix string, roles access.RoleFile) (*access.Client, error) {
@@ -221,11 +241,11 @@ func openEngineWith(db *initiator.SpannerDB, prefix string, roles access.RoleFil
 		return nil, fmt.Errorf("spannerstore.New(): %w", err)
 	}
 	built := []access.Option{
-		access.WithDefaultRoles(router.Collection(), roles),
+		access.WithDefaultRoles(roles, authName(prefix)),
 		access.WithSuperAdministratorMethods(superAdministratorMethods(prefix)...),
 		access.WithTenantAdministratorRoles(sectorAdministratorRoles(prefix)...),
 	}
-	client, err := access.New(store, append(built, opts...)...)
+	client, err := access.New(store, router.Collection(), append(built, opts...)...)
 	if err != nil {
 		return nil, fmt.Errorf("access.New(): %w", err)
 	}
@@ -254,6 +274,16 @@ func superAdministratorMethods(prefix string) []accesstypes.Resource {
 	}
 
 	return crewidentity.SuperAdministratorMethods()
+}
+
+// authName is the name of the auth a store's prefix belongs to: an engine validates its
+// role file as that auth's, against the subject sets that describe its people.
+func authName(prefix string) string {
+	if prefix == members.TablePrefix {
+		return members.Name
+	}
+
+	return crew.Name
 }
 
 // provisionDemoAccess assigns the personas and the droid their roles in the crew store and
@@ -379,8 +409,56 @@ func assignDemoTours(ctx context.Context, client *access.Client, user accesstype
 		}
 		period := accesstypes.Period{End: time.Now().UTC().AddDate(0, 0, tour.Days)}
 		for _, role := range tour.Roles {
-			if err := client.UserManager().AssignUserRole(ctx, accesstypes.DomainPolicyScope(domain), user, role, period); err != nil {
+			if err := client.UserManager().AssignUserRole(ctx, accesstypes.DomainPolicyScope(domain), user, role, period, tour.Reason); err != nil {
 				return fmt.Errorf("AssignUserRole(%s, %s, %s): %w", user, tour.Domain, role, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// seedDemoGroupPasses writes the hangar passes the file's groups hold, as the bootstrap
+// writes them once each group exists: each to the hangar of the group's own sector that
+// carries the name, naming the group by the id the permission store made for it. It
+// follows provisionDemoAccess, which creates the groups, in the worlds whose suites read
+// the passes (the shared world and the served one); a world that leaves it out has the
+// groups and none of their passes.
+func seedDemoGroupPasses(ctx context.Context, db *initiator.SpannerDB) error {
+	identities, err := loadIdentities()
+	if err != nil {
+		return err
+	}
+	for i := range identities.Groups {
+		group := &identities.Groups[i]
+		if len(group.Passes) == 0 {
+			continue
+		}
+		domain, ok := sectorsByName[group.Domain]
+		if !ok {
+			return fmt.Errorf("group %s holds a hangar pass: no seeded sector is named %q", group.Name, group.Domain)
+		}
+		for _, pass := range group.Passes {
+			var written int64
+			if _, err := db.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+				var err error
+				written, err = txn.Update(ctx, spanner.Statement{
+					SQL: `INSERT INTO HangarPasses (Id, SectorId, HangarId, GroupId, LevelId)
+						SELECT @id, h.SectorId, h.Id, g.Id, @level
+						FROM Hangars h JOIN CrewGroups g ON g.DomainId = h.SectorId
+						WHERE h.SectorId = @sector AND h.Name = @hangar AND g.Name = @group AND g.Kind = 'domain'`,
+					Params: map[string]any{"id": pass.ID.String(), "level": pass.Level, "sector": string(domain), "hangar": pass.Hangar, "group": group.Name},
+				})
+				if err != nil {
+					return fmt.Errorf("spanner.ReadWriteTransaction.Update(): %w", err)
+				}
+
+				return nil
+			}); err != nil {
+				return fmt.Errorf("the pass of the group %s to the hangar %s: %w", group.Name, pass.Hangar, err)
+			}
+			if written != 1 {
+				return fmt.Errorf("the pass of the group %s to the hangar %q wrote %d rows, want 1: %s names a hangar of the group's own sector", group.Name, pass.Hangar, written, usersPath)
 			}
 		}
 	}
@@ -496,6 +574,119 @@ func newAccessClient(t *testing.T, db *initiator.SpannerDB, roles access.RoleFil
 	return client
 }
 
+// alsoDeclared is the permission collection of a release that declared what this one
+// does and more: the generated collection, with the names in also listed beside its own,
+// each as that release held it, a sector's resource a role may be given the permission
+// on, and with the attributes in attributes on the resources that key them, each a text
+// a condition may compare. Every other answer is the generated collection's.
+type alsoDeclared struct {
+	access.PermissionCollection
+	also       map[accesstypes.Permission][]accesstypes.Resource
+	attributes map[accesstypes.Resource][]string
+}
+
+// lists reports whether res is one of the names in also.
+func (d alsoDeclared) lists(res accesstypes.Resource) bool {
+	for _, resources := range d.also {
+		if slices.Contains(resources, res) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// Scope is the scope of a sector for a name in also, which a write to a custom role
+// holds the role's scope to, and the generated collection's answer for any other name.
+func (d alsoDeclared) Scope(res accesstypes.Resource) accesstypes.PermissionScope {
+	if d.lists(res) {
+		return accesstypes.DomainPermissionScope
+	}
+
+	return d.PermissionCollection.Scope(res)
+}
+
+// IsResourceImmutable is false for a name in also, whatever this release makes of it:
+// the release that declared Update on the name let it be written. It is the generated
+// collection's answer for any other name.
+func (d alsoDeclared) IsResourceImmutable(scope accesstypes.PermissionScope, res accesstypes.Resource) bool {
+	if d.lists(res) {
+		return false
+	}
+
+	return d.PermissionCollection.IsResourceImmutable(scope, res)
+}
+
+// AttributeComparisonType is text for an attribute in attributes, which the release that
+// declared it let a grant's condition read, and the generated collection's answer for
+// any other.
+func (d alsoDeclared) AttributeComparisonType(scope accesstypes.PermissionScope, res accesstypes.Resource, name string) (accesstypes.AttributeType, bool) {
+	if slices.Contains(d.attributes[res], name) {
+		return accesstypes.AttributeTypeString, true
+	}
+
+	return d.PermissionCollection.AttributeComparisonType(scope, res, name)
+}
+
+// List is what the generated collection lists, and the names in also under their
+// permissions.
+func (d alsoDeclared) List() map[accesstypes.Permission][]accesstypes.Resource {
+	listed := maps.Clone(d.PermissionCollection.List())
+	for permission, resources := range d.also {
+		listed[permission] = append(slices.Clone(listed[permission]), resources...)
+	}
+
+	return listed
+}
+
+// engineOfAReleaseThatDeclared opens an engine over the crew's store for a release that
+// declared what this one does and the names in also beside it. An engine cannot be built
+// without what its release declares, and the release's own engine refuses to write a
+// role a grant the release does not declare, so a test that needs one in the store
+// writes it through this engine, as the release that declared the name would have left
+// it there. The engine is handed a role file that declares no role, under the crew's
+// name: an engine over a collection that knows several auths is told whose roles it
+// holds. It writes a custom role's rows and answers nothing. It is closed when the test
+// ends.
+func engineOfAReleaseThatDeclared(t *testing.T, db *initiator.SpannerDB, also map[accesstypes.Permission][]accesstypes.Resource) *access.Client {
+	t.Helper()
+
+	return engineOfARelease(t, db, alsoDeclared{PermissionCollection: router.Collection(), also: also})
+}
+
+// engineOfAReleaseWithAttributes is engineOfAReleaseThatDeclared for a release whose
+// resources declared attributes this one's do not: the attributes named, each on the
+// resource that keys it. A condition that reads one is refused by the release's own
+// engine, so a test that needs one in the store writes it through this engine.
+func engineOfAReleaseWithAttributes(t *testing.T, db *initiator.SpannerDB, attributes map[accesstypes.Resource][]string) *access.Client {
+	t.Helper()
+
+	return engineOfARelease(t, db, alsoDeclared{PermissionCollection: router.Collection(), attributes: attributes})
+}
+
+// engineOfARelease opens an engine over the crew's store for the release whose
+// collection is given, handed a role file that declares no role under the crew's name,
+// and closes it when the test ends.
+func engineOfARelease(t *testing.T, db *initiator.SpannerDB, collection access.PermissionCollection) *access.Client {
+	t.Helper()
+
+	store, err := spannerstore.New(db.Client, spannerstore.WithPrefix(crew.TablePrefix))
+	if err != nil {
+		t.Fatalf("spannerstore.New() error = %v", err)
+	}
+	client, err := access.New(store, collection, access.WithDefaultRoles(access.RoleFile(`{"auth": "`+crew.Name+`", "roles": {}}`), crew.Name))
+	if err != nil {
+		t.Fatalf("access.New() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("access.Client.Close() error = %v", err)
+		}
+	})
+
+	return client
+}
+
 // demoWorld prepares a fresh seeded database and the application over it, with the shared
 // provisioned engines, for suites that MUTATE the seeded rows. Read-only suites use
 // sharedWorld instead.
@@ -582,6 +773,11 @@ func sharedWorld(t *testing.T) (*initiator.SpannerDB, http.Handler, *access.Clie
 			return
 		}
 		if err := provisionDemoAccess(ctx, crewEngine, membersEngine); err != nil {
+			sharedErr = err
+
+			return
+		}
+		if err := seedDemoGroupPasses(ctx, db); err != nil {
 			sharedErr = err
 
 			return

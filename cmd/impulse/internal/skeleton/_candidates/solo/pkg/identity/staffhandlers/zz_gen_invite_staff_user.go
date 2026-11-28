@@ -20,10 +20,9 @@ import (
 
 func (h *Handlers) InviteStaffUser() http.HandlerFunc {
 	type request struct {
-		Email  string   `json:"email"`
-		Name   *string  `json:"name"`
-		Roles  []string `json:"roles"`
-		Domain *string  `json:"domain"`
+		Email string   `json:"email"`
+		Name  *string  `json:"name"`
+		Roles []string `json:"roles"`
 	}
 
 	// The answer as the wire carries it: Execute's result mirrored with generated
@@ -51,6 +50,10 @@ func (h *Handlers) InviteStaffUser() http.HandlerFunc {
 		// write or a read against the caller (Enforce) evaluates the same checker,
 		// scope, and decision instant.
 		ctx = resource.WithCaller(ctx, caller)
+		// The method's name rides the context too: who made a change
+		// (eventsource.UserEvent) reads it there, so every change record the body writes
+		// names the method.
+		ctx = resource.WithRPC(ctx, "InviteStaffUser")
 
 		p := (*staffidentity.InviteStaffUser)(params)
 
@@ -98,7 +101,7 @@ func (h *Handlers) InviteStaffUser() http.HandlerFunc {
 				return httpio.NewEncoder(w).Ok(nil)
 			}
 
-			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "spanner.Client.ReadWriteTransaction()"))
+			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "resource.Client.ExecuteFunc()"))
 		}
 
 		live.Publish(ctx, w, h.LiveService(), h.liveDerivations, "", touched)

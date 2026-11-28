@@ -15,6 +15,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 	consoleapp "github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/sites/apps/console/app"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
@@ -25,9 +26,10 @@ import (
 // TestDeclaration_whoMayEnterATenant proves the Tenant record's declaration end to end
 // on both sites' served stacks, which share the auth and the roster. A tenant has one
 // directory and a directory belongs to one tenant, and nobody types one in: the staff
-// sign in by password, so the console's create is refused with how a directory is set,
-// a request that names a method and a connection is refused, and the directory is set
-// in code through the generated step a sign-in takes (setDirectory), which holds it to
+// sign in by password, so the console's method that takes a directory
+// (TakeTenantDirectory) is refused with how a directory is set, a create of the record
+// that names a method and a connection is refused, and the directory is set in code
+// through the generated step a sign-in takes (setDirectory), which holds it to
 // the rules: a second directory for a tenant, and the directory on another tenant, are
 // each refused with what to do. A tenant's sign-in settings restrict its own door
 // alone, and a directory closes its tenant to nobody until the tenant is directory
@@ -44,7 +46,7 @@ import (
 // fresh sign-in, which is the tenant's way back in when its directory has a problem.
 // The support login, one of the application's own team, who holds the same role in every
 // tenant, is refused at reach time on both sites at once, since both read the shared
-// roster, which is what the switch is for: north stays in their list marked closed,
+// roster, which is what the switch is for: north stays in their list as not available,
 // with the reason, and its list of its people says who it keeps out; its directory is
 // not removed while it is directory only; turning it off is plain; the administrator, a
 // super administrator, keeps every tenant. Every edit leaves a change event.
@@ -58,14 +60,13 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	portalMember := signedIn(ctx, t, s, s.portal, memberUser)
 
 	// Nobody types a directory in. The administrator is signed in with a password: the
-	// session read reports no directory, the create that names none is refused with how
-	// a directory is set, and one that types a method and a connection is refused as
-	// naming fields the record does not take. Neither writes.
+	// session read reports no directory, the tenant's own method, which names none, is
+	// refused with how a directory is set, and a create of the record that types a method
+	// and a connection is refused, as its every create is. Neither writes.
 	if status, body := admin.do(ctx, http.MethodGet, "/api/user/session", nil); status != http.StatusOK || strings.Contains(string(body), `"directory"`) {
 		t.Errorf("the administrator's password session: status %d: %s, want no directory reported", status, body)
 	}
-	fromSession := `[{"op":"add","path":"/tenants/` + north + `/tenant-directories","value":{}}]`
-	status, body := admin.do(ctx, http.MethodPatch, "/api/resources", []byte(fromSession))
+	status, body := admin.do(ctx, http.MethodPost, "/api/tenants/"+north+"/take-tenant-directory", []byte(`{}`))
 	if status != http.StatusConflict || !strings.Contains(string(body), "You are signed in with a password. A directory is set by signing in through it") {
 		t.Errorf("setting north's directory from a password session: status %d, want 409 saying how a directory is set: %s", status, body)
 	}
@@ -133,10 +134,21 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 
 		return b.do(ctx, http.MethodPost, "/api/tenants/"+tenant+"/"+method, []byte(`{}`))
 	}
+	// state reads the switch as it stands. What the read says turning it on takes of
+	// the reader (its conditions) is left out here: the library's own tests hold it.
 	state := func(b *browser, tenant string) (int, string) {
-		status, body := b.do(ctx, http.MethodGet, "/api/tenants/"+tenant+"/directory-only", nil)
+		status, body := b.do(ctx, http.MethodGet, "/api/tenants/"+tenant+"/sign-in-settings", nil)
+		var read struct {
+			DirectoryOnly *bool `json:"directoryOnly"`
+		}
+		if status != http.StatusOK || json.Unmarshal(body, &read) != nil || read.DirectoryOnly == nil {
+			return status, strings.TrimSpace(string(body))
+		}
+		if *read.DirectoryOnly {
+			return status, `{"directoryOnly":true}`
+		}
 
-		return status, strings.TrimSpace(string(body))
+		return status, `{"directoryOnly":false}`
 	}
 	// warns asks the method that turns the switch on for its warning: what the call
 	// would do, in the server's words, with nothing saved.
@@ -190,10 +202,10 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 
 	// How north admits its directory's people is the tenant's own to say too, with two
 	// methods the tenant's administrator holds. Opening it names the role each of them
-	// is given at their first sign-in through the directory: asked for its warning
-	// first, the method says who will enter and with what role, and saves nothing; a
-	// role that is not one of the tenant's is refused. Making it invite only again is
-	// plain, and declares no warning.
+	// is given when they sign in through the directory and hold nothing in the tenant:
+	// asked for its warning first, the method says who will enter and with what role,
+	// and saves nothing; a role that is not one of the tenant's is refused. Making it
+	// invite only again is plain, and declares no warning.
 	open := func(role string, headers map[string]string) (int, []byte) {
 		return admin.doWith(ctx, http.MethodPost, "/api/tenants/"+north+"/open-tenant-to-directory", []byte(`{"role":"`+role+`"}`), headers)
 	}
@@ -206,11 +218,11 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	if status, body := admin.do(ctx, http.MethodGet, "/api/tenants/"+north+"/staff-tenant-directory-roles", nil); status != http.StatusOK || !strings.Contains(string(body), `"name":"TenantAdministrator"`) {
 		t.Errorf("listing the roles the tenant may be opened with: status %d: %s, want 200 with TenantAdministrator among them", status, body)
 	}
-	opens := "Anyone who signs in through " + "north.example" + " will be able to enter this tenant without an invitation and gets the role TenantAdministrator."
+	opens := "Anyone who signs in through " + "north.example" + " will be able to enter this tenant without an invitation and gets the role Tenant administrator."
 	if status, body := open("TenantAdministrator", map[string]string{"X-Warning": "true"}); status != http.StatusOK || !strings.Contains(string(body), opens) {
 		t.Errorf("the warning of opening north to its directory: status %d: %s, want 200 saying %q", status, body, opens)
 	}
-	if status, body := open("Nobody", nil); status != http.StatusBadRequest || !strings.Contains(string(body), "is not a role of this tenant") {
+	if status, body := open("Nobody", nil); status != http.StatusBadRequest || !strings.Contains(string(body), "Nobody is not a role of this tenant. Choose one of the roles the picker lists.") {
 		t.Errorf("opening north with a role it does not have: status %d, want 400 saying so: %s", status, body)
 	}
 	if rows := directories(ctx, t, admin, north); len(rows) != 1 || rows[0].DefaultSeat != nil {
@@ -246,7 +258,7 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	}
 
 	// North is made directory only in the table, as a seed makes it: the support login
-	// loses north on both sites at once, where it stays in their list marked closed,
+	// loses north on both sites at once, where it stays in their list as not available,
 	// with the reason, while south, which is not directory only, still admits them. The
 	// member keeps north on both: they hold the administrator's role in north itself
 	// and signed in with a password and the code. The administrator keeps every tenant.
@@ -259,8 +271,8 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 		if domains := chart(ctx, t, site.support); !slices.Equal(domains, []string{south}) {
 			t.Errorf("the support login's chart on the %s once north is directory only = %v, want [%s]: a role held in every tenant is no way into a directory-only one", site.name, domains, south)
 		}
-		if closed := closedDomains(ctx, t, site.support, "/api/user-domains"); !maps.Equal(closed, byPassword) {
-			t.Errorf("the tenants the support login's list on the %s marks closed = %v, want %v", site.name, closed, byPassword)
+		if unavailable := unavailableDomains(ctx, t, site.support); !maps.Equal(unavailable, byPassword) {
+			t.Errorf("the tenants the support login's list on the %s keeps as not available = %v, want %v", site.name, unavailable, byPassword)
 		}
 		if status, body := site.support.do(ctx, http.MethodGet, "/api/tenants/"+north+"/announcements", nil); status != http.StatusNotFound {
 			t.Errorf("GET north announcements on the %s as the support login once north is directory only: status %d, want 404: %s", site.name, status, body)
@@ -268,8 +280,8 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 		if domains := chart(ctx, t, site.member); !slices.Equal(domains, []string{north}) {
 			t.Errorf("the member's chart on the %s once north is directory only = %v, want [%s]: north admits its own administrator by password and code", site.name, domains, north)
 		}
-		if closed := closedDomains(ctx, t, site.member, "/api/user-domains"); len(closed) != 0 {
-			t.Errorf("the tenants the member's list on the %s marks closed = %v, want none", site.name, closed)
+		if unavailable := unavailableDomains(ctx, t, site.member); len(unavailable) != 0 {
+			t.Errorf("the tenants the member's list on the %s keeps as not available = %v, want none", site.name, unavailable)
 		}
 		if status, body := site.member.do(ctx, http.MethodGet, "/api/tenants/"+north+"/announcements", nil); status != http.StatusOK {
 			t.Errorf("GET north announcements on the %s as the member once north is directory only: status %d, want 200: %s", site.name, status, body)
@@ -278,16 +290,19 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	if domains := chart(ctx, t, admin); !slices.Equal(domains, []string{north, south}) {
 		t.Errorf("the administrator's chart = %v, want both: a super administrator reaches every tenant", domains)
 	}
-	// North's list of its people is made from who holds a role there, not from who can
-	// sign in: the support login stays in it, and while north is directory only their
-	// row says they cannot enter; the member's, north's own administrator who has a
-	// password, and the administrator's, a super administrator, say nothing. The
-	// warning a page asks before turning it on has nothing to turn on: it says so, and
-	// names neither the directory nor the people.
+	// North's list of its people keeps everyone who holds a role there, whether or not
+	// they can sign in: the support login stays in it, and while north is directory
+	// only their row says they cannot enter; the member's, north's own administrator
+	// who has a password, and the administrator's, a super administrator, say nothing.
+	// The warning a page asks before turning it on has nothing to turn on: it says so,
+	// and names neither the directory nor the people.
 	keptOut := "Has not signed in through this tenant's directory, so cannot enter while this tenant is directory only"
 	people := tenantRows(ctx, t, admin, north, "staff-tenant-users")
 	if got, _ := people[supportID]["cannotEnter"].(string); got != keptOut {
 		t.Errorf("north's people: the support login's row says %q, want %q", got, keptOut)
+	}
+	if got := people[supportID]["outsideDirectory"]; got != true {
+		t.Errorf("north's people: the support login's row marks them outside the directory = %v, want true: the mark their sentence is said from", got)
 	}
 	for _, id := range []string{s.adminID, s.memberID} {
 		if row, listed := people[id]; !listed || row["cannotEnter"] != nil {
@@ -332,15 +347,15 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 
 	// Turning it off is plain: the administrator does it on the console, by password.
 	// The support login enters north again at its next request, on the portal too with
-	// nothing closed, and the directory is removed.
+	// nothing kept as not available, and the directory is removed.
 	if status, body := turn(admin, north, false); status != http.StatusOK {
 		t.Fatalf("turning north's directory only off, signed in with a password: status %d: %s", status, body)
 	}
 	if domains := chart(ctx, t, portalSupport); !slices.Equal(domains, []string{north, south}) {
 		t.Errorf("the support login's chart on the portal once north is not directory only = %v, want both tenants", domains)
 	}
-	if closed := closedDomains(ctx, t, portalSupport, "/api/user-domains"); len(closed) != 0 {
-		t.Errorf("the tenants the support login's list on the portal marks closed once north is not directory only = %v, want none", closed)
+	if unavailable := unavailableDomains(ctx, t, portalSupport); len(unavailable) != 0 {
+		t.Errorf("the tenants the support login's list on the portal keeps as not available once north is not directory only = %v, want none", unavailable)
 	}
 
 	if status, body := admin.do(ctx, http.MethodPatch, "/api/resources", []byte(keep)); status != http.StatusOK {
@@ -406,7 +421,7 @@ func setDirectory(ctx context.Context, t *testing.T, s *served, tenant string, d
 		t.Fatalf("impulse.UUIDFromString(%s) error = %v", tenant, err)
 	}
 	err = resource.NewSpannerClient(s.db.Client).ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-		return consoleapp.SetTenantDirectory(ctx, txn, id, directory, "test")
+		return consoleapp.SetTenantDirectory(ctx, txn, id, directory, eventsource.ProcessEvent("test"))
 	})
 	if err != nil {
 		return errors.Wrap(err, "resource.SpannerClient.ExecuteFunc()")
@@ -419,7 +434,7 @@ func setDirectory(ctx context.Context, t *testing.T, s *served, tenant string, d
 }
 
 // signedIn returns a browser signed in on the site as the development login, through the
-// password and the second factor every session carries (browser.signIn).
+// password and the second factor the auth's sign-in setting requires (browser.signIn).
 func signedIn(ctx context.Context, t *testing.T, s *served, site *httptest.Server, user string) *browser {
 	t.Helper()
 

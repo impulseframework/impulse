@@ -535,10 +535,14 @@ func Test_domainGuardTemplate(t *testing.T) {
 				"userPermissions := a.UserPermissions(r)",
 				"if reaches, err := userPermissions.Reaches(ctx, domain); err != nil {",
 				"} else if !reaches {",
-				`httpio.NewNotFoundMessagef("unknown domain %q", domain)`,
+				// Each refusal answers the one sentence, which names the tenant by the
+				// application's word and carries no id; what the guard found stays the
+				// cause, for the server's log.
+				`httpio.NewNotFoundMessageWithError(errors.Newf("unknown domain %q", domain), "This station does not exist.")`,
+				`httpio.NewNotFoundMessageWithError(errors.Newf("the session does not reach domain %q", domain), "This station does not exist.")`,
 				"next.ServeHTTP(w, r)",
 			},
-			wantNotContains: []string{"HasGrants", "DomainExists", "DomainVisible"},
+			wantNotContains: []string{"HasGrants", "DomainExists", "DomainVisible", "NewNotFoundMessagef"},
 		},
 		{
 			name:      "concealed domains ask the roster, the session's reach, then the caller's foothold",
@@ -547,9 +551,11 @@ func Test_domainGuardTemplate(t *testing.T) {
 				"if !a.TenantRoster().Has(domain) {",
 				"if reaches, err := userPermissions.Reaches(ctx, domain); err != nil {",
 				"if ok, err := userPermissions.HasGrants(ctx, accesstypes.DomainScope(domain)); err != nil {",
-				`httpio.NewNotFoundMessagef("unknown domain %q", domain)`,
+				`httpio.NewNotFoundMessageWithError(errors.Newf("unknown domain %q", domain), "This station does not exist.")`,
+				`httpio.NewNotFoundMessageWithError(errors.Newf("the session does not reach domain %q", domain), "This station does not exist.")`,
+				`httpio.NewNotFoundMessageWithError(errors.Newf("the caller holds no grant in domain %q", domain), "This station does not exist.")`,
 			},
-			wantNotContains: []string{"DomainExists", "DomainVisible"},
+			wantNotContains: []string{"DomainExists", "DomainVisible", "NewNotFoundMessagef"},
 		},
 	}
 
@@ -563,6 +569,7 @@ func Test_domainGuardTemplate(t *testing.T) {
 				Package:          "app",
 				ApplicationName:  "App",
 				ReceiverName:     "a",
+				Word:             "station",
 				ConcealedDomains: tt.concealed,
 			})
 			if err != nil {

@@ -10,10 +10,13 @@ import (
 // now are reserved, and every other identifier is a binding name.
 //
 // Row-free is the class permitted on surfaces where no row exists: scope-wide
-// and target-less RPC grants. Row-referencing conditions there are rejected at
-// load and by MigrateRoles. (A computed resource is not one of them: its rows
-// come from the application's Go function, and the resource layer judges each
-// one against a grant's condition with Evaluate.)
+// and target-less RPC grants. A row-referencing condition on a target-less RPC
+// grant is refused where the grant is written, in a role file
+// (access.ValidateRoles, the check access.New makes) or to a custom role, and a
+// role's stored grant of either kind that carries one is left out when the
+// policy loads and reported (access.SkippedGrant). (A computed resource is not
+// one of them: its rows come from the application's Go function, and the
+// resource layer judges each one against a grant's condition with Evaluate.)
 func RowFree(e Expr) bool {
 	rowFree := true
 	walk(e, func(node Expr) {
@@ -36,11 +39,22 @@ func RowFree(e Expr) bool {
 	return rowFree
 }
 
+// TimeOnly reports whether the expression reads the time of the request and
+// nothing else: every comparison and membership test has now or a temporal
+// function on its left and a literal or now on its right, so it names no
+// binding, no subject value and no subject set. Fold settles such an
+// expression to one Truth for any Facts that carry the instant, and the zone
+// where the expression says local. The permission digest reports a target
+// covered only by such conditions as conditional on time.
+func TimeOnly(e Expr) bool {
+	return RowFree(e) && len(SubjectValues(e)) == 0 && len(SubjectSets(e)) == 0
+}
+
 // Bindings returns the distinct binding names the expression references in
 // attribute positions — now excluded, pre- and post-image collapsed to the
 // name, a comparison's right-side attribute (the old-vs-new form) included —
-// sorted lexically. MigrateRoles validates these against the Collection's
-// bindings.
+// sorted lexically. access.ValidateRoles validates these against the
+// Collection's bindings.
 func Bindings(e Expr) []string {
 	set := map[string]struct{}{}
 	walk(e, func(node Expr) {
@@ -69,7 +83,8 @@ func Bindings(e Expr) []string {
 // ComparesAttributes reports whether any comparison's right side is an
 // attribute reference — the old-vs-new form, `new.attr <op> attr`, which
 // relates the post-image to the pre-image of the same row. Only an update has
-// both images, so MigrateRoles rejects the form on every other permission.
+// both images, so access.ValidateRoles rejects the form on every other
+// permission.
 func ComparesAttributes(e Expr) bool {
 	found := false
 	walk(e, func(node Expr) {
@@ -154,7 +169,7 @@ func UsesNow(e Expr) bool {
 }
 
 // UsesPostImage reports whether the expression reads the post-write overlay
-// (`new.`). MigrateRoles enforces image validity per permission: Update takes
+// (`new.`). access.ValidateRoles enforces image validity per permission: Update takes
 // both images, Read and Delete are unqualified only, and Insert's single
 // image is written unqualified.
 func UsesPostImage(e Expr) bool {

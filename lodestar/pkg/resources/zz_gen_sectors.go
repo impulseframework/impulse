@@ -6,12 +6,14 @@ package resources
 import (
 	"context"
 	"iter"
+	"time"
 
 	"cloud.google.com/go/civil"
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -23,6 +25,449 @@ func (Sector) DefaultConfig() resource.Config {
 	return defaultConfig()
 }
 
+// TenantBinding is the row's way to its tenant: the library writes the tenant on every
+// change record of the row, whoever writes the row.
+func (Sector) TenantBinding() resource.TenantBinding {
+	return resource.TenantBinding{Field: "ID"}
+}
+
+// DeleteTree describes what a delete of a Sector takes with it, as the library
+// declares for the tenant record: every kind of the application's rows under the tenant
+// goes with it, and nothing refuses it. The kinds are in the order their rows are
+// deleted, deepest first, each with its ways up to the Sector and what the delete
+// of one of its rows costs.
+func (Sector) DeleteTree() *resource.DeleteTree {
+	return &resource.DeleteTree{
+		Record: "Sectors",
+		Words:  resource.DeleteWords{One: "sector", Many: "sectors"},
+		Key:    []string{"Id"},
+		Cost:   resource.DeleteCost{IndexEntries: 1, Files: 0},
+		Tenant: &resource.DomainBindingData{Column: "Id"},
+		Taken: []resource.DeleteKind{
+			{
+				Resource: "SortieExpenses",
+				Words:    resource.DeleteWords{One: "sortie expense", Many: "sortie expenses"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 1, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SortieId", Path: []resource.BindingHop{{Table: "Sorties", JoinColumn: "Id", Column: "MissionId"}, {Table: "Missions", JoinColumn: "Id", Column: "SectorId"}}},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"SortieId"}, Table: "Sorties", References: []string{"Id"}},
+						{Columns: []string{"ShipId"}, Table: "Ships", References: []string{"Id"}},
+						{Columns: []string{"HangarId"}, Table: "Hangars", References: []string{"Id"}},
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+					{
+						{Columns: []string{"SortieId"}, Table: "Sorties", References: []string{"Id"}},
+						{Columns: []string{"MissionId"}, Table: "Missions", References: []string{"Id"}},
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+					{
+						{Columns: []string{"SortieId"}, Table: "Sorties", References: []string{"Id"}},
+						{Columns: []string{"MissionId"}, Table: "Missions", References: []string{"Id"}},
+						{Columns: []string{"AssignedSquadronId"}, Table: "Squadrons", References: []string{"Id"}, MayBeEmpty: true},
+						{Columns: []string{"WingId"}, Table: "Wings", References: []string{"Id"}},
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+				},
+				Trusted: true,
+				Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[SortieExpense], _ *resource.Caller) {
+					patch := &SortieExpenseDeletePatch{patchSet: patchSet}
+					patch.registerValidateFunc()
+				}),
+			},
+			{
+				Resource: "Sorties",
+				Words:    resource.DeleteWords{One: "sortie", Many: "sorties"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "MissionId", Path: []resource.BindingHop{{Table: "Missions", JoinColumn: "Id", Column: "SectorId"}}},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"ShipId"}, Table: "Ships", References: []string{"Id"}},
+						{Columns: []string{"HangarId"}, Table: "Hangars", References: []string{"Id"}},
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+					{
+						{Columns: []string{"MissionId"}, Table: "Missions", References: []string{"Id"}},
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+					{
+						{Columns: []string{"MissionId"}, Table: "Missions", References: []string{"Id"}},
+						{Columns: []string{"AssignedSquadronId"}, Table: "Squadrons", References: []string{"Id"}, MayBeEmpty: true},
+						{Columns: []string{"WingId"}, Table: "Wings", References: []string{"Id"}},
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+				},
+				Trusted: true,
+				Rows:    resource.NewTakenRows(func(*resource.PatchSet[Sortie], *resource.Caller) {}),
+			},
+			{
+				Resource: "RefitTasks",
+				Words:    resource.DeleteWords{One: "refit task", Many: "refit tasks"},
+				Key:      []string{"Id", "TaskNumber"},
+				Cost:     resource.DeleteCost{IndexEntries: 0, Files: 1},
+				Tenant:   &resource.DomainBindingData{Column: "Id", Path: []resource.BindingHop{{Table: "Refits", JoinColumn: "Id", Column: "ShipId"}, {Table: "Ships", JoinColumn: "Id", Column: "HangarId"}, {Table: "Hangars", JoinColumn: "Id", Column: "SectorId"}}},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"Id"}, Table: "Refits", References: []string{"Id"}},
+						{Columns: []string{"ShipId"}, Table: "Ships", References: []string{"Id"}},
+						{Columns: []string{"HangarId"}, Table: "Hangars", References: []string{"Id"}},
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+				},
+				Trusted: true,
+				Rows:    resource.NewTakenRows(func(*resource.PatchSet[RefitTask], *resource.Caller) {}),
+			},
+			{
+				Resource: "MissionDocuments",
+				Words:    resource.DeleteWords{One: "mission document", Many: "mission documents"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 1},
+				Tenant:   &resource.DomainBindingData{Column: "MissionId", Path: []resource.BindingHop{{Table: "Missions", JoinColumn: "Id", Column: "SectorId"}}},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"MissionId"}, Table: "Missions", References: []string{"Id"}},
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+					{
+						{Columns: []string{"MissionId"}, Table: "Missions", References: []string{"Id"}},
+						{Columns: []string{"AssignedSquadronId"}, Table: "Squadrons", References: []string{"Id"}, MayBeEmpty: true},
+						{Columns: []string{"WingId"}, Table: "Wings", References: []string{"Id"}},
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+				},
+				Trusted: true,
+				Rows:    resource.NewTakenRows(func(*resource.PatchSet[MissionDocument], *resource.Caller) {}),
+			},
+			{
+				Resource: "SquadronMemberships",
+				Words:    resource.DeleteWords{One: "squadron membership", Many: "squadron memberships"},
+				Key:      []string{"SquadronId", "UserId"},
+				Cost:     resource.DeleteCost{IndexEntries: 1, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SquadronId", Path: []resource.BindingHop{{Table: "Squadrons", JoinColumn: "Id", Column: "WingId"}, {Table: "Wings", JoinColumn: "Id", Column: "SectorId"}}},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"SquadronId"}, Table: "Squadrons", References: []string{"Id"}},
+						{Columns: []string{"WingId"}, Table: "Wings", References: []string{"Id"}},
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+				},
+				Trusted: true,
+				Rows:    resource.NewTakenRows(func(*resource.PatchSet[SquadronMembership], *resource.Caller) {}),
+			},
+			{
+				Resource: "Refits",
+				Words:    resource.DeleteWords{One: "refit", Many: "refits"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "ShipId", Path: []resource.BindingHop{{Table: "Ships", JoinColumn: "Id", Column: "HangarId"}, {Table: "Hangars", JoinColumn: "Id", Column: "SectorId"}}},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"ShipId"}, Table: "Ships", References: []string{"Id"}},
+						{Columns: []string{"HangarId"}, Table: "Hangars", References: []string{"Id"}},
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+				},
+				Trusted: true,
+				Rows:    resource.NewTakenRows(func(*resource.PatchSet[Refit], *resource.Caller) {}),
+			},
+			{
+				Resource: "Missions",
+				Words:    resource.DeleteWords{One: "mission", Many: "missions"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 10, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+					{
+						{Columns: []string{"AssignedSquadronId"}, Table: "Squadrons", References: []string{"Id"}, MayBeEmpty: true},
+						{Columns: []string{"WingId"}, Table: "Wings", References: []string{"Id"}},
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+				},
+				Trusted: true,
+				Rows:    resource.NewTakenRows(func(*resource.PatchSet[Mission], *resource.Caller) {}),
+			},
+			{
+				Resource: "HangarPasses",
+				Words:    resource.DeleteWords{One: "hangar pass", Many: "hangar passes"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 9, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+					{
+						{Columns: []string{"HangarId", "SectorId"}, Table: "Hangars", References: []string{"Id", "SectorId"}},
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+					{
+						{Columns: []string{"SquadronId"}, Table: "Squadrons", References: []string{"Id"}, MayBeEmpty: true},
+						{Columns: []string{"WingId"}, Table: "Wings", References: []string{"Id"}},
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+				},
+				Trusted: true,
+				Rows:    resource.NewTakenRows(func(*resource.PatchSet[HangarPass], *resource.Caller) {}),
+			},
+			{
+				Resource: "DroidReports",
+				Words:    resource.DeleteWords{One: "droid report", Many: "droid reports"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+					{
+						{Columns: []string{"ShipId"}, Table: "Ships", References: []string{"Id"}},
+						{Columns: []string{"HangarId"}, Table: "Hangars", References: []string{"Id"}},
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+				},
+				Trusted: true,
+				Rows:    resource.NewTakenRows(func(*resource.PatchSet[DroidReport], *resource.Caller) {}),
+			},
+			{
+				Resource: "Squadrons",
+				Words:    resource.DeleteWords{One: "squadron", Many: "squadrons"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 3, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "WingId", Path: []resource.BindingHop{{Table: "Wings", JoinColumn: "Id", Column: "SectorId"}}},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"WingId"}, Table: "Wings", References: []string{"Id"}},
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+				},
+				Trusted: true,
+				Rows:    resource.NewTakenRows(func(*resource.PatchSet[Squadron], *resource.Caller) {}),
+			},
+			{
+				Resource: "Ships",
+				Words:    resource.DeleteWords{One: "ship", Many: "ships"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 3, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "HangarId", Path: []resource.BindingHop{{Table: "Hangars", JoinColumn: "Id", Column: "SectorId"}}},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"HangarId"}, Table: "Hangars", References: []string{"Id"}},
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+				},
+				Trusted: true,
+				Rows:    resource.NewTakenRows(func(*resource.PatchSet[Ship], *resource.Caller) {}),
+			},
+			{
+				Resource: "DistressRelays",
+				Words:    resource.DeleteWords{One: "distress relay", Many: "distress relays"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 6, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"SectorId", "CaseNumber"}, Table: "DistressCalls", References: []string{"SectorId", "CaseNumber"}},
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+					{
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+				},
+				Within: []resource.DeleteLink{
+					{Columns: []string{"AnswersRelayId", "SectorId"}, Table: "DistressRelays", References: []string{"Id", "SectorId"}, MayBeEmpty: true},
+				},
+				Trusted: true,
+				Rows:    resource.NewTakenRows(func(*resource.PatchSet[DistressRelay], *resource.Caller) {}),
+			},
+			{
+				Resource: "Wings",
+				Words:    resource.DeleteWords{One: "wing", Many: "wings"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 3, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+				},
+				Trusted: true,
+				Rows:    resource.NewTakenRows(func(*resource.PatchSet[Wing], *resource.Caller) {}),
+			},
+			{
+				Resource: "SectorDirectories",
+				Words:    resource.DeleteWords{One: "sector directory", Many: "sector directories"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 3, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+				},
+				Trusted: true,
+				Rows:    resource.NewTakenRows(func(*resource.PatchSet[SectorDirectory], *resource.Caller) {}),
+			},
+			{
+				Resource: "Hangars",
+				Words:    resource.DeleteWords{One: "hangar", Many: "hangars"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 4, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+				},
+				Trusted: true,
+				Rows:    resource.NewTakenRows(func(*resource.PatchSet[Hangar], *resource.Caller) {}),
+			},
+			{
+				Resource: "DistressCalls",
+				Words:    resource.DeleteWords{One: "distress call", Many: "distress calls"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 4, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+				},
+				Trusted: true,
+				Rows:    resource.NewTakenRows(func(*resource.PatchSet[DistressCall], *resource.Caller) {}),
+			},
+			{
+				Resource: "Consignments",
+				Words:    resource.DeleteWords{One: "consignment", Many: "consignments"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 4, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+				},
+				Trusted: true,
+				Rows:    resource.NewTakenRows(func(*resource.PatchSet[Consignment], *resource.Caller) {}),
+			},
+		},
+		Under: []resource.DeleteKind{
+			{
+				Resource: "Consignments",
+				Words:    resource.DeleteWords{One: "consignment", Many: "consignments"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 4, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+				},
+			},
+			{
+				Resource: "DistressCalls",
+				Words:    resource.DeleteWords{One: "distress call", Many: "distress calls"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 4, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+				},
+			},
+			{
+				Resource: "DistressRelays",
+				Words:    resource.DeleteWords{One: "distress relay", Many: "distress relays"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 6, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+				},
+			},
+			{
+				Resource: "DroidReports",
+				Words:    resource.DeleteWords{One: "droid report", Many: "droid reports"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+				},
+			},
+			{
+				Resource: "HangarPasses",
+				Words:    resource.DeleteWords{One: "hangar pass", Many: "hangar passes"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 9, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+				},
+			},
+			{
+				Resource: "Hangars",
+				Words:    resource.DeleteWords{One: "hangar", Many: "hangars"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 4, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+				},
+			},
+			{
+				Resource: "Missions",
+				Words:    resource.DeleteWords{One: "mission", Many: "missions"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 10, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+				},
+			},
+			{
+				Resource: "SectorDirectories",
+				Words:    resource.DeleteWords{One: "sector directory", Many: "sector directories"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 3, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+				},
+			},
+			{
+				Resource: "Wings",
+				Words:    resource.DeleteWords{One: "wing", Many: "wings"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 3, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+				},
+			},
+		},
+	}
+}
+
 // sectorRead mirrors the wire shape the resource routes list
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; sectorReadSets holds one Set per read operation.
@@ -31,7 +476,9 @@ type sectorRead struct {
 	Name          string       `json:"name"`
 	Region        string       `json:"region"`
 	Established   civil.Date   `json:"established"`
+	ChartedAt     time.Time    `json:"chartedAt"`
 	DirectoryOnly bool         `json:"directoryOnly"`
+	Disabled      bool         `json:"disabled"`
 }
 
 var sectorReadSets resource.SetCache[Sector, sectorRead]
@@ -44,7 +491,9 @@ type sectorWrite struct {
 	Name          string       `json:"name"`
 	Region        string       `json:"region"`
 	Established   civil.Date   `json:"established"`
+	ChartedAt     time.Time    `json:"-"`
 	DirectoryOnly bool         `json:"-"`
+	Disabled      bool         `json:"disabled"`
 }
 
 var sectorWriteSets resource.SetCache[Sector, sectorWrite]
@@ -169,7 +618,9 @@ func (c *SectorColumns) All() *SectorColumns {
 		"Name",
 		"Region",
 		"Established",
+		"ChartedAt",
 		"DirectoryOnly",
+		"Disabled",
 	}
 
 	return c
@@ -199,8 +650,20 @@ func (c *SectorColumns) Established() *SectorColumns {
 	return c
 }
 
+func (c *SectorColumns) ChartedAt() *SectorColumns {
+	c.fields = append(c.fields, "ChartedAt")
+
+	return c
+}
+
 func (c *SectorColumns) DirectoryOnly() *SectorColumns {
 	c.fields = append(c.fields, "DirectoryOnly")
+
+	return c
+}
+
+func (c *SectorColumns) Disabled() *SectorColumns {
+	c.fields = append(c.fields, "Disabled")
 
 	return c
 }
@@ -307,8 +770,16 @@ func (c *sectorSort) Established() *SectorSort {
 	return c.addField("Established")
 }
 
+func (c *sectorSort) ChartedAt() *SectorSort {
+	return c.addField("ChartedAt")
+}
+
 func (c *sectorSort) DirectoryOnly() *SectorSort {
 	return c.addField("DirectoryOnly")
+}
+
+func (c *sectorSort) Disabled() *SectorSort {
+	return c.addField("Disabled")
 }
 
 type SectorSort struct {
@@ -369,11 +840,11 @@ func (p *SectorCreatePatch) ToStruct() *Sector {
 	return p.patchSet.ToStruct()
 }
 
-func (p *SectorCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *SectorCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *SectorCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *SectorCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -390,6 +861,7 @@ func (p *SectorCreatePatch) Enforce(caller *resource.Caller) *SectorCreatePatch 
 }
 
 func (p *SectorCreatePatch) registerDefaultFuncs() {
+	p.patchSet.RegisterDefaultCreateFunc("ChartedAt", resource.CommitTimestamp)
 }
 
 func (p *SectorCreatePatch) ID() impulse.UUID {
@@ -446,6 +918,22 @@ func (p *SectorCreatePatch) EstablishedIsSet() bool {
 	return p.patchSet.IsSet("Established")
 }
 
+func (p *SectorCreatePatch) SetChartedAt(v time.Time) *SectorCreatePatch {
+	p.patchSet.Set("ChartedAt", v)
+
+	return p
+}
+
+func (p *SectorCreatePatch) ChartedAt() time.Time {
+	v, _ := p.patchSet.Get("ChartedAt").(time.Time)
+
+	return v
+}
+
+func (p *SectorCreatePatch) ChartedAtIsSet() bool {
+	return p.patchSet.IsSet("ChartedAt")
+}
+
 func (p *SectorCreatePatch) SetDirectoryOnly(v bool) *SectorCreatePatch {
 	p.patchSet.Set("DirectoryOnly", v)
 
@@ -460,6 +948,22 @@ func (p *SectorCreatePatch) DirectoryOnly() bool {
 
 func (p *SectorCreatePatch) DirectoryOnlyIsSet() bool {
 	return p.patchSet.IsSet("DirectoryOnly")
+}
+
+func (p *SectorCreatePatch) SetDisabled(v bool) *SectorCreatePatch {
+	p.patchSet.Set("Disabled", v)
+
+	return p
+}
+
+func (p *SectorCreatePatch) Disabled() bool {
+	v, _ := p.patchSet.Get("Disabled").(bool)
+
+	return v
+}
+
+func (p *SectorCreatePatch) DisabledIsSet() bool {
+	return p.patchSet.IsSet("Disabled")
 }
 
 // Diff is intended for unit testing, and reports the differences between two values using github.com/google/go-cmp/cmp
@@ -501,11 +1005,11 @@ func (p *SectorUpdatePatch) ToStruct() *Sector {
 	return p.patchSet.ToStruct()
 }
 
-func (p *SectorUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *SectorUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *SectorUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *SectorUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -602,6 +1106,22 @@ func (p *SectorUpdatePatch) EstablishedIsSet() bool {
 	return p.patchSet.IsSet("Established")
 }
 
+func (p *SectorUpdatePatch) SetChartedAt(v time.Time) *SectorUpdatePatch {
+	p.patchSet.Set("ChartedAt", v)
+
+	return p
+}
+
+func (p *SectorUpdatePatch) ChartedAt() time.Time {
+	v, _ := p.patchSet.Get("ChartedAt").(time.Time)
+
+	return v
+}
+
+func (p *SectorUpdatePatch) ChartedAtIsSet() bool {
+	return p.patchSet.IsSet("ChartedAt")
+}
+
 func (p *SectorUpdatePatch) SetDirectoryOnly(v bool) *SectorUpdatePatch {
 	p.patchSet.Set("DirectoryOnly", v)
 
@@ -616,6 +1136,22 @@ func (p *SectorUpdatePatch) DirectoryOnly() bool {
 
 func (p *SectorUpdatePatch) DirectoryOnlyIsSet() bool {
 	return p.patchSet.IsSet("DirectoryOnly")
+}
+
+func (p *SectorUpdatePatch) SetDisabled(v bool) *SectorUpdatePatch {
+	p.patchSet.Set("Disabled", v)
+
+	return p
+}
+
+func (p *SectorUpdatePatch) Disabled() bool {
+	v, _ := p.patchSet.Get("Disabled").(bool)
+
+	return v
+}
+
+func (p *SectorUpdatePatch) DisabledIsSet() bool {
+	return p.patchSet.IsSet("Disabled")
 }
 
 // Diff is intended for unit testing, and reports the differences between two values using github.com/google/go-cmp/cmp
@@ -643,11 +1179,55 @@ func NewSectorDeletePatch(id impulse.UUID) *SectorDeletePatch {
 	return &SectorDeletePatch{patchSet: patchSet}
 }
 
-func (p *SectorDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+// WithEverythingUnder says the delete takes the rows under the Sector with it:
+// every row of the application's that is the Sector's own or leads to one that
+// is, each deleted through its kind's delete, with its delete rule asked, its change
+// record written and its files released. It takes the kinds handed to the delete as well
+// (DeleteAlso). The grant to delete the Sector answers for them all. Without it, a delete of a Sector that has such rows deletes
+// nothing and is answered with the question a person is asked first
+// (httpio.HasPreconditionRequired). Where the rows cost more than one save takes, the
+// delete takes what fits, deepest first, and Left answers the rows that save deleted:
+// buffer the delete again, in a transaction of its own, until Left answers nil.
+// It is for code that deletes outside a request, and every save of such a delete asks
+// everything again before it takes a row: a request's delete goes on the token its
+// question gave (WithDeleteToken).
+func (p *SectorDeletePatch) WithEverythingUnder() *SectorDeletePatch {
+	p.patchSet.DeleteEverythingUnder()
+
+	return p
+}
+
+// WithDeleteToken says the delete takes the rows under the Sector on the token
+// its question gave (resource.PatchSet.DeleteWithToken): it takes them only where the
+// token holds, and is answered with the question again where it does not.
+func (p *SectorDeletePatch) WithDeleteToken(token string) *SectorDeletePatch {
+	p.patchSet.DeleteWithToken(token)
+
+	return p
+}
+
+// Left is what the delete says once it is buffered (resource.DeleteLeft): the rows the
+// save deleted where rows are left under the Sector, which stands until a save
+// takes the last of them; nil where the delete finished, the Sector with it.
+func (p *SectorDeletePatch) Left() *resource.DeleteLeft {
+	return p.patchSet.DeleteLeft()
+}
+
+// DeleteAlso hands the delete kinds of row it takes with the Sector that its
+// description does not list (resource.TakenKind): the question counts them, the check
+// before the delete asks them, and each round takes what fits of them after the kinds
+// the description lists and before the Sector.
+func (p *SectorDeletePatch) DeleteAlso(kinds ...resource.TakenKind) *SectorDeletePatch {
+	p.patchSet.DeleteAlso(kinds...)
+
+	return p
+}
+
+func (p *SectorDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *SectorDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *SectorDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

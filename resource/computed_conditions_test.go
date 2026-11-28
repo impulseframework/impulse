@@ -11,12 +11,14 @@ package resource
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/httpio"
 )
 
 const judgedResource = accesstypes.Resource("judgedRows")
@@ -211,6 +213,13 @@ func TestQuerySet_Collect_judgesRows(t *testing.T) {
 			target:     "/?columns=name&limit=all",
 			conditions: map[accesstypes.Resource]string{judgedResource: "expires > now"},
 			wantRows:   []string{"Admin[name]", "Editor[name]", "Reader[name]"},
+		},
+		{
+			name:       "a filter by a field held under the list's own condition reads the rows the condition keeps",
+			target:     "/?columns=name&filter=level:gt:4&limit=all&count=true",
+			conditions: map[accesstypes.Resource]string{judgedResource: "name != 'Admin'", level: "name != 'Admin'"},
+			wantRows:   []string{"Editor[name]"},
+			wantTotal:  new(int64(1)),
 		},
 		{
 			name:       "the request's filter and sort run over the rows the grants admit",
@@ -498,5 +507,159 @@ func TestFileDecoder_Decode_computedJudgesTheRow(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// judgedSearchRequest is the judged rows' request with a search box over the summary.
+type judgedSearchRequest struct {
+	Name    string `json:"name"    perm:"-"`
+	Owner   string `json:"owner"   allow_filter:"true"`
+	Level   int64  `json:"level"   allow_filter:"true"`
+	Summary string `json:"summary" search:"memory"`
+}
+
+// TestComputedQueryDecoder_Decode_fieldsUnderTheListsCondition pins the rule on a computed
+// list's sort, filter and search fields: a field held under the very condition the list's
+// own rows are held under is read on the rows the caller is shown alone, so it passes as a
+// field granted with no condition does; a field held under another condition, and a
+// conditional field of a list granted with none, are refused in the existing words.
+func TestComputedQueryDecoder_Decode_fieldsUnderTheListsCondition(t *testing.T) {
+	t.Parallel()
+
+	const (
+		rows    = "name != 'Admin'"
+		other   = "level >= 5"
+		level   = judgedResource + ".level"
+		summary = judgedResource + ".summary"
+	)
+	refused := "must be granted unconditionally, or under the condition the list's own rows are held under"
+	tests := []struct {
+		name       string
+		target     string
+		granted    []accesstypes.Resource
+		conditions map[accesstypes.Resource]string
+		// wantErr is "" for a request admitted.
+		wantErr string
+	}{
+		{
+			name: "the list and the field under one condition: a filter", target: "/?filter=level:gt:1&limit=all",
+			conditions: map[accesstypes.Resource]string{judgedResource: rows, level: rows},
+		},
+		{
+			name: "the list and the field under one condition: a sort", target: "/?sort=level&limit=all",
+			conditions: map[accesstypes.Resource]string{judgedResource: rows, level: rows},
+		},
+		{
+			name: "the list and the field under one condition: the search box", target: "/?filter=" + url.QueryEscape(`*:search:"edits"`) + "&limit=all",
+			conditions: map[accesstypes.Resource]string{judgedResource: rows, summary: rows},
+		},
+		{
+			name: "the list under one condition and the field under another", target: "/?filter=level:gt:1&limit=all",
+			conditions: map[accesstypes.Resource]string{judgedResource: rows, level: other},
+			wantErr:    refused,
+		},
+		{
+			name: "the search box over a field under another condition", target: "/?filter=" + url.QueryEscape(`*:search:"edits"`) + "&limit=all",
+			conditions: map[accesstypes.Resource]string{judgedResource: rows, summary: other},
+			wantErr:    "cannot search summary",
+		},
+		{
+			name: "the list granted with no condition and the field under one", target: "/?sort=level&limit=all",
+			granted: []accesstypes.Resource{judgedResource}, conditions: map[accesstypes.Resource]string{level: rows},
+			wantErr: refused,
+		},
+		{
+			name: "the list under a condition and the field granted with none", target: "/?filter=level:gt:1&limit=all",
+			granted: []accesstypes.Resource{level}, conditions: map[accesstypes.Resource]string{judgedResource: rows},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			decoder := MustNewComputedQueryDecoder[judgedRow, judgedSearchRequest](SpannerDBType, accesstypes.List).WithCollection(judgedCollection(t))
+			perms := &fakeUserPermissions{granted: map[accesstypes.Permission][]accesstypes.Resource{accesstypes.List: tt.granted}, conditions: tt.conditions}
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, tt.target, http.NoBody)
+			_, err := decoder.Decode(req, perms, testScope)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("Decode() error = %v, want the request admitted", err)
+				}
+
+				return
+			}
+			if !httpio.HasForbidden(err) || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("Decode() error = %v, want 403 saying %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestComputedQuery_sortUnderTheListsCondition_paged pins a sort by a field held under the
+// list's own condition, paged: the rows the condition keeps come in the field's order a row
+// a page, by the next link to the end and by the previous link back to the start.
+func TestComputedQuery_sortUnderTheListsCondition_paged(t *testing.T) {
+	t.Parallel()
+
+	const rows = "name != 'Admin'"
+	perms := &fakeUserPermissions{conditions: map[accesstypes.Resource]string{judgedResource: rows, judgedResource + ".level": rows}}
+	decoder := judgedDecoder(t, accesstypes.List)
+	// By level, highest first, of the rows the condition keeps: Admin's 9 is never read.
+	want := []string{"Editor", "Reader", "Guest"}
+	page := func(target string) (names []string, links map[string]string) {
+		t.Helper()
+
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, target, http.NoBody)
+		qSet, err := decoder.Decode(req, perms, testScope)
+		if err != nil {
+			t.Fatalf("Decode(%s) error = %v", target, err)
+		}
+		collected, err := qSet.Collect(yieldJudged(judgedRows()))
+		if err != nil {
+			t.Fatalf("Collect(%s) error = %v", target, err)
+		}
+		for _, row := range collected.Rows() {
+			names = append(names, row.Name)
+		}
+		rr := httptest.NewRecorder()
+		if err := collected.WriteHeaders(rr, req); err != nil {
+			t.Fatalf("Page.WriteHeaders(%s) error = %v", target, err)
+		}
+		links = map[string]string{}
+		for _, match := range linkPattern.FindAllStringSubmatch(rr.Header().Get(LinkHeader), -1) {
+			links[match[2]] = match[1]
+		}
+
+		return names, links
+	}
+
+	var there []string
+	target := "/?columns=name&sort=level:desc&limit=1"
+	var last string
+	for range len(want) + 1 {
+		names, links := page(target)
+		there = append(there, names...)
+		last = target
+		if links["next"] == "" {
+			break
+		}
+		target = links["next"]
+	}
+	if !slices.Equal(there, want) {
+		t.Fatalf("there = %v, want %v", there, want)
+	}
+	var back []string
+	_, links := page(last)
+	target = links["prev"]
+	for range len(want) {
+		if target == "" {
+			break
+		}
+		names, links := page(target)
+		back = append(back, names...)
+		target = links["prev"]
+	}
+	if wantBack := []string{"Reader", "Editor"}; !slices.Equal(back, wantBack) {
+		t.Errorf("back = %v, want %v", back, wantBack)
 	}
 }

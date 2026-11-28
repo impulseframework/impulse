@@ -5,19 +5,23 @@ package staffhandlers
 
 import (
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/sites/apps/console/pkg/identity/internal/staffresources"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/sites/apps/console/pkg/identity/staffidentity"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/sites/apps/console/pkg/resources"
 	"github.com/impulseframework/impulse/resource/live"
 )
 
-// LiveDerivations records, for each view the Staff auth's generated management
-// declares (the lists a tenant keeps of the auth's people), the tables whose changes
-// change it: a change to one reaches every subscriber of the view as one resource
-// document, in every tenant when the table is global. Each set is read off the view's
-// query. The views are declared in the tree's internal declarations package; their
-// record is here, in the package the application's generated handlers reach the tree
-// through. Every table is named by the generated Resource method of the type over it,
-// so a renamed or dropped table fails to compile here. The application's generated
-// handlers assemble this value with their own packages' into the one they hand to every
+// LiveDerivations records, for each published resource the Staff auth's generated
+// management declares, the tables whose changes change it: a change to one reaches
+// every subscriber of the resource as one resource document, in every tenant when the
+// table is global. A view (a list such as the roles a person holds, or a tenant's
+// people) is declared in the tree's internal declarations package, and its set is read
+// off its query. A computed resource (a list of how a person signs in) is declared in
+// the methods package, beside the function that lists it, and has no query, so it
+// declares its tables (@changedBy). Each entry says which. The record of both is here,
+// in the package the application's generated handlers reach the tree through. Every
+// resource and every table is named by the generated Resource method of its type, so a
+// renamed or dropped one fails to compile here. The application's generated handlers
+// assemble this value with their own packages' into the one they hand to every
 // publish, and hand that one to the handlers of this package too.
 var LiveDerivations = &live.Derivations{
 	Resources: []live.DerivedResource{
@@ -27,20 +31,116 @@ var LiveDerivations = &live.Derivations{
 			{Name: staffresources.StaffGroup{}.Resource(), Global: true},
 			{Name: staffresources.StaffSessionUser{}.Resource(), Global: true},
 		}},
+		// StaffHeldRoles: the tables its query reads.
+		{Resource: staffresources.StaffHeldRole{}.Resource(), Global: true, Tables: []live.SourceTable{
+			{Name: staffresources.StaffGroupMember{}.Resource(), Global: true},
+			{Name: staffresources.StaffGroupRole{}.Resource(), Global: true},
+			{Name: staffresources.StaffGroup{}.Resource(), Global: true},
+			{Name: staffresources.StaffSessionUser{}.Resource(), Global: true},
+			{Name: staffresources.StaffUserRole{}.Resource(), Global: true},
+		}},
+		// StaffListedGroups: the tables its query reads.
+		{Resource: staffresources.StaffListedGroup{}.Resource(), Global: true, Tables: []live.SourceTable{
+			{Name: staffresources.StaffGroupMember{}.Resource(), Global: true},
+			{Name: staffresources.StaffGroupRole{}.Resource(), Global: true},
+			{Name: staffresources.StaffGroup{}.Resource(), Global: true},
+			{Name: resources.Tenant{}.Resource(), Global: true},
+		}},
+		// StaffListedGroupRoles: the tables its query reads.
+		{Resource: staffresources.StaffListedGroupRole{}.Resource(), Global: true, Tables: []live.SourceTable{
+			{Name: staffresources.StaffGroupMember{}.Resource(), Global: true},
+			{Name: staffresources.StaffGroupRole{}.Resource(), Global: true},
+			{Name: staffresources.StaffGroup{}.Resource(), Global: true},
+			{Name: staffresources.StaffUserRole{}.Resource(), Global: true},
+		}},
+		// StaffListedIdentities: the tables its query reads.
+		{Resource: staffresources.StaffListedIdentity{}.Resource(), Global: true, Tables: []live.SourceTable{
+			{Name: staffresources.StaffGroupMember{}.Resource(), Global: true},
+			{Name: staffresources.StaffGroup{}.Resource(), Global: true},
+			{Name: staffresources.StaffSessionIdentity{}.Resource(), Global: true},
+			{Name: staffresources.StaffSessionUser{}.Resource(), Global: true},
+			{Name: staffresources.StaffUserRole{}.Resource(), Global: true},
+			{Name: resources.TenantDirectory{}.Resource()},
+		}},
+		// StaffListedMailLinks: the tables its query reads.
+		{Resource: staffresources.StaffListedMailLink{}.Resource(), Global: true, Tables: []live.SourceTable{
+			{Name: staffresources.StaffSessionMailLink{}.Resource(), Global: true},
+			{Name: staffresources.StaffSessionUser{}.Resource(), Global: true},
+		}},
+		// StaffListedSessions: the tables its query reads.
+		{Resource: staffresources.StaffListedSession{}.Resource(), Global: true, Tables: []live.SourceTable{
+			{Name: staffresources.StaffSessionAuthEvent{}.Resource(), Global: true},
+			{Name: staffresources.StaffSessionUser{}.Resource(), Global: true},
+			{Name: staffresources.StaffSession{}.Resource(), Global: true},
+		}},
+		// StaffListedSignInAttempts: the tables its query reads.
+		{Resource: staffresources.StaffListedSignInAttempt{}.Resource(), Global: true, Tables: []live.SourceTable{
+			{Name: staffresources.StaffSessionMailLink{}.Resource(), Global: true},
+			{Name: staffresources.StaffSessionSignInAttempt{}.Resource(), Global: true},
+			{Name: staffresources.StaffSessionUser{}.Resource(), Global: true},
+		}},
+		// StaffListedTenants: the tables its query reads.
+		{Resource: staffresources.StaffListedTenant{}.Resource(), Global: true, Root: resources.Tenant{}.Resource(), Tables: []live.SourceTable{
+			{Name: staffresources.StaffGroupMember{}.Resource(), Global: true},
+			{Name: staffresources.StaffGroupRole{}.Resource(), Global: true},
+			{Name: staffresources.StaffGroup{}.Resource(), Global: true},
+			{Name: staffresources.StaffSessionIdentity{}.Resource(), Global: true},
+			{Name: staffresources.StaffSessionUser{}.Resource(), Global: true},
+			{Name: staffresources.StaffUserRole{}.Resource(), Global: true},
+			{Name: resources.TenantDirectory{}.Resource()},
+		}},
+		// StaffListedUsers: the tables its query reads.
+		{Resource: staffresources.StaffListedUser{}.Resource(), Global: true, Tables: []live.SourceTable{
+			{Name: staffresources.StaffGroupMember{}.Resource(), Global: true},
+			{Name: staffresources.StaffGroupRole{}.Resource(), Global: true},
+			{Name: staffresources.StaffGroup{}.Resource(), Global: true},
+			{Name: staffresources.StaffSessionIdentity{}.Resource(), Global: true},
+			{Name: staffresources.StaffSessionSignInAttempt{}.Resource(), Global: true},
+			{Name: staffresources.StaffSessionSignInSetting{}.Resource(), Global: true},
+			{Name: staffresources.StaffSessionTrustedDevice{}.Resource(), Global: true},
+			{Name: staffresources.StaffSessionUser{}.Resource(), Global: true},
+			{Name: staffresources.StaffUserRole{}.Resource(), Global: true},
+			{Name: resources.TenantDirectory{}.Resource()},
+			{Name: resources.Tenant{}.Resource(), Global: true},
+		}},
+		// StaffSignInWays: the tables declared with @changedBy.
+		{Resource: staffidentity.StaffSignInWay{}.Resource(), Global: true, Tables: []live.SourceTable{
+			{Name: staffresources.StaffSessionIdentity{}.Resource(), Global: true},
+			{Name: staffresources.StaffSessionUser{}.Resource(), Global: true},
+		}},
+		// StaffTakenRoles: the tables its query reads.
+		{Resource: staffresources.StaffTakenRole{}.Resource(), Global: true, Tables: []live.SourceTable{
+			{Name: staffresources.StaffSessionUser{}.Resource(), Global: true},
+			{Name: staffresources.StaffUserRole{}.Resource(), Global: true},
+		}},
 		// StaffTenantGroups: the tables its query reads.
 		{Resource: staffresources.StaffTenantGroup{}.Resource(), Tables: []live.SourceTable{
+			{Name: staffresources.StaffGroupMember{}.Resource(), Global: true},
+			{Name: staffresources.StaffGroupRole{}.Resource(), Global: true},
 			{Name: staffresources.StaffGroup{}.Resource(), Global: true},
+			{Name: resources.Tenant{}.Resource(), Global: true},
 		}},
 		// StaffTenantGroupRoles: the tables its query reads.
 		{Resource: staffresources.StaffTenantGroupRole{}.Resource(), Tables: []live.SourceTable{
+			{Name: staffresources.StaffGroupMember{}.Resource(), Global: true},
 			{Name: staffresources.StaffGroupRole{}.Resource(), Global: true},
 			{Name: staffresources.StaffGroup{}.Resource(), Global: true},
+			{Name: staffresources.StaffUserRole{}.Resource(), Global: true},
 		}},
 		// StaffTenantGroupUsers: the tables its query reads.
 		{Resource: staffresources.StaffTenantGroupUser{}.Resource(), Tables: []live.SourceTable{
 			{Name: staffresources.StaffGroupMember{}.Resource(), Global: true},
 			{Name: staffresources.StaffGroup{}.Resource(), Global: true},
 			{Name: staffresources.StaffSessionUser{}.Resource(), Global: true},
+		}},
+		// StaffTenantHeldRoles: the tables its query reads.
+		{Resource: staffresources.StaffTenantHeldRole{}.Resource(), Tables: []live.SourceTable{
+			{Name: staffresources.StaffGroupMember{}.Resource(), Global: true},
+			{Name: staffresources.StaffGroupRole{}.Resource(), Global: true},
+			{Name: staffresources.StaffGroup{}.Resource(), Global: true},
+			{Name: staffresources.StaffSessionUser{}.Resource(), Global: true},
+			{Name: staffresources.StaffUserRole{}.Resource(), Global: true},
+			{Name: resources.Tenant{}.Resource(), Global: true},
 		}},
 		// StaffTenantIdentities: the tables its query reads.
 		{Resource: staffresources.StaffTenantIdentity{}.Resource(), Tables: []live.SourceTable{
@@ -50,11 +150,22 @@ var LiveDerivations = &live.Derivations{
 			{Name: staffresources.StaffSessionIdentity{}.Resource(), Global: true},
 			{Name: staffresources.StaffSessionUser{}.Resource(), Global: true},
 			{Name: staffresources.StaffUserRole{}.Resource(), Global: true},
+			{Name: resources.TenantDirectory{}.Resource()},
 			{Name: resources.Tenant{}.Resource(), Global: true},
 		}},
 		// StaffTenantInvitations: the tables its query reads.
 		{Resource: staffresources.StaffTenantInvitation{}.Resource(), Tables: []live.SourceTable{
 			{Name: staffresources.StaffSessionMailLink{}.Resource(), Global: true},
+			{Name: staffresources.StaffSessionUser{}.Resource(), Global: true},
+		}},
+		// StaffTenantSignInWays: the tables declared with @changedBy.
+		{Resource: staffidentity.StaffTenantSignInWay{}.Resource(), Tables: []live.SourceTable{
+			{Name: staffresources.StaffGroupMember{}.Resource(), Global: true},
+			{Name: staffresources.StaffGroupRole{}.Resource(), Global: true},
+			{Name: staffresources.StaffGroup{}.Resource(), Global: true},
+			{Name: staffresources.StaffSessionIdentity{}.Resource(), Global: true},
+			{Name: staffresources.StaffSessionUser{}.Resource(), Global: true},
+			{Name: staffresources.StaffUserRole{}.Resource(), Global: true},
 		}},
 		// StaffTenantUsers: the tables its query reads.
 		{Resource: staffresources.StaffTenantUser{}.Resource(), Tables: []live.SourceTable{
@@ -62,6 +173,7 @@ var LiveDerivations = &live.Derivations{
 			{Name: staffresources.StaffGroupRole{}.Resource(), Global: true},
 			{Name: staffresources.StaffGroup{}.Resource(), Global: true},
 			{Name: staffresources.StaffSessionIdentity{}.Resource(), Global: true},
+			{Name: staffresources.StaffSessionSignInAttempt{}.Resource(), Global: true},
 			{Name: staffresources.StaffSessionUser{}.Resource(), Global: true},
 			{Name: staffresources.StaffUserRole{}.Resource(), Global: true},
 			{Name: resources.TenantDirectory{}.Resource()},

@@ -1,4 +1,4 @@
-// Package identity holds the rules of managing the people of one auth: creating a
+// Package identity holds the rules of managing the people of one auth: inviting a
 // person, disabling one and ending their sessions, seating one in a role. An
 // application does not call it directly. The code generator writes, for every auth an
 // application declares, the resources over the auth's own tables and the methods that
@@ -16,8 +16,8 @@
 // Manager.WithdrawTenantInvitation withdraws one.
 //
 // Every rule runs inside the caller's transaction (resource.ReadWriteTransaction): a
-// generated handler's, or one an application opened to create a person beside its own
-// rows and commit them together. Nothing here commits, and nothing reads a row a sibling
+// generated handler's, or one an application opened to write its own rows beside the
+// change and commit them together. Nothing here commits, and nothing reads a row a sibling
 // call buffered in the same transaction, which Spanner applies only at the commit: a
 // rule takes what it needs from its caller.
 //
@@ -30,13 +30,16 @@ package identity
 
 import (
 	"context"
+	"iter"
 	"slices"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/sessioninfo"
@@ -47,14 +50,8 @@ import (
 // and patches. An implementation holds no rule: it maps the values it is given onto the
 // auth's columns and answers what it read.
 type Store interface {
-	// InsertUser buffers a new user and answers the id the row is created under.
-	InsertUser(ctx context.Context, txn resource.ReadWriteTransaction, user *NewUser) (impulse.UUID, error)
 	// UpdateUser buffers a change to a user: every field of change that is set.
 	UpdateUser(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, change *UserChange) error
-	// SetPassword buffers a user's password hash, as the session library's hasher
-	// rendered it, and whether the person must change the password before anything
-	// else is served. An auth with no password method has no such write.
-	SetPassword(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, hash string, changeRequired bool) error
 	// RemovePassword buffers the removal of a user's password, and with it the mark that
 	// the person must change it. An auth with no password method has no such write.
 	RemovePassword(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error
@@ -101,8 +98,36 @@ type Store interface {
 	// compared as the table's unique index compares addresses; found is false when no
 	// user holds it, and when the one who does has not confirmed it.
 	UserByVerifiedEmail(ctx context.Context, txn resource.ReadWriteTransaction, email string) (userID impulse.UUID, found bool, err error)
-	// DeleteUser buffers the removal of a user row.
-	DeleteUser(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error
+	// ConfirmedEmail answers the address the user has confirmed, and found false for a
+	// user who has confirmed none (an address nobody confirmed is not answered) and
+	// for no such user.
+	ConfirmedEmail(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (email string, found bool, err error)
+	// DeleteUser buffers the delete of a user row, which takes with it the application's
+	// rows that name the account in a column that says so (@deletedWith). They go on the
+	// permission the request was let in by: no grant is asked on a row, and a row that
+	// permission does not reach refuses the delete (resource.DeleteKind.WithinReach). Told
+	// everythingUnder, it takes them on the token the request brought
+	// (resource.DeleteTokenFrom), and asks again where that does not hold; not told, an
+	// account with such a row deletes nothing and answers the question a person is asked
+	// first (428). Called where no token was declared, by a job or by a method that
+	// declares no @deleteToken, it takes them on code's word, every save asking everything
+	// again (resource.PatchSet.DeleteEverythingUnder). It is refused while a row names the
+	// account in a column that does not say so. It answers the rows one save deleted, nil
+	// where the row went.
+	DeleteUser(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, everythingUnder bool) (*resource.DeleteLeft, error)
+	// DeleteUserWithTenant buffers the delete of the user row of an account that goes with
+	// its tenant, and nothing of the application's: the tenant's delete takes the
+	// application's rows under the tenant itself, on its one permission, so the rows that
+	// name the account are neither counted, asked about nor taken here.
+	DeleteUserWithTenant(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error
+	// RowsWithUser counts what the database's own rules add to the delete of the user's
+	// row, in mutations: each row of each table that hangs on the user by a foreign key
+	// declared ON DELETE CASCADE, and that table's index entries for it, read in the
+	// transaction.
+	RowsWithUser(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) (int, error)
+	// DeleteCosts answers what the delete of one row of each of the auth's tables costs
+	// in a commit, as the schema read at generation tells it (TenantDeleteCosts).
+	DeleteCosts() TenantDeleteCosts
 
 	// LiveSessions lists the sessions of the user that have not ended.
 	LiveSessions(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]impulse.UUID, error)
@@ -149,10 +174,54 @@ type Store interface {
 	// the rows of the memberships table under the tenant's own scope. A membership
 	// held in every tenant is no row of one tenant and is not listed.
 	TenantMemberships(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]access.MembershipKey, error)
-	// DeleteTenantRoles buffers the removal of every custom role made in one tenant
-	// with its grants: the rows of the roles table and of the grants table under the
-	// tenant's own scope. It answers how many roles go.
+	// TenantHoldings reads the people a tenant's delete considers and what each holds, as
+	// the transaction reads it, in the order of their ids: everyone who holds a membership
+	// in the tenant, a place in one of its groups or a role on one of its records, or who
+	// signs in through its directory. It makes the same few statements whatever the tenant
+	// holds, each from the tenant's key, and none for a person: a tenant's delete decides
+	// from it which accounts are the tenant's alone.
+	TenantHoldings(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]PersonHoldings, error)
+	// TenantRoles counts the custom roles made in one tenant: the rows of the roles
+	// table under the tenant's own scope, as the transaction reads them.
+	TenantRoles(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) (int, error)
+	// DeleteTenantRoles buffers the removal of every custom role made in one tenant:
+	// the rows of the roles table under the tenant's own scope. Each role's grants go
+	// with it by the database's rule, the grants table being interleaved in the roles
+	// table ON DELETE CASCADE, as the permission engine's own delete of a role takes
+	// them. It answers how many roles go.
 	DeleteTenantRoles(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) (roles int, err error)
+
+	// SetRecordMembership writes the person's role on the record with its period, replacing the
+	// period of a row that is there.
+	SetRecordMembership(ctx context.Context, txn resource.ReadWriteTransaction, key *access.RecordMembershipKey, period accesstypes.Period) error
+	// DeleteRecordMembership buffers the removal of the person's role on the record; a role
+	// the person does not hold there is no error.
+	DeleteRecordMembership(ctx context.Context, txn resource.ReadWriteTransaction, key *access.RecordMembershipKey) error
+	// SetRecordGroupRole writes the group's role on the record with its period, replacing the
+	// period of a row that is there.
+	SetRecordGroupRole(ctx context.Context, txn resource.ReadWriteTransaction, key *access.RecordGroupRoleKey, period accesstypes.Period) error
+	// DeleteRecordGroupRole buffers the removal of the group's role on the record; a role the
+	// group does not hold there is no error.
+	DeleteRecordGroupRole(ctx context.Context, txn resource.ReadWriteTransaction, key *access.RecordGroupRoleKey) error
+	// RecordRoles reads every role held on the record, ended ones too, in key order.
+	RecordRoles(ctx context.Context, txn resource.ReadWriteTransaction, at accesstypes.RecordScope) (people []access.RecordMembershipKey, groups []access.RecordGroupRoleKey, err error)
+	// RecordPeriods reads the period of every role held on the record, ended ones too, a
+	// person's and a group's, each by its row's key. A role given with no period is among
+	// them with the zero period.
+	RecordPeriods(ctx context.Context, txn resource.ReadWriteTransaction, at accesstypes.RecordScope) (*RecordPeriods, error)
+	// TenantRecordRoles reads every role held on a record of the tenant, in key order.
+	TenantRecordRoles(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) (people []access.RecordMembershipKey, groups []access.RecordGroupRoleKey, err error)
+	// RecordMemberships reads the roles the person holds on records, in any tenant, not ended.
+	RecordMemberships(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]access.RecordMembershipKey, error)
+	// GroupRecordRoles reads the roles the group holds on records, each by its row's key, in
+	// key order, less the ones whose period has ended. A role that has not begun is among
+	// them, since the group will hold it.
+	GroupRecordRoles(ctx context.Context, txn resource.ReadWriteTransaction, groupID impulse.UUID) ([]access.RecordGroupRoleKey, error)
+	// RecordNamed reads what one record is called, for a row of the audit log: the word one
+	// record of its kind goes by ("project"), and the record's name, read by its key from
+	// the field its kind names a record by, "" where the kind names none or the record has
+	// none. A kind no role is held on is an error.
+	RecordNamed(ctx context.Context, txn resource.ReadWriteTransaction, at accesstypes.RecordScope) (word, name string, err error)
 
 	// InsertInvitation buffers the mail links row of a prepared invitation, as the
 	// session library says one is written (session.InvitationRow).
@@ -160,8 +229,13 @@ type Store interface {
 	// MailLink reads one link the auth mailed; found is false where no link holds the
 	// id.
 	MailLink(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (link *MailLink, found bool, err error)
-	// ConsumeMailLink buffers the consumption of one link: it is then dead.
+	// ConsumeMailLink buffers the withdrawal of one link: it is consumed and marked
+	// withdrawn, and is then dead.
 	ConsumeMailLink(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error
+	// SentInvitation reads the invitation of the id as its row keeps it, in the
+	// caller's transaction; found is false where no invitation holds the id, a link of
+	// another kind among them.
+	SentInvitation(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (invitation *SentInvitation, found bool, err error)
 	// TenantInvitations lists the invitations into one tenant that are not consumed:
 	// neither accepted nor withdrawn. An auth that mails no links answers none.
 	TenantInvitations(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]impulse.UUID, error)
@@ -176,16 +250,43 @@ type Store interface {
 	// transaction or the application's client. A schema that holds no such table
 	// answers none, which is every method invite only.
 	SignInMethodRows(ctx context.Context, reader resource.ReadOnlyTransaction) ([]SignInMethodRow, error)
-	// SetSignInMethod buffers the row of the method it names, written whole: created
-	// where the method has none, replaced where it has one. The write keeps who made
-	// it and when (the table's change events).
+	// SetSignInMethod buffers who may sign up through the method the row names
+	// (OpenSignUp, OpenedFor, DefaultRole), the three written together: the row is
+	// created where the method has none, and those three replaced where it has one.
+	// SelfServiceReset is not read from the row and stands as it is. The write keeps
+	// who made it and when (the table's change events).
 	SetSignInMethod(ctx context.Context, txn resource.ReadWriteTransaction, row *SignInMethodRow) error
+	// SetSelfServiceReset writes whether a person may ask for their own password reset
+	// link on the row of the sign-in method of the name, and nothing else of the row:
+	// a method with no row gets one that is invite only.
+	SetSelfServiceReset(ctx context.Context, txn resource.ReadWriteTransaction, name string, on bool) error
+	// SignInSettingsRow reads the row of the sign-in settings table: what an
+	// administrator chose for every sign-in of the auth. reader is the caller's
+	// transaction or the application's client. It answers nil where there is no row,
+	// and a schema that holds no such table answers nil.
+	SignInSettingsRow(ctx context.Context, reader resource.ReadOnlyTransaction) (*SignInSettingsRow, error)
+	// SetRequireSecondFactor writes whether everyone is asked for a second factor on the
+	// row, and nothing else of it: where there is no row, one is created with the days a
+	// browser is remembered at session.DefaultRememberedBrowserDays. The write keeps who
+	// made it and when (the table's change events).
+	SetRequireSecondFactor(ctx context.Context, txn resource.ReadWriteTransaction, on bool) error
+	// SetRememberBrowserDays writes for how many days a remembered browser skips the
+	// second factor on the row, and nothing else of it: where there is no row, one is
+	// created with the second factor required. The write keeps who made it and when.
+	SetRememberBrowserDays(ctx context.Context, txn resource.ReadWriteTransaction, days int64) error
+
+	// AuditRecords reads the rows of the auth's audit log the query asks for, in its
+	// order. An auth whose schema holds no audit records table answers none.
+	AuditRecords(ctx context.Context, reader resource.ReadOnlyTransaction, query *AuditQuery) iter.Seq2[*auditlog.Stored, error]
 
 	// TrustedDevices lists the browsers the user asked to be remembered after the
 	// second factor that are not revoked. An auth that keeps none answers none.
 	TrustedDevices(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]impulse.UUID, error)
 	// RevokeTrustedDevice buffers the revocation of one remembered browser.
 	RevokeTrustedDevice(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error
+	// InsertAuditRecord buffers one row of the auth's audit log. An auth whose schema
+	// holds no audit records table writes nothing.
+	InsertAuditRecord(ctx context.Context, txn resource.ReadWriteTransaction, record *auditlog.Record) error
 
 	// GroupStore is the auth's groups of people, their members and the roles they hold
 	// (groups.go).
@@ -197,12 +298,9 @@ type Store interface {
 
 // SessionAPI is what the rules take from the session library's Auth, the one that signs
 // the auth's people in: the API of the application's own Auth satisfies it
-// (session.Auth.API). The password method's hasher is the Auth's, so a password written
-// here is one the sign-in can check.
+// (session.Auth.API). No rule here writes a password: a person chooses their own, from
+// an invitation or a reset link, in the session library's storage.
 type SessionAPI interface {
-	// HashPassword hashes a password as the users table holds one; an empty password
-	// is refused.
-	HashPassword(password string) (string, error)
 	// PrepareInvitation checks and makes an invitation without storing or mailing it:
 	// the row to store, and the step that mails its link once the row is committed.
 	// The token, the message and the sender stay in the session library.
@@ -225,6 +323,36 @@ type SessionAPI interface {
 	// (session.AuthAPI.DirectoryName). A sentence that names a directory to a person
 	// says it by them, never by the connection.
 	DirectoryName(method sessioninfo.AuthMethod, connection string) (name, label string)
+	// TenantName answers what people call a tenant, by its key, and "" where the
+	// application named none or does not know this one (session.AuthAPI.TenantName). A
+	// sentence that names a tenant to a person says it by this, never by the key.
+	TenantName(tenant accesstypes.Domain) string
+	// SessionTimeout answers how long a session may sit idle before it times out
+	// (session.AuthAPI.SessionTimeout). The generated list of the Auth's sessions says
+	// which of them are live by it.
+	SessionTimeout() time.Duration
+	// SignInFailureLimit answers how many failed sign-ins within the window lock a name
+	// (session.AuthAPI.SignInFailureLimit). The generated list of the failed sign-ins
+	// asks it at each query and where the application builds its handlers, so it answers
+	// at any time and changes nothing.
+	SignInFailureLimit() int
+	// RequestAddressChange mails the link that confirms a new address for the user, to
+	// that address, and changes nothing: the account keeps the address it has until the
+	// link is followed (session.AuthAPI.RequestAddressChange). The message says who
+	// asked (by).
+	RequestAddressChange(ctx context.Context, userID impulse.UUID, email string, by session.AskedBy) error
+	// SendPasswordReset mails the user a link that resets their password, to the address
+	// they confirmed, and changes nothing until the link is used
+	// (session.AuthAPI.SendPasswordReset). The message says who asked (by).
+	SendPasswordReset(ctx context.Context, userID impulse.UUID, by session.AskedBy) error
+	// EndPasswordResetLinks withdraws the user's standing password reset links, once a
+	// write or a removal of their password here has committed: a link mailed for the
+	// password before does not reset the one after
+	// (session.AuthAPI.EndPasswordResetLinks).
+	EndPasswordResetLinks(ctx context.Context, userID impulse.UUID) error
+	// NoticeFactorReset tells the user, at the address they confirmed, that an
+	// administrator reset their second factor (session.AuthAPI.NoticeFactorReset).
+	NoticeFactorReset(ctx context.Context, userID impulse.UUID) error
 }
 
 // Link is one identity linked to a user, as the rules read it: its id, and the sign-in
@@ -256,26 +384,13 @@ type HeldImpersonation struct {
 	ActsAsRole bool
 }
 
-// NewUser is a user row as InsertUser writes it.
-type NewUser struct {
-	Username string
-	// Name is the person's name as people read it, nil for none. It is written as
-	// given: the manager has held it to the rule of a name (sessioninfo.CleanName).
-	Name *string
-	// Email is the address the person is reached at, nil for none. It is written
-	// unverified.
-	Email *string
-}
-
-// UserChange is a change to a user row: a nil field is left as it is.
+// UserChange is a change to a user row: a nil field is left as it is. The address is
+// not among them: an address reaches a row confirmed, through the session library, or
+// not at all (Manager.SetEmail).
 type UserChange struct {
 	Username               *string
 	Disabled               *bool
 	PasswordChangeRequired *bool
-	// Email, where set, replaces the address the row holds. An address written here was
-	// entered by hand, so the row is left unverified: the time the address it held was
-	// verified goes with it.
-	Email *EmailChange
 	// Name, where set, replaces the name the row holds.
 	Name *NameChange
 }
@@ -285,13 +400,10 @@ type NameChange struct {
 	Name *string
 }
 
-// EmailChange is the address a change writes on a user row: Address, nil for none.
-type EmailChange struct {
-	Address *string
-}
-
 // Token is a bearer token as the rules read it.
 type Token struct {
+	// UserID is the account the token signs in as, the person a revocation is done to.
+	UserID impulse.UUID
 	// FamilyID is the device authorization the token belongs to, nil for a token that
 	// stands alone.
 	FamilyID *impulse.UUID
@@ -313,6 +425,11 @@ type Manager struct {
 	// application named none (WithAdministratorRoles). The application as a whole is
 	// administered by the holders of the Super Administrator role, which needs no naming.
 	administrators *administratorRoles
+	// firstAdministrator are the roles the first administrator's invitation gives, by
+	// where they are held; nil where the application named none
+	// (WithFirstAdministratorRoles), and the invitation then gives every role in the
+	// one place it stores, as any other does.
+	firstAdministrator *firstAdministratorRoles
 	// superMethods are the methods that give and take the auth's roles for the whole
 	// application, which the permission engine must let a super administrator execute
 	// (WithSuperAdministratorMethods); New holds the engine to it.
@@ -331,6 +448,12 @@ type Manager struct {
 	// tenants makes a tenant from an accepted invitation (WithTenantMaker); nil where
 	// the auth's people create none that way.
 	tenants TenantMaker
+	// tables are the names of the auth's tables a sign-in writes, as the live pages know
+	// them (WithAccountTables); a table left unnamed is not announced.
+	tables AccountTables
+	// announcer is the function that publishes what a sign-in wrote to the open pages
+	// (AnnounceWith), nil until one is handed over.
+	announcer atomic.Pointer[announceFunc]
 	// now is the application's clock, which the session library holds a deadline
 	// against (a token's expiry).
 	now func() time.Time
@@ -341,14 +464,23 @@ type administratorRoles struct {
 	domain []accesstypes.Role
 }
 
+// firstAdministratorRoles are the roles the first administrator's invitation gives, by
+// where they are held: global for the whole application, everyDomain in every tenant.
+type firstAdministratorRoles struct {
+	global      []accesstypes.Role
+	everyDomain []accesstypes.Role
+}
+
 // Option configures a manager.
 type Option func(*Manager)
 
 // WithAdministratorRoles names the roles whose holders administer a tenant: the domain
-// roles a person holds in the tenant, or in every tenant. The rule on a person removing
-// a role from themselves in a tenant reads them (RemoveRole): nobody gives up a tenant's
-// administrator role nobody else would hold there. Without them a person removes no
-// role from themselves in a tenant at all.
+// roles a person holds in the tenant itself, by a membership of their own or through a
+// group kept in the tenant. The rule on a person removing a role from themselves in a
+// tenant reads them (RemoveRole): nobody gives up a tenant's administrator role nobody
+// else would hold there. A person who holds one in every tenant is none of the tenant's
+// own administrators, and does not stand in for its last one. Without them a person
+// removes no role from themselves in a tenant at all.
 //
 // The application as a whole needs no such list: its last administrator is the last
 // super administrator, the holder of the role the framework defines
@@ -358,6 +490,32 @@ type Option func(*Manager)
 func WithAdministratorRoles(domain []accesstypes.Role) Option {
 	return func(m *Manager) {
 		m.administrators = &administratorRoles{domain: domain}
+	}
+}
+
+// WithFirstAdministratorRoles names the roles the first administrator's invitation
+// gives, by where they are held: global for the whole application, everyDomain in every
+// tenant. They are the two lists the auth's first-administrator setup declares
+// (FirstAdministratorRoles in the auth package's foothold file), handed here as that
+// function returns them.
+//
+// The first administrator's invitation is the one invitation whose roles are held in
+// two places. The deployment sends it for the whole application, so its row stores no
+// tenant, and the acceptance gives each of its roles where these lists say
+// (giveInvitedRoles): a role everyDomain names in every tenant, a role both lists name
+// in both places, and every other in the whole application, which is where the Super
+// Administrator role it always carries is held. The lists are the application's own
+// declaration, read when the person accepts; nothing is looked up by what kind of role
+// a name happens to be.
+//
+// No other invitation reads the lists: one a user sent, one for a tenant or for every
+// tenant, and one that does not give the Super Administrator role each give their roles
+// in the one place they store, whatever is named here. Without the option the first
+// administrator's invitation does too, so one that names a role of the tenants is not
+// accepted.
+func WithFirstAdministratorRoles(global, everyDomain []accesstypes.Role) Option {
+	return func(m *Manager) {
+		m.firstAdministrator = &firstAdministratorRoles{global: global, everyDomain: everyDomain}
 	}
 }
 
@@ -387,6 +545,25 @@ func WithTenantWord(word string) Option {
 	}
 }
 
+// AccountTables names the tables of an auth whose rows a sign-in writes, as the live
+// pages know them (the Resource of the generated type over each): its accounts, its
+// sessions, its sign-in identities, its role memberships and its mail links.
+type AccountTables struct {
+	Users, Sessions, Identities, Memberships, MailLinks accesstypes.Resource
+}
+
+// WithAccountTables names the auth's tables a sign-in writes, which the manager announces
+// to the open pages once it is handed a function to announce through (AnnounceWith). The
+// generated client passes them. A table left empty is not announced, and nil names none;
+// the manager keeps a copy, so a later change to tables is not seen.
+func WithAccountTables(tables *AccountTables) Option {
+	return func(m *Manager) {
+		if tables != nil {
+			m.tables = *tables
+		}
+	}
+}
+
 // New returns the manager of one auth. auth is the auth's name, the one its outlets'
 // generated routes bind to a request (the auth package's Name): the rules that keep a
 // person from acting on themselves take a caller for a person of this auth only when the
@@ -409,7 +586,8 @@ func New(auth string, store Store, controller access.Controller, sessions Sessio
 	}
 	m := &Manager{
 		auth: auth, store: store, access: controller, sessions: sessions,
-		administrators: nil, superMethods: nil, oneTenant: nil, tenantWord: "tenant", grants: nil, tenants: nil, now: time.Now,
+		administrators: nil, firstAdministrator: nil, superMethods: nil, oneTenant: nil, tenantWord: "tenant", grants: nil, tenants: nil,
+		tables: AccountTables{Users: "", Sessions: "", Identities: "", Memberships: "", MailLinks: ""}, announcer: atomic.Pointer[announceFunc]{}, now: time.Now,
 	}
 	for _, opt := range opts {
 		opt(m)
@@ -448,4 +626,76 @@ func (m *Manager) requireSuperAdministratorMethods() error {
 	}
 
 	return nil
+}
+
+// announceFunc publishes a collector's rows and tables to the open pages.
+type announceFunc = func(ctx context.Context, touched *resource.TouchedRows)
+
+// AnnounceWith hands the manager the function that publishes what a sign-in wrote to the
+// open pages. The session library writes a sign-in in its own store, where no generated
+// handler publishes it, so the manager announces it from the hooks it answers: the
+// session and the account by their ids, the identities and the memberships as whole
+// tables, since a hook is not told which of their rows a sign-in wrote.
+//
+// The first function handed over is kept; nil and a later one are ignored, and a sign-in
+// on another goroutine reads it safely. Until one is handed over nothing is announced.
+func (m *Manager) AnnounceWith(publish func(ctx context.Context, touched *resource.TouchedRows)) {
+	if publish == nil {
+		return
+	}
+	m.announcer.CompareAndSwap(nil, &publish)
+}
+
+// signInAnnouncement is what one moment of a sign-in announces: the rows its own
+// transaction handed the collector, and the rows and tables the moment names.
+type signInAnnouncement struct {
+	publish announceFunc
+	touched *resource.TouchedRows
+}
+
+// announcing starts a moment's announcement: ctx carrying a fresh collector, which the
+// moment's own transaction hands its rows to, and the announcement. Where no function was
+// handed over (AnnounceWith) ctx is answered as it is, with a nil announcement that
+// records and publishes nothing.
+func (m *Manager) announcing(ctx context.Context) (context.Context, *signInAnnouncement) {
+	publish := m.announcer.Load()
+	if publish == nil {
+		return ctx, nil
+	}
+	ctx, touched := resource.CollectTouchedRows(ctx)
+
+	return ctx, &signInAnnouncement{publish: *publish, touched: touched}
+}
+
+// row names one row of table by its id; a table the auth left unnamed is skipped.
+func (a *signInAnnouncement) row(table accesstypes.Resource, id impulse.UUID) *signInAnnouncement {
+	if a == nil || table == "" {
+		return a
+	}
+	a.touched.Touch(table, resource.RowChange{Key: resource.RowKey(id), Deleted: false})
+
+	return a
+}
+
+// whole names tables changed in rows the moment cannot name; a table the auth left
+// unnamed is skipped.
+func (a *signInAnnouncement) whole(tables ...accesstypes.Resource) *signInAnnouncement {
+	if a == nil {
+		return nil
+	}
+	for _, table := range tables {
+		if table != "" {
+			a.touched.TouchTable(table)
+		}
+	}
+
+	return a
+}
+
+// announce publishes what the moment collected.
+func (a *signInAnnouncement) announce(ctx context.Context) {
+	if a == nil {
+		return
+	}
+	a.publish(ctx, a.touched)
 }

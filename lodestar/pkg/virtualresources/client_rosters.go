@@ -12,7 +12,8 @@ type (
 	// many contacts the client has and how many missions it holds in this sector. It is
 	// keyed by the client id alone, so its rows key into the same space as Clients, and
 	// Mission.ClientID names it with a field-scope @enumerate: the schema's foreign key
-	// stays the guard at write time, and the picker lists this view instead of the
+	// stays the guard at write time, the library holds a write to the clients the
+	// writer's list of the roster shows, and the picker lists this view instead of the
 	// target. The bare @domain on SectorId partitions the rows, so the roster a picker
 	// shows is the selected sector's. Mission is served on the portal outlet too, and a
 	// declared enumeration must be on every outlet its field is, so the roster is as well.
@@ -27,22 +28,33 @@ type (
 	// projects (search:"Clients.Name"), the SQL projects that column's token column under
 	// its own name, and the roster's box and Name's matches ride ClientsSearch.
 	//
-	// Demonstrates: @enumerate.key-view, @virtual, virtual.domain, virtual.keyed-read, outlet.shared, search.view.
+	// The roster is live without a declaration: the generator reads the tables its query
+	// names off client_rosters.sql (Clients, ClientContacts, Missions and Sectors) and
+	// records them in this package's generated live derivations. The roster carries no
+	// table's rows, so a write to any of them reaches every subscriber of the roster as one
+	// resource document: in the write's sector for a mission, and in every sector for a
+	// client, a contact or a sector, whose tables are global. A list that shows a client by
+	// the roster's name (a mission, the mission board) registers the roster's list, so a
+	// client's write reaches that page too.
+	//
+	// Demonstrates: @enumerate.key-view, @virtual, virtual.domain, virtual.keyed-read, outlet.shared, search.view, @rowWord, live.derived.
 	//
 	// @virtual
 	// @permissionScope(domain)
 	// @outlet(default, portal)
 	// @order(Name asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(client)
 	ClientRoster struct {
 		// @primarykey
 		ID impulse.UUID `spanner:"Id" index:"true"`
 		// @domain
-		SectorID       impulse.UUID `spanner:"SectorId"       index:"true"`
-		Name           string       `spanner:"Name"           index:"true" search:"Clients.Name"`
-		Trusted        bool         `spanner:"Trusted"`
-		ContactCount   int64        `spanner:"ContactCount"`
-		SectorMissions int64        `spanner:"SectorMissions"`
+		SectorID impulse.UUID `spanner:"SectorId" index:"true"`
+		// @name
+		Name           string `spanner:"Name"           index:"true" search:"Clients.Name"`
+		Trusted        bool   `spanner:"Trusted"`
+		ContactCount   int64  `spanner:"ContactCount"`
+		SectorMissions int64  `spanner:"SectorMissions"`
 	}
 )
 

@@ -17,7 +17,8 @@
 -- 10 wingco, 11 engineer, 12 quartermaster, 13 supercargo, 14 salvor, 15 yeoman,
 -- 16 purser, 17 registrar, 18 photographer, 19 archivist, 20 assessor, 21 hazards,
 -- 22 dock, 23 watch, 24 harbormaster, 25 adjutant, 26 surveyor, 27 rigger, 28 bosun,
--- 29 armorer, 30 droid-r7 (the service account), 31 liaison. The members' accounts, the portal's people,
+-- 29 armorer, 30 droid-r7 (the service account), 31 liaison, 32 deckhand, 33 relief,
+-- 34 sentry. The members' accounts, the portal's people,
 -- f1000000-0000-4000-8000-0000000000NN: 01 client (Client Cleo of Halvard Freight),
 -- 02 surveyor (Ines Marrow of the Meridian Survey Office, who is not the crew's surveyor:
 -- the same username in two auths is two people).
@@ -106,8 +107,9 @@ INSERT INTO Hangars (Id, SectorId, Name, Zone) VALUES ('60000000-0000-4000-8000-
 INSERT INTO Hangars (Id, SectorId, Name, Zone) VALUES ('60000000-0000-4000-8000-000000000003', 'b2222222-2222-4222-8222-222222222222', 'Bastion Slip', 'dock');
 INSERT INTO Hangars (Id, SectorId, Name, Zone) VALUES ('60000000-0000-4000-8000-000000000004', 'c3333333-3333-4333-8333-333333333333', 'Cinder Yard', 'salvage');
 
--- The hangar passes, each naming a squadron or a person at a level. For the armorer, who
--- serves Tongs, the two pass sets (pkg/resources/hangar_passes.go) come out as:
+-- The hangar passes, each naming one holder at a level: a squadron or a person here, and
+-- a group in the sixth, which is not in this file. For the armorer, who serves Tongs, the
+-- two pass sets (pkg/resources/hangar_passes.go) come out as:
 --   1  Tongs runs Anvil Dock One, standing: his through the squadron, so the dock is open
 --      to him and he runs it.
 --   2  Tongs visits the Quarantine Bay, standing: open to him, and not his to run.
@@ -115,6 +117,12 @@ INSERT INTO Hangars (Id, SectorId, Name, Zone) VALUES ('60000000-0000-4000-8000-
 --   4  Hammer runs the Quarantine Bay: he does not fly with Hammer, so the row is not his.
 --   5  Portcullis visits Bastion Slip: Bastion's row, never read in an Anvil request.
 -- So the hangars open to him are the dock and the bay, and the one he runs is the dock.
+--
+-- The sixth pass is the Bay keepers', to run the Quarantine Bay. The permission store
+-- makes a group's id when the group is made, so no row here can name it: the bootstrap
+-- writes the pass once the group exists (the group's passes in cmd/bootstrap/users.json).
+-- It is none of the armorer's, who is not one of the Bay keepers; it is all the sentry
+-- has, who holds no pass of his own and flies with no squadron.
 INSERT INTO HangarPasses (Id, SectorId, HangarId, UserId, SquadronId, LevelId, ExpiresAt) VALUES ('61000000-0000-4000-8000-000000000001', 'a1111111-1111-4111-8111-111111111111', '60000000-0000-4000-8000-000000000001', NULL, '50000000-0000-4000-8000-000000000002', 'run', NULL);
 INSERT INTO HangarPasses (Id, SectorId, HangarId, UserId, SquadronId, LevelId, ExpiresAt) VALUES ('61000000-0000-4000-8000-000000000002', 'a1111111-1111-4111-8111-111111111111', '60000000-0000-4000-8000-000000000002', NULL, '50000000-0000-4000-8000-000000000002', 'visit', NULL);
 INSERT INTO HangarPasses (Id, SectorId, HangarId, UserId, SquadronId, LevelId, ExpiresAt) VALUES ('61000000-0000-4000-8000-000000000003', 'a1111111-1111-4111-8111-111111111111', '60000000-0000-4000-8000-000000000002', 'f0000000-0000-4000-8000-000000000029', NULL, 'run', TIMESTAMP '2026-01-01T00:00:00Z');
@@ -314,6 +322,12 @@ INSERT INTO DistressCalls (Id, SectorId, Summary, Severity, CallerContact, Trans
 INSERT INTO DistressCalls (Id, SectorId, Summary, Severity, CallerContact, Transcript, CaseNumber, FiledByUserId, FiledByName) VALUES ('d0000000-0000-4000-8000-000000000011', 'a1111111-1111-4111-8111-111111111111', 'Reactor scram on the fuel bowser', 3, NULL, NULL, 'DC-SEED-0011', 'f0000000-0000-4000-8000-000000000007', 'dispatcher');
 INSERT INTO DistressCalls (Id, SectorId, Summary, Severity, CallerContact, Transcript, CaseNumber, FiledByUserId, FiledByName) VALUES ('d0000000-0000-4000-8000-000000000012', 'a1111111-1111-4111-8111-111111111111', 'Distress beacon from Spindle Rock', 4, NULL, NULL, 'DC-SEED-0012', 'f0000000-0000-4000-8000-000000000007', 'dispatcher');
 INSERT INTO DistressCalls (Id, SectorId, Summary, Severity, CallerContact, Transcript, CaseNumber, FiledByUserId, FiledByName) VALUES ('d0000000-0000-4000-8000-000000000013', 'a1111111-1111-4111-8111-111111111111', 'Unresponsive prospector near the Forge relay', 5, 'cleo@halvard.example', NULL, 'DC-SEED-0013', 'f1000000-0000-4000-8000-000000000001', 'client');
+
+-- The relays on the Spindle Rock call: two messages passed along, and an answer to the
+-- first. Each names the call by its case number; the answer names the relay it answers.
+INSERT INTO DistressRelays (Id, SectorId, CaseNumber, AnswersRelayId, Message, RelayedByName, RelayedAt) VALUES ('d1000000-0000-4000-8000-000000000001', 'a1111111-1111-4111-8111-111111111111', 'DC-SEED-0012', NULL, 'Beacon heard on the emergency band, bearing two-one-zero from Anvil Dock One', 'dispatcher', TIMESTAMP '2026-09-04T08:10:00Z');
+INSERT INTO DistressRelays (Id, SectorId, CaseNumber, AnswersRelayId, Message, RelayedByName, RelayedAt) VALUES ('d1000000-0000-4000-8000-000000000002', 'a1111111-1111-4111-8111-111111111111', 'DC-SEED-0012', 'd1000000-0000-4000-8000-000000000001', 'Tug Bramble is nearest and turning toward the rock', 'marshal', TIMESTAMP '2026-09-04T08:14:00Z');
+INSERT INTO DistressRelays (Id, SectorId, CaseNumber, AnswersRelayId, Message, RelayedByName, RelayedAt) VALUES ('d1000000-0000-4000-8000-000000000003', 'a1111111-1111-4111-8111-111111111111', 'DC-SEED-0012', NULL, 'Second beacon burst, weaker, same bearing', 'dispatcher', TIMESTAMP '2026-09-04T08:31:00Z');
 
 -- Briefing templates are a catalog served from Go (pkg/computedresources), so the column
 -- holds an identifier the schema knows nothing about; three Anvil missions name one.

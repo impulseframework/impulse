@@ -7,27 +7,30 @@ import (
 	"time"
 
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/resource"
 )
 
 type (
 	// MembersSectorIdentity is one way a person of one Sector signs in to the
-	// Members auth through a directory: a row for each identity of a person who holds a
-	// role in the tenant or in every tenant, with the columns of MembersSessionIdentity and the
+	// Members auth through a directory: a row for each identity of a person of
+	// MembersSectorUser, with the columns of MembersSessionIdentity and the
 	// person's username. An account is one row for the whole application, so the identity
 	// of a person who holds a role in two tenants is a row in each: the identity's id is
 	// the key of a row within its tenant, and DomainId, the tenant, holds the row to it.
 	// Tenant is the link's own column, the organization its directory vouched for, and is
 	// not the row's tenant.
 	//
-	// HeldElsewhere and HeldGlobally are the two facts of the person's row in
-	// MembersSectorUser, under the same names (heldElsewhere, heldGlobally): an identity is
-	// the account's, so what a tenant may see and do of one is what it may of the account.
+	// HeldElsewhere, HeldGlobally, ManagedHere and ManagedByAnotherDirectory are four
+	// facts of the person's row in MembersSectorUser, under the same names (heldElsewhere,
+	// heldGlobally, managedHere, managedByAnotherDirectory): an identity is the account's,
+	// so what a tenant may see and do of one is what it may of the account.
 	//
 	// @virtual
 	// @permissionScope(domain)
 	// @outlet(portal, default)
 	// @order(CreatedAt desc)
 	// @page(default: 25, max: 200)
+	// @rowWord(sign-in identity)
 	MembersSectorIdentity struct {
 		// @primarykey
 		ID impulse.UUID `spanner:"Id" index:"true"`
@@ -46,14 +49,24 @@ type (
 		HeldElsewhere bool `spanner:"HeldElsewhere" index:"true"`
 		// @attribute(heldGlobally)
 		HeldGlobally bool `spanner:"HeldGlobally" index:"true"`
+		// @attribute(managedHere)
+		ManagedHere bool `spanner:"ManagedHere" index:"true"`
+		// @attribute(managedByAnotherDirectory)
+		ManagedByAnotherDirectory bool `spanner:"ManagedByAnotherDirectory" index:"true"`
 	}
 )
 
 // membersSectorIdentityQuery selects the identities of the people of every tenant:
 // the people as MembersSectorUser selects them, each joined to the rows of
 // MembersSessionIdentities that link to the account, through the table's index on the
-// user, which carries the columns the list shows.
+// user, which carries the columns the list shows. Who manages the account is read as
+// MembersSectorUser reads it, over the columns of that select.
 const membersSectorIdentityQuery = `
+SELECT
+  * EXCEPT (HeldHere, ThroughHere, ThroughAnother),
+  (ThroughHere OR (NOT ThroughAnother AND HeldHere AND NOT HeldElsewhere AND NOT HeldGlobally)) AS ManagedHere,
+  (ThroughAnother AND NOT ThroughHere) AS ManagedByAnotherDirectory
+FROM (
 SELECT
   i.Id AS Id,
   t.DomainId AS DomainId,
@@ -67,19 +80,38 @@ SELECT
   i.CreatedAt AS CreatedAt,
   i.LastUsedAt AS LastUsedAt,
   (EXISTS (
-    SELECT 1 FROM MembersUserRoles o
+    SELECT 1 FROM MembersUserRoles@{FORCE_INDEX=MembersUserRolesByUserId} o
     WHERE o.UserId = u.Id AND o.Kind = 'every' AND o.Axis = ''
       AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
   ) OR EXISTS (
-    SELECT 1 FROM MembersUserRoles o
+    SELECT 1 FROM MembersUserRoles@{FORCE_INDEX=MembersUserRolesByUserId} o
     WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId != t.DomainId
       AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
   )) AS HeldElsewhere,
   EXISTS (
-    SELECT 1 FROM MembersUserRoles g
+    SELECT 1 FROM MembersUserRoles@{FORCE_INDEX=MembersUserRolesByUserId} g
     WHERE g.UserId = u.Id AND g.Kind = 'global'
       AND (g.EndsAt IS NULL OR g.EndsAt > CURRENT_TIMESTAMP())
-  ) AS HeldGlobally
+  ) AS HeldGlobally,
+  (EXISTS (
+    SELECT 1 FROM MembersUserRoles@{FORCE_INDEX=MembersUserRolesByUserId} o
+    WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId = t.DomainId
+      AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
+  )) AS HeldHere,
+  EXISTS (
+    SELECT 1 FROM MembersSessionIdentities li
+    WHERE li.UserId = u.Id AND EXISTS (
+      SELECT 1 FROM SectorDirectories ld
+      WHERE ld.Method = li.Method AND ld.Connection = li.Connection AND ld.SectorId = t.DomainId
+    )
+  ) AS ThroughHere,
+  EXISTS (
+    SELECT 1 FROM MembersSessionIdentities li
+    WHERE li.UserId = u.Id AND EXISTS (
+      SELECT 1 FROM SectorDirectories ld
+      WHERE ld.Method = li.Method AND ld.Connection = li.Connection AND ld.SectorId != t.DomainId
+    )
+  ) AS ThroughAnother
 FROM (
   SELECT m.DomainId AS DomainId, m.UserId AS UserId
   FROM MembersUserRoles m
@@ -91,12 +123,26 @@ FROM (
   CROSS JOIN Sectors s
   WHERE m.Kind = 'every' AND m.Axis = ''
     AND (m.StartsAt IS NULL OR m.StartsAt <= CURRENT_TIMESTAMP()) AND (m.EndsAt IS NULL OR m.EndsAt > CURRENT_TIMESTAMP())
+  UNION DISTINCT
+  SELECT dr.SectorId AS DomainId, du AS UserId
+  FROM SectorDirectories dr, UNNEST(ARRAY(
+    SELECT dl.UserId FROM MembersSessionIdentities dl
+    WHERE dl.Method = dr.Method AND dl.Connection = dr.Connection
+  )) AS du
 ) t
 JOIN MembersSessionUsers u ON u.Id = t.UserId
 JOIN MembersSessionIdentities i ON i.UserId = u.Id
+) p
 `
 
 // Subquery is the query the rows are read from.
 func (MembersSectorIdentity) Subquery() (query string, params map[string]any) {
 	return membersSectorIdentityQuery, nil
+}
+
+// TenantsToEnter names the sectors the person administers: a caller whose session
+// does not enter one of them is not offered the methods that change how the person signs
+// in or whether their account stands.
+func (MembersSectorIdentity) TenantsToEnter() resource.TenantsToEnter {
+	return membersSessionUserTenantsToEnter("UserId")
 }

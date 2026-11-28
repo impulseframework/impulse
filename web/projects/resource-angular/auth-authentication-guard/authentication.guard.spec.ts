@@ -9,9 +9,9 @@ import { firstValueFrom, isObservable } from 'rxjs';
 import { LoginAuthenticationGuard } from './authentication.guard';
 
 // The login guard lets a signed-in session through, returns an unauthenticated one to the
-// login page with the attempted URL kept, and returns a session whose operator-set
-// password must change the same way: the server serves the page nothing until the person
-// sets a password of their own, and the login page serves the change form.
+// login page with the attempted URL kept, and does the same with the session of a person
+// who must choose a new password because an administrator required one: the server serves
+// the page nothing until they choose it, and the login page serves the change form.
 
 const descriptor: ApiDescriptor = {
   resources: {},

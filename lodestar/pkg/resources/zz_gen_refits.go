@@ -12,6 +12,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/shopspring/decimal"
 )
@@ -22,6 +23,91 @@ func (Refit) Resource() accesstypes.Resource {
 
 func (Refit) DefaultConfig() resource.Config {
 	return defaultConfig()
+}
+
+// NamedRows names the columns that name a row of another resource the application lists
+// (ShipID): a create or an update sets one only to a row its caller can list, so the
+// library answers any other as a row that is not there.
+func (Refit) NamedRows() []resource.NamedRow {
+	return []resource.NamedRow{
+		{Field: "ShipID", Resource: "Ships", Table: "Ships", KeyColumn: "Id", TenantColumn: "HangarId", TenantPath: []resource.BindingHop{{Table: "Hangars", JoinColumn: "Id", Column: "SectorId"}}},
+	}
+}
+
+// TenantBinding is the row's way to its tenant: the library writes the tenant on every
+// change record of the row, whoever writes the row.
+func (Refit) TenantBinding() resource.TenantBinding {
+	return resource.TenantBinding{Field: "ShipID", Path: []resource.BindingHop{{Table: "Ships", JoinColumn: "Id", Column: "HangarId"}, {Table: "Hangars", JoinColumn: "Id", Column: "SectorId"}}}
+}
+
+// DeleteTree describes what a delete of a Refit takes with it and what refuses
+// it (@deleteCascade). The kinds taken are in the order their rows are deleted, deepest
+// first, each with its ways up to the Refit and what the delete of one of its
+// rows costs. The kinds under Under are the ones with a row directly under a Refit
+// that the database does not remove with it.
+func (Refit) DeleteTree() *resource.DeleteTree {
+	return &resource.DeleteTree{
+		Record: "Refits",
+		Words:  resource.DeleteWords{One: "refit", Many: "refits"},
+		Key:    []string{"Id"},
+		Cost:   resource.DeleteCost{IndexEntries: 2, Files: 0},
+		Tenant: &resource.DomainBindingData{Column: "ShipId", Path: []resource.BindingHop{{Table: "Ships", JoinColumn: "Id", Column: "HangarId"}, {Table: "Hangars", JoinColumn: "Id", Column: "SectorId"}}},
+		Taken: []resource.DeleteKind{
+			{
+				Resource: "RefitTasks",
+				Words:    resource.DeleteWords{One: "refit task", Many: "refit tasks"},
+				Key:      []string{"Id", "TaskNumber"},
+				Cost:     resource.DeleteCost{IndexEntries: 0, Files: 1},
+				Tenant:   &resource.DomainBindingData{Column: "Id", Path: []resource.BindingHop{{Table: "Refits", JoinColumn: "Id", Column: "ShipId"}, {Table: "Ships", JoinColumn: "Id", Column: "HangarId"}, {Table: "Hangars", JoinColumn: "Id", Column: "SectorId"}}},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"Id"}, Table: "Refits", References: []string{"Id"}},
+					},
+				},
+				Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[RefitTask], caller *resource.Caller) {
+					patch := &RefitTaskDeletePatch{patchSet: patchSet}
+					if !caller.IsZero() {
+						patch.Enforce(caller)
+					}
+				}),
+			},
+		},
+		Under: []resource.DeleteKind{
+			{
+				Resource: "RefitTasks",
+				Words:    resource.DeleteWords{One: "refit task", Many: "refit tasks"},
+				Key:      []string{"Id", "TaskNumber"},
+				Cost:     resource.DeleteCost{IndexEntries: 0, Files: 1},
+				Tenant:   &resource.DomainBindingData{Column: "Id", Path: []resource.BindingHop{{Table: "Refits", JoinColumn: "Id", Column: "ShipId"}, {Table: "Ships", JoinColumn: "Id", Column: "HangarId"}, {Table: "Hangars", JoinColumn: "Id", Column: "SectorId"}}},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"Id"}, Table: "Refits", References: []string{"Id"}},
+					},
+				},
+			},
+		},
+	}
+}
+
+// NameFields names the resource's name fields: beside each id that points to a row with
+// a name, the name of that row, which a list shows, sorts by and filters by. A name is
+// looked up in the pointed-to table by the id; it is no column of this resource.
+func (Refit) NameFields() []resource.NameField {
+	return []resource.NameField{
+		{Field: "ShipName", Key: "ShipID", Resource: "Ships", Tag: "name", Table: "Ships", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "HangarId", TenantPath: []resource.BindingHop{{Table: "Hangars", JoinColumn: "Id", Column: "SectorId"}}},
+		{Field: "StatusName", Key: "StatusID", Resource: "", Tag: "", Table: "RefitStatuses", KeyColumn: "Id", NameColumn: "Description", TenantColumn: ""},
+	}
+}
+
+// RecordedNames names the rows a change record of the resource keeps the name of:
+// for each field that points at a row with a name, where the name is read. A
+// tracked write that changes such a field reads the name in its own transaction,
+// and the change record keeps it beside the id.
+func (Refit) RecordedNames() []resource.NameField {
+	return []resource.NameField{
+		{Field: "", Key: "ShipID", Resource: "Ships", Tag: "name", Table: "Ships", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "HangarId", TenantPath: []resource.BindingHop{{Table: "Hangars", JoinColumn: "Id", Column: "SectorId"}}},
+		{Field: "", Key: "StatusID", Resource: "", Tag: "", Table: "RefitStatuses", KeyColumn: "Id", NameColumn: "Description", TenantColumn: ""},
+	}
 }
 
 // refitRead mirrors the wire shape the resource routes list
@@ -401,11 +487,11 @@ func (p *RefitCreatePatch) ToStruct() *Refit {
 	return p.patchSet.ToStruct()
 }
 
-func (p *RefitCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *RefitCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *RefitCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *RefitCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -427,6 +513,9 @@ func (p *RefitCreatePatch) registerDefaultFuncs() {
 	})
 	p.patchSet.RegisterDefaultCreateFunc("OpenedByUserID", currentUser)
 	p.patchSet.RegisterDefaultCreateFunc("OpenedByName", currentUserName)
+	p.patchSet.RegisterValidateCreateFunc(func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		return new(RefitCreateValidator).Validate(ctx, txn, p)
+	})
 }
 
 func (p *RefitCreatePatch) ID() impulse.UUID {
@@ -594,11 +683,11 @@ func (p *RefitUpdatePatch) ToStruct() *Refit {
 	return p.patchSet.ToStruct()
 }
 
-func (p *RefitUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *RefitUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *RefitUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *RefitUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -798,11 +887,54 @@ func NewRefitDeletePatch(id impulse.UUID) *RefitDeletePatch {
 	return &RefitDeletePatch{patchSet: patchSet}
 }
 
-func (p *RefitDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+// WithEverythingUnder says the delete takes the rows under the Refit with it:
+// every row of the kinds its @deleteCascade lists as taken, each deleted as its own
+// delete would delete it. It takes the kinds handed to the delete as well (DeleteAlso).
+// Without it, a delete of a Refit that has such rows
+// deletes nothing and is answered with the question a person is asked first
+// (httpio.HasPreconditionRequired). Where the rows cost more than one save takes, the
+// delete takes what fits, deepest first, and Left answers the rows that save deleted:
+// buffer the delete again, in a transaction of its own, until Left answers nil.
+// It is for code that deletes outside a request, and every save of such a delete asks
+// everything again before it takes a row: a request's delete goes on the token its
+// question gave (WithDeleteToken).
+func (p *RefitDeletePatch) WithEverythingUnder() *RefitDeletePatch {
+	p.patchSet.DeleteEverythingUnder()
+
+	return p
+}
+
+// WithDeleteToken says the delete takes the rows under the Refit on the token
+// its question gave (resource.PatchSet.DeleteWithToken): it takes them only where the
+// token holds, and is answered with the question again where it does not.
+func (p *RefitDeletePatch) WithDeleteToken(token string) *RefitDeletePatch {
+	p.patchSet.DeleteWithToken(token)
+
+	return p
+}
+
+// Left is what the delete says once it is buffered (resource.DeleteLeft): the rows the
+// save deleted where rows are left under the Refit, which stands until a save
+// takes the last of them; nil where the delete finished, the Refit with it.
+func (p *RefitDeletePatch) Left() *resource.DeleteLeft {
+	return p.patchSet.DeleteLeft()
+}
+
+// DeleteAlso hands the delete kinds of row it takes with the Refit that its
+// description does not list (resource.TakenKind): the question counts them, the check
+// before the delete asks them, and each round takes what fits of them after the kinds
+// the description lists and before the Refit.
+func (p *RefitDeletePatch) DeleteAlso(kinds ...resource.TakenKind) *RefitDeletePatch {
+	p.patchSet.DeleteAlso(kinds...)
+
+	return p
+}
+
+func (p *RefitDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *RefitDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *RefitDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

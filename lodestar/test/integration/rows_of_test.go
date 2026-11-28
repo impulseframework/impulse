@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -138,11 +139,24 @@ func TestRowsOfWrites(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A membership's member is picked from Anvil's people (CrewSectorUsers), so the cadet is
+	// made one of them, as the bootstrap makes them: their account, and the Cadet's role in
+	// Anvil.
+	if err := seedCastAccounts(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	seatInSector(ctx, t, db, account(t, "cadet"), "Cadet", anvil)
 
+	// The pilot's and the squadron's names are read from Pilots and Squadrons by the ids
+	// the views carry, under the List grant on each name. The writer lists the squadrons
+	// and Anvil's people, the rows a membership names.
 	h := newTestApp(db, grants{
-		accesstypes.List: append(
-			withFields("SquadronRosters", "squadronName", "pilotName", "pilotId"),
-			withFields("PilotAssignments", "squadronName", "wingName")...,
+		accesstypes.List: slices.Concat(
+			withFields("SquadronRosters", "squadronName", "pilotId"),
+			withFields("PilotAssignments", "wingName"),
+			withFields("Pilots", "displayName"),
+			withFields("Squadrons", "name"),
+			[]accesstypes.Resource{"CrewSectorUsers"},
 		),
 		accesstypes.Create: {"SquadronMemberships"},
 		accesstypes.Delete: {"SquadronMemberships"},
@@ -231,8 +245,8 @@ func TestRowsOfMetadata(t *testing.T) {
 		{name: "the mission board names Missions", want: "[Resources.MissionBoards]: {\n    route: 'sectors/{sectorID}/mission-boards',\n    rowsOf: Resources.Missions,"},
 		{name: "the roster names SquadronMemberships", want: "[Resources.SquadronRosters]: {\n    route: 'sectors/{sectorID}/squadron-rosters',\n    rowsOf: Resources.SquadronMemberships,"},
 		{name: "the assignments name SquadronMemberships too", want: "[Resources.PilotAssignments]: {\n    route: 'sectors/{sectorID}/pilot-assignments',\n    rowsOf: Resources.SquadronMemberships,"},
-		{name: "an undeclared view names nothing: no rowsOf, and its keyed read stands; its query's tables are known, so it is live", want: "[Resources.OpenMissionsBySquadrons]: {\n    route: 'sectors/{sectorID}/open-missions-by-squadrons',\n    live: true,\n    fields: ["},
-		{name: "the roster's pilot id names Pilots, the row route's target", want: "{ fieldName: 'pilotId', displayType: 'enumerated', required: false, isIndex: false, enumeratedResource: Resources.Pilots }"},
+		{name: "an undeclared view names nothing: no rowsOf, and its keyed read stands; its query's tables are known, so it is live", want: "[Resources.OpenMissionsBySquadrons]: {\n    route: 'sectors/{sectorID}/open-missions-by-squadrons',\n    live: true,\n    rowWords: { one: 'squadron count', many: 'squadron counts' },\n    fields: ["},
+		{name: "the roster's pilot id names Pilots, the row route's target", want: "{ fieldName: 'pilotId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', enumeratedResource: Resources.Pilots }"},
 		{name: "the assignments' squadron key names Squadrons, the row route's target", want: "{ fieldName: 'squadronId', primaryKey: { ordinalPosition: 0 }, displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', enumeratedResource: Resources.Squadrons }"},
 		{name: "the roster carries the table's compound key", want: "{ fieldName: 'squadronId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },\n      { fieldName: 'userId', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },"},
 		{name: "the table names no view", want: "rowsOf: Resources.SquadronRosters", absence: true},

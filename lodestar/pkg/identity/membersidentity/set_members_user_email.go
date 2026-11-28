@@ -11,26 +11,49 @@ import (
 	"github.com/impulseframework/impulse/resource"
 )
 
-// SetMembersUserEmail sets the email address of a person of the Members auth
-// by hand, or takes it off (no Email): for a person whose address changed, or who was
-// created without one. The address is held unverified, whatever the one before it was,
-// until the person verifies it themselves. An address another user holds is refused
-// when the transaction commits.
-//
-// @rpc
-// @outlet(portal, default)
-// @answers(204)
-type SetMembersUserEmail struct {
-	// @target(MembersSessionUser)
-	UserID impulse.UUID
-	Email  *string
-}
+type (
+	// SetMembersUserEmail asks for a change of the email address of a person of the
+	// Members auth. Nothing about the account changes: a link is mailed to the new
+	// address once the transaction has committed, and the account keeps the address it
+	// has until the person follows that link from the new mailbox. Nothing is mailed
+	// to the old address to confirm the change; it is told once the change is made. An
+	// account always keeps an address, so one is replaced and never taken off, and the
+	// address of a person who signs in through an organization's directory is the
+	// directory's to change. The answer says whether the link went (Sent) and, where
+	// it did not, why (Reason).
+	//
+	// A row offers it only to a caller whose session enters every sector the person
+	// administers (@callerEnters); the method refuses anyone else.
+	//
+	// @rpc
+	// @callerEnters
+	// @outlet(portal, default)
+	// @class(credential)
+	SetMembersUserEmail struct {
+		// @target(MembersListedUser)
+		UserID impulse.UUID
+		Email  string `validate:"required"`
+	}
+	// SetMembersUserEmailResult answers whether the link that confirms the new
+	// address was mailed and, where it was not, why, in a sentence for the
+	// administrator who asked. Both are set once the transaction has committed: a
+	// caller that runs the method in a transaction of its own reads them after its
+	// ExecuteFunc returns.
+	SetMembersUserEmailResult struct {
+		Sent   bool
+		Reason string
+	}
+)
 
-// Execute buffers the address into the caller's transaction.
-func (m *SetMembersUserEmail) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error {
-	if err := client.manager.SetEmail(ctx, txn, m.UserID, m.Email); err != nil {
-		return errors.Wrap(err, "identity.Manager.SetEmail()")
+// Execute checks the request in the caller's transaction and registers the mailing for
+// after its commit.
+func (m *SetMembersUserEmail) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*SetMembersUserEmailResult, error) {
+	result := &SetMembersUserEmailResult{}
+	if err := client.manager.SetEmail(ctx, txn, m.UserID, m.Email, func(sent bool, reason string) {
+		result.Sent, result.Reason = sent, reason
+	}); err != nil {
+		return nil, errors.Wrap(err, "identity.Manager.SetEmail()")
 	}
 
-	return nil
+	return result, nil
 }

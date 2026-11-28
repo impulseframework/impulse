@@ -1,11 +1,13 @@
 import { apiDescriptor } from '@app/service/zz_gen_api';
-import { Permissions, Resources } from '@app/service/zz_gen_constants';
 import { resourceMeta } from '@app/service/zz_gen_resources';
-import { FrameActions, Menu } from '@impulseframework/resource-angular/auth-frame';
-import { identityMenuPages } from '@impulseframework/resource-angular/identity-pages';
-import { resourcePage } from '@impulseframework/resource-angular/resource-route-generator';
-import { tenantSignInPage } from '@components/ui/sign-in/sign-in.routes';
-import { tenantsConfig } from './configs/tenants.config';
+import { Menu } from '@impulseframework/resource-angular/auth-frame';
+import { featureFlagsPage } from '@impulseframework/resource-angular/feature-flags';
+import {
+  identityMenuPages,
+  inviteTenantAction,
+  tenantSignInPage,
+  tenantsPage,
+} from '@impulseframework/resource-angular/identity-pages';
 
 /**
  * The application's menu file: the menus across the top, in order, which the library's
@@ -18,21 +20,24 @@ import { tenantsConfig } from './configs/tenants.config';
  * person's own menu at the right (Your account, Appearance, Sign out). A page added to the
  * routes and forgotten here fails app.menus.spec.ts, naming the page.
  *
- * The frame calls the function once, in an injection context, handing it what the frame
- * does (the feature flags dialog), so an entry of the application's own may use a service
- * it injects.
+ * The frame calls the function once, in an injection context, so an entry of the
+ * application's own may use a service it injects.
  */
-export function appMenus(actions: FrameActions): Menu[] {
+export function appMenus(): Menu[] {
   return [
     {
       label: 'Tenants',
       groups: [
         {
-          // The tenants the application serves. Nobody creates one here: an administrator
-          // brings an organization in by inviting one person, on the Invited tenants page
-          // among the staff's pages under System, and that person's first sign-in makes
-          // the tenant.
-          entries: [resourcePage(tenantsConfig, resourceMeta)],
+          // The tenants the application serves, on the library's page, and Invite a tenant…,
+          // which opens the invitation on that page. Nobody creates one here: an
+          // administrator brings an organization in by inviting one person, from that page,
+          // which lists the invitations still waiting above the tenants, and that person's
+          // first sign-in makes the tenant.
+          entries: [
+            tenantsPage(apiDescriptor, resourceMeta, { auth: 'Staff' }),
+            inviteTenantAction(apiDescriptor, resourceMeta, { auth: 'Staff' }),
+          ],
         },
       ],
     },
@@ -50,28 +55,24 @@ export function appMenus(actions: FrameActions): Menu[] {
     },
     {
       label: 'Tenant',
-      groups: [{ entries: [tenantSignInPage] }],
+      groups: [{ entries: [tenantSignInPage(apiDescriptor, { auth: 'Staff' })] }],
     },
     {
       label: 'System',
       groups: [
         {
           entries: [
-            // The staff's accounts across the whole application, their mailed links, the
-            // Invited tenants page, where an administrator brings a tenant in by inviting
-            // the person who will administer it, sessions and failed sign-ins.
+            // The staff's accounts across the whole application, their mailed links,
+            // sessions, failed sign-ins and audit log.
             ...identityMenuPages(apiDescriptor, resourceMeta, { auth: 'Staff', scope: 'global' }),
           ],
         },
         {
           entries: [
-            {
-              label: 'Feature flags…',
-              icon: 'flag',
-              run: () => actions.featureFlags(),
-              place: 'outside',
-              permission: { resource: Resources.FeatureFlags, permission: Permissions.List },
-            },
+            // The feature flags the application declares, each with who last turned it on or
+            // off: the library's page, shown under List on the flags, in the place outside
+            // every tenant.
+            featureFlagsPage(resourceMeta),
           ],
         },
       ],

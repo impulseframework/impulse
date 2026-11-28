@@ -8,11 +8,14 @@ import (
 	"fmt"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/go-playground/validator/v10"
+	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	initiator "github.com/impulseframework/impulse/db"
+	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/lodestar/app"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/crew"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/members"
@@ -42,6 +45,12 @@ const testUser = "authz-user"
 type fakeAccess struct {
 	access.Controller
 	g grants
+}
+
+// Auth names the auth the stand-in answers for, as a real engine names the auth it was
+// opened for: the crew's, whose requests the suite serves.
+func (f *fakeAccess) Auth() string {
+	return crew.Name
 }
 
 func (f *fakeAccess) ForUser(user accesstypes.User) *access.UserChecker {
@@ -155,6 +164,11 @@ func (c *testConfigurer) LogExporter() logger.Exporter {
 // AppVersion is dev: the matrix drives the bare test router, which checks no version.
 func (c *testConfigurer) AppVersion() string { return "dev" }
 
+// Environment is none: the suites run as production does, which names no environment.
+func (c *testConfigurer) Environment() string {
+	return ""
+}
+
 func (c *testConfigurer) ConsoleDist() string { return "" }
 
 func (c *testConfigurer) PortalDist() string { return "" }
@@ -193,10 +207,6 @@ func (c *testConfigurer) LiveOrigins() []string { return nil }
 // is asked through (how a person signs in) is asked about nobody.
 type noSessionAPI struct{}
 
-func (noSessionAPI) HashPassword(string) (string, error) {
-	return "", fmt.Errorf("the authorization matrix serves no session manager")
-}
-
 func (noSessionAPI) PrepareInvitation(context.Context, *session.InvitationRequest) (session.PreparedInvitation, error) {
 	return nil, fmt.Errorf("the authorization matrix serves no session manager")
 }
@@ -215,13 +225,52 @@ func (noSessionAPI) DirectoryName(sessioninfo.AuthMethod, string) (name, label s
 	return "", ""
 }
 
+// TenantName names no tenant: the matrix gives the session library no tenant names.
+func (noSessionAPI) TenantName(accesstypes.Domain) string {
+	return ""
+}
+
+// SessionTimeout answers ten minutes, the session library's own default: this suite
+// sets none.
+func (noSessionAPI) SessionTimeout() time.Duration {
+	return 10 * time.Minute
+}
+
+// SignInFailureLimit answers five failed sign-ins, the session library's own default:
+// this suite sets none.
+func (noSessionAPI) SignInFailureLimit() int {
+	return 5
+}
+
+// RequestAddressChange and SendPasswordReset mail nobody: there is no session manager
+// here to mail through, and each says so.
+func (noSessionAPI) RequestAddressChange(context.Context, impulse.UUID, string, session.AskedBy) error {
+	return fmt.Errorf("the authorization matrix serves no session manager")
+}
+
+func (noSessionAPI) SendPasswordReset(context.Context, impulse.UUID, session.AskedBy) error {
+	return fmt.Errorf("the authorization matrix serves no session manager")
+}
+
+// EndPasswordResetLinks withdraws nothing, and the two notices tell nobody: no link was
+// mailed here and no mail is sent.
+func (noSessionAPI) EndPasswordResetLinks(context.Context, impulse.UUID) error {
+	return nil
+}
+
+func (noSessionAPI) NoticeFactorReset(context.Context, impulse.UUID) error {
+	return nil
+}
+
 // CrewIdentity and MembersIdentity are the two auths' identity clients over the scripted
 // engine: the matrix drives the generated methods' routes as it drives every other, and
-// a denied case is answered before any of them runs. The crew's client takes what makes
-// a sector from an accepted invitation, as production's does, though no case here
-// accepts one.
+// a denied case is answered before any of them runs. The crew's client is built as
+// production's is: with what makes a sector from an accepted invitation, though no case
+// here accepts one, and with the roles that administer a sector, without which it serves
+// no list of the roles a new sector's people may start with.
 func (c *testConfigurer) CrewIdentity() *crewidentity.Client {
-	client, err := crewidentity.NewClient(c.Access(), noSessionAPI{}, app.NewSectorMaker(c.TenantRoster(), c.Live()))
+	_, sectorAdministrators := crew.AdministratorRoles()
+	client, err := crewidentity.NewClient(c.Access(), noSessionAPI{}, app.NewSectorMaker(c.TenantRoster(), c.Live()), identity.WithAdministratorRoles(sectorAdministrators))
 	if err != nil {
 		panic(err)
 	}

@@ -12,6 +12,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -30,6 +31,40 @@ func (MissionDocument) DefaultConfig() resource.Config {
 func (MissionDocument) FileKeys() []resource.FileKey {
 	return []resource.FileKey{
 		{Field: "StoreKey", Store: resource.StoreNameFor[Documents]()},
+	}
+}
+
+// NamedRows names the columns that name a row of another resource the application lists
+// (MissionID): a create or an update sets one only to a row its caller can list, so the
+// library answers any other as a row that is not there.
+func (MissionDocument) NamedRows() []resource.NamedRow {
+	return []resource.NamedRow{
+		{Field: "MissionID", Resource: "Missions", Table: "Missions", KeyColumn: "Id", TenantColumn: "SectorId"},
+	}
+}
+
+// TenantBinding is the row's way to its tenant: the library writes the tenant on every
+// change record of the row, whoever writes the row.
+func (MissionDocument) TenantBinding() resource.TenantBinding {
+	return resource.TenantBinding{Field: "MissionID", Path: []resource.BindingHop{{Table: "Missions", JoinColumn: "Id", Column: "SectorId"}}}
+}
+
+// NameFields names the resource's name fields: beside each id that points to a row with
+// a name, the name of that row, which a list shows, sorts by and filters by. A name is
+// looked up in the pointed-to table by the id; it is no column of this resource.
+func (MissionDocument) NameFields() []resource.NameField {
+	return []resource.NameField{
+		{Field: "MissionName", Key: "MissionID", Resource: "Missions", Tag: "title", Table: "Missions", KeyColumn: "Id", NameColumn: "Title", TenantColumn: "SectorId"},
+	}
+}
+
+// RecordedNames names the rows a change record of the resource keeps the name of:
+// for each field that points at a row with a name, where the name is read. A
+// tracked write that changes such a field reads the name in its own transaction,
+// and the change record keeps it beside the id.
+func (MissionDocument) RecordedNames() []resource.NameField {
+	return []resource.NameField{
+		{Field: "", Key: "MissionID", Resource: "Missions", Tag: "title", Table: "Missions", KeyColumn: "Id", NameColumn: "Title", TenantColumn: "SectorId"},
 	}
 }
 
@@ -458,11 +493,11 @@ func (p *MissionDocumentCreatePatch) ToStruct() *MissionDocument {
 	return p.patchSet.ToStruct()
 }
 
-func (p *MissionDocumentCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *MissionDocumentCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *MissionDocumentCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *MissionDocumentCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -706,11 +741,11 @@ func (p *MissionDocumentUpdatePatch) ToStruct() *MissionDocument {
 	return p.patchSet.ToStruct()
 }
 
-func (p *MissionDocumentUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *MissionDocumentUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *MissionDocumentUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *MissionDocumentUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -964,11 +999,11 @@ func NewMissionDocumentDeletePatch(id impulse.UUID) *MissionDocumentDeletePatch 
 	return &MissionDocumentDeletePatch{patchSet: patchSet}
 }
 
-func (p *MissionDocumentDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *MissionDocumentDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *MissionDocumentDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *MissionDocumentDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

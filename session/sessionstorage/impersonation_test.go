@@ -1,7 +1,12 @@
 package sessionstorage
 
 import (
+	"bytes"
 	"context"
+	"log"
+	"reflect"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -10,6 +15,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
+	"github.com/impulseframework/impulse/session/internal/sealed"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage/internal/postgres"
 	"github.com/impulseframework/impulse/session/sessionstorage/internal/spanner"
@@ -124,20 +130,154 @@ func Test_sessionStorage_Session_MapsImpersonation(t *testing.T) {
 	}
 }
 
-func Test_sessionStorage_CreateImpersonatedSession(t *testing.T) {
+// lockedLog is a buffer the standard logger may write from any goroutine.
+type lockedLog struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (l *lockedLog) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	n, err := l.buf.Write(p)
+	if err != nil {
+		return n, errors.Wrap(err, "bytes.Buffer.Write()")
+	}
+
+	return n, nil
+}
+
+func (l *lockedLog) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	return l.buf.String()
+}
+
+// Test_sessionStorage_unreadableMaskIsLogged pins what the store does with a record
+// whose mask column is no mask's text, when it loads a session and when it lists the
+// live ones: the record keeps nothing, and the log says which session's mask does not
+// read and why, so a session that can do nothing is explained where an operator looks.
+// A record whose mask reads is not mentioned. The standard logger is the process's: the
+// test takes its output and looks for the lines that name its own sessions.
+func Test_sessionStorage_unreadableMaskIsLogged(t *testing.T) {
+	t.Parallel()
+
+	var output lockedLog
+	previous := log.Writer()
+	log.SetOutput(&output)
+	t.Cleanup(func() { log.SetOutput(previous) })
+
+	loaded := impulse.Must(impulse.UUIDFromString("0bad0001-0000-4000-8000-00000000a001"))
+	listed := impulse.Must(impulse.UUIDFromString("0bad0002-0000-4000-8000-00000000a002"))
+	readable := impulse.Must(impulse.UUIDFromString("0bad0003-0000-4000-8000-00000000a003"))
+	started := time.Date(2026, 8, 27, 10, 0, 0, 0, time.UTC)
+	row := func(id impulse.UUID, mask string) *dbtype.Impersonation {
+		return &dbtype.Impersonation{
+			SessionID:       id,
+			ActorUsername:   "alice",
+			PrincipalKind:   dbtype.PrincipalKindUser,
+			PrincipalUserID: strPtr("bob"),
+			Mask:            &mask,
+			StartedAt:       started,
+			ExpiresAt:       started.Add(time.Hour),
+		}
+	}
+
+	ctrl := gomock.NewController(t)
+	mockDB := NewMockdb(ctrl)
+	mockDB.EXPECT().Session(gomock.Any(), loaded).Return(&dbtype.SessionData{
+		Session:       &dbtype.Session{ID: loaded, Username: "bob"},
+		Impersonation: row(loaded, "*;class:credential"),
+	}, nil)
+	mockDB.EXPECT().ActiveImpersonations(gomock.Any(), started, gomock.Any()).Return([]*dbtype.Impersonation{
+		row(listed, "List,Read;-everything"),
+		row(readable, "*;-class:credential"),
+	}, nil)
+	s := &sessionStorage{db: mockDB}
+
+	sess, err := s.Session(context.Background(), loaded)
+	if err != nil {
+		t.Fatalf("Session() error = %v", err)
+	}
+	if !sess.Impersonation.Mask.Equal(accesstypes.DenyAll()) {
+		t.Errorf("Session() read the mask %q, want the mask that keeps nothing", sess.Impersonation.Mask.Text())
+	}
+	imps, err := s.ActiveImpersonations(context.Background(), started, nil)
+	if err != nil {
+		t.Fatalf("ActiveImpersonations() error = %v", err)
+	}
+	if len(imps) != 2 || !imps[0].Mask.Equal(accesstypes.DenyAll()) || imps[1].Mask.Text() != "*;-class:credential" {
+		t.Fatalf("ActiveImpersonations() masks = %v, want the unreadable one kept to nothing and the other as written", imps)
+	}
+
+	logged := output.String()
+	for _, want := range []string{
+		"impersonation: the mask stored for session " + loaded.String() + ` ("*;class:credential") does not read, so the session is held to nothing: `,
+		`the part "class:credential" is no refusal: one opens with "-class:" or "-on:"`,
+		"impersonation: the mask stored for session " + listed.String() + ` ("List,Read;-everything") does not read, so the session is held to nothing: `,
+		`the part "-everything" is no refusal: one opens with "-class:" or "-on:"`,
+	} {
+		if !strings.Contains(logged, want) {
+			t.Errorf("the log does not carry %q:\n%s", want, logged)
+		}
+	}
+	if strings.Contains(logged, readable.String()) {
+		t.Errorf("the log names the session whose mask reads:\n%s", logged)
+	}
+}
+
+// Test_sessionStorage_impersonatedSessionWrite pins the storage's write of an
+// impersonated session, reached as the session library reaches it
+// (sealed.CreateImpersonatedSession): the row it hands the driver, the driver's error,
+// and the seal. Only the storage the library builds over its driver
+// (newSessionStorage) holds the write. A storage built any other way, and the write a
+// store of an application's own embeds (NoImpersonatedSessions), refuse with
+// ErrImpersonationSealed before the driver is reached: the mock fails the test on any
+// insert it was not told to expect.
+func Test_sessionStorage_impersonatedSessionWrite(t *testing.T) {
 	t.Parallel()
 
 	sessionID := impulse.Must(impulse.UUIDFromString("123e4567-e89b-12d3-a456-426614174000"))
 	started := time.Date(2026, 8, 27, 10, 0, 0, 0, time.UTC)
 	expires := started.Add(time.Hour)
 
+	built := func(mockDB *Mockdb) sealed.ImpersonatedSessionWriter {
+		storage := newSessionStorage(mockDB)
+
+		return &storage
+	}
 	tests := []struct {
-		name    string
+		name string
+		// store is the store written to: the one the library builds over the driver unless
+		// a case says otherwise.
+		store   func(*Mockdb) sealed.ImpersonatedSessionWriter
 		prepare func(*Mockdb)
 		wantErr bool
+		wantIs  error
 	}{
 		{
-			name: "renders the insert row and returns the id",
+			name: "a storage the library did not build over its driver refuses with nothing written",
+			store: func(mockDB *Mockdb) sealed.ImpersonatedSessionWriter {
+				return &sessionStorage{db: mockDB}
+			},
+			prepare: func(*Mockdb) {},
+			wantErr: true,
+			wantIs:  ErrImpersonationSealed,
+		},
+		{
+			name: "the write a store of an application's own embeds refuses with nothing written",
+			store: func(*Mockdb) sealed.ImpersonatedSessionWriter {
+				return NoImpersonatedSessions{}
+			},
+			prepare: func(*Mockdb) {},
+			wantErr: true,
+			wantIs:  ErrImpersonationSealed,
+		},
+		{
+			name:  "renders the insert row and returns the id",
+			store: built,
 			prepare: func(mockDB *Mockdb) {
 				mockDB.EXPECT().
 					InsertImpersonatedSession(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
@@ -146,11 +286,12 @@ func Test_sessionStorage_CreateImpersonatedSession(t *testing.T) {
 							return impulse.NilUUID, errors.Newf("unexpected session %+v / request %+v", session, req)
 						}
 						want := &dbtype.InsertImpersonation{
-							ActorUsername:   "alice",
-							PrincipalKind:   dbtype.PrincipalKindUser,
-							PrincipalUserID: strPtr("bob"),
-							Mask:            strPtr("List,Read"),
-							ExpiresAt:       expires,
+							ActorUsername:     "alice",
+							PrincipalKind:     dbtype.PrincipalKindUser,
+							PrincipalUserID:   strPtr("bob"),
+							PrincipalUsername: strPtr("bob"),
+							Mask:              strPtr("List,Read"),
+							ExpiresAt:         expires,
 						}
 						if diff := cmp.Diff(want, imp); diff != "" {
 							return impulse.NilUUID, errors.New("unexpected InsertImpersonation: " + diff)
@@ -161,7 +302,8 @@ func Test_sessionStorage_CreateImpersonatedSession(t *testing.T) {
 			},
 		},
 		{
-			name: "propagates the driver error",
+			name:  "propagates the driver error",
+			store: built,
 			prepare: func(mockDB *Mockdb) {
 				mockDB.EXPECT().InsertImpersonatedSession(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(impulse.NilUUID, errors.New("not configured"))
 			},
@@ -175,7 +317,6 @@ func Test_sessionStorage_CreateImpersonatedSession(t *testing.T) {
 			mockDB := NewMockdb(ctrl)
 			tt.prepare(mockDB)
 
-			s := &sessionStorage{db: mockDB}
 			imp := &sessioninfo.Impersonation{
 				Actor:     "alice",
 				Principal: accesstypes.UserPrincipal("bob"),
@@ -183,14 +324,184 @@ func Test_sessionStorage_CreateImpersonatedSession(t *testing.T) {
 				StartedAt: started,
 				ExpiresAt: expires,
 			}
-			got, err := s.CreateImpersonatedSession(context.Background(), &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: "bob"}, imp)
+			got, err := sealed.CreateImpersonatedSession(context.Background(), tt.store(mockDB), &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: "bob"}, imp)
 			if (err != nil) != tt.wantErr {
-				t.Fatalf("CreateImpersonatedSession() error = %v, wantErr %v", err, tt.wantErr)
+				t.Fatalf("sealed.CreateImpersonatedSession() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantIs != nil && !errors.Is(err, tt.wantIs) {
+				t.Errorf("sealed.CreateImpersonatedSession() error = %v, want %v", err, tt.wantIs)
 			}
 			if !tt.wantErr && got != sessionID {
-				t.Errorf("CreateImpersonatedSession() = %v, want %v", got, sessionID)
+				t.Errorf("sealed.CreateImpersonatedSession() = %v, want %v", got, sessionID)
 			}
 		})
+	}
+}
+
+// Test_sessionStorage_impersonatedSessionWrite_principalUsername pins the username the
+// record keeps for the person a session is held as: the request's Username, the identity
+// the session type resolved from that person's account, written beside the account's id.
+// A session held as a role is held as no person, and its record keeps no username.
+func Test_sessionStorage_impersonatedSessionWrite_principalUsername(t *testing.T) {
+	t.Parallel()
+
+	account := "0b9e6c1e-7f53-4f0a-9d7e-3c1f2a4b5d6e"
+	tests := []struct {
+		name          string
+		principal     accesstypes.Principal
+		username      string
+		wantUserID    *string
+		wantUsername  *string
+		wantPrincipal string
+	}{
+		{
+			name:          "held as a person: the person's username beside the account's id",
+			principal:     accesstypes.UserPrincipal(accesstypes.User(account)),
+			username:      "bob@partner.org",
+			wantUserID:    strPtr(account),
+			wantUsername:  strPtr("bob@partner.org"),
+			wantPrincipal: dbtype.PrincipalKindUser,
+		},
+		{
+			name:          "held as a role: no username",
+			principal:     accesstypes.RolePrincipal("PartnerViewer"),
+			username:      "alice",
+			wantPrincipal: dbtype.PrincipalKindRole,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctrl := gomock.NewController(t)
+			mockDB := NewMockdb(ctrl)
+			var written *dbtype.InsertImpersonation
+			mockDB.EXPECT().
+				InsertImpersonatedSession(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+				DoAndReturn(func(_ context.Context, _ *dbtype.InsertSession, _ *sessioninfo.NewSessionRequest, imp *dbtype.InsertImpersonation) (impulse.UUID, error) {
+					written = imp
+
+					return impulse.Must(impulse.NewUUID()), nil
+				})
+			storage := newSessionStorage(mockDB)
+
+			imp := &sessioninfo.Impersonation{Actor: "alice", Principal: tt.principal, ExpiresAt: time.Now().Add(time.Hour)}
+			req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: tt.username}
+			if _, err := sealed.CreateImpersonatedSession(context.Background(), &storage, req, imp); err != nil {
+				t.Fatalf("sealed.CreateImpersonatedSession() error = %v", err)
+			}
+			if written.PrincipalKind != tt.wantPrincipal {
+				t.Errorf("PrincipalKind = %q, want %q", written.PrincipalKind, tt.wantPrincipal)
+			}
+			if diff := cmp.Diff(tt.wantUserID, written.PrincipalUserID); diff != "" {
+				t.Errorf("PrincipalUserID mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tt.wantUsername, written.PrincipalUsername); diff != "" {
+				t.Errorf("PrincipalUsername mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// Test_stores_holdTheWrite pins that every store the package hands out is built with the
+// write of an impersonated session (newSessionStorage): a constructor that built its
+// storage any other way would hand out a store that refuses every impersonated session.
+func Test_stores_holdTheWrite(t *testing.T) {
+	t.Parallel()
+
+	stores := map[string]sessionStorage{
+		"NewSpannerAuth":     NewSpannerAuth(nil).sessionStorage,
+		"NewPostgresAuth":    NewPostgresAuth(nil).sessionStorage,
+		"NewSpannerPreauth":  NewSpannerPreauth(nil).sessionStorage,
+		"NewPostgresPreauth": NewPostgresPreauth(nil).sessionStorage,
+	}
+	for name, storage := range stores {
+		if reflect.ValueOf(storage.impersonatedSessionWrite).IsZero() {
+			t.Errorf("the store of %s holds the zero write, which refuses: build its storage with newSessionStorage", name)
+		}
+	}
+	if !reflect.ValueOf((&sessionStorage{}).impersonatedSessionWrite).IsZero() {
+		t.Error("a storage nothing built holds a write, want the zero write: the test above would hold nothing")
+	}
+}
+
+// Test_stores_holdTheReads pins that every store the package hands out is built with the
+// reads the session library decides an impersonated session by (own): the read of a
+// session, made for that very store, and, where the store has users, the reads of an
+// account. A constructor that left them out would hand out a store whose sessions are
+// read twice on every request and that starts no impersonated session. A store that
+// wraps one has the reads by promotion and is not the store they were made for, and a
+// storage nothing built holds none.
+func Test_stores_holdTheReads(t *testing.T) {
+	t.Parallel()
+
+	stores := map[string]BaseStore{
+		"NewSpannerAuth":     NewSpannerAuth(nil),
+		"NewPostgresAuth":    NewPostgresAuth(nil),
+		"NewSpannerPreauth":  NewSpannerPreauth(nil),
+		"NewPostgresPreauth": NewPostgresPreauth(nil),
+	}
+	for name, store := range stores {
+		if !sealed.SessionIsOwn(store) {
+			t.Errorf("the store of %s is not the store its read of a session was made for: its constructor makes it the owner of its reads (own)", name)
+		}
+		wrapper := struct{ BaseStore }{store}
+		if sealed.SessionIsOwn(wrapper) {
+			t.Errorf("a store that wraps the store of %s passes for the store the read was made for: its own Session would be taken for the library's", name)
+		}
+	}
+
+	users := map[string]userStorage{
+		"NewSpannerAuth":  NewSpannerAuth(nil).userStorage,
+		"NewPostgresAuth": NewPostgresAuth(nil).userStorage,
+	}
+	for name, storage := range users {
+		if reflect.ValueOf(storage.userRead).IsZero() {
+			t.Errorf("the store of %s holds the zero read of an account, which answers nothing: its constructor makes it the owner of its reads (own)", name)
+		}
+	}
+
+	nothing := &Preauth[struct{}]{}
+	if sealed.SessionIsOwn(nothing) {
+		t.Error("a store nothing built passes for the store its read was made for, want it to hold no read")
+	}
+	if _, err := sealed.Session(context.Background(), nothing, impulse.NilUUID); !errors.Is(err, ErrImpersonationSealed) {
+		t.Errorf("the read of a session of a store nothing built: error = %v, want %v", err, ErrImpersonationSealed)
+	}
+	if _, err := sealed.User(context.Background(), &Auth[struct{}]{}, impulse.NilUUID); !errors.Is(err, ErrImpersonationSealed) {
+		t.Errorf("the read of an account of a store nothing built: error = %v, want %v", err, ErrImpersonationSealed)
+	}
+	if _, err := sealed.UserByUserName(context.Background(), &Auth[struct{}]{}, "alice"); !errors.Is(err, ErrImpersonationSealed) {
+		t.Errorf("the read of an account by name of a store nothing built: error = %v, want %v", err, ErrImpersonationSealed)
+	}
+}
+
+// Test_sessionStorage_readsForTheLibrary pins what the reads the library reaches run: the
+// storage's own Session, User and UserByUserName, over its driver.
+func Test_sessionStorage_readsForTheLibrary(t *testing.T) {
+	t.Parallel()
+
+	sessionID := impulse.Must(impulse.UUIDFromString("123e4567-e89b-12d3-a456-426614174000"))
+	userID := impulse.Must(impulse.UUIDFromString("223e4567-e89b-12d3-a456-426614174000"))
+	ctrl := gomock.NewController(t)
+	mockDB := NewMockdb(ctrl)
+	mockDB.EXPECT().Session(gomock.Any(), sessionID).Return(&dbtype.SessionData{Session: &dbtype.Session{ID: sessionID, Username: "bob"}}, nil)
+	mockDB.EXPECT().User(gomock.Any(), userID).Return(&dbtype.SessionUser{ID: userID, Username: "bob"}, nil)
+	mockDB.EXPECT().UserByUserName(gomock.Any(), "bob").Return(&dbtype.SessionUser{ID: userID, Username: "bob"}, nil)
+
+	store := &Auth[struct{}]{userStorage: userStorage{sessionStorage: newSessionStorage(mockDB)}}
+	store.own(store)
+
+	sess, err := sealed.Session(context.Background(), store, sessionID)
+	if err != nil || sess.ID != sessionID || sess.Username != "bob" {
+		t.Errorf("sealed.Session() = (%v, %v), want the session the driver holds", sess, err)
+	}
+	user, err := sealed.User(context.Background(), store, userID)
+	if err != nil || user.ID != userID {
+		t.Errorf("sealed.User() = (%v, %v), want the account the driver holds", user, err)
+	}
+	user, err = sealed.UserByUserName(context.Background(), store, "bob")
+	if err != nil || user.ID != userID {
+		t.Errorf("sealed.UserByUserName() = (%v, %v), want the account the driver holds", user, err)
 	}
 }
 

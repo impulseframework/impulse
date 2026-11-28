@@ -19,11 +19,12 @@ import (
 
 func (a *App) Announcements() http.HandlerFunc {
 	type announcement struct {
-		ID       impulse.UUID `json:"id"       index:"true" perm:"-"`
-		TenantID impulse.UUID `json:"tenantId" index:"true"`
-		KindID   string       `json:"kindId"   index:"true"`
-		Title    string       `json:"title"    index:"true"`
-		Body     string       `json:"body"`
+		ID         impulse.UUID `json:"id"         index:"true"      perm:"-"`
+		TenantID   impulse.UUID `json:"tenantId"   index:"true"`
+		KindID     string       `json:"kindId"     index:"true"`
+		Title      string       `json:"title"      index:"true"`
+		Body       string       `json:"body"`
+		TenantName *string      `json:"tenantName" nameof:"TenantID" index:"true"`
 	}
 
 	type response []map[string]any
@@ -42,8 +43,9 @@ func (a *App) Announcements() http.HandlerFunc {
 		}
 
 		// A live list registers before the query runs, so a commit that lands during
-		// the query is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, a.LiveService(), querySet, live.ListSubscription(querySet.Resource(), domain))
+		// the query is not missed; a refused request registers nothing. With it the
+		// request registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, a.LiveService(), querySet, live.ListSubscription(querySet.Resource(), domain))
 
 		res := resources.NewAnnouncementQueryFromQuerySet(querySet)
 
@@ -62,7 +64,7 @@ func (a *App) Announcements() http.HandlerFunc {
 			if !page.Add(row) {
 				break
 			}
-			rec := (*announcement)(&row.Data)
+			rec := &row.Data
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
@@ -88,6 +90,11 @@ func (a *App) Announcements() http.HandlerFunc {
 					}
 				}
 			}
+			for _, name := range querySet.Names() {
+				if looked := row.Name(name.Field); looked != nil {
+					rmap[name.JSONName] = *looked
+				}
+			}
 			if capabilities := row.Capabilities(); capabilities != nil {
 				rmap[resource.CapabilitiesProperty] = capabilities
 			}
@@ -109,11 +116,12 @@ func (a *App) Announcements() http.HandlerFunc {
 
 func (a *App) Announcement() http.HandlerFunc {
 	type response struct {
-		ID       impulse.UUID `json:"id"       index:"true" perm:"-"`
-		TenantID impulse.UUID `json:"tenantId"`
-		KindID   string       `json:"kindId"`
-		Title    string       `json:"title"`
-		Body     string       `json:"body"`
+		ID         impulse.UUID `json:"id"         index:"true"      perm:"-"`
+		TenantID   impulse.UUID `json:"tenantId"`
+		KindID     string       `json:"kindId"`
+		Title      string       `json:"title"`
+		Body       string       `json:"body"`
+		TenantName *string      `json:"tenantName" nameof:"TenantID"`
 	}
 
 	decoder := NewQueryDecoder[resources.Announcement, response](a, accesstypes.Read)
@@ -131,8 +139,9 @@ func (a *App) Announcement() http.HandlerFunc {
 		}
 
 		// A live row registers before the read runs, so a commit that lands during the
-		// read is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, a.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(id)))
+		// read is not missed; a refused request registers nothing. With it the request
+		// registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, a.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(id)))
 
 		res := resources.NewAnnouncementQueryFromQuerySet(querySet).SetID(id)
 
@@ -140,7 +149,7 @@ func (a *App) Announcement() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		rec := (*response)(&row.Data)
+		rec := &row.Data
 		rmap := make(map[string]any)
 		for _, field := range querySet.Fields() {
 			switch string(field) {
@@ -166,11 +175,52 @@ func (a *App) Announcement() http.HandlerFunc {
 				}
 			}
 		}
+		for _, name := range querySet.Names() {
+			if looked := row.Name(name.Field); looked != nil {
+				rmap[name.JSONName] = *looked
+			}
+		}
 		if capabilities := row.Capabilities(); capabilities != nil {
 			rmap[resource.CapabilitiesProperty] = capabilities
 		}
 		live.SetCacheControl(w, r)
 
 		return httpio.NewEncoder(w).Ok(rmap)
+	})
+}
+
+// AnnouncementChangeHistory answers a page of one announcement's change records, newest first, to whoever may read the record, with the fields they may see on it. It answers 404 while the resource does not track its changes.
+func (a *App) AnnouncementChangeHistory() http.HandlerFunc {
+	type response struct {
+		ID         impulse.UUID `json:"id"         index:"true"      perm:"-"`
+		TenantID   impulse.UUID `json:"tenantId"`
+		KindID     string       `json:"kindId"`
+		Title      string       `json:"title"`
+		Body       string       `json:"body"`
+		TenantName *string      `json:"tenantName" nameof:"TenantID"`
+	}
+
+	decoder := NewQueryDecoder[resources.Announcement, response](a, accesstypes.Read)
+
+	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := tracer.Start(r.Context())
+		defer span.End()
+
+		id := httpio.Param[impulse.UUID](r, router.AnnouncementID)
+
+		domain := httpio.Param[accesstypes.Domain](r, router.Domain)
+		history, err := decoder.DecodeChangeHistory(r, a.UserPermissions(r), accesstypes.DomainScope(domain))
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		resources.NewAnnouncementQueryFromQuerySet(history.QuerySet()).SetID(id)
+
+		page, err := history.Read(ctx, a.ResourceClient())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok(page)
 	})
 }

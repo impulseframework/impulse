@@ -9,7 +9,6 @@ import (
 
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
-	"github.com/impulseframework/impulse/session/mail"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage"
 	"github.com/impulseframework/impulse/session/signin"
@@ -79,7 +78,7 @@ func TestNewAuth_superAdministrators(t *testing.T) {
 			if tt.none {
 				superAdministrators = NoSuperAdministrators()
 			}
-			a, err := NewAuth[NoCustomData, NoCustomData](store, cookieKey, superAdministrators, WithMail(&mail.Recorder{}, testMail))
+			a, err := NewAuth[NoCustomData, NoCustomData](store, cookieKey, superAdministrators, quietMail())
 			if err != nil {
 				t.Fatalf("NewAuth() error = %v", err)
 			}
@@ -123,10 +122,8 @@ func TestNewAuth_superAdministrators(t *testing.T) {
 }
 
 // TestNewAuth_superAdministrators_refused pins that no Auth is built without a word on
-// its super administrators: the zero value and a nil check are refused, and so are super
-// administrators on an Auth that sends no mail, who would wait for a code nobody can
-// send. Each refusal says what to pass. An Auth with no super administrators needs no
-// mail.
+// its super administrators: the zero value and a nil check are refused, and each refusal
+// says what to pass. A check, and the word that there are none, build the Auth.
 func TestNewAuth_superAdministrators_refused(t *testing.T) {
 	t.Parallel()
 
@@ -136,35 +133,25 @@ func TestNewAuth_superAdministrators_refused(t *testing.T) {
 	tests := []struct {
 		name                string
 		superAdministrators SuperAdministrators
-		// mail builds the Auth with a mail sender.
-		mail bool
 		// wantHas is a part of the refusal, "" for an Auth that is built.
 		wantHas string
 	}{
 		{
 			name:                "nothing said: the zero value",
 			superAdministrators: SuperAdministrators{},
-			mail:                true,
 			wantHas:             "NewAuth was not told who the Auth's super administrators are: pass session.SuperAdministratorsBy(signin.SuperAdministrators(...)) over the access library's user manager",
 		},
 		{
 			name:                "no check",
 			superAdministrators: SuperAdministratorsBy(nil),
-			mail:                true,
 			wantHas:             "session.SuperAdministratorsBy was given no check: pass signin.SuperAdministrators over the access library's user manager",
 		},
 		{
-			name:                "super administrators on an Auth that sends no mail",
+			name:                "super administrators by a check",
 			superAdministrators: SuperAdministratorsBy(check),
-			wantHas:             "the Auth has super administrators and sends no mail: a super administrator signs in with a second factor, the code the Auth mails, and an Auth without mail could not send it, so a holder would never sign in; pass session.WithMail",
 		},
 		{
-			name:                "super administrators on an Auth that sends mail",
-			superAdministrators: SuperAdministratorsBy(check),
-			mail:                true,
-		},
-		{
-			name:                "no super administrators and no mail",
+			name:                "no super administrators",
 			superAdministrators: NoSuperAdministrators(),
 		},
 	}
@@ -172,11 +159,7 @@ func TestNewAuth_superAdministrators_refused(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			var options []AuthOption
-			if tt.mail {
-				options = append(options, WithMail(&mail.Recorder{}, testMail))
-			}
-			_, err := NewAuth[NoCustomData, NoCustomData](newAuthStoreMock(gomock.NewController(t)), cookieKey, tt.superAdministrators, options...)
+			_, err := NewAuth[NoCustomData, NoCustomData](newAuthStoreMock(gomock.NewController(t)), cookieKey, tt.superAdministrators, quietMail())
 			switch {
 			case tt.wantHas == "" && err != nil:
 				t.Errorf("NewAuth() error = %v, want the Auth built", err)

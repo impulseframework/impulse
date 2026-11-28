@@ -12,8 +12,8 @@ import { MailHold, UiCoreService } from '@impulseframework/resource-angular/ui-c
  * The signed-in person's email address, for an account page. The component reads the
  * address from the session the AuthService last checked (the address, whether the person
  * has confirmed it, and the address a directory sign-in asserted, offered as a prefill
- * while they hold none) and offers to add or change it where the server sends mail: the
- * methods list names the email routes. The person types an address and the server mails
+ * while they hold none) and offers to add or change it where the methods list names the
+ * email routes. The person types an address and the server mails
  * it a confirmation link; nothing is written until the link is followed on the login page,
  * so an address never attaches to an account its follower does not control, and the
  * screen says the link is on its way whatever the address's state (an address another
@@ -52,27 +52,35 @@ export class EmailAddressComponent implements OnInit {
 
   /** The session as the service last checked it: the address and its state. */
   session = this.auth.sessionInfo;
-  /** The methods list as the client last read it; the email routes say whether the server sends mail. */
+  /** The methods list as the client last read it; the email routes say whether an address may be added here. */
   private list = storeSignal(this.client.auth.snapshot);
-  /** The server sends mail: an address may be added or changed here. */
+  /** The server serves the email routes: an address may be added or changed here. */
   offered = computed(() => this.list()?.email !== undefined);
+  /**
+   * The address on the account, or none. A name that is no address is none: a development
+   * run signs a persona in without a directory, and the session then carries the persona's
+   * login name where a directory would have given an address.
+   */
+  private address = computed(() => {
+    const email = this.session().email;
+    return email?.includes('@') ? email : undefined;
+  });
   /** The words for the address on the account: confirmed, unconfirmed, or none. */
   current = computed(() => {
-    const session = this.session();
-    if (!session.email) {
+    const address = this.address();
+    if (!address) {
       return 'No email address is on your account.';
     }
-    return session.emailVerified
-      ? `${session.email} is your email address.`
-      : `${session.email} is on your account but not confirmed yet.`;
+    return this.session().emailVerified
+      ? `${address} is your email address.`
+      : `${address} is on your account but not confirmed yet.`;
   });
   /** The words on the button: what the form does to the account. */
   action = computed(() => {
-    const session = this.session();
-    if (!session.email) {
+    if (!this.address()) {
       return 'Add an address';
     }
-    return session.emailVerified ? 'Change the address' : 'Confirm the address';
+    return this.session().emailVerified ? 'Change the address' : 'Confirm the address';
   });
 
   ngOnInit(): void {
@@ -92,8 +100,7 @@ export class EmailAddressComponent implements OnInit {
     if (this.busy()) {
       return;
     }
-    const session = this.session();
-    this.email = session.email ?? session.emailHint ?? '';
+    this.email = this.address() ?? this.session().emailHint ?? '';
     this.message.set(undefined);
     this.sent.set(undefined);
     this.editing.set(true);

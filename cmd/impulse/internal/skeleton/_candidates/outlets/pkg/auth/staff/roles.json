@@ -1,9 +1,10 @@
 {
+  "auth": "staff",
   "roles": {
     "global": [
       {
         "name": "Administrator",
-        "description": "Manages the application's tenants and people: brings a tenant in by inviting the person who will administer it, creates accounts and invites people, gives and takes roles, keeps groups of people, and sets temporary passwords.",
+        "description": "Manages the application's tenants and people: brings a tenant in by inviting the person who will administer it, invites people, gives and takes roles, keeps groups of people, and mails password reset links.",
         "permissions": {
           "Create": [
             {
@@ -20,13 +21,12 @@
           ],
           "Execute": [
             {
-              "resource": "CreateStaffUser"
+              "resource": "DisableStaffUser",
+              "condition": "managedByTenant = false"
             },
             {
-              "resource": "DisableStaffUser"
-            },
-            {
-              "resource": "EnableStaffUser"
+              "resource": "EnableStaffUser",
+              "condition": "managedByTenant = false"
             },
             {
               "resource": "AssignStaffRole"
@@ -35,34 +35,45 @@
               "resource": "RemoveStaffRole"
             },
             {
+              "resource": "TakeStaffRole"
+            },
+            {
               "resource": "EndStaffSession"
             },
             {
-              "resource": "EndStaffUserSessions"
+              "resource": "EndStaffUserSessions",
+              "condition": "managedByTenant = false"
             },
             {
-              "resource": "RequireStaffPasswordChange"
+              "resource": "RequireStaffPasswordChange",
+              "condition": "managedByTenant = false"
             },
             {
-              "resource": "UnlinkStaffSessionIdentity"
+              "resource": "UnlinkStaffSessionIdentity",
+              "condition": "managedByTenant = false"
             },
             {
-              "resource": "RemoveStaffPassword"
+              "resource": "RemoveStaffPassword",
+              "condition": "managedByTenant = false"
             },
             {
               "resource": "RevokeStaffSessionToken"
             },
             {
-              "resource": "DeleteStaffUser"
+              "resource": "DeleteStaffUser",
+              "condition": "managedByTenant = false"
             },
             {
-              "resource": "RenameStaffUser"
+              "resource": "RenameStaffUser",
+              "condition": "managedByTenant = false"
             },
             {
-              "resource": "SetStaffTemporaryPassword"
+              "resource": "SendStaffUserPasswordResetLink",
+              "condition": "managedByTenant = false"
             },
             {
-              "resource": "RevokeStaffUserTrustedDevices"
+              "resource": "RevokeStaffUserTrustedDevices",
+              "condition": "managedByTenant = false"
             },
             {
               "resource": "UnlockStaffSignIn"
@@ -72,6 +83,18 @@
             },
             {
               "resource": "MakeStaffInviteOnly"
+            },
+            {
+              "resource": "SetStaffSelfServiceReset"
+            },
+            {
+              "resource": "RequireStaffSecondFactor"
+            },
+            {
+              "resource": "StopRequiringStaffSecondFactor"
+            },
+            {
+              "resource": "SetStaffRememberedBrowsers"
             },
             {
               "resource": "InviteStaffUser"
@@ -86,10 +109,12 @@
               "resource": "WithdrawStaffInvitedTenant"
             },
             {
-              "resource": "SetStaffUserEmail"
+              "resource": "SetStaffUserEmail",
+              "condition": "managedByTenant = false"
             },
             {
-              "resource": "SetStaffUserName"
+              "resource": "SetStaffUserName",
+              "condition": "managedByTenant = false"
             },
             {
               "resource": "CreateStaffGroup"
@@ -118,6 +143,7 @@
               "resource": "Tenants",
               "fields": [
                 "directoryOnly",
+                "disabled",
                 "name"
               ]
             },
@@ -135,6 +161,24 @@
               ]
             },
             {
+              "resource": "StaffListedUsers",
+              "fields": [
+                "username",
+                "name",
+                "email",
+                "emailVerifiedAt",
+                "disabled",
+                "passwordChangeRequired",
+                "createdAt",
+                "lastSignInAt",
+                "roles",
+                "lockedUntil",
+                "trustedDevices",
+                "managedByTenant",
+                "managingTenant"
+              ]
+            },
+            {
               "resource": "StaffSessions",
               "fields": [
                 "userId",
@@ -146,11 +190,46 @@
               ]
             },
             {
+              "resource": "StaffListedSessions",
+              "fields": [
+                "userId",
+                "username",
+                "name",
+                "expired",
+                "live",
+                "state",
+                "signedInWith",
+                "browser",
+                "authenticatedAt",
+                "createdAt",
+                "updatedAt"
+              ]
+            },
+            {
+              "resource": "StaffListedAuditRecords",
+              "fields": [
+                "at",
+                "act",
+                "who",
+                "what",
+                "doneTo",
+                "actorUsername",
+                "subjectKind",
+                "subjectName",
+                "userId",
+                "role",
+                "tenantId",
+                "tenantName",
+                "reason"
+              ]
+            },
+            {
               "resource": "StaffUserRoles",
               "fields": [
                 "createdAt",
                 "startsAt",
-                "endsAt"
+                "endsAt",
+                "reason"
               ]
             },
             {
@@ -164,6 +243,21 @@
                 "subject",
                 "tenant",
                 "userId"
+              ]
+            },
+            {
+              "resource": "StaffListedIdentities",
+              "fields": [
+                "connection",
+                "createdAt",
+                "emailAtLink",
+                "lastUsedAt",
+                "method",
+                "subject",
+                "tenant",
+                "userId",
+                "managedByTenant",
+                "managingTenant"
               ]
             },
             {
@@ -197,13 +291,37 @@
                 "consumedAt",
                 "createdAt",
                 "email",
+                "everyTenant",
                 "expiresAt",
                 "invitedByUserId",
                 "kind",
+                "mailFailedAt",
                 "name",
                 "roleNames",
                 "tenantId",
-                "userId"
+                "userId",
+                "withdrawnAt"
+              ]
+            },
+            {
+              "resource": "StaffListedMailLinks",
+              "fields": [
+                "consumedAt",
+                "createdAt",
+                "email",
+                "everyTenant",
+                "expiresAt",
+                "invitedByUserId",
+                "kind",
+                "mailFailedAt",
+                "makesTenant",
+                "name",
+                "roleNames",
+                "sentBy",
+                "state",
+                "tenantId",
+                "userId",
+                "withdrawnAt"
               ]
             },
             {
@@ -220,11 +338,45 @@
               ]
             },
             {
+              "resource": "StaffListedTenants",
+              "fields": [
+                "administrators",
+                "directory",
+                "directoryOnly",
+                "disabled",
+                "name",
+                "people",
+                "since"
+              ]
+            },
+            {
+              "resource": "StaffInvitedTenantRoles",
+              "fields": [
+                "description"
+              ]
+            },
+            {
               "resource": "StaffSessionSignInAttempts",
               "fields": [
                 "failures",
                 "lockedUntil",
                 "updatedAt",
+                "windowEndsAt"
+              ]
+            },
+            {
+              "resource": "StaffListedSignInAttempts",
+              "fields": [
+                "account",
+                "failureLimit",
+                "failures",
+                "kind",
+                "locked",
+                "lockedUntil",
+                "state",
+                "subject",
+                "updatedAt",
+                "userId",
                 "windowEndsAt"
               ]
             },
@@ -237,7 +389,23 @@
                 "label",
                 "openSignUp",
                 "ownRule",
+                "says",
+                "selfServiceReset"
+              ]
+            },
+            {
+              "resource": "StaffSignInSettings",
+              "fields": [
+                "position",
+                "rememberBrowserDays",
+                "requireSecondFactor",
                 "says"
+              ]
+            },
+            {
+              "resource": "StaffRememberLengths",
+              "fields": [
+                "days"
               ]
             },
             {
@@ -257,9 +425,20 @@
               ]
             },
             {
-              "resource": "StaffRoleGrants",
+              "resource": "StaffGivableRoles",
               "fields": [
-                "updatedAt"
+                "description",
+                "method",
+                "group",
+                "domain",
+                "everyDomain"
+              ]
+            },
+            {
+              "resource": "StaffListedRoleGrants",
+              "fields": [
+                "updatedAt",
+                "skipped"
               ]
             },
             {
@@ -310,6 +489,62 @@
                 "startsAt",
                 "endsAt"
               ]
+            },
+            {
+              "resource": "StaffHeldRoles",
+              "fields": [
+                "username",
+                "groupName",
+                "createdAt",
+                "startsAt",
+                "endsAt",
+                "reason"
+              ]
+            },
+            {
+              "resource": "StaffListedGroups",
+              "fields": [
+                "kind",
+                "axis",
+                "domainId",
+                "name",
+                "description",
+                "updatedAt",
+                "people",
+                "roles"
+              ]
+            },
+            {
+              "resource": "StaffListedGroupRoles",
+              "fields": [
+                "createdAt",
+                "startsAt",
+                "endsAt",
+                "losing"
+              ]
+            },
+            {
+              "resource": "StaffTakenRoles",
+              "fields": [
+                "username",
+                "name",
+                "reason",
+                "startsAt",
+                "endsAt",
+                "ended"
+              ]
+            },
+            {
+              "resource": "StaffTakeableRoles",
+              "fields": [
+                "description"
+              ]
+            },
+            {
+              "resource": "StaffTakeLengths",
+              "fields": [
+                "minutes"
+              ]
             }
           ],
           "Read": [
@@ -317,6 +552,7 @@
               "resource": "Tenants",
               "fields": [
                 "directoryOnly",
+                "disabled",
                 "name"
               ]
             },
@@ -334,11 +570,45 @@
               ]
             },
             {
+              "resource": "StaffListedUsers",
+              "fields": [
+                "username",
+                "name",
+                "email",
+                "emailVerifiedAt",
+                "disabled",
+                "passwordChangeRequired",
+                "createdAt",
+                "lastSignInAt",
+                "roles",
+                "lockedUntil",
+                "trustedDevices",
+                "managedByTenant",
+                "managingTenant"
+              ]
+            },
+            {
               "resource": "StaffSessions",
               "fields": [
                 "userId",
                 "username",
                 "expired",
+                "authenticatedAt",
+                "createdAt",
+                "updatedAt"
+              ]
+            },
+            {
+              "resource": "StaffListedSessions",
+              "fields": [
+                "userId",
+                "username",
+                "name",
+                "expired",
+                "live",
+                "state",
+                "signedInWith",
+                "browser",
                 "authenticatedAt",
                 "createdAt",
                 "updatedAt"
@@ -355,6 +625,21 @@
                 "subject",
                 "tenant",
                 "userId"
+              ]
+            },
+            {
+              "resource": "StaffListedIdentities",
+              "fields": [
+                "connection",
+                "createdAt",
+                "emailAtLink",
+                "lastUsedAt",
+                "method",
+                "subject",
+                "tenant",
+                "userId",
+                "managedByTenant",
+                "managingTenant"
               ]
             },
             {
@@ -379,13 +664,37 @@
                 "consumedAt",
                 "createdAt",
                 "email",
+                "everyTenant",
                 "expiresAt",
                 "invitedByUserId",
                 "kind",
+                "mailFailedAt",
                 "name",
                 "roleNames",
                 "tenantId",
-                "userId"
+                "userId",
+                "withdrawnAt"
+              ]
+            },
+            {
+              "resource": "StaffListedMailLinks",
+              "fields": [
+                "consumedAt",
+                "createdAt",
+                "email",
+                "everyTenant",
+                "expiresAt",
+                "invitedByUserId",
+                "kind",
+                "mailFailedAt",
+                "makesTenant",
+                "name",
+                "roleNames",
+                "sentBy",
+                "state",
+                "tenantId",
+                "userId",
+                "withdrawnAt"
               ]
             },
             {
@@ -408,12 +717,26 @@
                 "description",
                 "updatedAt"
               ]
+            },
+            {
+              "resource": "StaffListedGroups",
+              "fields": [
+                "kind",
+                "axis",
+                "domainId",
+                "name",
+                "description",
+                "updatedAt",
+                "people",
+                "roles"
+              ]
             }
           ],
           "Update": [
             {
               "resource": "Tenants",
               "fields": [
+                "disabled",
                 "name"
               ]
             }
@@ -461,9 +784,6 @@
         "permissions": {
           "Create": [
             {
-              "resource": "TenantDirectories"
-            },
-            {
               "resource": "Announcements",
               "fields": [
                 "body",
@@ -481,9 +801,6 @@
           ],
           "Execute": [
             {
-              "resource": "CreateStaffTenantUser"
-            },
-            {
               "resource": "InviteStaffTenantUser"
             },
             {
@@ -499,51 +816,54 @@
             },
             {
               "resource": "DisableStaffTenantUser",
-              "condition": "heldElsewhere = false AND heldGlobally = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "EnableStaffTenantUser",
-              "condition": "heldElsewhere = false AND heldGlobally = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "DeleteStaffTenantUser",
-              "condition": "heldElsewhere = false AND heldGlobally = false"
+              "condition": "managedHere = true"
+            },
+            {
+              "resource": "RemoveStaffTenantUser"
             },
             {
               "resource": "RenameStaffTenantUser",
-              "condition": "heldElsewhere = false AND heldGlobally = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "SetStaffTenantUserEmail",
-              "condition": "heldElsewhere = false AND heldGlobally = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "SetStaffTenantUserName",
-              "condition": "heldElsewhere = false AND heldGlobally = false"
+              "condition": "managedHere = true"
             },
             {
-              "resource": "SetStaffTenantTemporaryPassword",
-              "condition": "heldElsewhere = false AND heldGlobally = false"
+              "resource": "SendStaffTenantUserPasswordResetLink",
+              "condition": "managedHere = true OR managedByAnotherDirectory = false"
             },
             {
               "resource": "RequireStaffTenantPasswordChange",
-              "condition": "heldElsewhere = false AND heldGlobally = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "RevokeStaffTenantUserTrustedDevices",
-              "condition": "heldElsewhere = false AND heldGlobally = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "EndStaffTenantUserSessions",
-              "condition": "heldElsewhere = false AND heldGlobally = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "UnlinkStaffTenantSessionIdentity",
-              "condition": "heldElsewhere = false AND heldGlobally = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "RemoveStaffTenantPassword",
-              "condition": "heldElsewhere = false AND heldGlobally = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "CreateStaffTenantGroup"
@@ -567,6 +887,9 @@
               "resource": "TakeStaffTenantGroupRole"
             },
             {
+              "resource": "TakeTenantDirectory"
+            },
+            {
               "resource": "MakeTenantDirectoryOnly"
             },
             {
@@ -577,6 +900,12 @@
             },
             {
               "resource": "MakeTenantInviteOnly"
+            },
+            {
+              "resource": "VouchForTenantDirectorySecondFactor"
+            },
+            {
+              "resource": "StopVouchingForTenantDirectorySecondFactor"
             }
           ],
           "List": [
@@ -585,6 +914,7 @@
               "fields": [
                 "connection",
                 "defaultSeat",
+                "asksSecondFactor",
                 "method",
                 "tenantId"
               ]
@@ -602,22 +932,29 @@
               "fields": [
                 "username",
                 "name",
+                "email",
                 "disabled",
-                "createdAt",
-                "lastSignInAt",
                 "heldElsewhere",
                 "heldGlobally",
-                "cannotEnter"
+                "heldHere",
+                "heldInEveryTenant",
+                "managedHere",
+                "managedByAnotherDirectory",
+                "outsideDirectory",
+                "cannotEnter",
+                "roles",
+                "lockedUntil"
               ]
             },
             {
               "resource": "StaffTenantUsers",
               "fields": [
-                "email",
                 "emailVerifiedAt",
-                "passwordChangeRequired"
+                "passwordChangeRequired",
+                "createdAt",
+                "lastSignInAt"
               ],
-              "condition": "heldElsewhere = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "StaffTenantUserRoles",
@@ -626,7 +963,22 @@
                 "everyDomain",
                 "createdAt",
                 "startsAt",
-                "endsAt"
+                "endsAt",
+                "reason"
+              ]
+            },
+            {
+              "resource": "StaffTenantHeldRoles",
+              "fields": [
+                "username",
+                "everyDomain",
+                "groupName",
+                "globalGroup",
+                "groupPage",
+                "createdAt",
+                "startsAt",
+                "endsAt",
+                "reason"
               ]
             },
             {
@@ -636,10 +988,29 @@
                 "name",
                 "roleNames",
                 "invitedByUserId",
+                "sentBy",
                 "createdAt",
                 "expiresAt",
                 "consumedAt",
+                "withdrawnAt",
+                "state",
                 "pending"
+              ]
+            },
+            {
+              "resource": "StaffTenantAuditRecords",
+              "fields": [
+                "at",
+                "act",
+                "who",
+                "what",
+                "doneTo",
+                "actorUsername",
+                "subjectKind",
+                "subjectName",
+                "userId",
+                "role",
+                "reason"
               ]
             },
             {
@@ -649,20 +1020,17 @@
                 "username",
                 "method",
                 "connection",
+                "subject",
                 "tenant",
+                "emailAtLink",
                 "createdAt",
                 "lastUsedAt",
                 "heldElsewhere",
-                "heldGlobally"
-              ]
-            },
-            {
-              "resource": "StaffTenantIdentities",
-              "fields": [
-                "subject",
-                "emailAtLink"
+                "heldGlobally",
+                "managedHere",
+                "managedByAnotherDirectory"
               ],
-              "condition": "heldElsewhere = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "StaffTenantSignInWays",
@@ -672,14 +1040,17 @@
                 "connection",
                 "through",
                 "heldElsewhere",
-                "heldGlobally"
+                "heldGlobally",
+                "managedHere",
+                "managedByAnotherDirectory"
               ],
-              "condition": "password = false OR heldElsewhere = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "StaffTenantRoles",
               "fields": [
-                "description"
+                "description",
+                "method"
               ]
             },
             {
@@ -693,7 +1064,9 @@
               "fields": [
                 "name",
                 "description",
-                "updatedAt"
+                "updatedAt",
+                "people",
+                "roles"
               ]
             },
             {
@@ -713,7 +1086,8 @@
                 "groupName",
                 "createdAt",
                 "startsAt",
-                "endsAt"
+                "endsAt",
+                "losing"
               ]
             },
             {
@@ -734,6 +1108,7 @@
               "fields": [
                 "connection",
                 "defaultSeat",
+                "asksSecondFactor",
                 "method",
                 "tenantId"
               ]
@@ -751,22 +1126,28 @@
               "fields": [
                 "username",
                 "name",
+                "email",
                 "disabled",
-                "createdAt",
-                "lastSignInAt",
                 "heldElsewhere",
                 "heldGlobally",
-                "cannotEnter"
+                "heldHere",
+                "heldInEveryTenant",
+                "managedHere",
+                "managedByAnotherDirectory",
+                "cannotEnter",
+                "roles",
+                "lockedUntil"
               ]
             },
             {
               "resource": "StaffTenantUsers",
               "fields": [
-                "email",
                 "emailVerifiedAt",
-                "passwordChangeRequired"
+                "passwordChangeRequired",
+                "createdAt",
+                "lastSignInAt"
               ],
-              "condition": "heldElsewhere = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "StaffTenantUserRoles",
@@ -775,7 +1156,8 @@
                 "everyDomain",
                 "createdAt",
                 "startsAt",
-                "endsAt"
+                "endsAt",
+                "reason"
               ]
             },
             {
@@ -785,9 +1167,12 @@
                 "name",
                 "roleNames",
                 "invitedByUserId",
+                "sentBy",
                 "createdAt",
                 "expiresAt",
                 "consumedAt",
+                "withdrawnAt",
+                "state",
                 "pending"
               ]
             },
@@ -798,27 +1183,26 @@
                 "username",
                 "method",
                 "connection",
+                "subject",
                 "tenant",
+                "emailAtLink",
                 "createdAt",
                 "lastUsedAt",
                 "heldElsewhere",
-                "heldGlobally"
-              ]
-            },
-            {
-              "resource": "StaffTenantIdentities",
-              "fields": [
-                "subject",
-                "emailAtLink"
+                "heldGlobally",
+                "managedHere",
+                "managedByAnotherDirectory"
               ],
-              "condition": "heldElsewhere = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "StaffTenantGroups",
               "fields": [
                 "name",
                 "description",
-                "updatedAt"
+                "updatedAt",
+                "people",
+                "roles"
               ]
             }
           ],

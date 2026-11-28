@@ -10,13 +10,15 @@ import { ApiError, MethodHandle, MethodWarning, UploadMethodHandle } from '@impu
 import {
   DataType,
   enumeratedConfig,
+  EnumeratedConfigOptions,
   field,
   FieldElement,
   FieldName,
   METHOD_META,
+  RecordData,
   RPCRecordData,
 } from '@impulseframework/resource-angular/types';
-import { debounceTime } from 'rxjs';
+import { debounceTime, map } from 'rxjs';
 import { formatByteSize } from '../format-fns';
 import { ResourceLayoutComponent } from '../resource-layout/resource-layout.component';
 import { ResourceStore } from '../resource-store.service';
@@ -37,6 +39,8 @@ export interface MethodDialogData {
   preset: Record<string, unknown>;
   /** The question asked before a method that takes nothing more than the row. */
   confirm?: string;
+  /** One line that says what the method does, drawn at the top of the dialog, above whatever it asks. */
+  says?: string;
   /** The words above an input, by the request field's name; a field not named is labeled with its name in words. */
   labels?: Record<string, string>;
   /**
@@ -47,6 +51,15 @@ export interface MethodDialogData {
   shows?: Record<string, string[]>;
   /** The request fields picked as a day that mean through the end of that day: each is sent as the next day's first instant. */
   throughDay?: readonly string[];
+  /**
+   * How a picker among the inputs narrows its options by what the dialog holds, by the
+   * request field's name: the filter its list is asked with, from the values of the
+   * inputs as they stand over the ones the dialog was opened with (`preset`), so a value
+   * the page filled narrows as one a person picked would. The picker asks again as the
+   * inputs change, and a choice made before the filter changed is cleared, since it was
+   * made among other options.
+   */
+  narrows?: Record<string, (values: RecordData) => string>;
 }
 
 /** What a method dialog closes with once the method has run; a dialog dismissed closes with nothing. */
@@ -82,15 +95,16 @@ export interface MethodDialogResult {
  * that takes files (they travel with the call alone) are not rehearsed.
  *
  * A method that warns before it runs (`warning` in its metadata, the method's @warning)
- * is drawn as a warning. The dialog asks the server what the call will do, with what the
- * row carries and what the person has filled, as it opens and again after each change,
- * and nothing is saved by asking. The server's words are shown in the warning style
- * under a warning icon, the confirm button carries the words the server gave it, which
- * say what it does, and the button is held until the server has answered and the person
- * has typed the word the method declares. While an input the method requires is empty
- * the server is not asked, since it would refuse the request for it. A refusal of the
- * question is shown as a refusal of the call is, and holds the button too: nobody
- * confirms a warning they were not shown.
+ * says first what it will do. The dialog asks the server, with what the row carries and
+ * what the person has filled, as it opens and again after each change,
+ * and nothing is saved by asking. The server's words are shown, the confirm button
+ * carries the words the server gave it, which say what it does, and the button is held
+ * until the server has answered. A method that declares a word to type is shown in the
+ * warning style under a warning icon, and its button is held until the word is typed
+ * too; one that declares none is shown as the dialog's question. While an input the
+ * method requires is empty the server is not asked, since it would refuse the request
+ * for it. A refusal of the question is shown as a refusal of the call is, and holds the
+ * button too: nobody confirms a warning they were not shown.
  */
 @Component({
   selector: 'impulse-method-dialog',
@@ -127,17 +141,32 @@ export class MethodDialogComponent {
     }),
   );
   /**
+   * What a narrowing is handed: the values the dialog was opened with, under its inputs
+   * as they stand.
+   */
+  private narrowedBy(values: RecordData | undefined): RecordData {
+    return { ...(this.data.preset as RecordData), ...(values ?? {}) };
+  }
+
+  /**
    * How the picker of an input lists its options, where the page said: the fields it
-   * named, joined in order, in the list and once one is chosen. Nothing for an input
-   * the page did not name, whose picker lists the source's own name.
+   * named, joined in order, in the list and once one is chosen, and the filter its list
+   * is asked with, from the values of the other inputs (`narrows`), which the dialog
+   * hands each input as they stand. Nothing for an input the page said nothing of, whose
+   * picker lists every option by the source's own name.
    */
   private picker(fieldName: string): Pick<FieldElement, 'enumeratedConfig'> | Record<string, never> {
-    const shown = this.data.shows?.[fieldName];
-    if (!shown || shown.length === 0) {
+    const shown = (this.data.shows?.[fieldName] ?? []) as FieldName[];
+    const narrow = this.data.narrows?.[fieldName];
+    if (shown.length === 0 && !narrow) {
       return {};
     }
-    const display = shown as FieldName[];
-    return { enumeratedConfig: enumeratedConfig({ listDisplay: display, viewDisplay: display }) };
+    const options: EnumeratedConfigOptions = { listDisplay: shown, viewDisplay: shown };
+    if (narrow) {
+      options.filter = (values: RecordData | undefined): string => narrow(this.narrowedBy(values));
+      options.filterType = 'parentResource';
+    }
+    return { enumeratedConfig: enumeratedConfig(options) };
   }
 
   /** Each input's value before anything is typed: an empty list for a field that holds a list, empty text otherwise. */
@@ -152,6 +181,13 @@ export class MethodDialogComponent {
       ]),
     ),
   );
+  /**
+   * The values of the inputs as they stand, handed to each input: a picker the page
+   * narrows (`narrows`) reads its filter from them.
+   */
+  readonly values = toSignal(this.form.valueChanges.pipe(map(() => this.form.getRawValue() as RecordData)), {
+    initialValue: this.form.getRawValue() as RecordData,
+  });
   /** The most a method's files may weigh together, in words; empty for a method that takes no files. */
   readonly uploadLimit = this.meta.upload ? formatByteSize(this.meta.upload.maxBytes) : '';
   /** The files chosen for a method that takes files. */
@@ -175,11 +211,15 @@ export class MethodDialogComponent {
   private readonly typedValue = toSignal(this.typed.valueChanges, { initialValue: '' });
   /**
    * Whether the call may be confirmed: always for a method that does not warn; for one
-   * that does, once the server's warning is on the screen and the word is typed, in any
-   * case and with spaces around it or not.
+   * that does, once the server's warning is on the screen and, where the method declares
+   * a word or a phrase, it is typed, in any case on either side and with spaces around it
+   * or not.
    */
   readonly confirmed = computed(
-    () => !this.typedWord || (this.warned() !== undefined && this.typedValue().trim().toLowerCase() === this.typedWord),
+    () =>
+      !this.meta.warning ||
+      (this.warned() !== undefined &&
+        (!this.typedWord || this.typedValue().trim().toLowerCase() === this.typedWord.toLowerCase())),
   );
   /** The words on the button that runs the method: the server's for a method that warns, the page's label otherwise. */
   readonly runLabel = computed(() => this.warned()?.confirm ?? this.data.label);
@@ -219,6 +259,7 @@ export class MethodDialogComponent {
   private rehearsal = 0;
 
   constructor() {
+    this.clearWhenNarrowed();
     if (this.meta.warning) {
       void this.askWarning();
       this.form.valueChanges
@@ -232,6 +273,29 @@ export class MethodDialogComponent {
       this.form.controls[asked.fieldName].valueChanges
         .pipe(debounceTime(MethodDialogComponent.rehearsalDelay), takeUntilDestroyed(this.destroyRef))
         .subscribe(() => void this.rehearse(asked.fieldName));
+    }
+  }
+
+  /**
+   * Clears a picker's choice when the filter the page narrows it by changes: the choice
+   * was made among options the picker no longer lists (a role of another tenant), and a
+   * request that sent it would be refused for it.
+   */
+  private clearWhenNarrowed(): void {
+    for (const [name, narrow] of Object.entries(this.data.narrows ?? {})) {
+      const control = this.form.controls[name];
+      if (!control) {
+        continue;
+      }
+      const held = (): string => narrow(this.narrowedBy(this.form.getRawValue() as RecordData));
+      let narrowed = held();
+      this.form.valueChanges.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => {
+        const now = held();
+        if (now !== narrowed) {
+          narrowed = now;
+          control.setValue(this.pristine[name]);
+        }
+      });
     }
   }
 

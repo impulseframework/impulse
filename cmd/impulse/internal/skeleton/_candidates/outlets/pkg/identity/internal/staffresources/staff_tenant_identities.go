@@ -7,27 +7,30 @@ import (
 	"time"
 
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/resource"
 )
 
 type (
 	// StaffTenantIdentity is one way a person of one Tenant signs in to the
-	// Staff auth through a directory: a row for each identity of a person who holds a
-	// role in the tenant or in every tenant, with the columns of StaffSessionIdentity and the
+	// Staff auth through a directory: a row for each identity of a person of
+	// StaffTenantUser, with the columns of StaffSessionIdentity and the
 	// person's username. An account is one row for the whole application, so the identity
 	// of a person who holds a role in two tenants is a row in each: the identity's id is
 	// the key of a row within its tenant, and DomainId, the tenant, holds the row to it.
 	// Tenant is the link's own column, the organization its directory vouched for, and is
 	// not the row's tenant.
 	//
-	// HeldElsewhere and HeldGlobally are the two facts of the person's row in
-	// StaffTenantUser, under the same names (heldElsewhere, heldGlobally): an identity is
-	// the account's, so what a tenant may see and do of one is what it may of the account.
+	// HeldElsewhere, HeldGlobally, ManagedHere and ManagedByAnotherDirectory are four
+	// facts of the person's row in StaffTenantUser, under the same names (heldElsewhere,
+	// heldGlobally, managedHere, managedByAnotherDirectory): an identity is the account's,
+	// so what a tenant may see and do of one is what it may of the account.
 	//
 	// @virtual
 	// @permissionScope(domain)
 	// @outlet(default)
 	// @order(CreatedAt desc)
 	// @page(default: 25, max: 200)
+	// @rowWord(sign-in identity)
 	StaffTenantIdentity struct {
 		// @primarykey
 		ID impulse.UUID `spanner:"Id" index:"true"`
@@ -46,14 +49,24 @@ type (
 		HeldElsewhere bool `spanner:"HeldElsewhere" index:"true"`
 		// @attribute(heldGlobally)
 		HeldGlobally bool `spanner:"HeldGlobally" index:"true"`
+		// @attribute(managedHere)
+		ManagedHere bool `spanner:"ManagedHere" index:"true"`
+		// @attribute(managedByAnotherDirectory)
+		ManagedByAnotherDirectory bool `spanner:"ManagedByAnotherDirectory" index:"true"`
 	}
 )
 
 // staffTenantIdentityQuery selects the identities of the people of every tenant:
 // the people as StaffTenantUser selects them, each joined to the rows of
 // StaffSessionIdentities that link to the account, through the table's index on the
-// user, which carries the columns the list shows.
+// user, which carries the columns the list shows. Who manages the account is read as
+// StaffTenantUser reads it, over the columns of that select.
 const staffTenantIdentityQuery = `
+SELECT
+  * EXCEPT (HeldHere, ThroughHere, ThroughAnother),
+  (ThroughHere OR (NOT ThroughAnother AND HeldHere AND NOT HeldElsewhere AND NOT HeldGlobally)) AS ManagedHere,
+  (ThroughAnother AND NOT ThroughHere) AS ManagedByAnotherDirectory
+FROM (
 SELECT
   i.Id AS Id,
   t.DomainId AS DomainId,
@@ -67,27 +80,53 @@ SELECT
   i.CreatedAt AS CreatedAt,
   i.LastUsedAt AS LastUsedAt,
   (EXISTS (
-    SELECT 1 FROM StaffUserRoles o
+    SELECT 1 FROM StaffUserRoles@{FORCE_INDEX=StaffUserRolesByUserId} o
     WHERE o.UserId = u.Id AND o.Kind = 'every' AND o.Axis = ''
       AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
   ) OR EXISTS (
-    SELECT 1 FROM StaffUserRoles o
+    SELECT 1 FROM StaffUserRoles@{FORCE_INDEX=StaffUserRolesByUserId} o
     WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId != t.DomainId
       AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
   ) OR EXISTS (
-    SELECT 1 FROM StaffGroupMembers gm JOIN StaffGroups og ON og.Id = gm.GroupId
+    SELECT 1 FROM StaffGroupMembers@{FORCE_INDEX=StaffGroupMembersByUserId} gm JOIN StaffGroups og ON og.Id = gm.GroupId
     WHERE gm.UserId = u.Id AND og.Kind = 'domain' AND og.Axis = '' AND og.DomainId != t.DomainId
       AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
   )) AS HeldElsewhere,
   (EXISTS (
-    SELECT 1 FROM StaffUserRoles g
+    SELECT 1 FROM StaffUserRoles@{FORCE_INDEX=StaffUserRolesByUserId} g
     WHERE g.UserId = u.Id AND g.Kind = 'global'
       AND (g.EndsAt IS NULL OR g.EndsAt > CURRENT_TIMESTAMP())
   ) OR EXISTS (
-    SELECT 1 FROM StaffGroupMembers gm JOIN StaffGroups gg ON gg.Id = gm.GroupId
+    SELECT 1 FROM StaffGroupMembers@{FORCE_INDEX=StaffGroupMembersByUserId} gm JOIN StaffGroups gg ON gg.Id = gm.GroupId
     WHERE gm.UserId = u.Id AND gg.Kind = 'global'
       AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
-  )) AS HeldGlobally
+  )) AS HeldGlobally,
+  (EXISTS (
+    SELECT 1 FROM StaffUserRoles@{FORCE_INDEX=StaffUserRolesByUserId} o
+    WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId = t.DomainId
+      AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
+  ) OR EXISTS (
+    SELECT 1 FROM StaffGroupMembers@{FORCE_INDEX=StaffGroupMembersByUserId} gm
+    WHERE gm.UserId = u.Id AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
+      AND EXISTS (
+        SELECT 1 FROM StaffGroups hg
+        WHERE hg.Id = gm.GroupId AND hg.Kind = 'domain' AND hg.Axis = '' AND hg.DomainId = t.DomainId
+      )
+  )) AS HeldHere,
+  EXISTS (
+    SELECT 1 FROM StaffSessionIdentities li
+    WHERE li.UserId = u.Id AND EXISTS (
+      SELECT 1 FROM TenantDirectories ld
+      WHERE ld.Method = li.Method AND ld.Connection = li.Connection AND ld.TenantId = t.DomainId
+    )
+  ) AS ThroughHere,
+  EXISTS (
+    SELECT 1 FROM StaffSessionIdentities li
+    WHERE li.UserId = u.Id AND EXISTS (
+      SELECT 1 FROM TenantDirectories ld
+      WHERE ld.Method = li.Method AND ld.Connection = li.Connection AND ld.TenantId != t.DomainId
+    )
+  ) AS ThroughAnother
 FROM (
   SELECT m.DomainId AS DomainId, m.UserId AS UserId
   FROM StaffUserRoles m
@@ -122,12 +161,26 @@ FROM (
   WHERE r.Kind = 'every' AND r.Axis = '' AND g.Kind = 'global'
     AND (r.StartsAt IS NULL OR r.StartsAt <= CURRENT_TIMESTAMP()) AND (r.EndsAt IS NULL OR r.EndsAt > CURRENT_TIMESTAMP())
     AND (gm.StartsAt IS NULL OR gm.StartsAt <= CURRENT_TIMESTAMP()) AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
+  UNION DISTINCT
+  SELECT dr.TenantId AS DomainId, du AS UserId
+  FROM TenantDirectories dr, UNNEST(ARRAY(
+    SELECT dl.UserId FROM StaffSessionIdentities dl
+    WHERE dl.Method = dr.Method AND dl.Connection = dr.Connection
+  )) AS du
 ) t
 JOIN StaffSessionUsers u ON u.Id = t.UserId
 JOIN StaffSessionIdentities i ON i.UserId = u.Id
+) p
 `
 
 // Subquery is the query the rows are read from.
 func (StaffTenantIdentity) Subquery() (query string, params map[string]any) {
 	return staffTenantIdentityQuery, nil
+}
+
+// TenantsToEnter names the tenants the person administers: a caller whose session
+// does not enter one of them is not offered the methods that change how the person signs
+// in or whether their account stands.
+func (StaffTenantIdentity) TenantsToEnter() resource.TenantsToEnter {
+	return staffSessionUserTenantsToEnter("UserId")
 }

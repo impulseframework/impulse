@@ -6,6 +6,7 @@ CREATE TABLE SessionImpersonations (
     SourceSessionId  STRING(36),
     PrincipalKind    STRING(16) NOT NULL,
     PrincipalUserId  STRING(MAX),
+    PrincipalUsername STRING(MAX),
     PrincipalRole    STRING(MAX),
     Mask             STRING(MAX),
     Reason           STRING(MAX),
@@ -24,3 +25,9 @@ CREATE INDEX SessionImpersonations_ActorUsername_idx
 CREATE INDEX SessionImpersonations_PrincipalUserId_idx
     ON SessionImpersonations
     (PrincipalUserId, StartedAt DESC);
+
+-- Nothing in the session library reads this index. It is what lets a list of the records
+-- be filtered by the username of the person a session is held as.
+CREATE INDEX SessionImpersonations_PrincipalUsername_idx
+    ON SessionImpersonations
+    (PrincipalUsername, StartedAt DESC);

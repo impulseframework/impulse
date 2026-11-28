@@ -28,27 +28,38 @@ import (
 // stand until it is taken away; ending a role now is taking it away. The Super
 // Administrator role takes no period: there is always one.
 //
+// The role carries the reason the request gives (Reason), which is shown wherever the
+// person's roles are listed. It is replaced with the period: a role given again carries
+// the reason of the new request, and none where the request gives none.
+//
 // @rpc
 // @outlet(default)
 // @answers(204)
+// @class(access)
 type AssignCrewRole struct {
 	UserID impulse.UUID
-	// Role is the role the person is given. A grant's condition reads it as new.role, so a
-	// role file can limit which roles the grant's holder hands out.
-	//
-	// @attribute(role)
-	Role string `validate:"required"`
 	// Domain is the one Sector the role is given in, picked from the
 	// Sector records the caller may list.
 	//
 	// @enumerate(Sectors)
 	Domain      *string
 	EveryDomain bool
+	// Role is the role the person is given, picked from the roles that exist where it is
+	// given that the caller could give there (CrewGivableRoles). A grant's condition
+	// reads it as new.role, so a role file can limit which roles the grant's holder hands
+	// out.
+	//
+	// @attribute(role)
+	// @enumerate(CrewGivableRoles)
+	Role string `validate:"required"`
 	// StartsAt is the first instant it counts. Left out, it counts from now.
 	StartsAt *time.Time
 	// EndsAt is the first instant it no longer counts. Left out, it counts until it is
 	// taken away.
 	EndsAt *time.Time
+	// Reason says why the role is given: one line of plain text, kept with the role and
+	// shown wherever the person's roles are listed. Left out, the role carries none.
+	Reason *string
 }
 
 // Execute buffers the membership into the caller's transaction.
@@ -64,7 +75,7 @@ func (m *AssignCrewRole) Execute(ctx context.Context, txn resource.ReadWriteTran
 	if err := client.manager.RequireUser(ctx, txn, m.UserID); err != nil {
 		return errors.Wrap(err, "identity.Manager.RequireUser()")
 	}
-	if err := client.manager.AssignRoleFor(ctx, txn, scope, m.UserID, accesstypes.Role(m.Role), period); err != nil {
+	if err := client.manager.AssignRoleFor(ctx, txn, scope, m.UserID, accesstypes.Role(m.Role), period, identity.RequestReason(m.Reason)); err != nil {
 		return errors.Wrap(err, "identity.Manager.AssignRoleFor()")
 	}
 

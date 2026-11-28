@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"maps"
 	"net/http"
 	"reflect"
+	"slices"
 	"strings"
 
 	"cloud.google.com/go/spanner"
@@ -44,6 +46,9 @@ type Decoder[Resource Resourcer, Request any] struct {
 	// a flag that is off is unknown to the decoder, so a body naming it is refused as
 	// any unknown field is. Nil hides every gated field.
 	features *FeatureSet
+	// namedRowSources are the views and the computed lists a row a write names is asked
+	// of (WithNamedRowSources), stamped on every patch the decoder answers.
+	namedRowSources NamedRowSources
 }
 
 // WithFeatures installs the FeatureSet the decoder reads the gated fields' flags
@@ -52,6 +57,17 @@ type Decoder[Resource Resourcer, Request any] struct {
 func (d *Decoder[Resource, Request]) WithFeatures(features *FeatureSet) *Decoder[Resource, Request] {
 	decoder := *d
 	decoder.features = features
+
+	return &decoder
+}
+
+// WithNamedRowSources installs the views and the computed lists a row a write names is
+// asked of: a column picked from a view or a computed list is set only to a row the
+// writer's list of it shows (NamedRowSources). The generated wiring passes the
+// application's.
+func (d *Decoder[Resource, Request]) WithNamedRowSources(sources NamedRowSources) *Decoder[Resource, Request] {
+	decoder := *d
+	decoder.namedRowSources = sources
 
 	return &decoder
 }
@@ -106,6 +122,7 @@ func (d *Decoder[Resource, Request]) DecodeWithoutPermissions(request *http.Requ
 		return nil, err
 	}
 	p.querySet.collection = d.collection
+	p.querySet.namedRowSources = d.namedRowSources
 
 	return p, nil
 }
@@ -118,6 +135,7 @@ func (d *Decoder[Resource, Request]) Decode(request *http.Request, userPermissio
 		return nil, err
 	}
 	p.querySet.collection = d.collection
+	p.querySet.namedRowSources = d.namedRowSources
 
 	p.EnableUserPermissionEnforcement(d.resourceSet, userPermissions, scope, requiredPermission)
 
@@ -165,6 +183,7 @@ func (d *Decoder[Resource, Request]) DecideOperation(ctx context.Context, txn Re
 	}
 	p.querySet.env = RequestEnvironment()
 	p.querySet.collection = d.collection
+	p.querySet.namedRowSources = d.namedRowSources
 	p.EnableUserPermissionEnforcement(d.resourceSet, userPermissions, scope, accesstypes.Update)
 	if err := p.querySet.checkResourcePermission(ctx); err != nil {
 		return nil, err
@@ -187,7 +206,12 @@ func (d *Decoder[Resource, Request]) DecodeOperationWithoutPermissions(oper *Ope
 		return nil, err
 	}
 	if oper.Type == OperationDelete {
-		return NewPatchSet(d.resourceSet.ResourceMetadata()), nil
+		patchSet := NewPatchSet(d.resourceSet.ResourceMetadata())
+		if err := readRemoveValue(oper, patchSet); err != nil {
+			return nil, err
+		}
+
+		return patchSet, nil
 	}
 
 	patchSet, err := d.DecodeWithoutPermissions(oper.Req)
@@ -208,6 +232,10 @@ func (d *Decoder[Resource, Request]) DecodeOperation(oper *Operation, userPermis
 		patchSet := NewPatchSet(d.resourceSet.ResourceMetadata())
 		patchSet.querySet.env = RequestEnvironment()
 		patchSet.querySet.collection = d.collection
+		patchSet.querySet.namedRowSources = d.namedRowSources
+		if err := readRemoveValue(oper, patchSet); err != nil {
+			return nil, err
+		}
 
 		return patchSet.EnableUserPermissionEnforcement(d.resourceSet, userPermissions, scope, permissionFromType(oper.Type)), nil
 	}
@@ -218,6 +246,43 @@ func (d *Decoder[Resource, Request]) DecodeOperation(oper *Operation, userPermis
 	}
 
 	return patchSet, nil
+}
+
+// removeValue is what a remove operation's value may say.
+type removeValue struct {
+	// EverythingUnder says the delete takes the rows the record lists as going with it,
+	// on the token beside it.
+	EverythingUnder bool `json:"everythingUnder"`
+	// Token is the token the delete's question gave (PatchSet.DeleteWithToken).
+	Token string `json:"token"`
+}
+
+// readRemoveValue reads a remove operation's value into the delete it decodes to:
+// {"everythingUnder": true, "token": "…"} says the delete takes the rows the record lists
+// as going with it, on the token its question gave (PatchSet.DeleteWithToken); with no
+// token, or an empty one, the delete asks first. A token beside a value that does not say
+// everythingUnder is not looked at. A remove with no value, or one that says nothing of
+// it, takes the record's row alone.
+func readRemoveValue[Resource Resourcer](oper *Operation, patchSet *PatchSet[Resource]) error {
+	if oper.Req == nil || oper.Req.Body == nil {
+		return nil
+	}
+	body, err := io.ReadAll(oper.Req.Body)
+	if err != nil {
+		return bodyError(err)
+	}
+	if len(body) == 0 {
+		return nil
+	}
+	var value removeValue
+	if err := json.Unmarshal(body, &value); err != nil {
+		return httpio.NewBadRequestMessageWithError(err, `a remove operation's value is an object: "everythingUnder" in it is true or false, and "token" is the text the question's answer gave`)
+	}
+	if value.EverythingUnder {
+		patchSet.DeleteWithToken(value.Token)
+	}
+
+	return nil
 }
 
 // acceptsNull reports whether a JSON null may land in the request field: a pointer, one
@@ -320,6 +385,55 @@ func decodeBody[Request any](fieldMapper *RequestFieldMapper, req *http.Request)
 	return keys, request, nil
 }
 
+// requestField finds the request field a name of the body reaches: the name as the
+// request declares it, or, because the typed decode fills a field from its name in any
+// case, the name in lower case.
+func requestField(fieldMapper *RequestFieldMapper, jsonField string) (accesstypes.Field, bool) {
+	if fieldName, ok := fieldMapper.StructFieldName(jsonField); ok {
+		return fieldName, true
+	}
+
+	return fieldMapper.StructFieldName(strings.ToLower(jsonField))
+}
+
+// immutableRefusal answers an update whose body names a field that never changes: 400,
+// naming every such field of the body in one sentence, in the order of their names, so
+// a form learns all of them in one round trip and the same body is always refused in
+// the same words. A name is judged by the field it reaches, not by how the body spells
+// it: a name the request accepts in another case is refused like the declared one, and
+// the sentence gives the declared name. It comes before every other refusal of a field.
+func immutableRefusal(immutable map[accesstypes.Tag]struct{}, fieldMapper *RequestFieldMapper, jsonFields []string) error {
+	if len(immutable) == 0 {
+		return nil
+	}
+
+	declared := fieldMapper.JSONNames()
+	var refused []string
+	for _, jsonField := range jsonFields {
+		fieldName, ok := requestField(fieldMapper, jsonField)
+		if !ok {
+			continue
+		}
+		name := declared[fieldName]
+		if _, found := immutable[accesstypes.Tag(name)]; found {
+			refused = append(refused, name)
+		}
+	}
+	slices.Sort(refused)
+	refused = slices.Compact(refused)
+
+	switch len(refused) {
+	case 0:
+		return nil
+	case 1:
+		return httpio.NewBadRequestMessagef("json field %s is immutable", refused[0])
+	default:
+		last := len(refused) - 1
+
+		return httpio.NewBadRequestMessagef("json fields %s and %s are immutable", strings.Join(refused[:last], ", "), refused[last])
+	}
+}
+
 // decodeToPatch decodes the body into the request struct and a patch set. hidden names
 // the request fields behind a feature flag that is off: a body naming one is refused
 // as it would be for a field the struct does not declare.
@@ -334,20 +448,24 @@ func decodeToPatch[Resource Resourcer, Request any](rSet *Set[Resource], fieldMa
 		vValue = vValue.Elem()
 	}
 
-	changes := make(map[accesstypes.Field]any)
-	for jsonField, jsonValue := range jsonData {
-		if operationPerm == accesstypes.Update {
-			if _, found := rSet.immutableFields[accesstypes.Tag(jsonField)]; found {
-				return nil, nil, httpio.NewBadRequestMessagef("json field %s is immutable", jsonField)
-			}
-		}
+	// A map hands its keys out in a different order every time it is ranged over, so the
+	// body's names are walked in the order of the names themselves: the same body is
+	// refused in the same words every time.
+	jsonFields := slices.Sorted(maps.Keys(jsonData))
 
-		fieldName, ok := fieldMapper.StructFieldName(jsonField)
+	if operationPerm == accesstypes.Update {
+		if err := immutableRefusal(rSet.immutableFields, fieldMapper, jsonFields); err != nil {
+			return nil, nil, err
+		}
+	}
+
+	changes := make(map[accesstypes.Field]any)
+	for _, jsonField := range jsonFields {
+		jsonValue := jsonData[jsonField]
+
+		fieldName, ok := requestField(fieldMapper, jsonField)
 		if !ok {
-			fieldName, ok = fieldMapper.StructFieldName(strings.ToLower(jsonField))
-			if !ok {
-				return nil, nil, httpio.NewBadRequestMessagef("invalid field in json - %s", jsonField)
-			}
+			return nil, nil, httpio.NewBadRequestMessagef("invalid field in json - %s", jsonField)
 		}
 		if _, isHidden := hidden[fieldName]; isHidden {
 			return nil, nil, httpio.NewBadRequestMessagef("invalid field in json - %s", jsonField)

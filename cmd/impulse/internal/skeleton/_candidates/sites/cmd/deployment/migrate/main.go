@@ -1,7 +1,13 @@
 // Package main is the deployment's migration step: it applies the schema migrations,
 // checks the release's role policy against what the permission engine's store holds, and
-// seeds the staff auth's first administrator while its users table holds no rows. It
+// invites the staff auth's first administrator while nobody of the auth holds the Super
+// Administrator role, by an invitation mailed to the address the placement names. It
 // reads the core and data configuration levels and nothing above them.
+//
+// A run that opens the data level, which every run but -version and a force does, gives
+// the database one minute to answer. A database that has not answered by then stops the
+// run with one sentence that names the database and its instance, and a non-zero exit:
+// the command does not wait on a database that is not there.
 //
 // Three flags make it the instrument for the states the migration runner refuses to
 // guess at. -version prints what each migrations table (schema, data) says about the
@@ -18,6 +24,18 @@
 // wrote and never a value, refuses the current version, and is safe to run again. Its
 // environment is the migration's with one variable for each enabled version, the one
 // being retired among them. It applies no migration and goes with no other flag.
+//
+// -reinvite-administrator <auth> sends the first administrator's invitation again, for
+// mail that was lost: it withdraws the standing invitation of the named auth (staff),
+// so the earlier link no longer opens, and mails a fresh one to the address the
+// placement names. It refuses once somebody holds the Super Administrator role in the
+// auth, since somebody is then there to invite the others, and while the environment has
+// no mailbox to send as. Its environment is the migration's. It applies no migration and
+// goes with no other flag.
+//
+// The command writes what it did about an invitation, the address and when it runs out,
+// and never the invitation's link: whoever opens the link becomes the administrator, so
+// it is in the mailed message alone.
 package main
 
 import (
@@ -27,7 +45,10 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"slices"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/sites/pkg/auth/staff"
@@ -44,6 +65,17 @@ const (
 
 // errRefused marks arguments the flag package refused and reported itself.
 var errRefused = errors.New("the arguments were refused")
+
+// reachDeadline is how long a run gives the database to answer as it opens the data
+// level, and reachWords is how the command's help and its error give that time.
+const (
+	reachDeadline = time.Minute
+	reachWords    = "one minute"
+)
+
+// afterFunc arms the deadline. It is time.AfterFunc, and a variable so that the command's
+// test holds the deadline to its length without waiting it out.
+var afterFunc = time.AfterFunc
 
 func main() {
 	os.Exit(execute(context.Background(), os.Args[1:], os.Stdout, os.Stderr))
@@ -81,6 +113,9 @@ type options struct {
 	// retireSecret is the variable of the version of the application secret to retire
 	// (APP_SECRET_KEY_1); empty when the command is not asked to retire one.
 	retireSecret string
+	// reinviteAdministrator is the auth whose first administrator's invitation is to be
+	// sent again; empty when the command is not asked to send one.
+	reinviteAdministrator string
 }
 
 // versionFlag is a version to force: set once given, -1 meaning no version.
@@ -110,16 +145,22 @@ func (f *versionFlag) Set(s string) error {
 
 // parse reads the arguments and refuses, before anything is opened, what cannot run
 // together: a force applies no migration, so neither -seed nor -version goes with it,
-// and -version applies none either, so -seed does not go with it.
+// and -version applies none either, so -seed does not go with it; a retirement and a
+// fresh invitation each go alone, and the invitation names an auth that invites.
 func parse(args []string, stderr io.Writer) (*options, error) {
 	fs := flag.NewFlagSet("migrate", flag.ContinueOnError)
 	fs.SetOutput(stderr)
+	fs.Usage = func() {
+		fmt.Fprintf(stderr, "Usage of migrate:\n  Every run but -version and a force opens the application's data and gives the database %s to answer: a database that has not answered by then stops the run, which names the database and its instance.\n", reachWords)
+		fs.PrintDefaults()
+	}
 	var o options
 	fs.BoolVar(&o.seed, "seed", false, "apply the development seed (schema/devseed) after the schema migrations, as data migrations; the pipeline passes it in test environments and never in production")
 	fs.BoolVar(&o.version, "version", false, "print what the schema and data migrations tables say about the database (no version, a version, or dirty at one with the progress recorded) and exit; nothing is applied")
 	fs.Var(&o.force, "force", "set the schema migrations table to this `version`, clean, print the row before and after, and exit; -1 means no version; the next run continues from it")
 	fs.Var(&o.forceData, "force-data", "the same for the data migrations table")
 	fs.StringVar(&o.retireSecret, "retire-secret", "", "retire one version of the application secret, named by the `variable` it is handed over in (APP_SECRET_KEY_1): write every stored secret that names it again under the current version, confirm none is left, and exit; nothing is migrated")
+	fs.StringVar(&o.reinviteAdministrator, "reinvite-administrator", "", "withdraw the standing invitation of the named `auth`'s first administrator ("+strings.Join(deploy.AdministratorAuths(), ", ")+") and mail a fresh one to the address the placement names, for mail that was lost, and exit; refused once somebody holds the Super Administrator role in the auth; nothing is migrated")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil, errors.Wrap(err, "flag.FlagSet.Parse()")
@@ -132,6 +173,10 @@ func parse(args []string, stderr io.Writer) (*options, error) {
 	}
 	forcing := o.force.set || o.forceData.set
 	switch {
+	case o.reinviteAdministrator != "" && (forcing || o.seed || o.version || o.retireSecret != ""):
+		return nil, errors.New("-reinvite-administrator applies no migration and reports no version: it goes with no other flag")
+	case o.reinviteAdministrator != "" && !slices.Contains(deploy.AdministratorAuths(), o.reinviteAdministrator):
+		return nil, errors.Newf("-reinvite-administrator %s: no auth of that name invites a first administrator; name one of %s", o.reinviteAdministrator, strings.Join(deploy.AdministratorAuths(), ", "))
 	case o.retireSecret != "" && (forcing || o.seed || o.version):
 		return nil, errors.New("-retire-secret applies no migration and reports no version: it goes with no other flag")
 	case forcing && o.seed:
@@ -145,7 +190,8 @@ func parse(args []string, stderr io.Writer) (*options, error) {
 	return &o, nil
 }
 
-// run does what the flags ask: the report, the force, or the migrations.
+// run does what the flags ask: the report, the force, the retirement, the fresh
+// invitation, or the migrations.
 func run(ctx context.Context, o *options, out io.Writer) error {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt)
 	defer stop()
@@ -160,10 +206,12 @@ func run(ctx context.Context, o *options, out io.Writer) error {
 	case o.force.set || o.forceData.set:
 		return force(ctx, settings, o, out)
 	case o.retireSecret != "":
-		return retireSecret(ctx, o.retireSecret, out)
+		return retireSecret(ctx, settings, o.retireSecret, out)
+	case o.reinviteAdministrator != "":
+		return reinviteAdministrator(ctx, settings, o.reinviteAdministrator, out)
 	}
 
-	return migrate(ctx, settings, o.seed)
+	return migrate(ctx, settings, o.seed, out)
 }
 
 // report prints one line per migrations table: what it says about the database.
@@ -226,12 +274,12 @@ func row(ctx context.Context, settings config.DatabaseSettings, table deploy.Tab
 // whose resource client holds the secret keys built from every version in the
 // environment, and writes every stored secret that names the version again under the
 // current one.
-func retireSecret(ctx context.Context, variable string, out io.Writer) error {
-	data, err := config.NewDataConfiguration(ctx)
+func retireSecret(ctx context.Context, settings config.DatabaseSettings, variable string, out io.Writer) error {
+	data, closeData, err := reachData(ctx, settings)
 	if err != nil {
-		return errors.Wrap(err, "config.NewDataConfiguration()")
+		return err
 	}
-	defer data.Close()
+	defer closeData()
 
 	if err := deploy.RetireSecret(ctx, data.ResourceClient(), variable, out); err != nil {
 		return errors.Wrap(err, "deploy.RetireSecret()")
@@ -240,8 +288,26 @@ func retireSecret(ctx context.Context, variable string, out io.Writer) error {
 	return nil
 }
 
-// migrate is the deployment's migration step itself.
-func migrate(ctx context.Context, settings config.DatabaseSettings, seed bool) error {
+// reinviteAdministrator sends the named auth's first administrator's invitation again:
+// it opens the data level, whose auths mail through the environment's mailbox, withdraws
+// the standing invitation and mails a fresh one to the address the placement names.
+func reinviteAdministrator(ctx context.Context, settings config.DatabaseSettings, auth string, out io.Writer) error {
+	data, closeData, err := reachData(ctx, settings)
+	if err != nil {
+		return err
+	}
+	defer closeData()
+
+	if err := deploy.ReinviteAdministrator(ctx, data, auth, out); err != nil {
+		return errors.Wrap(err, "deploy.ReinviteAdministrator()")
+	}
+
+	return nil
+}
+
+// migrate is the deployment's migration step itself; out takes what it did about each
+// first administrator's invitation.
+func migrate(ctx context.Context, settings config.DatabaseSettings, seed bool, out io.Writer) error {
 	// The schema goes first, before any client opens: the tables the data level's
 	// clients read may not exist yet.
 	if err := deploy.MigrateSchema(ctx, settings); err != nil {
@@ -257,11 +323,11 @@ func migrate(ctx context.Context, settings config.DatabaseSettings, seed bool) e
 		}
 	}
 
-	data, err := config.NewDataConfiguration(ctx)
+	data, closeData, err := reachData(ctx, settings)
 	if err != nil {
-		return errors.Wrap(err, "config.NewDataConfiguration()")
+		return err
 	}
-	defer data.Close()
+	defer closeData()
 
 	// The default roles travel with the release: opening the data level validated the
 	// staff role file against the collection, so a release whose roles are wrong stopped
@@ -272,11 +338,15 @@ func migrate(ctx context.Context, settings config.DatabaseSettings, seed bool) e
 		return errors.Wrap(err, "deploy.CheckRoles()")
 	}
 
-	// The foothold: a users table holding no rows means nobody can sign in, so the staff
-	// auth's first administrator is seeded now, after the roles the release ships are in
-	// place, and never again while a user exists.
-	if err := deploy.SeedAdministrators(ctx, data); err != nil {
-		return errors.Wrap(err, "deploy.SeedAdministrators()")
+	// The foothold: an auth where nobody holds the Super Administrator role has nobody to
+	// administer it, so the staff auth's first administrator is invited now, after the
+	// roles the release ships are in place, by an invitation mailed to the address the
+	// placement names, and nobody is invited once somebody holds the role. An application
+	// with a cast of personas seeds it above this step (under -seed), so an environment
+	// whose cast holds the role invites nobody and needs no mailbox. A release that must
+	// invite and cannot mail stops here: the link is never written to a log.
+	if err := deploy.InviteAdministrators(ctx, data, out); err != nil {
+		return errors.Wrap(err, "deploy.InviteAdministrators()")
 	}
 
 	// The feature flags the release declares: a new flag is written off, a known one keeps
@@ -287,4 +357,35 @@ func migrate(ctx context.Context, settings config.DatabaseSettings, seed bool) e
 	}
 
 	return nil
+}
+
+// reachData opens the data level and gives the database reachDeadline to answer. The
+// level's clients wait for the database for as long as their context lives, which on a
+// database that is not there is forever, so past the deadline the opening is called off
+// and the run fails with one sentence that names the database and its instance. The
+// level keeps the context it opened under, so closeData closes the level and ends the
+// context after it.
+func reachData(ctx context.Context, settings config.DatabaseSettings) (data *config.DataConfiguration, closeData func(), err error) {
+	ctx, cancel := context.WithCancel(ctx)
+	deadline := afterFunc(reachDeadline, cancel)
+	data, err = config.NewDataConfiguration(ctx)
+	if !deadline.Stop() {
+		cancel()
+		if err == nil {
+			data.Close()
+			err = context.DeadlineExceeded
+		}
+
+		return nil, nil, errors.Wrapf(err, "the database %s on the instance %s could not be opened within %s, so the run stopped: check that both exist and that the environment names them", settings.DatabaseName, settings.InstanceID, reachWords)
+	}
+	if err != nil {
+		cancel()
+
+		return nil, nil, errors.Wrap(err, "config.NewDataConfiguration()")
+	}
+
+	return data, func() {
+		data.Close()
+		cancel()
+	}, nil
 }

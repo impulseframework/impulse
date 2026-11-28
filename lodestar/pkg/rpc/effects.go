@@ -8,7 +8,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
-	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/lodestar/pkg/resources"
 	"github.com/impulseframework/impulse/lodestar/pkg/telemetry"
 	"github.com/impulseframework/impulse/resource"
@@ -28,14 +28,14 @@ func appendMissionNote(ctx context.Context, txn resource.ReadWriteTransaction, m
 		return errors.Wrap(err, "resources.MissionQuery.Read()")
 	}
 	if row == nil {
-		return httpio.NewNotFoundMessagef("mission %s does not exist", missionID)
+		return resource.TargetNotFound("Mission", missionID)
 	}
 
 	notes := line
 	if row.Data.Notes != nil && *row.Data.Notes != "" {
 		notes = *row.Data.Notes + "\n" + line
 	}
-	if err := resources.NewMissionUpdatePatch(missionID).SetNotes(&notes).Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+	if err := resources.NewMissionUpdatePatch(missionID).SetNotes(&notes).Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 		return errors.Wrap(err, "resources.MissionUpdatePatch.Buffer()")
 	}
 
@@ -57,14 +57,14 @@ func appendMissionNoteAs(ctx context.Context, txn resource.ReadWriteTransaction,
 		return errors.Wrap(err, "resources.MissionQuery.Read()")
 	}
 	if row == nil {
-		return httpio.NewNotFoundMessagef("mission %s does not exist", missionID)
+		return resource.TargetNotFound("Mission", missionID)
 	}
 
 	notes := line
 	if row.Data.Notes != nil && *row.Data.Notes != "" {
 		notes = *row.Data.Notes + "\n" + line
 	}
-	if err := resources.NewMissionUpdatePatch(missionID).SetNotes(&notes).Enforce(caller).Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+	if err := resources.NewMissionUpdatePatch(missionID).SetNotes(&notes).Enforce(caller).Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 		return errors.Wrap(err, "resources.MissionUpdatePatch.Buffer()")
 	}
 
@@ -90,7 +90,7 @@ func returnOpenSorties(ctx context.Context, txn resource.ReadWriteTransaction, m
 		if row.Data.ReturnedAt != nil {
 			continue
 		}
-		if err := resources.NewSortieUpdatePatch(row.Data.ID).SetReturnedAt(&now).Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+		if err := resources.NewSortieUpdatePatch(row.Data.ID).SetReturnedAt(&now).Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 			return nil, errors.Wrap(err, "resources.SortieUpdatePatch.Buffer()")
 		}
 	}
@@ -107,7 +107,7 @@ func settleMission(ctx context.Context, txn resource.ReadWriteTransaction, missi
 		return nil, errors.Wrap(err, "resources.MissionQuery.Read()")
 	}
 	if row == nil {
-		return nil, httpio.NewNotFoundMessagef("mission %s does not exist", missionID)
+		return nil, resource.TargetNotFound("Mission", missionID)
 	}
 
 	settlement := &Settlement{Fee: row.Data.Fee, Expenses: decimal.Zero, Sorties: make([]SortieCost, 0, len(sortieIDs))}
@@ -134,7 +134,7 @@ func settleMission(ctx context.Context, txn resource.ReadWriteTransaction, missi
 // data owned by the InspectShip transition, an explicit update rather than an update
 // function.
 func stampRefitInspected(ctx context.Context, txn resource.ReadWriteTransaction, refitID impulse.UUID) error {
-	if err := resources.NewRefitUpdatePatch(refitID).SetInspectedAt(&cloudspanner.CommitTimestamp).Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+	if err := resources.NewRefitUpdatePatch(refitID).SetInspectedAt(&cloudspanner.CommitTimestamp).Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 		return errors.Wrap(err, "resources.RefitUpdatePatch.Buffer()")
 	}
 
@@ -149,9 +149,9 @@ func stampShipRefitted(ctx context.Context, txn resource.ReadWriteTransaction, r
 		return errors.Wrap(err, "resources.RefitQuery.Read()")
 	}
 	if row == nil {
-		return httpio.NewNotFoundMessagef("refit %s does not exist", refitID)
+		return resource.TargetNotFound("Refit", refitID)
 	}
-	if err := resources.NewShipUpdatePatch(row.Data.ShipID).SetLastRefitAt(&cloudspanner.CommitTimestamp).Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+	if err := resources.NewShipUpdatePatch(row.Data.ShipID).SetLastRefitAt(&cloudspanner.CommitTimestamp).Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 		return errors.Wrap(err, "resources.ShipUpdatePatch.Buffer()")
 	}
 
@@ -159,14 +159,16 @@ func stampShipRefitted(ctx context.Context, txn resource.ReadWriteTransaction, r
 }
 
 // ingestDroidReport writes one telemetry row, resolving the tenant through the ship's
-// hangar — the payload never asserts its own tenancy.
+// hangar — the payload never asserts its own tenancy. The ship is one of the sector the
+// request was sent to, where the droid's grant was asked: a ship of another sector is
+// answered as a ship that is not there.
 func ingestDroidReport(ctx context.Context, txn resource.ReadWriteTransaction, shipID impulse.UUID, subsystem string, reading float64, recordedAt time.Time, frame telemetry.Frame) error {
 	ship, err := resources.NewShipQuery().AddColumns(resources.NewShipColumns().HangarID()).SetID(shipID).Read(ctx, txn)
 	if err != nil {
 		return errors.Wrap(err, "resources.ShipQuery.Read()")
 	}
 	if ship == nil {
-		return httpio.NewNotFoundMessagef("ship %s does not exist", shipID)
+		return resource.TargetNotFound("Ship", shipID)
 	}
 
 	hangar, err := resources.NewHangarQuery().AddColumns(resources.NewHangarColumns().SectorID()).SetID(ship.Data.HangarID).Read(ctx, txn)
@@ -174,7 +176,19 @@ func ingestDroidReport(ctx context.Context, txn resource.ReadWriteTransaction, s
 		return errors.Wrap(err, "resources.HangarQuery.Read()")
 	}
 	if hangar == nil {
-		return httpio.NewNotFoundMessagef("hangar %s does not exist", ship.Data.HangarID)
+		return resource.TargetNotFound("Hangar", ship.Data.HangarID)
+	}
+
+	domain, ok := resource.CallerFrom(ctx).Scope.Domain()
+	if !ok {
+		return errors.New("IngestDroidReports is sector-scoped but was checked in the global scope")
+	}
+	sector, err := impulse.UUIDFromString(string(domain))
+	if err != nil {
+		return errors.Wrapf(err, "impulse.UUIDFromString(): the sector %s", domain)
+	}
+	if hangar.Data.SectorID != sector {
+		return resource.TargetNotFound("Ship", shipID)
 	}
 
 	if recordedAt.IsZero() {
@@ -194,7 +208,7 @@ func ingestDroidReport(ctx context.Context, txn resource.ReadWriteTransaction, s
 		// The frame is stored as it came; a droid that sent none leaves the column NULL.
 		patch.SetFrame(&frame)
 	}
-	if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+	if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 		return errors.Wrap(err, "resources.DroidReportCreatePatch.Buffer()")
 	}
 

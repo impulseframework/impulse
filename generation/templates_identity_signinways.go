@@ -44,15 +44,14 @@ import (
 //
 // It is a tenant's list: served under the address of one {{ .TenantName }}, it answers
 // for a row of {{ .TenantUser }}, the tenant's own list of the auth's people. A person
-// who holds no role in the tenant is no row there and has none here. Each row carries
-// the two facts of the person's row under the names a grant's condition reads
-// (heldElsewhere, heldGlobally), and says whether it is the password under the name
-// password, so the role file says what a tenant reads of a person who is not the
-// tenant's alone: a grant under "password = false OR heldElsewhere = false" lists the
-// identities of every person of the tenant and the password only of a person no other
-// tenant holds. Whether such a person has a password is then no more the tenant's to
-// learn than whether they must change it, and a page that offers the removal by the
-// rows offers none for them.
+// who is no row there has none here. Each row carries four facts of the person's row
+// under the names a grant's condition reads (heldElsewhere, heldGlobally, managedHere,
+// managedByAnotherDirectory), and says whether it is the password under the name
+// password, so the role file says what a tenant reads of a person whose account it does
+// not manage: a grant under "managedHere = true" lists how a person signs in only for
+// the tenant that manages their account. Whether a person another party manages has a
+// password is then no more the tenant's to learn than whether they must change it, and
+// a page that offers the removal by the rows offers none for them.
 {{- end }}
 //
 // It is a computed resource: which identities count is the session library's judgment
@@ -61,12 +60,16 @@ import (
 // filters by the person's id (userId:eq:<id>), as a list drawn under the person's row
 // does; a request that names nobody lists nobody's ways, and one that names people any
 // other way is refused. The role file grants it like any resource, to whoever reads the
-// identities of the auth's people.
+// identities of the auth's people. A change to an account or to an
+// identity{{ if .ForTenant }}, or to who holds a role where,{{ end }} tells the list's open pages,
+// which read it again: the tables are declared (@changedBy), since no query names them.
 //
 // @computed` + identityTenantScope + `
 // @suppress(readHandler)
 // @outlet({{ .Outlets }})
+// @changedBy({{ .Tables.Users }}, {{ .Tables.Identities }}{{ if .ForTenant }}, {{ .Policy.UserRoles }}{{ if .KeepsGroups }}, {{ .Policy.Groups }}, {{ .Policy.GroupMembers }}, {{ .Policy.GroupRoles }}{{ end }}{{ end }})
 // @order(Password desc, Through asc)
+// @rowWord(way to sign in, plural: ways to sign in)
 type {{ .SignInWay }} struct {
 	// UserID is the person, whom the list is filtered by.
 	// @primarykey
@@ -94,6 +97,10 @@ type {{ .SignInWay }} struct {
 	HeldElsewhere bool ` + "`spanner:\"HeldElsewhere\"`" + `
 	// @attribute(heldGlobally)
 	HeldGlobally bool ` + "`spanner:\"HeldGlobally\"`" + `
+	// @attribute(managedHere)
+	ManagedHere bool ` + "`spanner:\"ManagedHere\"`" + `
+	// @attribute(managedByAnotherDirectory)
+	ManagedByAnotherDirectory bool ` + "`spanner:\"ManagedByAnotherDirectory\"`" + `
 {{- end }}
 }
 
@@ -128,11 +135,11 @@ func List{{ .SignInWay }}(ctx context.Context, qSet *resource.QuerySet[{{ .SignI
 		txn := db.ReadOnlyTransaction()
 		defer txn.Close()
 {{ if .ForTenant }}
-		// The tenant's own list of people holds the read to the tenant: a person who
-		// holds no role in it is no row there, and nothing of them is answered.
+		// The tenant's own list of people holds the read to the tenant: of a person who
+		// is no row there, nothing is answered.
 		clause := {{ .ResourcesPackage }}.New{{ .TenantUser }}QueryClause()
 		people := {{ .ResourcesPackage }}.New{{ .TenantUser }}Query().
-			AddColumns({{ .ResourcesPackage }}.New{{ .TenantUser }}Columns().HeldElsewhere().HeldGlobally()).
+			AddColumns({{ .ResourcesPackage }}.New{{ .TenantUser }}Columns().HeldElsewhere().HeldGlobally().ManagedHere().ManagedByAnotherDirectory()).
 			Where(clause.ID().Equal(userID).And().DomainID().Equal(string(domain)))
 		var person *{{ .ResourcesPackage }}.{{ .TenantUser }}
 		for row, listErr := range people.List(ctx, txn) {
@@ -163,8 +170,10 @@ func List{{ .SignInWay }}(ctx context.Context, qSet *resource.QuerySet[{{ .SignI
 				Connection: way.Connection,
 				Through:    signInThrough(way),
 {{- if .ForTenant }}
-				HeldElsewhere: person.HeldElsewhere,
-				HeldGlobally:  person.HeldGlobally,
+				HeldElsewhere:             person.HeldElsewhere,
+				HeldGlobally:              person.HeldGlobally,
+				ManagedHere:               person.ManagedHere,
+				ManagedByAnotherDirectory: person.ManagedByAnotherDirectory,
 {{- end }}
 			}
 			if !yield(row, nil) {

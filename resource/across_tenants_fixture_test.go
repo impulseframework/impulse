@@ -21,8 +21,11 @@ import (
 
 const (
 	acrossCrates = accesstypes.Resource("Crates")
-	acrossSeals  = accesstypes.Resource("Seals")
-	acrossBins   = accesstypes.Resource("Bins")
+	// crateMakers is the resource a crate's maker is a row of: it belongs to no
+	// tenant, so its grants are held in the global scope.
+	crateMakers = accesstypes.Resource("Makers")
+	acrossSeals = accesstypes.Resource("Seals")
+	acrossBins  = accesstypes.Resource("Bins")
 	// acrossShelves is a tenant's record no declaration lists across tenants.
 	acrossShelves = accesstypes.Resource("Shelves")
 	// acrossRequester is the person the fixture's requests run as.
@@ -116,6 +119,47 @@ func (acrossShelf) DefaultConfig() Config { return Config{} }
 type acrossShelfRequest struct {
 	ID   string `json:"id" index:"true" perm:"-"`
 	Yard string `json:"-"`
+}
+
+// gradedCrate is the crates' record with names beside ids: each crate is of a
+// grade, a row of an enumeration table, and is made by a maker, a row of a
+// resource that belongs to no tenant, whose names a list looks up.
+type gradedCrate struct {
+	ID      string `spanner:"Id"      postgres:"Id"`
+	Yard    string `spanner:"Yard"    postgres:"Yard"`
+	Label   string `spanner:"Label"   postgres:"Label"`
+	GradeID string `spanner:"GradeId" postgres:"GradeId"`
+	MakerID string `spanner:"MakerId" postgres:"MakerId"`
+}
+
+// Resource names the resource in grants and routes.
+func (gradedCrate) Resource() accesstypes.Resource {
+	return acrossCrates
+}
+
+// DefaultConfig is the resource's configuration.
+func (gradedCrate) DefaultConfig() Config {
+	return Config{}
+}
+
+// NameFields describes the grade's name and the maker's as the generator writes
+// them.
+func (gradedCrate) NameFields() []NameField {
+	return []NameField{
+		{Field: "GradeName", Key: "GradeID", Table: "CrateGrades", KeyColumn: "Id", NameColumn: "Description"},
+		{Field: "MakerName", Key: "MakerID", Resource: crateMakers, Tag: "name", Table: "Makers", KeyColumn: "Id", NameColumn: "Name"},
+	}
+}
+
+// gradedCrateRequest is gradedCrate's list request type as the generator writes it.
+type gradedCrateRequest struct {
+	ID        string  `json:"id"        index:"true" perm:"-"`
+	Yard      string  `json:"-"`
+	Label     string  `json:"label"     index:"true"`
+	GradeID   string  `json:"gradeId"   index:"true"`
+	GradeName *string `json:"gradeName" index:"true" nameof:"GradeID"`
+	MakerID   string  `json:"makerId"   index:"true"`
+	MakerName *string `json:"makerName" index:"true" nameof:"MakerID"`
 }
 
 // acrossCollection declares the fixture's vocabulary: the crates' attributes
@@ -230,6 +274,17 @@ func (p *acrossPermissions) Domains(context.Context) ([]accesstypes.Domain, erro
 
 func (p *acrossPermissions) Reaches(_ context.Context, domain accesstypes.Domain) (bool, error) {
 	return slices.Contains(p.reach, domain), nil
+}
+
+// HeldDomains lists the tenants the person holds a grant in, reached or not.
+func (p *acrossPermissions) HeldDomains(context.Context) ([]accesstypes.Domain, error) {
+	held := make([]accesstypes.Domain, 0, len(p.grants))
+	for domain := range p.grants {
+		held = append(held, domain)
+	}
+	slices.Sort(held)
+
+	return held, nil
 }
 
 func (*acrossPermissions) User() accesstypes.User { return acrossRequester }
@@ -434,6 +489,20 @@ type acrossWalk struct {
 	postgresPages [][]acrossAnswer
 	// total is the count the first page answers when the walk asks for one.
 	total int64
+	// paging is the crates' declared paging the walk is read under; nil is the
+	// crates' own (crateDecoder).
+	paging *Paging
+}
+
+// decoder is the crates' list decoder under the walk's declared paging.
+func (w *acrossWalk) decoder(t *testing.T) *QueryDecoder[acrossCrate, acrossCrateRequest] {
+	t.Helper()
+
+	if w.paging == nil {
+		return crateDecoder(t)
+	}
+
+	return acrossDecoder[acrossCrate, acrossCrateRequest](t, *w.paging)
 }
 
 // The walks both databases run. differingRoles reads: every crate of north;
@@ -545,6 +614,54 @@ func acrossWalks() []acrossWalk {
 				{{"e2", east, "350"}},
 			},
 			total: 4,
+		},
+		{
+			// south's weights are hidden: NULL to the declared order, first
+			// ascending on Spanner and last on PostgreSQL, in key order and not by
+			// the weights (20, 40, 60) that would set them among north's.
+			name:   "the declared order's field hidden in one tenant",
+			target: "/crates?columns=id,label&count=true",
+			perms:  weightRoles([]accesstypes.Domain{north, south}, map[accesstypes.Domain]accesstypes.Decision{south: accesstypes.Denied()}),
+			pages: [][]acrossAnswer{
+				{{"s1", south, ""}, {"s2", south, ""}, {"s3", south, ""}},
+				{{"n1", north, ""}, {"n2", north, ""}, {"n3", north, ""}},
+			},
+			postgresPages: [][]acrossAnswer{
+				{{"n1", north, ""}, {"n2", north, ""}, {"n3", north, ""}},
+				{{"s1", south, ""}, {"s2", south, ""}, {"s3", south, ""}},
+			},
+			total: 6,
+		},
+		{
+			// By weight descending south's crates would come s3, s2, s1.
+			name:   "a set of one tenant in a declared order by a field hidden there",
+			target: "/crates?columns=id,label&count=true&limit=2",
+			perms:  weightRoles([]accesstypes.Domain{south}, map[accesstypes.Domain]accesstypes.Decision{south: accesstypes.Denied()}),
+			paging: &Paging{Order: []SortField{{Field: "Weight", Direction: SortDescending}}, DefaultLimit: 3},
+			pages: [][]acrossAnswer{
+				{{"s1", south, ""}, {"s2", south, ""}},
+				{{"s3", south, ""}},
+			},
+			total: 3,
+		},
+		{
+			// erin owns s1 (20) and s3 (60); s2's weight (40) is masked to her,
+			// NULL to the declared order: first ascending on Spanner, last on
+			// PostgreSQL.
+			name:   "a set of one tenant in a declared order by a field held under a condition",
+			target: "/crates?columns=id,label&count=true&limit=2",
+			perms: weightRoles([]accesstypes.Domain{south}, map[accesstypes.Domain]accesstypes.Decision{
+				south: conditionalOn(acrossCrates+".weight", "owner = subject"),
+			}),
+			pages: [][]acrossAnswer{
+				{{"s2", south, ""}, {"s1", south, ""}},
+				{{"s3", south, ""}},
+			},
+			postgresPages: [][]acrossAnswer{
+				{{"s1", south, ""}, {"s3", south, ""}},
+				{{"s2", south, ""}},
+			},
+			total: 3,
 		},
 	}
 }

@@ -27,8 +27,15 @@ type fakeGrants struct {
 	// noneGives are the roles no method that gives a role by hand takes from the caller
 	// (CouldGive), whoever the role is for.
 	noneGives []accesstypes.Role
-	err       error
-	asked     []string
+	// onlyBy are the roles one method alone takes from the caller, each with the
+	// method: every other method that gives a role by hand refuses it (CouldGive).
+	onlyBy map[accesstypes.Role]accesstypes.Resource
+	// noGiveOn are the records, by key, on which the caller may give no role (MayGiveOn),
+	// and noGiveOnTo the people to whom the caller may give no role on any record.
+	noGiveOn   []string
+	noGiveOnTo []impulse.UUID
+	err        error
+	asked      []string
 	// askedOutside are the questions about giving a role asked outside a transaction.
 	askedOutside []string
 }
@@ -43,6 +50,12 @@ func (g *fakeGrants) MayGive(ctx context.Context, txn resource.ReadWriteTransact
 	return !slices.Contains(g.noGive, role), g.err
 }
 
+func (g *fakeGrants) MayGiveOn(_ context.Context, _ resource.ReadWriteTransaction, at accesstypes.RecordScope, userID impulse.UUID, role accesstypes.Role) (bool, error) {
+	g.asked = append(g.asked, "give on "+at.String()+" "+userID.String()+" "+string(role))
+
+	return !slices.Contains(g.noGiveOn, at.Record()) && !slices.Contains(g.noGiveOnTo, userID), g.err
+}
+
 func (g *fakeGrants) MayTake(_ context.Context, _ resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, role accesstypes.Role) (bool, error) {
 	key := access.NewMembershipKey(scope, User(userID), role)
 	g.asked = append(g.asked, "take "+membershipText(&key))
@@ -50,11 +63,21 @@ func (g *fakeGrants) MayTake(_ context.Context, _ resource.ReadWriteTransaction,
 	return !slices.Contains(g.noTake, role), g.err
 }
 
-func (g *fakeGrants) CouldGive(_ context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {
-	g.asked = append(g.asked, "could give "+scope.String()+" "+string(role))
+func (g *fakeGrants) CouldGive(_ context.Context, method accesstypes.Resource, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {
+	g.asked = append(g.asked, string(method)+" could give "+scope.String()+" "+string(role))
+	if only, limited := g.onlyBy[role]; limited && only != method {
+		return false, g.err
+	}
 
 	return !slices.Contains(g.noneGives, role), g.err
 }
+
+// The methods the tests' lists of the roles to give are asked for: the one that gives a
+// person a role and the invitation, as a role file names them.
+const (
+	assigns accesstypes.Resource = "AssignMembersRole"
+	invites accesstypes.Resource = "InviteMembersUser"
+)
 
 // wardenRoles are the roles the fake engine holds for the tests of a group's changes:
 // engineRoles with Warden, a role of alpha the tests' caller may neither give nor take.
@@ -102,6 +125,9 @@ func TestManager_groupChangesAreJudgedAsRoleChanges(t *testing.T) {
 		outside  bool
 		act      func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error
 		wantSays string
+		// wantTold is the one sentence the person refused is sent; wantSays is kept in
+		// the refusal's cause, which the server's log prints.
+		wantTold string
 		// wantAsked is what the grants were asked, and wantWrites what was buffered.
 		wantAsked  []string
 		wantWrites []string
@@ -110,6 +136,7 @@ func TestManager_groupChangesAreJudgedAsRoleChanges(t *testing.T) {
 			name:  "a person is not put in a group that holds a role the caller may not give",
 			roles: map[access.GroupRoleKey]accesstypes.Period{warden: {}, reader: {}}, act: add,
 			wantSays:  "putting a person in the group Night shift gives them the role Warden, which you may not give them",
+			wantTold:  "Putting a person in the group Night shift gives them the role Warden, which you may not give them.",
 			wantAsked: []string{"give domain/alpha " + frank + " Reader", "give domain/alpha " + frank + " Warden"},
 		},
 		{
@@ -127,12 +154,14 @@ func TestManager_groupChangesAreJudgedAsRoleChanges(t *testing.T) {
 			name:  "a role of the group that has not begun is one the person will hold, and is judged",
 			roles: map[access.GroupRoleKey]accesstypes.Period{warden: upcoming}, act: add,
 			wantSays:  "the role Warden, which you may not give them",
+			wantTold:  "Putting a person in the group Night shift gives them the role Warden, which you may not give them.",
 			wantAsked: []string{"give domain/alpha " + frank + " Warden"},
 		},
 		{
 			name:  "a person is not taken out of a group that holds a role the caller may not take",
 			roles: map[access.GroupRoleKey]accesstypes.Period{warden: {}}, members: map[impulse.UUID]accesstypes.Period{userID: {}}, act: remove,
 			wantSays:  "taking a person out of the group Night shift takes away the role Warden, which you may not take from them",
+			wantTold:  "Taking a person out of the group Night shift takes away the role Warden, which you may not take from them.",
 			wantAsked: []string{"take domain/alpha " + danaID + " Warden"},
 		},
 		{
@@ -150,6 +179,7 @@ func TestManager_groupChangesAreJudgedAsRoleChanges(t *testing.T) {
 			name:    "a group is not given a role the caller may not give to a person in it",
 			members: map[impulse.UUID]accesstypes.Period{userID: {}}, act: give,
 			wantSays:  "giving the group Night shift a role gives everyone in it the role Warden, which you may not give them",
+			wantTold:  "Giving the group Night shift a role gives everyone in it the role Warden, which you may not give them.",
 			wantAsked: []string{"give domain/alpha " + danaID + " Warden"},
 		},
 		{
@@ -166,6 +196,7 @@ func TestManager_groupChangesAreJudgedAsRoleChanges(t *testing.T) {
 			name:  "a group does not lose a role the caller may not take from a person in it",
 			roles: map[access.GroupRoleKey]accesstypes.Period{warden: {}}, members: map[impulse.UUID]accesstypes.Period{userID: {}}, act: take,
 			wantSays:  "taking a role from the group Night shift takes away from everyone in it the role Warden, which you may not take from them",
+			wantTold:  "Taking a role from the group Night shift takes away from everyone in it the role Warden, which you may not take from them.",
 			wantAsked: []string{"take domain/alpha " + danaID + " Warden"},
 		},
 		{
@@ -212,6 +243,9 @@ func TestManager_groupChangesAreJudgedAsRoleChanges(t *testing.T) {
 			case tt.wantSays != "" && (err == nil || !httpio.HasForbidden(err) || !strings.Contains(err.Error(), tt.wantSays)):
 				t.Fatalf("error = %v, want Forbidden saying %q", err, tt.wantSays)
 			}
+			if tt.wantTold != "" {
+				toldPlainly(t, err, tt.wantTold, "someone who may")
+			}
 			if diff := cmp.Diff(tt.wantAsked, grants.asked); diff != "" {
 				t.Errorf("what the grants were asked (-want +got):\n%s", diff)
 			}
@@ -249,6 +283,196 @@ func TestManager_groupChangesAreJudgedAsRoleChanges(t *testing.T) {
 			t.Errorf("error = %v, writes = %v; want the grants' own error and nothing written", err, store.writes)
 		}
 	})
+}
+
+// TestManager_AddGroupMember_rolesOnRecords pins that putting a person in a group needs,
+// for each role the group holds on a record, what giving them the role on that record
+// needs: each is asked once, in key order, and the first the caller may not give refuses
+// the change in the sentence a role of the group's in the tenant is refused with. A role
+// whose period has ended is not asked, one that has not begun is; a call outside any
+// request is not judged; a caller who puts themselves in is asked like anyone; and a
+// request made for the whole application asks what giving the role across the record's
+// tenant asks.
+func TestManager_AddGroupMember_rolesOnRecords(t *testing.T) {
+	t.Parallel()
+
+	ended, upcoming, _ := periodFixtures()
+	editorP1 := access.NewRecordGroupRoleKey(GroupID(nightID), onP1, "ProjectEditor")
+	viewerP2 := access.NewRecordGroupRoleKey(GroupID(nightID), onP2, "ProjectViewer")
+	// leftT1 is a role the group still holds on a record of a kind no role is held on any more.
+	leftT1 := access.NewRecordGroupRoleKey(GroupID(nightID), accesstypes.NewRecordScope("alpha", "Tasks", "t1"), "ProjectEditor")
+	reader := access.NewGroupRoleKey(GroupID(nightID), alphaScope, "Reader")
+	frank, erinID := frankID.String(), otherUser.String()
+	insertFrank := "insert group member " + nightID.String() + " " + frank
+	const refusedEditor = "Putting a person in the group Night shift gives them the role Project editor on one project, which you may not give them there."
+	// wholeApplication is a request erin made for the whole application, checked in the
+	// global scope.
+	wholeApplication := func(ctx context.Context) context.Context {
+		return resource.WithCaller(resource.WithAuth(ctx, managedAuth), &resource.Caller{Permissions: callerPermissions{user: erin}, Scope: accesstypes.GlobalScope()})
+	}
+
+	tests := []struct {
+		name    string
+		records map[access.RecordGroupRoleKey]accesstypes.Period
+		roles   []access.GroupRoleKey
+		// person is who is put in, frank where it is nil.
+		person *impulse.UUID
+		// noGiveOn are the records the caller may give no role on; noGive the roles the
+		// caller may not give across a tenant.
+		noGiveOn []string
+		noGive   []accesstypes.Role
+		// caller is the request's context: under the tenant alpha, for the whole
+		// application, or none.
+		caller     func(context.Context) context.Context
+		wantSays   string
+		wantTold   string
+		wantAsked  []string
+		wantWrites []string
+	}{
+		{
+			name:      "a person is not put in a group that holds a role on a record the caller may not give",
+			records:   map[access.RecordGroupRoleKey]accesstypes.Period{editorP1: {}},
+			noGiveOn:  []string{"p1"},
+			wantSays:  "putting a person in the group Night shift gives them the role ProjectEditor on Projects p1 in alpha, which you may not give them: someone who may give the role on the record does it",
+			wantTold:  refusedEditor,
+			wantAsked: []string{"give on Projects p1 in alpha " + frank + " ProjectEditor"},
+		},
+		{
+			name:       "a person is put in a group that holds a role on a record the caller may give",
+			records:    map[access.RecordGroupRoleKey]accesstypes.Period{editorP1: {}},
+			wantAsked:  []string{"give on Projects p1 in alpha " + frank + " ProjectEditor"},
+			wantWrites: []string{insertFrank},
+		},
+		{
+			name:     "each role on a record is asked once, in key order, and the first refused is named",
+			records:  map[access.RecordGroupRoleKey]accesstypes.Period{viewerP2: {}, editorP1: {}},
+			noGiveOn: []string{"p2"},
+			wantSays: "the role ProjectViewer on Projects p2 in alpha, which you may not give them",
+			wantTold: "Putting a person in the group Night shift gives them the role Project viewer on one project, which you may not give them there.",
+			wantAsked: []string{
+				"give on Projects p1 in alpha " + frank + " ProjectEditor",
+				"give on Projects p2 in alpha " + frank + " ProjectViewer",
+			},
+		},
+		{
+			name:      "the first role on a record refused stops the asking",
+			records:   map[access.RecordGroupRoleKey]accesstypes.Period{viewerP2: {}, editorP1: {}},
+			noGiveOn:  []string{"p1", "p2"},
+			wantSays:  "the role ProjectEditor on Projects p1 in alpha",
+			wantTold:  refusedEditor,
+			wantAsked: []string{"give on Projects p1 in alpha " + frank + " ProjectEditor"},
+		},
+		{
+			name:       "a role on a record that has ended gives nobody anything and is not asked",
+			records:    map[access.RecordGroupRoleKey]accesstypes.Period{editorP1: ended},
+			noGiveOn:   []string{"p1"},
+			wantWrites: []string{insertFrank},
+		},
+		{
+			name:      "a role on a record that has not begun is one the person will hold, and is asked",
+			records:   map[access.RecordGroupRoleKey]accesstypes.Period{editorP1: upcoming},
+			noGiveOn:  []string{"p1"},
+			wantSays:  "the role ProjectEditor on Projects p1 in alpha",
+			wantTold:  refusedEditor,
+			wantAsked: []string{"give on Projects p1 in alpha " + frank + " ProjectEditor"},
+		},
+		{
+			name:       "a call outside any request is the application's own act and is not asked",
+			records:    map[access.RecordGroupRoleKey]accesstypes.Period{editorP1: {}},
+			noGiveOn:   []string{"p1"},
+			caller:     func(ctx context.Context) context.Context { return ctx },
+			wantWrites: []string{insertFrank},
+		},
+		{
+			name:      "a caller who puts themselves in is asked like anyone",
+			records:   map[access.RecordGroupRoleKey]accesstypes.Period{editorP1: {}},
+			person:    &otherUser,
+			noGiveOn:  []string{"p1"},
+			wantSays:  "the role ProjectEditor on Projects p1 in alpha",
+			wantTold:  refusedEditor,
+			wantAsked: []string{"give on Projects p1 in alpha " + erinID + " ProjectEditor"},
+		},
+		{
+			name:     "a role in the tenant the caller may give and a role on a record they may not: the record's role is named",
+			records:  map[access.RecordGroupRoleKey]accesstypes.Period{editorP1: {}},
+			roles:    []access.GroupRoleKey{reader},
+			noGiveOn: []string{"p1"},
+			wantSays: "the role ProjectEditor on Projects p1 in alpha",
+			wantTold: refusedEditor,
+			wantAsked: []string{
+				"give domain/alpha " + frank + " Reader",
+				"give on Projects p1 in alpha " + frank + " ProjectEditor",
+			},
+		},
+		{
+			name:      "a request for the whole application asks what giving the role across the record's tenant asks",
+			records:   map[access.RecordGroupRoleKey]accesstypes.Period{editorP1: {}},
+			noGive:    []accesstypes.Role{"ProjectEditor"},
+			caller:    wholeApplication,
+			wantSays:  "the role ProjectEditor on Projects p1 in alpha",
+			wantTold:  refusedEditor,
+			wantAsked: []string{"give domain/alpha " + frank + " ProjectEditor"},
+		},
+		{
+			name:       "a request for the whole application puts the person in where the caller may give the role across the tenant",
+			records:    map[access.RecordGroupRoleKey]accesstypes.Period{editorP1: {}},
+			noGiveOn:   []string{"p1"},
+			caller:     wholeApplication,
+			wantAsked:  []string{"give domain/alpha " + frank + " ProjectEditor"},
+			wantWrites: []string{insertFrank},
+		},
+		{
+			name:      "a role left on a record of a kind the store has no word for is refused in the sentence a tenant's role is",
+			records:   map[access.RecordGroupRoleKey]accesstypes.Period{leftT1: {}},
+			noGiveOn:  []string{"t1"},
+			wantSays:  "the role ProjectEditor on Tasks t1 in alpha",
+			wantTold:  "Putting a person in the group Night shift gives them the role Project editor, which you may not give them.",
+			wantAsked: []string{"give on Tasks t1 in alpha " + frank + " ProjectEditor"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			store := groupStore()
+			store.usernames[frankID] = "frank"
+			store.usernames[otherUser] = "erin"
+			store.recordGroupRoles = tt.records
+			for _, key := range tt.roles {
+				store.groupRoles[key] = true
+			}
+			grants := &fakeGrants{noGiveOn: tt.noGiveOn, noGive: tt.noGive}
+			m, _ := newManager(t, store, wardenRoles, WithRoleGrants(grants))
+			person := frankID
+			if tt.person != nil {
+				person = *tt.person
+			}
+			caller := tt.caller
+			if caller == nil {
+				caller = func(ctx context.Context) context.Context {
+					return inAlpha(resource.WithAuth(ctx, managedAuth), erin)
+				}
+			}
+
+			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+				return m.AddGroupMember(caller(ctx), txn, nightID, person)
+			})
+			switch {
+			case tt.wantSays == "" && err != nil:
+				t.Fatalf("error = %v, want the person put in", err)
+			case tt.wantSays != "" && (err == nil || !httpio.HasForbidden(err) || !strings.Contains(err.Error(), tt.wantSays)):
+				t.Fatalf("error = %v, want Forbidden saying %q", err, tt.wantSays)
+			}
+			if tt.wantTold != "" {
+				toldPlainly(t, err, tt.wantTold, "someone who may")
+			}
+			if diff := cmp.Diff(tt.wantAsked, grants.asked); diff != "" {
+				t.Errorf("what the grants were asked (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tt.wantWrites, store.writes); diff != "" {
+				t.Errorf("buffered writes (-want +got):\n%s", diff)
+			}
+		})
+	}
 }
 
 // Test_lengthens pins what it is for an assignment to last longer with a new period
@@ -314,7 +538,7 @@ func TestManager_nobodyLengthensTheirOwnHolding(t *testing.T) {
 	outside := func(ctx context.Context) context.Context { return ctx }
 	role := func(period accesstypes.Period) func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
 		return func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
-			return m.AssignRoleFor(ctx, txn, alphaScope, userID, "Reader", period)
+			return m.AssignRoleFor(ctx, txn, alphaScope, userID, "Reader", period, "")
 		}
 	}
 	inGroup := func(period accesstypes.Period) func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
@@ -340,20 +564,20 @@ func TestManager_nobodyLengthensTheirOwnHolding(t *testing.T) {
 		// wantWrite is the one write of a change that goes through.
 		wantWrite string
 	}{
-		{name: "their own role, with no end", had: current, ctx: asDana, act: role(none), wantSays: "you cannot make your own role last longer"},
-		{name: "their own role, with a later end", had: current, ctx: asDana, act: role(longer), wantSays: "you cannot make your own role last longer"},
-		{name: "their own role that has not begun, from now", had: upcoming, ctx: asDana, act: role(none), wantSays: "you cannot make your own role last longer"},
-		{name: "their own role that has ended, again", had: ended, ctx: asDana, act: role(current), wantSays: "you cannot make your own role last longer"},
+		{name: "their own role, with no end", had: current, ctx: asDana, act: role(none), wantSays: "You cannot make your own role last longer than it was given for."},
+		{name: "their own role, with a later end", had: current, ctx: asDana, act: role(longer), wantSays: "You cannot make your own role last longer than it was given for."},
+		{name: "their own role that has not begun, from now", had: upcoming, ctx: asDana, act: role(none), wantSays: "You cannot make your own role last longer than it was given for."},
+		{name: "their own role that has ended, again", had: ended, ctx: asDana, act: role(current), wantSays: "You cannot make your own role last longer than it was given for."},
 		{name: "their own role, with an earlier end", had: current, ctx: asDana, act: role(shorter), wantWrite: "period of membership " + membershipText(&own) + ": " + periodText(shorter)},
 		{name: "somebody else gives the role a new period", had: current, ctx: asErin, act: role(none), wantWrite: "period of membership " + membershipText(&own) + ": none"},
 		{name: "the application's own act gives the role a new period", had: current, ctx: outside, act: role(none), wantWrite: "period of membership " + membershipText(&own) + ": none"},
 		{name: "a caller of another auth is nobody of this one", had: current, ctx: fromAnotherAuth, act: role(none), wantWrite: "period of membership " + membershipText(&own) + ": none"},
 
-		{name: "their own place in a group, with no end", had: current, ctx: asDana, act: inGroup(none), wantSays: "you cannot make your own place in a group last longer"},
+		{name: "their own place in a group, with no end", had: current, ctx: asDana, act: inGroup(none), wantSays: "You cannot make your own place in a group last longer than it was given for."},
 		{name: "their own place in a group, with an earlier end", had: current, ctx: asDana, act: inGroup(shorter), wantWrite: "period of group member " + string(place.Group) + " " + string(place.User) + ": " + periodText(shorter)},
 		{name: "somebody else gives the place a new period", had: current, ctx: asErin, act: inGroup(none), wantWrite: "period of group member " + string(place.Group) + " " + string(place.User) + ": none"},
 
-		{name: "a role of a group they are in, with no end", had: current, placed: &none, ctx: asDana, act: ofGroup(none), wantSays: "you cannot make a role of a group you are in last longer"},
+		{name: "a role of a group they are in, with no end", had: current, placed: &none, ctx: asDana, act: ofGroup(none), wantSays: "You cannot make a role of a group you are in last longer than it was given for."},
 		{name: "a role of a group they are in, with an earlier end", had: current, placed: &none, ctx: asDana, act: ofGroup(shorter), wantWrite: "period of group role " + groupRoleText(&groupRole) + ": " + periodText(shorter)},
 		{name: "somebody who is not in the group gives its role a new period", had: current, placed: &none, ctx: asErin, act: ofGroup(none), wantWrite: "period of group role " + groupRoleText(&groupRole) + ": none"},
 		{name: "a person whose place in the group has ended holds nothing through it", had: current, placed: &ended, ctx: asDana, act: ofGroup(none), wantWrite: "period of group role " + groupRoleText(&groupRole) + ": none"},
@@ -377,9 +601,7 @@ func TestManager_nobodyLengthensTheirOwnHolding(t *testing.T) {
 				return tt.act(tt.ctx(ctx), txn, m)
 			})
 			if tt.wantSays != "" {
-				if err == nil || !httpio.HasForbidden(err) || !strings.Contains(err.Error(), tt.wantSays) || !strings.Contains(err.Error(), "someone else who may give it") {
-					t.Fatalf("error = %v, want Forbidden saying %q and who does it instead", err, tt.wantSays)
-				}
+				toldPlainly(t, err, tt.wantSays, "someone else who may give it")
 				if len(store.writes) != 0 {
 					t.Errorf("buffered writes = %v, want none", store.writes)
 				}

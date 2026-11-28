@@ -5,9 +5,10 @@ import (
 
 	"github.com/impulseframework/impulse/session/azure"
 	"github.com/impulseframework/impulse/session/google"
+	"github.com/impulseframework/impulse/session/internal/mockstore"
 	"github.com/impulseframework/impulse/session/internal/workos"
+	"github.com/impulseframework/impulse/session/oidc"
 	"github.com/impulseframework/impulse/session/sessioninfo"
-	"github.com/impulseframework/impulse/session/sessionstorage/mock/mock_sessionstorage"
 	"github.com/impulseframework/impulse/session/signin"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -18,7 +19,10 @@ import (
 // that takes it. A tenant the registrations know by an id alone has no name, and a
 // method that names no connection has none either; each is then said by the label, and
 // never by the connection. A name is taken from a registration the page does not list
-// too, since it is the application's own name for the organization.
+// too, since it is the application's own name for the organization. An organization's
+// own identity provider is said by the label the login page gives its registration, and
+// never by the connection it is registered under, which is the application's key for it;
+// one the page gives no label keeps the application's name for it.
 func TestAuthAPI_DirectoryName(t *testing.T) {
 	t.Parallel()
 
@@ -41,17 +45,19 @@ func TestAuthAPI_DirectoryName(t *testing.T) {
 			method: sessioninfo.MethodAzure, connection: tenantOther, wantName: "Harbor", wantLabel: "Microsoft",
 		},
 		{name: "a method that names no connection has its label alone", method: sessioninfo.MethodWorkOS, connection: "conn_01H", wantLabel: "Single sign-on"},
-		{name: "a method nothing is registered of", method: sessioninfo.MethodOIDC, connection: "https://id.example"},
+		{name: "an identity provider is said by the label of its registration, not by the key it is registered under", method: sessioninfo.MethodOIDC, connection: "sso", wantName: "Acme sign-in", wantLabel: "Acme sign-in"},
+		{name: "an identity provider the page gives no label keeps the application's name for it", method: sessioninfo.MethodOIDC, connection: "partner", wantName: "partner"},
+		{name: "a provider no registration takes", method: sessioninfo.MethodOIDC, connection: "https://id.example"},
 		{name: "the password is no directory", method: sessioninfo.MethodPassword, connection: ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			store := mock_sessionstorage.NewMockAuthStore[mockTx](gomock.NewController(t))
+			store := mockstore.NewAuthStore[mockTx](gomock.NewController(t))
 			store.EXPECT().CustomUserDataType().Return(nil).AnyTimes()
 			store.EXPECT().SetUsernameIsEmail(gomock.Any()).AnyTimes()
-			a, err := NewAuth[NoCustomData, NoCustomData](store, cookieKey, NoSuperAdministrators())
+			a, err := NewAuth[NoCustomData, NoCustomData](store, cookieKey, NoSuperAdministrators(), quietMail())
 			if err != nil {
 				t.Fatalf("NewAuth() error = %v", err)
 			}
@@ -69,6 +75,13 @@ func TestAuthAPI_DirectoryName(t *testing.T) {
 			entra("any-entra", azure.AnyTenant())
 			entra("harbor-entra", azure.NamedTenant(tenantOther, "Harbor"))
 			workos.SignIn(a, "workos", resolveAll[workos.Identity](), &workos.Config{APIKey: "sk", ClientID: "client", RedirectURL: "https://app/sso/callback"})
+			provider := func(name, issuer string) {
+				oidc.SignIn(a, name, resolveAll[oidc.Identity](), &oidc.Config{
+					RoleSync: signin.DisableRoleSync(), Issuer: issuer, Connection: name, ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/" + name + "/callback",
+				})
+			}
+			provider("sso", "https://id.acme.example")
+			provider("partner", "https://id.partner.example")
 			a.Methods(&MethodList{
 				Methods: []AdvertisedMethod{
 					{Name: "google", Label: "Google", Path: "/api/user/google/login"},
@@ -76,8 +89,10 @@ func TestAuthAPI_DirectoryName(t *testing.T) {
 					{Name: "lakeside-entra", Label: "Lakeside staff", Path: "/api/user/lakeside-entra/login"},
 					{Name: "any-entra", Label: "Microsoft", Path: "/api/user/any-entra/login"},
 					{Name: "workos", Label: "Single sign-on", Path: "/api/user/workos/login"},
+					{Name: "sso", Label: "Acme sign-in", Path: "/api/user/sso/login"},
 				},
-				ChangePassword: "/api/user/password/change",
+				ChangePassword:   "/api/user/password/change",
+				PasswordStrength: "/api/user/password/strength",
 			})
 
 			name, label := a.API().DirectoryName(tt.method, tt.connection)

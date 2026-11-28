@@ -5,6 +5,9 @@ package membersidentity
 
 import (
 	"context"
+	"iter"
+	"slices"
+	"strconv"
 	"time"
 
 	"cloud.google.com/go/spanner"
@@ -12,13 +15,16 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/identity/internal/membersresources"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage"
+	"google.golang.org/api/iterator"
 )
 
 var _ identity.Store = store{}
@@ -27,25 +33,6 @@ var _ identity.Store = store{}
 // is one read or one buffered write through the declarations' own query and patch
 // types, and holds no rule.
 type store struct{}
-
-func (store) InsertUser(ctx context.Context, txn resource.ReadWriteTransaction, user *identity.NewUser) (impulse.UUID, error) {
-	patch, err := membersresources.NewMembersSessionUserCreatePatch()
-	if err != nil {
-		return impulse.NilUUID, errors.Wrap(err, "membersresources.NewMembersSessionUserCreatePatch()")
-	}
-	patch.SetUsername(user.Username).SetDisabled(false).SetPasswordChangeRequired(false).SetCreatedAt(spanner.CommitTimestamp)
-	if user.Name != nil {
-		patch.SetName(user.Name)
-	}
-	if user.Email != nil {
-		patch.SetEmail(user.Email)
-	}
-	if err := patch.Buffer(ctx, txn); err != nil {
-		return impulse.NilUUID, errors.Wrap(err, "membersresources.MembersSessionUserCreatePatch.Buffer()")
-	}
-
-	return patch.ID(), nil
-}
 
 func (store) UpdateUser(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, change *identity.UserChange) error {
 	patch := membersresources.NewMembersSessionUserUpdatePatch(id)
@@ -60,10 +47,6 @@ func (store) UpdateUser(ctx context.Context, txn resource.ReadWriteTransaction, 
 	}
 	if change.Name != nil {
 		patch.SetName(change.Name.Name)
-	}
-	// An address entered by hand is unverified, whatever the one before it was.
-	if change.Email != nil {
-		patch.SetEmail(change.Email.Address).SetEmailVerifiedAt(nil)
 	}
 	if err := patch.Buffer(ctx, txn); err != nil {
 		return errors.Wrap(err, "membersresources.MembersSessionUserUpdatePatch.Buffer()")
@@ -96,19 +79,14 @@ func (store) EndSession(ctx context.Context, txn resource.ReadWriteTransaction, 
 }
 
 func (store) RenameSession(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, username string) error {
-	if err := membersresources.NewMembersSessionUpdatePatch(id).SetUsername(username).SetUpdatedAt(spanner.CommitTimestamp).Buffer(ctx, txn); err != nil {
+	if err := membersresources.NewMembersSessionUpdatePatch(id).SetUsername(username).Buffer(ctx, txn); err != nil {
 		return errors.Wrap(err, "membersresources.MembersSessionUpdatePatch.Buffer()")
 	}
 
 	return nil
 }
 
-// The Members auth has no password method: nobody of it holds a password, and none
-// is written.
-
-func (store) SetPassword(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID, _ string, _ bool) error {
-	return errors.Newf("the Members auth has no password method: user %s is given no password", id)
-}
+// The Members auth has no password method: nobody of it holds a password.
 
 func (store) RemovePassword(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID) error {
 	return errors.Newf("the Members auth has no password method: user %s holds no password to remove", id)
@@ -187,7 +165,7 @@ func (store) DeleteIdentity(ctx context.Context, txn resource.ReadWriteTransacti
 
 func (store) Token(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (token *identity.Token, found bool, err error) {
 	row, err := membersresources.NewMembersSessionTokenQuery().
-		AddColumns(membersresources.NewMembersSessionTokenColumns().FamilyID().ExpiresAt().RevokedAt()).
+		AddColumns(membersresources.NewMembersSessionTokenColumns().UserID().FamilyID().ExpiresAt().RevokedAt()).
 		SetID(id).
 		Read(ctx, txn)
 	if err != nil {
@@ -198,7 +176,7 @@ func (store) Token(ctx context.Context, txn resource.ReadWriteTransaction, id im
 		return nil, false, errors.Wrap(err, "membersresources.MembersSessionTokenQuery.Read()")
 	}
 
-	return &identity.Token{FamilyID: row.Data.FamilyID, ExpiresAt: row.Data.ExpiresAt, Revoked: row.Data.RevokedAt != nil}, true, nil
+	return &identity.Token{UserID: row.Data.UserID, FamilyID: row.Data.FamilyID, ExpiresAt: row.Data.ExpiresAt, Revoked: row.Data.RevokedAt != nil}, true, nil
 }
 
 func (store) FamilyTokens(ctx context.Context, txn resource.ReadWriteTransaction, family impulse.UUID) ([]impulse.UUID, error) {
@@ -264,9 +242,11 @@ func (store) UserDisabled(ctx context.Context, txn resource.ReadWriteTransaction
 func (store) UserID(ctx context.Context, txn resource.ReadWriteTransaction, username string) (id impulse.UUID, found bool, err error) {
 	// A read that goes past the declarations, as the session library's own lookup of
 	// a name does: the table's normalized username is no field of the declaration,
-	// and it is the column the unique index is over.
+	// and it is the column the unique index is over. The name is folded as the column
+	// folds it: one with an @ in it as an address is, any other in Unicode's
+	// normalization and case folding.
 	stmt := spanner.Statement{
-		SQL:    "SELECT Id FROM MembersSessionUsers WHERE NormalizedUsername = NORMALIZE_AND_CASEFOLD(@username)",
+		SQL:    "SELECT Id FROM MembersSessionUsers WHERE NormalizedUsername = IF(STRPOS(@username, '@') > 0, CAST(LOWER(CAST(@username AS BYTES)) AS STRING), NORMALIZE(NORMALIZE_AND_CASEFOLD(@username)))",
 		Params: map[string]any{"username": username},
 	}
 	if err := txn.SpannerReadOnlyTransaction().Query(ctx, stmt).Do(func(row *spanner.Row) error {
@@ -283,10 +263,12 @@ func (store) UserID(ctx context.Context, txn resource.ReadWriteTransaction, user
 func (store) UserByVerifiedEmail(ctx context.Context, txn resource.ReadWriteTransaction, email string) (id impulse.UUID, found bool, err error) {
 	// A read that goes past the declarations, as UserID's is: the table's normalized
 	// address is no field of the declaration, and it is the column the unique index
-	// is over, so the address is compared as the session library compares one. An
-	// address nobody confirmed names no one, as at a sign-in.
+	// is over, so the address is compared as the session library compares one, by the
+	// case of its ASCII letters alone (LOWER over BYTES treats its argument as ASCII and
+	// leaves every byte above 127 as it is). An address nobody confirmed names no one,
+	// as at a sign-in.
 	stmt := spanner.Statement{
-		SQL:    "SELECT Id FROM MembersSessionUsers WHERE NormalizedEmail = NORMALIZE_AND_CASEFOLD(@email) AND EmailVerifiedAt IS NOT NULL",
+		SQL:    "SELECT Id FROM MembersSessionUsers WHERE NormalizedEmail = CAST(LOWER(CAST(@email AS BYTES)) AS STRING) AND EmailVerifiedAt IS NOT NULL",
 		Params: map[string]any{"email": email},
 	}
 	if err := txn.SpannerReadOnlyTransaction().Query(ctx, stmt).Do(func(row *spanner.Row) error {
@@ -300,8 +282,66 @@ func (store) UserByVerifiedEmail(ctx context.Context, txn resource.ReadWriteTran
 	return id, found, nil
 }
 
-func (store) DeleteUser(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error {
-	if err := membersresources.NewMembersSessionUserDeletePatch(id).Buffer(ctx, txn); err != nil {
+func (store) ConfirmedEmail(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (email string, found bool, err error) {
+	// A read that goes past the declarations, as UserByVerifiedEmail's is: an address
+	// nobody confirmed is no address to mail a person at, so it is not answered.
+	stmt := spanner.Statement{
+		SQL:    "SELECT Email FROM MembersSessionUsers WHERE Id = @id AND Email IS NOT NULL AND EmailVerifiedAt IS NOT NULL",
+		Params: map[string]any{"id": id.String()},
+	}
+	if err := txn.SpannerReadOnlyTransaction().Query(ctx, stmt).Do(func(row *spanner.Row) error {
+		found = true
+
+		return row.Column(0, &email)
+	}); err != nil {
+		return "", false, errors.Wrap(err, "spanner.RowIterator.Do()")
+	}
+
+	return email, found, nil
+}
+
+// deletedBy is who a delete of an account or of a group is recorded as made by, in the
+// change records of the rows it takes that keep a change history: the request's person
+// (eventsource.UserEvent), and nobody for a call made outside any request, which carries
+// no session to read a person from. A row that keeps a change history refuses a delete
+// that names nobody: a job deletes such rows first, in a transaction before, under its
+// own process's name (eventsource.ProcessEvent).
+func deletedBy(ctx context.Context) []eventsource.EventSource {
+	if _, inRequest := ctx.Value(sessioninfo.CtxSessionInfo).(*sessioninfo.SessionData); !inRequest {
+		return nil
+	}
+
+	return []eventsource.EventSource{eventsource.UserEvent(ctx)}
+}
+
+func (store) DeleteUser(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, everythingUnder bool) (*resource.DeleteLeft, error) {
+	// The row's delete takes the application's rows that go with the account
+	// (@deletedWith), where it is told to. In a person's request the delete is that
+	// person's (deletedBy): a row it takes that keeps a change history records its
+	// delete as theirs.
+	patch := membersresources.NewMembersSessionUserDeletePatch(id)
+	if everythingUnder {
+		// Where the method that called declared a token (@deleteToken), the delete goes on
+		// it, and asks where it does not hold. Anywhere else it is code's word: every save
+		// asks everything again.
+		if token, declared := resource.DeleteTokenFrom(ctx); declared {
+			patch = patch.WithDeleteToken(token)
+		} else {
+			patch = patch.WithEverythingUnder()
+		}
+	}
+	if err := patch.Buffer(ctx, txn, deletedBy(ctx)...); err != nil {
+		return nil, errors.Wrap(err, "membersresources.MembersSessionUserDeletePatch.Buffer()")
+	}
+
+	return patch.Left(), nil
+}
+
+func (store) DeleteUserWithTenant(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error {
+	// The tenant's delete took the application's rows under the tenant before it reached
+	// the accounts: the row's delete leaves the application's rows out.
+	patch := membersresources.NewMembersSessionUserDeletePatch(id).WithEverythingUnder().WithLibraryRowsAlone()
+	if err := patch.Buffer(ctx, txn); err != nil {
 		return errors.Wrap(err, "membersresources.MembersSessionUserDeletePatch.Buffer()")
 	}
 
@@ -448,22 +488,32 @@ func (store) TenantMemberships(ctx context.Context, txn resource.ReadWriteTransa
 	return keys, nil
 }
 
-// DeleteTenantRoles removes the custom roles made in one tenant with their grants: the
-// one write here to the roles and grants tables, whose rows are otherwise the
-// permission engine's to write, made because the tenant itself goes.
+// TenantRoles counts the custom roles made in one tenant: the rows of the roles table
+// under the tenant's own scope, read in the caller's transaction
+// (identity.Store.TenantRoles).
+func (store) TenantRoles(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) (int, error) {
+	at := access.NewMembershipKey(accesstypes.DomainPolicyScope(domain), "", "")
+	query := membersresources.NewMembersRoleQuery().
+		AddColumns(membersresources.NewMembersRoleColumns().Kind().Axis().DomainID().Role()).
+		SetKind(at.Kind).SetAxis(at.Axis).SetDomainID(at.Domain)
+	roles := 0
+	for _, err := range query.List(ctx, txn) {
+		if err != nil {
+			return 0, errors.Wrap(err, "membersresources.MembersRoleQuery.List()")
+		}
+		roles++
+	}
+
+	return roles, nil
+}
+
+// DeleteTenantRoles removes the custom roles made in one tenant: the one write here to
+// the roles table, whose rows are otherwise the permission engine's to write, made
+// because the tenant itself goes. Each role's grants go with it by the database's rule,
+// the grants table being interleaved in the roles table ON DELETE CASCADE, as the
+// permission engine's own delete of a role takes them.
 func (store) DeleteTenantRoles(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) (int, error) {
 	at := access.NewMembershipKey(accesstypes.DomainPolicyScope(domain), "", "")
-	grants := membersresources.NewMembersRoleGrantQuery().
-		AddColumns(membersresources.NewMembersRoleGrantColumns().Kind().Axis().DomainID().Role().Permission().ResourceName().Field().Condition()).
-		SetKind(at.Kind).SetAxis(at.Axis).SetDomainID(at.Domain)
-	var grantPatches []*membersresources.MembersRoleGrantDeletePatch
-	for row, err := range grants.List(ctx, txn) {
-		if err != nil {
-			return 0, errors.Wrap(err, "membersresources.MembersRoleGrantQuery.List()")
-		}
-		grant := row.Data
-		grantPatches = append(grantPatches, membersresources.NewMembersRoleGrantDeletePatch(grant.Kind, grant.Axis, grant.DomainID, grant.Role, grant.Permission, grant.ResourceName, grant.Field, grant.Condition))
-	}
 	roles := membersresources.NewMembersRoleQuery().
 		AddColumns(membersresources.NewMembersRoleColumns().Kind().Axis().DomainID().Role()).
 		SetKind(at.Kind).SetAxis(at.Axis).SetDomainID(at.Domain)
@@ -474,11 +524,6 @@ func (store) DeleteTenantRoles(ctx context.Context, txn resource.ReadWriteTransa
 		}
 		role := row.Data
 		rolePatches = append(rolePatches, membersresources.NewMembersRoleDeletePatch(role.Kind, role.Axis, role.DomainID, role.Role))
-	}
-	for _, patch := range grantPatches {
-		if err := patch.Buffer(ctx, txn); err != nil {
-			return 0, errors.Wrap(err, "membersresources.MembersRoleGrantDeletePatch.Buffer()")
-		}
 	}
 	for _, patch := range rolePatches {
 		if err := patch.Buffer(ctx, txn); err != nil {
@@ -511,15 +556,18 @@ func (invitationWrite) Resource() accesstypes.Resource {
 
 func (store) InsertInvitation(_ context.Context, txn resource.ReadWriteTransaction, row *session.InvitationRow) error {
 	// The row as the session library says an invitation is written
-	// (session.InvitationRow): the user and the consumption are left null.
+	// (session.InvitationRow): the user and the consumption are left null. EveryTenant
+	// is written on every row, true or false: with TenantId it is the place the
+	// acceptance gives the roles in.
 	columns := map[string]any{
-		"Id":        row.ID,
-		"TokenHash": row.TokenHash,
-		"Kind":      string(sessionstorage.MailLinkInvitation),
-		"Email":     row.Email,
-		"RoleNames": row.RoleNames,
-		"CreatedAt": spanner.CommitTimestamp,
-		"ExpiresAt": row.ExpiresAt,
+		"Id":          row.ID,
+		"TokenHash":   row.TokenHash,
+		"Kind":        string(sessionstorage.MailLinkInvitation),
+		"Email":       row.Email,
+		"EveryTenant": row.EveryTenant,
+		"RoleNames":   row.RoleNames,
+		"CreatedAt":   spanner.CommitTimestamp,
+		"ExpiresAt":   row.ExpiresAt,
 	}
 	if row.Name != "" {
 		columns["Name"] = row.Name
@@ -564,11 +612,48 @@ func (store) MailLink(ctx context.Context, txn resource.ReadWriteTransaction, id
 
 func (store) ConsumeMailLink(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error {
 	consumedAt := spanner.CommitTimestamp
-	if err := membersresources.NewMembersSessionMailLinkUpdatePatch(id).SetConsumedAt(&consumedAt).Buffer(ctx, txn); err != nil {
+	if err := membersresources.NewMembersSessionMailLinkUpdatePatch(id).SetConsumedAt(&consumedAt).SetWithdrawnAt(&consumedAt).Buffer(ctx, txn); err != nil {
 		return errors.Wrap(err, "membersresources.MembersSessionMailLinkUpdatePatch.Buffer()")
 	}
 
 	return nil
+}
+
+func (store) SentInvitation(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (invitation *identity.SentInvitation, found bool, err error) {
+	// A read that goes past the declarations, as UserID's does: whether an invitation
+	// makes a tenant is its NewTenant document, which is no field of the declaration.
+	// A link of another kind is not found.
+	stmt := spanner.Statement{
+		SQL: "SELECT Email, Name, TenantId, EveryTenant, RoleNames, NewTenant IS NOT NULL, ConsumedAt IS NOT NULL AND WithdrawnAt IS NULL AND MailFailedAt IS NULL, WithdrawnAt IS NOT NULL, MailFailedAt IS NOT NULL, ExpiresAt" +
+			" FROM MembersSessionMailLinks WHERE Id = @id AND Kind = @kind",
+		Params: map[string]any{"id": id.String(), "kind": string(sessionstorage.MailLinkInvitation)},
+	}
+	if err := txn.SpannerReadOnlyTransaction().Query(ctx, stmt).Do(func(row *spanner.Row) error {
+		var (
+			sent         identity.SentInvitation
+			name, tenant spanner.NullString
+			roles        []string
+		)
+		if err := row.Columns(&sent.Invitation.Email, &name, &tenant, &sent.Invitation.EveryDomain, &roles, &sent.MakesTenant, &sent.Accepted, &sent.Withdrawn, &sent.NotMailed, &sent.ExpiresAt); err != nil {
+			return errors.Wrap(err, "spanner.Row.Columns()")
+		}
+		if name.Valid {
+			sent.Invitation.Name = &name.StringVal
+		}
+		if tenant.Valid {
+			sent.Invitation.Domain = &tenant.StringVal
+		}
+		for _, role := range roles {
+			sent.Invitation.Roles = append(sent.Invitation.Roles, accesstypes.Role(role))
+		}
+		invitation, found = &sent, true
+
+		return nil
+	}); err != nil {
+		return nil, false, errors.Wrap(err, "spanner.RowIterator.Do()")
+	}
+
+	return invitation, found, nil
 }
 
 func (store) TenantInvitations(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]impulse.UUID, error) {
@@ -621,21 +706,26 @@ func (store) InvitedTenants(ctx context.Context, reader resource.ReadOnlyTransac
 
 func (store) SignInMethodRows(ctx context.Context, reader resource.ReadOnlyTransaction) ([]identity.SignInMethodRow, error) {
 	query := membersresources.NewMembersSessionSignInMethodQuery().
-		AddColumns(membersresources.NewMembersSessionSignInMethodColumns().Name().OpenSignUp().OpenedFor().DefaultRole())
+		AddColumns(membersresources.NewMembersSessionSignInMethodColumns().Name().OpenSignUp().OpenedFor().DefaultRole().SelfServiceReset())
 	var rows []identity.SignInMethodRow
 	for row, err := range query.List(ctx, reader) {
 		if err != nil {
 			return nil, errors.Wrap(err, "membersresources.MembersSessionSignInMethodQuery.List()")
 		}
-		rows = append(rows, identity.SignInMethodRow{Name: row.Data.Name, OpenSignUp: row.Data.OpenSignUp, OpenedFor: row.Data.OpenedFor, DefaultRole: row.Data.DefaultRole})
+		rows = append(rows, identity.SignInMethodRow{
+			Name: row.Data.Name, OpenSignUp: row.Data.OpenSignUp, OpenedFor: row.Data.OpenedFor, DefaultRole: row.Data.DefaultRole,
+			SelfServiceReset: row.Data.SelfServiceReset,
+		})
 	}
 
 	return rows, nil
 }
 
 func (store) SetSignInMethod(ctx context.Context, txn resource.ReadWriteTransaction, row *identity.SignInMethodRow) error {
-	// The row is written whole: created where the method has none, replaced where it
-	// has one, which is read in the transaction. Either write leaves its change event
+	// Who may sign up is written whole: the row is created where the method has none,
+	// and the three columns of the choice are replaced where it has one, which is read
+	// in the transaction. Whether people reset their own password is not this write's
+	// and stands as it is (SetSelfServiceReset). Either write leaves its change event
 	// under the caller, the record of who made the choice and when.
 	_, err := membersresources.NewMembersSessionSignInMethodQuery().
 		AddColumns(membersresources.NewMembersSessionSignInMethodColumns().Name()).
@@ -645,7 +735,7 @@ func (store) SetSignInMethod(ctx context.Context, txn resource.ReadWriteTransact
 	case err == nil:
 		patch := membersresources.NewMembersSessionSignInMethodUpdatePatch(row.Name).
 			SetOpenSignUp(row.OpenSignUp).SetOpenedFor(row.OpenedFor).SetDefaultRole(row.DefaultRole).SetUpdatedAt(spanner.CommitTimestamp)
-		if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+		if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 			return errors.Wrap(err, "membersresources.MembersSessionSignInMethodUpdatePatch.Buffer()")
 		}
 
@@ -655,11 +745,261 @@ func (store) SetSignInMethod(ctx context.Context, txn resource.ReadWriteTransact
 	}
 	patch := membersresources.NewMembersSessionSignInMethodCreatePatch(row.Name).
 		SetOpenSignUp(row.OpenSignUp).SetOpenedFor(row.OpenedFor).SetDefaultRole(row.DefaultRole).SetUpdatedAt(spanner.CommitTimestamp)
-	if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+	if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 		return errors.Wrap(err, "membersresources.MembersSessionSignInMethodCreatePatch.Buffer()")
 	}
 
 	return nil
+}
+
+func (store) SetSelfServiceReset(ctx context.Context, txn resource.ReadWriteTransaction, name string, on bool) error {
+	// The one field is written, and what else the row says is left as it stands: a
+	// method with no row gets one that is invite only. Either write leaves its change
+	// event under the caller, the record of who made the choice and when.
+	_, err := membersresources.NewMembersSessionSignInMethodQuery().
+		AddColumns(membersresources.NewMembersSessionSignInMethodColumns().Name()).
+		SetName(name).
+		Read(ctx, txn)
+	switch {
+	case err == nil:
+		patch := membersresources.NewMembersSessionSignInMethodUpdatePatch(name).SetSelfServiceReset(on).SetUpdatedAt(spanner.CommitTimestamp)
+		if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
+			return errors.Wrap(err, "membersresources.MembersSessionSignInMethodUpdatePatch.Buffer()")
+		}
+
+		return nil
+	case !httpio.HasNotFound(err):
+		return errors.Wrap(err, "membersresources.MembersSessionSignInMethodQuery.Read()")
+	}
+	patch := membersresources.NewMembersSessionSignInMethodCreatePatch(name).SetOpenSignUp(false).SetSelfServiceReset(on).SetUpdatedAt(spanner.CommitTimestamp)
+	if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
+		return errors.Wrap(err, "membersresources.MembersSessionSignInMethodCreatePatch.Buffer()")
+	}
+
+	return nil
+}
+
+func (store) SignInSettingsRow(ctx context.Context, reader resource.ReadOnlyTransaction) (*identity.SignInSettingsRow, error) {
+	row, err := membersresources.NewMembersSessionSignInSettingQuery().
+		AddColumns(membersresources.NewMembersSessionSignInSettingColumns().Name().RequireSecondFactor().RememberBrowserDays()).
+		SetName(session.SignInSettingsRowName).
+		Read(ctx, reader)
+	switch {
+	case httpio.HasNotFound(err):
+		return nil, nil
+	case err != nil:
+		return nil, errors.Wrap(err, "membersresources.MembersSessionSignInSettingQuery.Read()")
+	}
+
+	return &identity.SignInSettingsRow{RequireSecondFactor: row.Data.RequireSecondFactor, RememberBrowserDays: row.Data.RememberBrowserDays}, nil
+}
+
+func (store) SetRequireSecondFactor(ctx context.Context, txn resource.ReadWriteTransaction, on bool) error {
+	// The one field is written, and the days a browser is remembered stand as they are:
+	// where there is no row, one is created with the session library's default days.
+	// Either write leaves its change event under the caller, the record of who made the
+	// choice and when.
+	found, err := signInSettingsRowFound(ctx, txn)
+	if err != nil {
+		return err
+	}
+	if found {
+		patch := membersresources.NewMembersSessionSignInSettingUpdatePatch(session.SignInSettingsRowName).SetRequireSecondFactor(on).SetUpdatedAt(spanner.CommitTimestamp)
+		if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
+			return errors.Wrap(err, "membersresources.MembersSessionSignInSettingUpdatePatch.Buffer()")
+		}
+
+		return nil
+	}
+	patch := membersresources.NewMembersSessionSignInSettingCreatePatch(session.SignInSettingsRowName).
+		SetRequireSecondFactor(on).SetRememberBrowserDays(session.DefaultRememberedBrowserDays).SetUpdatedAt(spanner.CommitTimestamp)
+	if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
+		return errors.Wrap(err, "membersresources.MembersSessionSignInSettingCreatePatch.Buffer()")
+	}
+
+	return nil
+}
+
+func (store) SetRememberBrowserDays(ctx context.Context, txn resource.ReadWriteTransaction, days int64) error {
+	// The one field is written, and whether the second factor is required stands as it
+	// is: where there is no row, one is created with it required. Either write leaves its
+	// change event under the caller, the record of who made the choice and when.
+	found, err := signInSettingsRowFound(ctx, txn)
+	if err != nil {
+		return err
+	}
+	if found {
+		patch := membersresources.NewMembersSessionSignInSettingUpdatePatch(session.SignInSettingsRowName).SetRememberBrowserDays(days).SetUpdatedAt(spanner.CommitTimestamp)
+		if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
+			return errors.Wrap(err, "membersresources.MembersSessionSignInSettingUpdatePatch.Buffer()")
+		}
+
+		return nil
+	}
+	patch := membersresources.NewMembersSessionSignInSettingCreatePatch(session.SignInSettingsRowName).
+		SetRequireSecondFactor(true).SetRememberBrowserDays(days).SetUpdatedAt(spanner.CommitTimestamp)
+	if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
+		return errors.Wrap(err, "membersresources.MembersSessionSignInSettingCreatePatch.Buffer()")
+	}
+
+	return nil
+}
+
+// signInSettingsRowFound reports whether the sign-in settings row stands, read in the
+// transaction that writes it.
+func signInSettingsRowFound(ctx context.Context, txn resource.ReadWriteTransaction) (bool, error) {
+	_, err := membersresources.NewMembersSessionSignInSettingQuery().
+		AddColumns(membersresources.NewMembersSessionSignInSettingColumns().Name()).
+		SetName(session.SignInSettingsRowName).
+		Read(ctx, txn)
+	switch {
+	case err == nil:
+		return true, nil
+	case httpio.HasNotFound(err):
+		return false, nil
+	default:
+		return false, errors.Wrap(err, "membersresources.MembersSessionSignInSettingQuery.Read()")
+	}
+}
+
+// auditRecordWrite names the row of the audit log a record is written as. It goes past
+// the declarations as the invitation's write does: the table has no declaration, and
+// nothing but InsertAuditRecord writes it.
+type auditRecordWrite struct {
+	id string
+}
+
+func (auditRecordWrite) PatchType() resource.PatchType {
+	return resource.CreatePatchType
+}
+
+func (w auditRecordWrite) PrimaryKey() resource.KeySet {
+	return resource.KeySet{}.Add("ID", w.id)
+}
+
+func (auditRecordWrite) Resource() accesstypes.Resource {
+	return "MembersSessionAuditRecords"
+}
+
+func (store) InsertAuditRecord(_ context.Context, txn resource.ReadWriteTransaction, record *auditlog.Record) error {
+	// The row as the audit log says a record is written (auditlog.Record.Columns), which
+	// refuses a record that is not its act's, at the commit's own time.
+	columns, err := record.Columns()
+	if err != nil {
+		return errors.Wrap(err, "auditlog.Record.Columns()")
+	}
+	columns["CreatedAt"] = spanner.CommitTimestamp
+	id, _ := columns["Id"].(string)
+	if err := txn.BufferMap(auditRecordWrite{id: id}, columns); err != nil {
+		return errors.Wrap(err, "resource.ReadWriteTransaction.BufferMap()")
+	}
+
+	return nil
+}
+
+func (store) AuditRecords(ctx context.Context, reader resource.ReadOnlyTransaction, query *identity.AuditQuery) iter.Seq2[*auditlog.Stored, error] {
+	// A read that goes past the declarations, as InvitedTenants' does: the table has no
+	// declaration, and the identity package writes the one statement its lists read it
+	// by.
+	return func(yield func(*auditlog.Stored, error) bool) {
+		sql, params, err := identity.AuditStatement("MembersSessionAuditRecords", query)
+		if err != nil {
+			yield(nil, errors.Wrap(err, "identity.AuditStatement()"))
+
+			return
+		}
+		rows := reader.SpannerReadOnlyTransaction().Query(ctx, spanner.Statement{SQL: sql, Params: params})
+		defer rows.Stop()
+		for {
+			row, err := rows.Next()
+			if errors.Is(err, iterator.Done) {
+				return
+			}
+			if err != nil {
+				yield(nil, errors.Wrap(err, "spanner.RowIterator.Next()"))
+
+				return
+			}
+			var record auditRecordRow
+			if err := row.ToStruct(&record); err != nil {
+				yield(nil, errors.Wrap(err, "spanner.Row.ToStruct()"))
+
+				return
+			}
+			if !yield(record.stored(), nil) {
+				return
+			}
+		}
+	}
+}
+
+// auditRecordRow is one row of MembersSessionAuditRecords, every column as the table
+// types it.
+type auditRecordRow struct {
+	ID                string               `spanner:"Id"`
+	CreatedAt         time.Time            `spanner:"CreatedAt"`
+	Act               string               `spanner:"Act"`
+	Form              spanner.NullString   `spanner:"Form"`
+	Auth              spanner.NullString   `spanner:"Auth"`
+	ActorUserID       spanner.NullString   `spanner:"ActorUserId"`
+	ActorUsername     spanner.NullString   `spanner:"ActorUsername"`
+	PrincipalUserID   spanner.NullString   `spanner:"PrincipalUserId"`
+	PrincipalUsername spanner.NullString   `spanner:"PrincipalUsername"`
+	PrincipalRole     spanner.NullString   `spanner:"PrincipalRole"`
+	SessionID         spanner.NullString   `spanner:"SessionId"`
+	Process           spanner.NullString   `spanner:"Process"`
+	RPC               spanner.NullString   `spanner:"Rpc"`
+	Directory         spanner.NullString   `spanner:"Directory"`
+	SubjectKind       string               `spanner:"SubjectKind"`
+	SubjectID         string               `spanner:"SubjectId"`
+	SubjectName       spanner.NullString   `spanner:"SubjectName"`
+	TenantID          spanner.NullString   `spanner:"TenantId"`
+	TenantName        spanner.NullString   `spanner:"TenantName"`
+	RoleName          spanner.NullString   `spanner:"RoleName"`
+	OtherRoleNames    []spanner.NullString `spanner:"OtherRoleNames"`
+	RoleScope         spanner.NullString   `spanner:"RoleScope"`
+	RecordKind        spanner.NullString   `spanner:"RecordKind"`
+	RecordID          spanner.NullString   `spanner:"RecordId"`
+	RecordWord        spanner.NullString   `spanner:"RecordWord"`
+	RecordName        spanner.NullString   `spanner:"RecordName"`
+	GroupID           spanner.NullString   `spanner:"GroupId"`
+	GroupName         spanner.NullString   `spanner:"GroupName"`
+	OldValue          spanner.NullString   `spanner:"OldValue"`
+	NewValue          spanner.NullString   `spanner:"NewValue"`
+	PeriodStart       spanner.NullTime     `spanner:"PeriodStart"`
+	PeriodEnd         spanner.NullTime     `spanner:"PeriodEnd"`
+	SeatingTenantID   spanner.NullString   `spanner:"SeatingTenantId"`
+	SeatingTenantName spanner.NullString   `spanner:"SeatingTenantName"`
+	Reason            spanner.NullString   `spanner:"Reason"`
+}
+
+// stored is the row as the identity package reads it: a NULL as the empty text, the
+// empty list or the zero time, and the nine columns of who acted as its Source.
+func (r *auditRecordRow) stored() *auditlog.Stored {
+	var roles []string
+	if r.RoleName.Valid {
+		roles = append(roles, r.RoleName.StringVal)
+	}
+	for _, role := range r.OtherRoleNames {
+		if role.Valid {
+			roles = append(roles, role.StringVal)
+		}
+	}
+
+	return &auditlog.Stored{
+		ID: r.ID, At: r.CreatedAt, Act: auditlog.Act(r.Act), Form: auditlog.Form(r.Form.StringVal),
+		Source: eventsource.Stored{
+			Auth: r.Auth.StringVal, ActorUserID: r.ActorUserID.StringVal, ActorUsername: r.ActorUsername.StringVal,
+			PrincipalUserID: r.PrincipalUserID.StringVal, PrincipalUsername: r.PrincipalUsername.StringVal, PrincipalRole: r.PrincipalRole.StringVal,
+			SessionID: r.SessionID.StringVal, Process: r.Process.StringVal, RPC: r.RPC.StringVal,
+		},
+		Directory: r.Directory.StringVal, SubjectKind: auditlog.SubjectKind(r.SubjectKind), SubjectID: r.SubjectID, SubjectName: r.SubjectName.StringVal,
+		TenantID: r.TenantID.StringVal, TenantName: r.TenantName.StringVal, RoleNames: roles, RoleScope: auditlog.RoleScope(r.RoleScope.StringVal),
+		RecordKind: r.RecordKind.StringVal, RecordID: r.RecordID.StringVal, RecordWord: r.RecordWord.StringVal, RecordName: r.RecordName.StringVal,
+		GroupID: r.GroupID.StringVal, GroupName: r.GroupName.StringVal, OldValue: r.OldValue.StringVal, NewValue: r.NewValue.StringVal,
+		PeriodStart: r.PeriodStart.Time, PeriodEnd: r.PeriodEnd.Time,
+		SeatingTenantID: r.SeatingTenantID.StringVal, SeatingTenantName: r.SeatingTenantName.StringVal, Reason: r.Reason.StringVal,
+	}
 }
 
 func (store) TrustedDevices(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]impulse.UUID, error) {
@@ -689,6 +1029,220 @@ func (store) RevokeTrustedDevice(ctx context.Context, txn resource.ReadWriteTran
 	return nil
 }
 
+// tenantHoldingsMembership is one membership of a person as TenantHoldings reads it.
+type tenantHoldingsMembership struct {
+	Kind     string `spanner:"Kind"`
+	Axis     string `spanner:"Axis"`
+	DomainID string `spanner:"DomainId"`
+	Role     string `spanner:"Role"`
+}
+
+// tenantHoldingsPlace is one place of a person in a group, with where the group is kept,
+// as TenantHoldings reads it.
+type tenantHoldingsPlace struct {
+	ID       string `spanner:"Id"`
+	Kind     string `spanner:"Kind"`
+	Axis     string `spanner:"Axis"`
+	DomainID string `spanner:"DomainId"`
+}
+
+// tenantHoldingsLink is one identity link of a person as TenantHoldings reads it, with
+// the tenants whose directory it came through.
+type tenantHoldingsLink struct {
+	ID         string   `spanner:"Id"`
+	Method     string   `spanner:"Method"`
+	Connection string   `spanner:"Connection"`
+	Tenants    []string `spanner:"Tenants"`
+}
+
+// tenantHoldingsSession is one session of a person that has not ended, as TenantHoldings
+// reads it.
+type tenantHoldingsSession struct {
+	ID string `spanner:"Id"`
+}
+
+// TenantHoldings reads the people a tenant's delete considers and what each holds, in
+// the caller's transaction, by two statements: the first starts from the tenant's key and
+// reaches each person's rows by their tables' indexes on the user, and the second reads,
+// for the people the first found, their sessions, the impersonation records they hold and
+// what the database removes with their rows. A row whose user is no account's id names
+// nobody, and a role on a record whose period has ended is left out, as RecordMemberships
+// leaves it (identity.Store.TenantHoldings).
+func (store) TenantHoldings(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]identity.PersonHoldings, error) {
+	stmt := spanner.Statement{SQL: "SELECT p.UserId, (SELECT u.Username FROM MembersSessionUsers u WHERE u.Id = p.UserId) AS Username, ARRAY(SELECT AS STRUCT m.Kind, m.Axis, m.DomainId, m.Role FROM MembersUserRoles@{FORCE_INDEX=MembersUserRolesByUserId} m WHERE m.UserId = p.UserId) AS Memberships, ARRAY(SELECT AS STRUCT g.Id, g.Kind, g.Axis, g.DomainId FROM MembersGroupMembers@{FORCE_INDEX=MembersGroupMembersByUserId} gm JOIN MembersGroups g ON g.Id = gm.GroupId WHERE gm.UserId = p.UserId) AS Places, ARRAY(SELECT AS STRUCT i.Id, i.Method, i.Connection, ARRAY(SELECT d.TenantId FROM TenantDirectories d WHERE d.Method = i.Method AND d.Connection = i.Connection) AS Tenants FROM MembersSessionIdentities i WHERE i.UserId = p.UserId) AS Links FROM (SELECT m.UserId FROM MembersUserRoles m WHERE m.Kind = @kind AND m.Axis = @axis AND m.DomainId = @domain UNION DISTINCT SELECT gm.UserId FROM MembersGroups g JOIN MembersGroupMembers gm ON gm.GroupId = g.Id WHERE g.Kind = @groupKind AND g.Axis = @groupAxis AND g.DomainId = @groupDomain UNION DISTINCT SELECT i.UserId FROM TenantDirectories d JOIN MembersSessionIdentities i ON i.Method = d.Method AND i.Connection = d.Connection WHERE d.TenantId = @tenant) p ORDER BY p.UserId", Params: map[string]any{}}
+	held := access.NewMembershipKey(accesstypes.DomainPolicyScope(domain), "", "")
+	stmt.Params["kind"], stmt.Params["axis"], stmt.Params["domain"] = held.Kind, held.Axis, held.Domain
+	kept := access.NewGroupRoleKey("", accesstypes.DomainPolicyScope(domain), "")
+	stmt.Params["groupKind"], stmt.Params["groupAxis"], stmt.Params["groupDomain"] = kept.Kind, kept.Axis, kept.Domain
+	stmt.Params["tenant"] = string(domain)
+	var people []identity.PersonHoldings
+	// ids are the people's ids as the statement read them, which no two of its rows share:
+	// the second statement is asked by them and its rows are matched by them.
+	var ids []string
+	if err := txn.SpannerReadOnlyTransaction().Query(ctx, stmt).Do(func(row *spanner.Row) error {
+		var user string
+		var username spanner.NullString
+		if err := row.ColumnByName("UserId", &user); err != nil {
+			return errors.Wrap(err, "spanner.Row.ColumnByName()")
+		}
+		if err := row.ColumnByName("Username", &username); err != nil {
+			return errors.Wrap(err, "spanner.Row.ColumnByName()")
+		}
+		id, ok := identity.UserID(accesstypes.User(user))
+		if !ok {
+			return nil
+		}
+		person := identity.PersonHoldings{ID: id, Username: username.StringVal, Found: username.Valid}
+		var memberships []*tenantHoldingsMembership
+		if err := row.ColumnByName("Memberships", &memberships); err != nil {
+			return errors.Wrap(err, "spanner.Row.ColumnByName()")
+		}
+		for _, m := range memberships {
+			person.Memberships = append(person.Memberships, access.MembershipKey{Kind: m.Kind, Axis: m.Axis, Domain: m.DomainID, Role: accesstypes.Role(m.Role), User: accesstypes.User(user)})
+		}
+		var places []*tenantHoldingsPlace
+		if err := row.ColumnByName("Places", &places); err != nil {
+			return errors.Wrap(err, "spanner.Row.ColumnByName()")
+		}
+		for _, place := range places {
+			groupID, err := impulse.UUIDFromString(place.ID)
+			if err != nil {
+				return errors.Wrap(err, "impulse.UUIDFromString()")
+			}
+			person.Places = append(person.Places, identity.GroupPlace{ID: groupID, Kind: place.Kind, Axis: place.Axis, Domain: place.DomainID})
+		}
+		var links []*tenantHoldingsLink
+		if err := row.ColumnByName("Links", &links); err != nil {
+			return errors.Wrap(err, "spanner.Row.ColumnByName()")
+		}
+		for _, link := range links {
+			linkID, err := impulse.UUIDFromString(link.ID)
+			if err != nil {
+				return errors.Wrap(err, "impulse.UUIDFromString()")
+			}
+			person.Links = append(person.Links, identity.Link{ID: linkID, Method: sessioninfo.AuthMethod(link.Method), Connection: link.Connection})
+			for _, tenant := range link.Tenants {
+				if !slices.Contains(person.DirectoryTenants, accesstypes.Domain(tenant)) {
+					person.DirectoryTenants = append(person.DirectoryTenants, accesstypes.Domain(tenant))
+				}
+			}
+		}
+		slices.Sort(person.DirectoryTenants)
+		people = append(people, person)
+		ids = append(ids, user)
+
+		return nil
+	}); err != nil {
+		return nil, errors.Wrap(err, "spanner.RowIterator.Do()")
+	}
+	if len(people) == 0 {
+		return nil, nil
+	}
+
+	at := make(map[string]int, len(ids))
+	for i, id := range ids {
+		at[id] = i
+	}
+	costs := []int{
+		resource.DeleteCost{IndexEntries: 3}.Mutations(0),
+		resource.DeleteCost{IndexEntries: 3}.Mutations(0),
+		resource.DeleteCost{IndexEntries: 4}.Mutations(0),
+		resource.DeleteCost{IndexEntries: 4}.Mutations(0),
+		resource.DeleteCost{IndexEntries: 3}.Mutations(0),
+	}
+	stmt = spanner.Statement{SQL: "SELECT p.UserId, ARRAY(SELECT AS STRUCT s.Id FROM MembersSessions s WHERE s.UserId = p.UserId AND s.Expired = FALSE) AS Sessions, (SELECT COUNT(*) FROM MembersSessionDeviceCodes c0 WHERE c0.UserId = p.UserId) AS WithUser0, (SELECT COUNT(*) FROM MembersSessionIdentities c0 WHERE c0.UserId = p.UserId) AS WithUser1, (SELECT COUNT(*) FROM MembersSessionMailLinks c0 WHERE c0.UserId = p.UserId) AS WithUser2, (SELECT COUNT(*) FROM MembersSessionTokens c0 WHERE c0.UserId = p.UserId) AS WithUser3, (SELECT COUNT(*) FROM MembersSessionTrustedDevices c0 WHERE c0.UserId = p.UserId) AS WithUser4 FROM (SELECT id AS UserId FROM UNNEST(@people) AS id) p ORDER BY p.UserId", Params: map[string]any{"people": ids}}
+	if err := txn.SpannerReadOnlyTransaction().Query(ctx, stmt).Do(func(row *spanner.Row) error {
+		var user string
+		if err := row.ColumnByName("UserId", &user); err != nil {
+			return errors.Wrap(err, "spanner.Row.ColumnByName()")
+		}
+		person := &people[at[user]]
+		var sessions []*tenantHoldingsSession
+		if err := row.ColumnByName("Sessions", &sessions); err != nil {
+			return errors.Wrap(err, "spanner.Row.ColumnByName()")
+		}
+		for _, session := range sessions {
+			sessionID, err := impulse.UUIDFromString(session.ID)
+			if err != nil {
+				return errors.Wrap(err, "impulse.UUIDFromString()")
+			}
+			person.Sessions = append(person.Sessions, identity.LiveSession{ID: sessionID})
+		}
+		for i, cost := range costs {
+			var count int64
+			if err := row.ColumnByName("WithUser"+strconv.Itoa(i), &count); err != nil {
+				return errors.Wrap(err, "spanner.Row.ColumnByName()")
+			}
+			person.WithUser += int(count) * cost
+		}
+
+		return nil
+	}); err != nil {
+		return nil, errors.Wrap(err, "spanner.RowIterator.Do()")
+	}
+
+	return people, nil
+}
+
+// DeleteCosts answers what the delete of one row of each of the Members auth's tables
+// a tenant's delete takes costs in a commit, as the schema read at generation tells it:
+// the delete and an entry out of each of the table's indexes besides its key, with no
+// change record, since the declarations write none. The withdrawal of an invitation costs
+// what its update costs: the key, the columns ConsumeMailLink writes, and each index that
+// holds one of them, two where the column is in the index's key and one and its stored
+// columns otherwise. A table the schema does not hold costs nothing
+// (identity.Store.DeleteCosts).
+func (store) DeleteCosts() identity.TenantDeleteCosts {
+	return identity.TenantDeleteCosts{
+		Membership:       resource.DeleteCost{IndexEntries: 1}.Mutations(0),
+		Group:            resource.DeleteCost{IndexEntries: 1}.Mutations(0),
+		GroupMember:      resource.DeleteCost{IndexEntries: 1}.Mutations(0),
+		GroupRole:        resource.DeleteCost{IndexEntries: 1}.Mutations(0),
+		Role:             resource.DeleteCost{IndexEntries: 0}.Mutations(0),
+		Identity:         resource.DeleteCost{IndexEntries: 3}.Mutations(0),
+		User:             resource.DeleteCost{IndexEntries: 3}.Mutations(0),
+		RecordMembership: resource.DeleteCost{IndexEntries: 1}.Mutations(resource.ChangeRecordMutations()),
+		RecordGroupRole:  resource.DeleteCost{IndexEntries: 2}.Mutations(resource.ChangeRecordMutations()),
+		Invitation:       8,
+		SessionEnd:       5,
+	}
+}
+
+// RowsWithUser counts what the database's own rules add to the delete of the user's row,
+// in mutations: each row of each table that hangs on the user by a foreign key declared
+// ON DELETE CASCADE, as the schema read at generation holds them, with an entry out of
+// each of that table's indexes, counted in the caller's transaction
+// (identity.Store.RowsWithUser). The tables: MembersSessionDeviceCodes, MembersSessionIdentities, MembersSessionMailLinks, MembersSessionTokens, MembersSessionTrustedDevices.
+func (store) RowsWithUser(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) (int, error) {
+	stmt := spanner.Statement{
+		SQL:    "SELECT (SELECT COUNT(*) FROM MembersSessionDeviceCodes c0 WHERE c0.UserId = @userId), (SELECT COUNT(*) FROM MembersSessionIdentities c0 WHERE c0.UserId = @userId), (SELECT COUNT(*) FROM MembersSessionMailLinks c0 WHERE c0.UserId = @userId), (SELECT COUNT(*) FROM MembersSessionTokens c0 WHERE c0.UserId = @userId), (SELECT COUNT(*) FROM MembersSessionTrustedDevices c0 WHERE c0.UserId = @userId)",
+		Params: map[string]any{"userId": userID.String()},
+	}
+	costs := []int{
+		resource.DeleteCost{IndexEntries: 3}.Mutations(0),
+		resource.DeleteCost{IndexEntries: 3}.Mutations(0),
+		resource.DeleteCost{IndexEntries: 4}.Mutations(0),
+		resource.DeleteCost{IndexEntries: 4}.Mutations(0),
+		resource.DeleteCost{IndexEntries: 3}.Mutations(0),
+	}
+	rows := 0
+	if err := txn.SpannerReadOnlyTransaction().Query(ctx, stmt).Do(func(row *spanner.Row) error {
+		for i, cost := range costs {
+			var count int64
+			if err := row.Column(i, &count); err != nil {
+				return errors.Wrap(err, "spanner.Row.Column()")
+			}
+			rows += int(count) * cost
+		}
+
+		return nil
+	}); err != nil {
+		return 0, errors.Wrap(err, "spanner.RowIterator.Do()")
+	}
+
+	return rows, nil
+}
+
 // DirectoryOutsiders lists the people of the Members auth who hold a role in the
 // tenant, in it or in every tenant, and have no sign-in through its directory: the
 // people the tenant's directory-only switch keeps out while it is on, and who turning
@@ -712,6 +1266,52 @@ func (c *Client) DirectoryOutsiders(ctx context.Context, txn resource.ReadWriteT
 	}
 
 	return outsiders, nil
+}
+
+// SeatedCount counts the people of the Members auth in the tenant's own
+// list of its people (MembersTenantUser): who holds a role in the tenant, in it or in
+// every tenant, and, where the tenant has a directory, who signs in through it,
+// one row a person, the list DirectoryOutsiders reads, in the caller's transaction. The
+// read of the tenant's directory-only switch says it beside the people
+// DirectoryOutsiders counts (resource.TenantDirectoryRules.CountedBy), so a page that
+// shows the switch says how many of the tenant's people it keeps out.
+func (c *Client) SeatedCount(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain) (int, error) {
+	query := membersresources.NewMembersTenantUserQuery().
+		AddColumns(membersresources.NewMembersTenantUserColumns().ID()).
+		Where(membersresources.NewMembersTenantUserQueryClause().DomainID().Equal(string(tenant)))
+	seated := 0
+	for _, err := range query.List(ctx, txn) {
+		if err != nil {
+			return 0, errors.Wrap(err, "membersresources.MembersTenantUserQuery.List()")
+		}
+		seated++
+	}
+
+	return seated, nil
+}
+
+// SeatedAgainBySignIn reports whether a person of the Members auth removed from the
+// tenant is given its starting role again the next time they sign in: the tenant's
+// row of TenantDirectories names a default seat, and the person has a sign-in identity
+// (MembersSessionIdentities) whose method and connection are that row's. The directory gives a
+// person who holds nothing in the tenant that role at every sign-in
+// (identity.Manager.DirectorySeated). It is one statement past the declarations, as
+// UserID's is, read in the caller's transaction. The warning of the generated method
+// that removes a person from a tenant asks it, and on yes says so
+// (identity.Tenant.SeatedAgainNote).
+func (c *Client) SeatedAgainBySignIn(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain, userID impulse.UUID) (bool, error) {
+	stmt := spanner.Statement{
+		SQL:    "SELECT EXISTS (SELECT 1 FROM MembersSessionIdentities i JOIN TenantDirectories d ON d.Method = i.Method AND d.Connection = i.Connection WHERE i.UserId = @userId AND d.TenantId = @tenant AND d.DefaultSeat IS NOT NULL AND d.DefaultSeat != '')",
+		Params: map[string]any{"userId": userID.String(), "tenant": string(tenant)},
+	}
+	var seated bool
+	if err := txn.SpannerReadOnlyTransaction().Query(ctx, stmt).Do(func(row *spanner.Row) error {
+		return row.Column(0, &seated)
+	}); err != nil {
+		return false, errors.Wrap(err, "spanner.RowIterator.Do()")
+	}
+
+	return seated, nil
 }
 
 // groupID answers a group's id as the declarations hold it, from the text the permission
@@ -780,12 +1380,41 @@ func (store) DescribeGroup(ctx context.Context, txn resource.ReadWriteTransactio
 	return nil
 }
 
-func (store) DeleteGroup(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error {
-	if err := membersresources.NewMembersGroupDeletePatch(id).Buffer(ctx, txn); err != nil {
-		return errors.Wrap(err, "membersresources.MembersGroupDeletePatch.Buffer()")
+func (store) DeleteGroup(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, everythingUnder bool) (*resource.DeleteLeft, error) {
+	// The group's delete takes its members and its roles (its @deleteCascade), and the
+	// application's rows that go with it (@deletedWith). The patch is not armed against
+	// a caller: the method that deletes the group has asked the caller's grants, the
+	// members and the roles are taken trusted, and the application's rows are checked as
+	// the request's caller. In a person's request the delete is that person's (deletedBy):
+	// a row it takes that keeps a change history records its delete as theirs.
+	patch := membersresources.NewMembersGroupDeletePatch(id)
+	if everythingUnder {
+		// Where the method that called declared a token (@deleteToken), the delete goes on
+		// it, and asks where it does not hold. Anywhere else it is code's word: every save
+		// asks everything again.
+		if token, declared := resource.DeleteTokenFrom(ctx); declared {
+			patch = patch.WithDeleteToken(token)
+		} else {
+			patch = patch.WithEverythingUnder()
+		}
+	}
+	if err := patch.Buffer(ctx, txn, deletedBy(ctx)...); err != nil {
+		return nil, errors.Wrap(err, "membersresources.MembersGroupDeletePatch.Buffer()")
 	}
 
-	return nil
+	return patch.Left(), nil
+}
+
+func (store) DeleteGroupWithTenant(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (*resource.DeleteLeft, error) {
+	// The tenant's delete took the application's rows under the tenant before it reached
+	// the groups: the group's delete takes its members and its roles, and leaves the
+	// application's rows out.
+	patch := membersresources.NewMembersGroupDeletePatch(id).WithEverythingUnder().WithLibraryRowsAlone()
+	if err := patch.Buffer(ctx, txn); err != nil {
+		return nil, errors.Wrap(err, "membersresources.MembersGroupDeletePatch.Buffer()")
+	}
+
+	return patch.Left(), nil
 }
 
 func (store) TenantGroups(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]impulse.UUID, error) {
@@ -1034,12 +1663,17 @@ func storedPeriod(start, end *time.Time) accesstypes.Period {
 	return period
 }
 
-// SetMembershipPeriod writes both columns, an absent start or end as NULL: the period
-// handed replaces the one the membership had.
-func (store) SetMembershipPeriod(ctx context.Context, txn resource.ReadWriteTransaction, key *access.MembershipKey, period accesstypes.Period) error {
+// SetMembershipPeriod writes both columns of the period and the reason, an absent start
+// or end and an empty reason as NULL: what is handed replaces what the membership had.
+func (store) SetMembershipPeriod(ctx context.Context, txn resource.ReadWriteTransaction, key *access.MembershipKey, period accesstypes.Period, reason string) error {
+	var why *string
+	if reason != "" {
+		why = &reason
+	}
 	patch := membersresources.NewMembersUserRoleUpdatePatch(key.Kind, key.Axis, key.Domain, string(key.Role), string(key.User)).
 		SetStartsAt(period.StartPtr()).
-		SetEndsAt(period.EndPtr())
+		SetEndsAt(period.EndPtr()).
+		SetReason(why)
 	if err := patch.Buffer(ctx, txn); err != nil {
 		return errors.Wrap(err, "membersresources.MembersUserRoleUpdatePatch.Buffer()")
 	}
@@ -1048,10 +1682,14 @@ func (store) SetMembershipPeriod(ctx context.Context, txn resource.ReadWriteTran
 }
 
 func (store) UserPeriods(ctx context.Context, txn resource.ReadOnlyTransaction, userID impulse.UUID) (*identity.UserPeriods, error) {
-	periods := &identity.UserPeriods{Memberships: map[access.MembershipKey]accesstypes.Period{}, Places: map[access.GroupMemberKey]accesstypes.Period{}}
+	periods := &identity.UserPeriods{
+		Memberships: map[access.MembershipKey]accesstypes.Period{},
+		Places:      map[access.GroupMemberKey]accesstypes.Period{},
+		Reasons:     map[access.MembershipKey]string{},
+	}
 	// The table's index by user leads with the person, the id of their account.
 	memberships := membersresources.NewMembersUserRoleQuery().
-		AddColumns(membersresources.NewMembersUserRoleColumns().Kind().Axis().DomainID().Role().UserID().StartsAt().EndsAt()).
+		AddColumns(membersresources.NewMembersUserRoleColumns().Kind().Axis().DomainID().Role().UserID().StartsAt().EndsAt().Reason()).
 		Where(membersresources.NewMembersUserRoleQueryClause().UserID().Equal(userID.String()))
 	for row, err := range memberships.List(ctx, txn) {
 		if err != nil {
@@ -1059,6 +1697,9 @@ func (store) UserPeriods(ctx context.Context, txn resource.ReadOnlyTransaction, 
 		}
 		key := access.MembershipKey{Kind: row.Data.Kind, Axis: row.Data.Axis, Domain: row.Data.DomainID, Role: accesstypes.Role(row.Data.Role), User: accesstypes.User(row.Data.UserID)}
 		periods.Memberships[key] = storedPeriod(row.Data.StartsAt, row.Data.EndsAt)
+		if row.Data.Reason != nil && *row.Data.Reason != "" {
+			periods.Reasons[key] = *row.Data.Reason
+		}
 	}
 	places := membersresources.NewMembersGroupMemberQuery().
 		AddColumns(membersresources.NewMembersGroupMemberColumns().GroupID().UserID().StartsAt().EndsAt()).
@@ -1118,14 +1759,13 @@ func (store) EndedAssignments(ctx context.Context, txn resource.ReadOnlyTransact
 	return memberships, places, nil
 }
 
-// RemoveEnded buffers each removal under the source that says the assignment ended by
-// itself (identity.EndedByItself): it is what a change record of the row holds in place
-// of a person's act.
+// RemoveEnded buffers each removal under the process that says the assignment ended by
+// itself (identity.EndedByItself): nobody made it.
 func (store) RemoveEnded(ctx context.Context, txn resource.ReadWriteTransaction, memberships []access.MembershipKey, places []access.GroupMemberKey) error {
 	for i := range memberships {
 		key := &memberships[i]
 		patch := membersresources.NewMembersUserRoleDeletePatch(key.Kind, key.Axis, key.Domain, string(key.Role), string(key.User))
-		if err := patch.Buffer(ctx, txn, identity.EndedByItself); err != nil {
+		if err := patch.Buffer(ctx, txn, eventsource.ProcessEvent(identity.EndedByItself)); err != nil {
 			return errors.Wrap(err, "membersresources.MembersUserRoleDeletePatch.Buffer()")
 		}
 	}
@@ -1134,7 +1774,7 @@ func (store) RemoveEnded(ctx context.Context, txn resource.ReadWriteTransaction,
 		if err != nil {
 			return err
 		}
-		if err := membersresources.NewMembersGroupMemberDeletePatch(id, string(place.User)).Buffer(ctx, txn, identity.EndedByItself); err != nil {
+		if err := membersresources.NewMembersGroupMemberDeletePatch(id, string(place.User)).Buffer(ctx, txn, eventsource.ProcessEvent(identity.EndedByItself)); err != nil {
 			return errors.Wrap(err, "membersresources.MembersGroupMemberDeletePatch.Buffer()")
 		}
 	}
@@ -1200,4 +1840,51 @@ func (store) GroupPeriods(ctx context.Context, txn resource.ReadOnlyTransaction,
 	}
 
 	return periods, nil
+}
+
+// errNoRecordRoles answers a call that gives or takes a role on a record for an auth whose
+// role file holds no role on a record the application marks: the generator declared
+// neither table of the roles held on a record, and the tables hold no row.
+var errNoRecordRoles = errors.New("no record of this application holds roles: mark one with @holdsRoles and name it in a role's heldOn")
+
+func (store) SetRecordMembership(context.Context, resource.ReadWriteTransaction, *access.RecordMembershipKey, accesstypes.Period) error {
+	return errNoRecordRoles
+}
+
+func (store) DeleteRecordMembership(context.Context, resource.ReadWriteTransaction, *access.RecordMembershipKey) error {
+	return errNoRecordRoles
+}
+
+func (store) SetRecordGroupRole(context.Context, resource.ReadWriteTransaction, *access.RecordGroupRoleKey, accesstypes.Period) error {
+	return errNoRecordRoles
+}
+
+func (store) DeleteRecordGroupRole(context.Context, resource.ReadWriteTransaction, *access.RecordGroupRoleKey) error {
+	return errNoRecordRoles
+}
+
+// Nobody holds a role on a record no role can be held on.
+
+func (store) RecordRoles(context.Context, resource.ReadWriteTransaction, accesstypes.RecordScope) ([]access.RecordMembershipKey, []access.RecordGroupRoleKey, error) {
+	return nil, nil, nil
+}
+
+func (store) RecordPeriods(context.Context, resource.ReadWriteTransaction, accesstypes.RecordScope) (*identity.RecordPeriods, error) {
+	return &identity.RecordPeriods{People: map[access.RecordMembershipKey]accesstypes.Period{}, Groups: map[access.RecordGroupRoleKey]accesstypes.Period{}}, nil
+}
+
+func (store) TenantRecordRoles(context.Context, resource.ReadWriteTransaction, accesstypes.Domain) ([]access.RecordMembershipKey, []access.RecordGroupRoleKey, error) {
+	return nil, nil, nil
+}
+
+func (store) RecordMemberships(context.Context, resource.ReadWriteTransaction, impulse.UUID) ([]access.RecordMembershipKey, error) {
+	return nil, nil
+}
+
+func (store) GroupRecordRoles(context.Context, resource.ReadWriteTransaction, impulse.UUID) ([]access.RecordGroupRoleKey, error) {
+	return nil, nil
+}
+
+func (store) RecordNamed(context.Context, resource.ReadWriteTransaction, accesstypes.RecordScope) (string, string, error) {
+	return "", "", errNoRecordRoles
 }

@@ -18,19 +18,19 @@ func TestAddFeatureConstant(t *testing.T) {
 		{
 			name: "a new file, with the lead and the import",
 			want: "package resources\n\nimport \"github.com/impulseframework/impulse/resource\"\n\n" + featuresFileLead + "\n" +
-				"// Debriefs is a feature flag. Replace this sentence with what the feature turns on:\n// the comment is the description the feature flags dialog shows beside its switch.\nconst Debriefs resource.Feature = \"debriefs\"\n",
+				"// Debriefs is a feature flag. Replace this sentence with what the feature turns on:\n// the comment is the description the Feature flags page shows beside the flag.\nconst Debriefs resource.Feature = \"debriefs\"\n",
 		},
 		{
 			name: "appended to a file that declares one already",
 			src:  "package resources\n\nimport \"github.com/impulseframework/impulse/resource\"\n\n// Hyperdrive jumps.\nconst Hyperdrive resource.Feature = \"hyperdrive\"\n",
 			want: "package resources\n\nimport \"github.com/impulseframework/impulse/resource\"\n\n// Hyperdrive jumps.\nconst Hyperdrive resource.Feature = \"hyperdrive\"\n\n" +
-				"// Debriefs is a feature flag. Replace this sentence with what the feature turns on:\n// the comment is the description the feature flags dialog shows beside its switch.\nconst Debriefs resource.Feature = \"debriefs\"\n",
+				"// Debriefs is a feature flag. Replace this sentence with what the feature turns on:\n// the comment is the description the Feature flags page shows beside the flag.\nconst Debriefs resource.Feature = \"debriefs\"\n",
 		},
 		{
 			name: "appended to a file without the import, which gains it",
 			src:  "package resources\n\n// Kind names a kind.\ntype Kind string\n",
 			want: "package resources\n\nimport \"github.com/impulseframework/impulse/resource\"\n\n// Kind names a kind.\ntype Kind string\n\n" +
-				"// Debriefs is a feature flag. Replace this sentence with what the feature turns on:\n// the comment is the description the feature flags dialog shows beside its switch.\nconst Debriefs resource.Feature = \"debriefs\"\n",
+				"// Debriefs is a feature flag. Replace this sentence with what the feature turns on:\n// the comment is the description the Feature flags page shows beside the flag.\nconst Debriefs resource.Feature = \"debriefs\"\n",
 		},
 	}
 	for _, tt := range tests {

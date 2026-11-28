@@ -22,7 +22,7 @@ A test suite can start the Spanner emulator or the Firestore emulator, the local
 
 ### Spanner
 
-`NewSpannerContainer(ctx, "1.5.56")` starts the Spanner emulator image of that version and creates an instance on it. `CreateDatabase` then gives each test a database of its own.
+`NewSpannerContainer(ctx, "1.5.56")` starts the Spanner emulator image of that version and creates an instance on it. `CreateDatabase` then gives each test a database of its own. `SpannerDB.DDL` returns the statements that would create the database's schema as it stands, as the database prints them.
 
 ### Firestore
 
@@ -63,11 +63,13 @@ A migration source is a directory, given as `file://<path>`: relative to the wor
 
 ### Spanner
 
-A file is split into statements with the comments stripped, since Spanner's DDL API refuses them. `INSERT`, `UPDATE` and `DELETE` statements are DML and every other statement is DDL. Consecutive statements of one kind form a group: a DDL group goes to Spanner as one batch, a DML group runs in one read-write transaction.
+A file is split into statements with the comments stripped, since Spanner's DDL API refuses them. `INSERT`, `UPDATE` and `DELETE` statements are DML and every other statement is DDL. Consecutive statements of one kind form a group: a DDL group goes to Spanner as one batch, a DML group runs in one read-write transaction, at the serializable isolation level.
 
 Spanner validates a DDL batch as a whole before applying anything, then applies its statements in order, and a statement that fails at apply time (a unique index over duplicate values, a foreign key over rows with no parent) leaves the earlier ones applied. The runner records how far the file got on the version row, in the `Applied`, `Checkpoint` and `Operation` columns, which it adds to a version table the earlier releases created, and returns a `DirtyError` naming the file, the statement and Spanner's message. Fix the cause and run again: the file continues from the failed statement. A DML group that fails rolls back whole, and nothing of it is applied.
 
-The run refuses, and says how to recover, when the file changed in its already-applied part (restore the file, or force a version) and when the database is dirty from a run that recorded no progress, as releases before 0.4 left it (force the version that matches the database's real state).
+The run refuses, and says how to recover, when the file changed in its already-applied part or in a DDL batch a stopped run left in flight (restore the file, or force a version) and when the database is dirty from a run that recorded no progress, as releases before 0.4 left it (force the version that matches the database's real state).
+
+Two runners on one database apply every statement once between them. A run writes the version row only while the row is still the one it last read or wrote, and the check and the write are one transaction; a DML group commits in the same transaction as the row that records it. A DDL group's operation is named on the version row before its batch is sent, under an operation ID Spanner accepts once, so a run that takes up another's file sends that batch only if it was never sent, and otherwise waits for the one in flight. With the name, the row records a checkpoint of the file through that batch, and the run that takes the file up checks its own file against it before it sends or waits. The runner compares nothing with the statements Spanner holds for an operation: Spanner keeps its own rewritten text of each statement, not the text it was sent. So while a batch is in flight the file must stay as it is up to the end of that batch, also in the statements the batch has not reached. Once a run has settled the batch, the file may change again from its first statement not applied. So of two runs started together, one takes each file and the other stops with `ErrAnotherRun`, having applied nothing more: run it again when the first has finished. The runner cannot tell a run that died from one that is still going, so it does not wait: a dirty version is taken up by the next run from its recorded statement, and if the first run is in fact still going, it is the one that stops with `ErrAnotherRun`, at its next write. `ForceSchema` and `ForceData` write the row whatever it holds, and stop a run in progress the same way.
 
 ### PostgreSQL
 

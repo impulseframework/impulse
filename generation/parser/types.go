@@ -18,12 +18,14 @@ type Package struct {
 }
 
 // Constant is a package-level typed constant declaration, carrying its doc and line
-// comments so godoc annotations on constants can be scanned.
+// comments so godoc annotations on constants can be scanned, and its type with any alias
+// resolved, so a constant of an alias is read as one of the type the alias names.
 type Constant struct {
-	name     string
-	typeName string // fully qualified declared type, e.g. "github.com/impulseframework/impulse/accesstypes.Resource"
-	value    string
-	comments string
+	name          string
+	typeName      string // fully qualified type, aliases resolved, e.g. "github.com/impulseframework/impulse/accesstypes.Resource"
+	value         string
+	comments      string
+	groupComments string
 }
 
 // Name returns the constant's identifier.
@@ -31,7 +33,11 @@ func (c *Constant) Name() string {
 	return c.name
 }
 
-// TypeName returns the constant's fully qualified declared type.
+// TypeName returns the constant's fully qualified type, an alias resolved to the type it
+// names: a constant of a type declared as type Name = accesstypes.Resource has the type
+// accesstypes.Resource, and one of a type declared over it (type Name
+// accesstypes.Resource) has its own. An untyped constant's is its default type's, as
+// untyped string.
 func (c *Constant) TypeName() string {
 	return c.typeName
 }
@@ -45,6 +51,34 @@ func (c *Constant) Value() string {
 // Comments returns the constant's doc and line comments.
 func (c *Constant) Comments() string {
 	return c.comments
+}
+
+// GroupComments returns the comment above the constant's const declaration when
+// Comments does not carry it: the comment of a group of several constants, or of a group
+// of one whose constant has a comment of its own. An annotation there is read by
+// nothing, and the Resource Generator refuses one.
+func (c *Constant) GroupComments() string {
+	return c.groupComments
+}
+
+// LooseComment is a comment of a package's file that belongs to no declaration: neither
+// the doc nor the line comment of the file, a declaration, a spec or a field, and in no
+// function's body. An annotation is read from the comment of what it stands above, so a
+// line written as one in a loose comment is read by nothing.
+type LooseComment struct {
+	position string
+	text     string
+}
+
+// Position returns where the comment starts: its file's base name, a colon and the line
+// of its first line (manual.go:41).
+func (c *LooseComment) Position() string {
+	return c.position
+}
+
+// Text returns the comment's text, as ast.CommentGroup.Text gives it.
+func (c *LooseComment) Text() string {
+	return c.text
 }
 
 // TypeInfo provides convience methods over a go/types' Object.

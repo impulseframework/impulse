@@ -36,6 +36,16 @@ export const liveChangeTtl = 600_000;
 export const changesHeader = 'X-Changes';
 
 /**
+ * The response header a live request's answer carries when the server registered, beside
+ * the request's own subscription, the lists the names the answer shows are read from (a
+ * list of ships that shows each one's squadron by name: the squadrons' list in the
+ * tenant): the request's own subscription as the server keeps it and those lists, as
+ * JSON, percent-encoded (see LiveNames). The live session keeps the lists under the
+ * subscription, so a change to one of them fetches the page again, and renews them with it.
+ */
+export const namesHeader = 'X-Names';
+
+/**
  * How long the first change by someone else waits before the page fetches, in
  * milliseconds: every change that arrives in the wait becomes part of the one fetch.
  * The library's default; an application sets its own in LiveOptions.
@@ -96,6 +106,15 @@ export interface ChangeEvent {
   write?: string;
 }
 
+/**
+ * Whether `event` is the one a watcher receives for the tab's own write, at the write's
+ * answer: its `at` is the write's id. An event the feed reported carries the change
+ * document's timestamp there, whoever wrote.
+ */
+export function ownWrite(event: ChangeEvent): boolean {
+  return event.write !== undefined && event.at === event.write;
+}
+
 /** A change as a write's answer names it: the row, list, or resource, with no timestamp, since no feed has reported it yet. */
 export type AnsweredChange = Omit<ChangeEvent, 'at' | 'write'>;
 
@@ -142,6 +161,82 @@ export function parseChangesHeader(value: string | undefined): WriteChanges | un
     }
   }
   return { write, changes: named, all: all === true };
+}
+
+/**
+ * What a live request's answer tells the tab in the names header. `of` is the request's own
+ * subscription as the server keeps it: a list by its resource and domain; a row by its
+ * resource and key, with no domain, since the server's record of a row names none; a list
+ * across tenants by its resource, `acrossTenants`, and the tenants it was narrowed to.
+ * `names` are the lists the server registered beside it, the ones the names the answer
+ * shows are read from: each a resource, its domain where the resource belongs to a tenant,
+ * and its `nameField` unless the name is the resource's key.
+ */
+export interface LiveNames {
+  of: LiveSubscription;
+  names: LiveSubscription[];
+}
+
+/**
+ * Reads the names header of a live request's answer; undefined when the answer carries
+ * none, or one this client cannot read, which is then no different from an answer whose
+ * names are read from no list: the page is told of changes to its own row or list alone.
+ * An entry of `names` that is not a list is passed over.
+ */
+export function parseNamesHeader(value: string | undefined): LiveNames | undefined {
+  if (value === undefined || value === '') {
+    return undefined;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(decodeURIComponent(value));
+  } catch {
+    return undefined;
+  }
+  if (typeof parsed !== 'object' || parsed === null) {
+    return undefined;
+  }
+  const { of, names } = parsed as { of?: unknown; names?: unknown };
+  const holder = namedSubscription(of);
+  if (!holder) {
+    return undefined;
+  }
+  const lists: LiveSubscription[] = [];
+  for (const entry of Array.isArray(names) ? (names as unknown[]) : []) {
+    const list = namedSubscription(entry);
+    if (list && list.key === undefined && !list.acrossTenants) {
+      lists.push(list);
+    }
+  }
+  return { of: holder, names: lists };
+}
+
+/** One subscription of the names header; undefined for an entry of a shape this client does not know. */
+function namedSubscription(entry: unknown): LiveSubscription | undefined {
+  if (typeof entry !== 'object' || entry === null) {
+    return undefined;
+  }
+  const { resource, key, domain, acrossTenants, domains, nameField } = entry as Record<string, unknown>;
+  if (typeof resource !== 'string' || resource === '') {
+    return undefined;
+  }
+  const subscription: LiveSubscription = { resource };
+  if (typeof key === 'string' && key !== '') {
+    subscription.key = key;
+  }
+  if (typeof domain === 'string' && domain !== '') {
+    subscription.domain = domain;
+  }
+  if (acrossTenants === true) {
+    subscription.acrossTenants = true;
+  }
+  if (typeof domains === 'string' && domains !== '') {
+    subscription.domains = domains;
+  }
+  if (typeof nameField === 'string' && nameField !== '') {
+    subscription.nameField = nameField;
+  }
+  return subscription;
 }
 
 /** One entry of the changes header as a change; undefined for an entry of a shape this client does not know. */
@@ -209,6 +304,14 @@ export interface LiveSubscription {
    * parameter spells them: their keys separated by commas. Absent for every tenant.
    */
   domains?: string;
+  /**
+   * Set on a list the names a page shows are read from, as a names header named it: the
+   * pointed-to resource's name field as the grants name it. The server re-checks List on
+   * that field at each renewal, not List on the resource, since a person may hold a
+   * name's grant without the resource's. Absent where the name is the resource's key, and
+   * on every subscription a page watches itself.
+   */
+  nameField?: string;
 }
 
 /** The server's answer to a renewal: the subscriptions it kept and the ones the digest no longer grants, echoed as sent. */
@@ -370,6 +473,15 @@ function subscriptionKey(subscription: LiveSubscription): string {
   return `${subscription.resource}|${subscription.key ?? ''}|${subscription.domain ?? ''}`;
 }
 
+/**
+ * A list the names a page shows are read from as the renewal tells it apart: its
+ * subscription and its name field, since the server re-checks one with a name field by
+ * that field's grant and one without by the resource's.
+ */
+function namesKey(list: LiveSubscription): string {
+  return `${subscriptionKey(list)}|${list.nameField ?? ''}`;
+}
+
 /** Whether a list across tenants covers the tenant, as far as the page can tell: it named the tenant, or named none. */
 function covers(subscription: LiveSubscription, domain: string): boolean {
   return subscription.domains === undefined || subscription.domains.split(',').includes(domain);
@@ -425,6 +537,54 @@ function reaches(change: AnsweredChange, subscription: LiveSubscription): boolea
   return subscription.key === undefined && (subscription.domain || undefined) === (change.domain || undefined);
 }
 
+/**
+ * Whether a change reaches a list the names a page shows are read from: a list change of
+ * its resource in its domain, or a change to the whole resource. Never a row change, which
+ * is for the row's own watchers: every write the list's subscribers are told of reaches
+ * them as a change to the list.
+ */
+function reachesNames(change: AnsweredChange, list: LiveSubscription): boolean {
+  if (list.resource !== change.resource || change.kind === 'row') {
+    return false;
+  }
+  return change.kind === 'resource' || (list.domain || undefined) === (change.domain || undefined);
+}
+
+/**
+ * A watched subscription as the renewal sends it: its resource, key, and domain, or, for a
+ * list across tenants, its resource, `acrossTenants`, and the tenants it was narrowed to.
+ */
+function renewed(watched: LiveSubscription): LiveSubscription {
+  const { resource, key, domain, acrossTenants, domains } = watched;
+  const subscription: LiveSubscription = { resource };
+  if (acrossTenants) {
+    subscription.acrossTenants = true;
+    if (domains !== undefined) {
+      subscription.domains = domains;
+    }
+    return subscription;
+  }
+  if (key !== undefined) {
+    subscription.key = key;
+  }
+  if (domain !== undefined) {
+    subscription.domain = domain;
+  }
+  return subscription;
+}
+
+/** A list the names of a subscription are read from as the session keeps it: its resource, its domain, and its name field. */
+function namesList(list: LiveSubscription): LiveSubscription {
+  const kept: LiveSubscription = { resource: list.resource };
+  if (list.domain !== undefined) {
+    kept.domain = list.domain;
+  }
+  if (list.nameField !== undefined) {
+    kept.nameField = list.nameField;
+  }
+  return kept;
+}
+
 const base64url = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
 
 /** A fresh opaque id: 16 random bytes as 22 base64url characters. The tab id and the seed are minted with it. */
@@ -458,6 +618,21 @@ function later(a: string | undefined, b: string | undefined): string | undefined
     return a.length > b.length ? a : b;
   }
   return a > b ? a : b;
+}
+
+/**
+ * The one of two versions taken last: of two the feed reported, the later change; else
+ * the one taken after the other, since the id of the tab's own write says nothing of
+ * time. Undefined when neither is set.
+ */
+function takenLast(a: Version | undefined, b: Version | undefined): Version | undefined {
+  if (!a || !b) {
+    return a ?? b;
+  }
+  if (a.value === a.at && b.value === b.at) {
+    return later(a.value, b.value) === a.value ? a : b;
+  }
+  return a.order > b.order ? a : b;
 }
 
 interface Watcher {
@@ -538,6 +713,13 @@ export class LiveSession {
   private readonly ownWrites = new Map<string, number>();
   /** Subscriptions the server dropped at the last renewal; not renewed again until a watcher asks for them anew. */
   private readonly dropped = new Set<string>();
+  /**
+   * The lists the names a watched subscription shows are read from, by the subscription
+   * (subscriptionKey) and then by the list (namesKey), as the answers to its requests named
+   * them: joined over the answers while the subscription is watched, forgotten with its
+   * last watcher and at logout.
+   */
+  private readonly names = new Map<string, Map<string, LiveSubscription>>();
   private readonly request: Requester;
   private readonly baseUrl: string;
   private readonly routes: LiveRoutes | undefined;
@@ -612,8 +794,10 @@ export class LiveSession {
    * Holds a row or list live: `refetch` runs when the tab's own write changed it (at
    * once), when the feed reports somebody else's change to it or to its whole resource
    * (after the wait that groups such changes), and on every resync; never while the tab
-   * is hidden, and then once when it is shown again. Returns the release. Several
-   * watchers may hold one subscription; it stays current, and renewed, while any does.
+   * is hidden, and then once when it is shown again. A change to a list the names it
+   * shows are read from, as its answers named them (`named`), runs it the same way.
+   * Returns the release. Several watchers may hold one subscription; it stays current, and
+   * renewed, while any does, and the lists its names are read from with it.
    */
   watch(subscription: LiveSubscription, refetch: LiveRefetch): () => void {
     const key = subscriptionKey(subscription);
@@ -635,27 +819,27 @@ export class LiveSession {
       current.delete(watcher);
       if (current.size === 0) {
         this.watchers.delete(key);
+        this.names.delete(key);
       }
     };
   }
 
   /**
    * The version a request for the row or list carries: the latest change taken for it or
-   * for its whole resource, the feed's (its `at`) or the tab's own write (its id), else
-   * the seed.
+   * for its whole resource, or for one of the lists the names it shows are read from or
+   * their whole resource, the feed's (its `at`) or the tab's own write (its id), else the
+   * seed.
    */
   version(subscription: LiveSubscription): string {
     const own = subscription.acrossTenants
       ? this.acrossVersion(subscription)
       : this.versions.get(versionKey(subscription));
-    const whole = this.versions.get(resourceKey(subscription.resource));
-    if (!own || !whole) {
-      return (own ?? whole)?.value ?? this.seedValue;
+    let latest = takenLast(own, this.versions.get(resourceKey(subscription.resource)));
+    for (const list of this.names.get(subscriptionKey(subscription))?.values() ?? []) {
+      latest = takenLast(latest, this.versions.get(versionKey(list)));
+      latest = takenLast(latest, this.versions.get(resourceKey(list.resource)));
     }
-    if (own.value === own.at && whole.value === whole.at) {
-      return later(own.value, whole.value) ?? own.value;
-    }
-    return own.order > whole.order ? own.value : whole.value;
+    return latest?.value ?? this.seedValue;
   }
 
   /**
@@ -663,36 +847,68 @@ export class LiveSession {
    * list the server has not dropped, each as its resource, key, and domain and nothing
    * else, since the server refuses a field it does not know. A list across tenants is its
    * resource, `acrossTenants`, and the tenants it was narrowed to: the page's filter
-   * travels with the renewal, and the server works the set out again from it.
+   * travels with the renewal, and the server works the set out again from it. After each
+   * come the lists the names it shows are read from, each once in the whole renewal, as its
+   * resource, its domain, and its `nameField`, by which the server re-checks it: a list
+   * the tab also watches in its own right is sent in both forms where they differ. One
+   * with no `nameField` is the list itself, and is not sent once the server dropped it.
    */
   subscriptions(): LiveSubscription[] {
     const current: LiveSubscription[] = [];
+    const sent = new Set<string>();
+    const send = (subscription: LiveSubscription): void => {
+      const key = namesKey(subscription);
+      if (!sent.has(key)) {
+        sent.add(key);
+        current.push(subscription);
+      }
+    };
     for (const [key, held] of this.watchers) {
       if (this.dropped.has(key)) {
         continue;
       }
       const [first] = held;
-      if (first) {
-        const { resource, key: rowKey, domain, acrossTenants, domains } = first.subscription;
-        const subscription: LiveSubscription = { resource };
-        if (acrossTenants) {
-          subscription.acrossTenants = true;
-          if (domains !== undefined) {
-            subscription.domains = domains;
-          }
-          current.push(subscription);
+      if (!first) {
+        continue;
+      }
+      send(renewed(first.subscription));
+      for (const list of this.names.get(key)?.values() ?? []) {
+        if (list.nameField === undefined && this.dropped.has(subscriptionKey(list))) {
           continue;
         }
-        if (rowKey !== undefined) {
-          subscription.key = rowKey;
-        }
-        if (domain !== undefined) {
-          subscription.domain = domain;
-        }
-        current.push(subscription);
+        send({ ...list });
       }
     }
     return current;
+  }
+
+  /**
+   * Takes a live request's names header: the lists the server registered beside the
+   * request's own subscription, the ones the names its answer shows are read from. They
+   * are kept under each watched subscription the header's `of` names, joined with the ones
+   * kept already, each once: a list by its resource and domain, a list across tenants by
+   * its resource and the tenants it was narrowed to, and a row by its resource and key in
+   * every domain the tab watches it in, since the server's record of a row names no
+   * domain. From then on a change to one of those lists, or to its whole resource, reaches
+   * the subscription's watchers as a change to their own list does; the subscription's
+   * version is the latest among its own and theirs; and each renewal carries them. An `of`
+   * nothing watches keeps nothing, and nothing happens while no feed runs: the pages are
+   * plain then.
+   */
+  named(names: LiveNames): void {
+    if (!this.feed || names.names.length === 0) {
+      return;
+    }
+    for (const holder of this.holders(names.of)) {
+      let kept = this.names.get(holder);
+      if (!kept) {
+        kept = new Map();
+        this.names.set(holder, kept);
+      }
+      for (const list of names.names) {
+        kept.set(namesKey(list), namesList(list));
+      }
+    }
   }
 
   /**
@@ -701,9 +917,10 @@ export class LiveSession {
    * so nothing happens. Any other is somebody else's change: its `at` becomes the
    * version of the row or list it names, whether or not anything watches, so a page
    * mounted later asks by it, and every watcher it reaches (a row event the row's
-   * watchers in every domain, a resource event every watcher of the resource) fetches
-   * after the wait that groups such changes: the first starts the wait, the rest join
-   * it.
+   * watchers in every domain, a resource event every watcher of the resource, a list or
+   * resource event of a list the names a subscription shows are read from that
+   * subscription's watchers) fetches after the wait that groups such changes: the first
+   * starts the wait, the rest join it.
    */
   dispatch(event: ChangeEvent): void {
     if (event.write !== undefined && this.ownWrites.has(event.write)) {
@@ -811,8 +1028,11 @@ export class LiveSession {
   /**
    * Renews the tab's current subscriptions with the server, which re-checks each against
    * the digest, and drops the ones it reports dropped: they are not renewed again until a
-   * watcher asks for them anew. At most liveRenewLimit subscriptions travel in one
-   * renewal, the server's limit. Nothing is sent while no feed runs or nothing is watched.
+   * watcher asks for them anew. A list with a `nameField` the server drops is forgotten
+   * from every subscription that kept it, and nothing else is dropped with it: the
+   * subscription stays current, and so does a list of the same resource the tab watches
+   * in its own right. At most liveRenewLimit subscriptions travel in one renewal, the
+   * server's limit. Nothing is sent while no feed runs or nothing is watched.
    */
   async renew(): Promise<RenewResponse | undefined> {
     if (!this.feed || !this.routes) {
@@ -827,6 +1047,10 @@ export class LiveSession {
       headers: this.headers(),
     });
     for (const dropped of response?.dropped ?? []) {
+      if (dropped.nameField) {
+        this.forget(dropped);
+        continue;
+      }
       this.dropped.add(subscriptionKey(dropped));
     }
     return response ?? undefined;
@@ -835,8 +1059,9 @@ export class LiveSession {
   /**
    * The logout path, run before the session is logged out: deletes every subscription of
    * the principal and revokes the feed's identity (`all: true`), stops the feed, forgets
-   * every version seen, and mints a fresh seed so the next user on this machine never
-   * meets this user's cached answers. Best effort: a refused unsubscribe still stops the
+   * every version seen and the lists the names of each subscription are read from, and
+   * mints a fresh seed so the next user on this machine never meets this user's cached
+   * answers. Best effort: a refused unsubscribe still stops the
    * feed. Without a running feed nothing is sent, since nothing was subscribed. When the
    * session is already gone (`sessionGone`: a session check answered unauthenticated),
    * nothing is sent either: the server would refuse a call no session speaks for, and its
@@ -881,6 +1106,7 @@ export class LiveSession {
     this.versions.clear();
     this.ownWrites.clear();
     this.dropped.clear();
+    this.names.clear();
     this.seedValue = mintLiveId();
   }
 
@@ -965,17 +1191,59 @@ export class LiveSession {
     return [...reached];
   }
 
-  /** The watchers a change reaches, in the order they began watching. */
+  /**
+   * The watchers a change reaches, in the order they began watching: the ones of the row
+   * or list it names, and the ones of a subscription that keeps a list it reaches.
+   */
   private reached(change: AnsweredChange): Watcher[] {
     const reached: Watcher[] = [];
-    for (const [, held] of this.watchers) {
+    for (const [key, held] of this.watchers) {
+      const kept = this.names.get(key);
+      const byNames = kept !== undefined && [...kept.values()].some((list) => reachesNames(change, list));
       for (const watcher of held) {
-        if (reaches(change, watcher.subscription)) {
+        if (byNames || reaches(change, watcher.subscription)) {
           reached.push(watcher);
         }
       }
     }
     return reached;
+  }
+
+  /**
+   * The watched subscriptions a names header's `of` names: a list, or a list across
+   * tenants, by its own key; a row by its resource and key in every domain it is watched
+   * in.
+   */
+  private holders(of: LiveSubscription): string[] {
+    if (of.key === undefined || of.acrossTenants) {
+      const key = subscriptionKey(of);
+      return this.watchers.has(key) ? [key] : [];
+    }
+    const holders: string[] = [];
+    for (const [key, held] of this.watchers) {
+      const [first] = held;
+      const subscription = first?.subscription;
+      if (
+        subscription &&
+        !subscription.acrossTenants &&
+        subscription.resource === of.resource &&
+        subscription.key === of.key
+      ) {
+        holders.push(key);
+      }
+    }
+    return holders;
+  }
+
+  /** Forgets a list the names of a subscription are read from, from every subscription that kept it. */
+  private forget(list: LiveSubscription): void {
+    const key = namesKey(list);
+    for (const [holder, kept] of this.names) {
+      kept.delete(key);
+      if (kept.size === 0) {
+        this.names.delete(holder);
+      }
+    }
   }
 
   /** Whether the tab is hidden, read when asked: a feed that resyncs as the tab is shown runs before the session hears of it. */

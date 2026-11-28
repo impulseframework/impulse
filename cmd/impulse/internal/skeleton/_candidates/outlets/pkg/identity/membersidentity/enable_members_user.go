@@ -14,11 +14,15 @@ import (
 // EnableMembersUser enables a disabled person of the Members auth, who may sign
 // in again. The sessions that ended when they were disabled stay ended.
 //
+// A row offers it only to a caller whose session enters every tenant the person
+// administers (@callerEnters); the method refuses anyone else.
+//
 // @rpc
+// @callerEnters
 // @outlet(portal)
 // @answers(204)
 type EnableMembersUser struct {
-	// @target(MembersSessionUser)
+	// @target(MembersListedUser)
 	UserID impulse.UUID
 }
 

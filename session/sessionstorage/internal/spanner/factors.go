@@ -8,34 +8,42 @@ import (
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/internal/spannertxn"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/tracer"
 	"google.golang.org/api/iterator"
 )
 
 // factorCodeColumns are the factor codes table's columns.
-const factorCodeColumns = `Id, PendingId, Email, CodeHash, Attempts, CreatedAt, ExpiresAt, ConsumedAt`
+const factorCodeColumns = `Id, PendingId, Email, CodeHash, Attempts, CreatedAt, ExpiresAt, ConsumedAt, InvitationId`
 
 // factorCodeRow is a factor code as the table holds it.
 type factorCodeRow struct {
-	ID         string           `spanner:"Id"`
-	PendingID  string           `spanner:"PendingId"`
-	Email      string           `spanner:"Email"`
-	CodeHash   []byte           `spanner:"CodeHash"`
-	Attempts   int64            `spanner:"Attempts"`
-	CreatedAt  time.Time        `spanner:"CreatedAt"`
-	ExpiresAt  time.Time        `spanner:"ExpiresAt"`
-	ConsumedAt spanner.NullTime `spanner:"ConsumedAt"`
+	ID           string             `spanner:"Id"`
+	PendingID    string             `spanner:"PendingId"`
+	Email        string             `spanner:"Email"`
+	CodeHash     []byte             `spanner:"CodeHash"`
+	Attempts     int64              `spanner:"Attempts"`
+	CreatedAt    time.Time          `spanner:"CreatedAt"`
+	ExpiresAt    time.Time          `spanner:"ExpiresAt"`
+	ConsumedAt   spanner.NullTime   `spanner:"ConsumedAt"`
+	InvitationID spanner.NullString `spanner:"InvitationId"`
 }
 
 // newFactorCodeRow renders c as the table holds it: created at the commit time, unused
 // and not consumed, whatever c carries.
 func newFactorCodeRow(c *dbtype.FactorCode) *factorCodeRow {
-	return &factorCodeRow{
+	r := &factorCodeRow{
 		ID: c.ID.String(), PendingID: c.PendingID.String(), Email: c.Email, CodeHash: c.CodeHash, Attempts: 0,
 		CreatedAt: spanner.CommitTimestamp, ExpiresAt: c.ExpiresAt,
 	}
+	if c.InvitationID.Valid {
+		r.InvitationID = spanner.NullString{StringVal: c.InvitationID.String(), Valid: true}
+	}
+
+	return r
 }
 
 func (r *factorCodeRow) code() (*dbtype.FactorCode, error) {
@@ -53,6 +61,13 @@ func (r *factorCodeRow) code() (*dbtype.FactorCode, error) {
 	if r.ConsumedAt.Valid {
 		consumedAt := r.ConsumedAt.Time
 		c.ConsumedAt = &consumedAt
+	}
+	if r.InvitationID.Valid {
+		invitationID, err := impulse.UUIDFromString(r.InvitationID.StringVal)
+		if err != nil {
+			return nil, errors.Wrap(err, "impulse.UUIDFromString()")
+		}
+		c.InvitationID = impulse.NullUUIDFromUUID(invitationID)
 	}
 
 	return c, nil
@@ -110,7 +125,7 @@ var (
 // InsertFactorCode consumes the earlier codes of c's pending sign-in that are live at
 // now and inserts c, in one transaction: one code stands for a pending sign-in at a
 // time. Inserts made at once for one pending sign-in leave one code too: the
-// transaction is serializable, Spanner's isolation unless a database is set to another,
+// transaction is at the serializable isolation level, as every one the driver runs is,
 // and its update reads the pending sign-in's live codes under locks that the other's
 // insert conflicts with, so Spanner runs one of the two after the other, where it
 // consumes the first one's code.
@@ -122,7 +137,7 @@ func (s *SessionStorageDriver) InsertFactorCode(ctx context.Context, c *dbtype.F
 	if err != nil {
 		return errors.Wrap(err, "spanner.InsertStruct()")
 	}
-	_, err = s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err = spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		stmt := spanner.NewStatement(fmt.Sprintf(`UPDATE %s SET ConsumedAt = PENDING_COMMIT_TIMESTAMP() WHERE PendingId = @pendingId AND ConsumedAt IS NULL AND ExpiresAt > @now`, s.factorCodesTableName))
 		stmt.Params["pendingId"] = c.PendingID.String()
 		stmt.Params["now"] = now
@@ -136,7 +151,7 @@ func (s *SessionStorageDriver) InsertFactorCode(ctx context.Context, c *dbtype.F
 		return nil
 	})
 	if err != nil {
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return nil
@@ -200,7 +215,7 @@ func (s *SessionStorageDriver) RecordFactorCodeAttempt(ctx context.Context, id i
 	defer span.End()
 
 	var attempts int64
-	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		read := spanner.NewStatement(fmt.Sprintf(`SELECT Attempts FROM %s WHERE Id = @id AND ConsumedAt IS NULL AND ExpiresAt > @now`, s.factorCodesTableName))
 		read.Params["id"] = id.String()
 		read.Params["now"] = now
@@ -227,7 +242,7 @@ func (s *SessionStorageDriver) RecordFactorCodeAttempt(ctx context.Context, id i
 		return 0, httpio.NewNotFoundMessage("no live factor code")
 	}
 	if err != nil {
-		return 0, errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return 0, errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return int(attempts), nil
@@ -257,7 +272,7 @@ func (s *SessionStorageDriver) ConsumeFactorCode(ctx context.Context, id impulse
 // conditionalUpdate runs stmt in a transaction of its own and answers notLive when it
 // changed no row.
 func (s *SessionStorageDriver) conditionalUpdate(ctx context.Context, stmt spanner.Statement, notLive error) error {
-	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		n, err := txn.Update(ctx, stmt)
 		if err != nil {
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
@@ -272,7 +287,7 @@ func (s *SessionStorageDriver) conditionalUpdate(ctx context.Context, stmt spann
 		return notLive
 	}
 	if err != nil {
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return nil
@@ -340,14 +355,18 @@ func (s *SessionStorageDriver) queryTrustedDevices(ctx context.Context, stmt spa
 }
 
 // TrustedDeviceByToken returns the device holding tokenHash that is live at now: not
-// revoked and not expired. Any other is NotFound.
-func (s *SessionStorageDriver) TrustedDeviceByToken(ctx context.Context, tokenHash []byte, now time.Time) (*dbtype.TrustedDevice, error) {
+// revoked, not expired, and remembered after rememberedAfter. Any other is NotFound.
+func (s *SessionStorageDriver) TrustedDeviceByToken(ctx context.Context, tokenHash []byte, now, rememberedAfter time.Time) (*dbtype.TrustedDevice, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	stmt := spanner.NewStatement(fmt.Sprintf(`SELECT %s FROM %s WHERE TokenHash = @tokenHash AND RevokedAt IS NULL AND ExpiresAt > @now`, trustedDeviceColumns, s.trustedDevicesTableName))
+	stmt := spanner.NewStatement(fmt.Sprintf(
+		`SELECT %s FROM %s WHERE TokenHash = @tokenHash AND RevokedAt IS NULL AND ExpiresAt > @now AND CreatedAt > @rememberedAfter`,
+		trustedDeviceColumns, s.trustedDevicesTableName,
+	))
 	stmt.Params["tokenHash"] = tokenHash
 	stmt.Params["now"] = now
+	stmt.Params["rememberedAfter"] = rememberedAfter
 
 	devices, err := s.queryTrustedDevices(ctx, stmt)
 	if err != nil {
@@ -398,21 +417,26 @@ func (s *SessionStorageDriver) RevokeTrustedDevice(ctx context.Context, tokenHas
 
 // RevokeTrustedDevices revokes every device of userID that is not revoked yet, at the
 // commit time.
-func (s *SessionStorageDriver) RevokeTrustedDevices(ctx context.Context, userID impulse.UUID) error {
+func (s *SessionStorageDriver) RevokeTrustedDevices(ctx context.Context, userID impulse.UUID, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		stmt := spanner.NewStatement(fmt.Sprintf(`UPDATE %s SET RevokedAt = PENDING_COMMIT_TIMESTAMP() WHERE UserId = @userId AND RevokedAt IS NULL`, s.trustedDevicesTableName))
 		stmt.Params["userId"] = userID.String()
-		if _, err := txn.Update(ctx, stmt); err != nil {
+		revoked, err := txn.Update(ctx, stmt)
+		if err != nil {
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
 		}
+		// A revocation that found no device to revoke is no act, and is not recorded.
+		if revoked == 0 {
+			return nil
+		}
 
-		return nil
+		return s.bufferAuditRecord(txn, record)
 	})
 	if err != nil {
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return nil

@@ -31,9 +31,12 @@ type SessionInfo struct {
 //
 // Principal is the authorization subject a configured principal resolver chose for
 // this request (session.WithPrincipalResolver), set at validation and never stored. It
-// is the zero Principal when no resolver is configured or the resolver kept the
-// default, in which case PrincipalFromCtx derives the subject from the impersonation
-// record or the session's own user.
+// is the zero Principal when no resolver is configured, when the resolver kept the
+// default, and for every session that acts as someone else, which the resolver is never
+// asked about: PrincipalFromCtx then derives the subject from the impersonation record
+// or the session's own user. A Principal the session store's answer carries is not
+// taken: validation clears it before the resolver is asked, so the subject comes from
+// the resolver or from the session's own user and never from a store.
 type SessionData struct {
 	*SessionInfo
 	CustomData    any
@@ -119,8 +122,8 @@ type UserInfo struct {
 	ID       impulse.UUID `spanner:"Id"           db:"Id"`
 	Username string       `spanner:"Username"     db:"Username"`
 	Disabled bool         `spanner:"Disabled"     db:"Disabled"`
-	// PasswordChangeRequired is set while the user must change a password an operator
-	// set before anything else is served; Auth sessions only.
+	// PasswordChangeRequired is set while the user must choose a new password, which an
+	// administrator required, before anything else is served; Auth sessions only.
 	PasswordChangeRequired bool `spanner:"PasswordChangeRequired" db:"PasswordChangeRequired"`
 	// Email is the user's email address, nil for none, and EmailVerifiedAt when the
 	// person proved they read it, nil while it is unverified; Auth sessions only. An

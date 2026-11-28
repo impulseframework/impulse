@@ -2,6 +2,7 @@ package transition
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"slices"
 	"strings"
@@ -10,6 +11,8 @@ import (
 	"github.com/google/go-cmp/cmp"
 
 	"github.com/impulseframework/impulse/app"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/authpkg"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton"
 )
 
 const beaconConfig = `package config
@@ -121,6 +124,7 @@ type Configurer interface {
 type App struct {
 	access      access.Controller
 	consoleDist string
+	collection  *resource.GeneratedCollection
 }
 
 // New constructs an App.
@@ -133,7 +137,7 @@ func New(cfg Configurer) *App {
 
 // UserPermissions returns the permission checker for a request.
 func (a *App) UserPermissions(r *http.Request) resource.UserPermissions {
-	return resource.SessionPermissions(r.Context(), a.access.ForUser, a.access.ForRole, nil, nil)
+	return resource.SessionPermissions(r.Context(), a.access.ForUser, a.access.ForRole, nil, nil, a.collection)
 }
 `
 
@@ -235,7 +239,7 @@ func TestTenancyApply(t *testing.T) {
 	noMenus := "web/console/src/app/app.menus.ts does not exist, so the tenant menus were not written: the Tenants menu (All tenants), People and Tenant (Sign-in settings)"
 	noPermissions := "app/app.go: UserPermissions passes no nil roster to resource.SessionPermissions, so the roster's Domains and the declarations were not handed to it; pass a.tenants.Domains and a.declarations where the session permissions are composed, so a login's tenant list is the roster filtered by its footholds and by what each tenant declares"
 	// The fixtures construct no auth, so the sign-in rule is the agent's.
-	noAuth := "no auth package constructs a session.Auth, so no sign-in rule was set; where one is, set signin.TenantPolicy(resource.SignInRoles(<engine>.UserManager()), <handlers>.NewTenantDeclarationReader()) on the session with SetSignInPolicy before the first request, so a sign-in is admitted by what the person's tenants declare"
+	noAuth := "no auth package constructs a session.Auth, so no sign-in rule was set; where one is, set signin.TenantPolicy(resource.SignInRoles(<engine>.UserManager()), <handlers>.NewTenantDeclarationReader()) on the session with SetSignInPolicy before the first request, so a sign-in is admitted by what the person's tenants declare, and set signin.PasswordsDisabledByTenants(<engine>.UserManager(), resource.OutsideSignIn(<the Spanner client>, <handlers>.NewTenantDeclarationReader())) on it with SetPasswordDisabledCheck, which the account page's Password line follows"
 	// Without an auth whose roles the application assigns, the roles of a person who
 	// creates a tenant of their own are the agent's too.
 	noSeatAuth := "no auth whose roles the application assigns constructs a session.Auth the scan reads, so the roles a person who creates a tenant of their own holds in it were not exposed on the app; the generated create-your-own route of the Tenant record asks the handlers for TenantAdministratorRoles() []accesstypes.Role (the domain roles that person holds in the new tenant, the auth's AdministratorRoles held in every tenant) beside the auth's identity client (<Auth>Identity()); add them where the App is declared"
@@ -252,13 +256,12 @@ func TestTenancyApply(t *testing.T) {
 			files: tenancyFiles(),
 			wantDid: []string{
 				"cmd/generate/resourcegenerator/main.go: added WithConcealedDomains(); the tenant segment /tenants derives from the Tenant record",
-				"schema/migrations/000003_Tenants.up.sql and .down.sql: the Tenants table (a generated id as its primary key, a unique Name, and DirectoryOnly) and the TenantDirectories table (a tenant's directory with its DefaultSeat, held to one for a tenant and to one tenant by its two unique indexes)",
+				"schema/migrations/000003_Tenants.up.sql and .down.sql: the Tenants table (a generated id as its primary key, a unique Name, CreatedAt, when the tenant was made, DirectoryOnly and Disabled) and the TenantDirectories table (a tenant's directory with its DefaultSeat and AsksSecondFactor, held to one for a tenant and to one tenant by its two unique indexes)",
 				"schema/devseed/000001_dev_tenants.up.sql and .down.sql: the development tenants North and South under fixed ids, a data migration for the bootstrap to apply before the logins",
-				"pkg/resources/tenants.go: the Tenant resource struct, global, keyed by a generated id, listed in name order (@order(Name asc)), with its declaration's flag (DirectoryOnly) and change tracking",
+				"pkg/resources/tenants.go: the Tenant resource struct, global, keyed by a generated id, listed in name order (@order(Name asc)), with CreatedAt for when each tenant was made (@tenantSince), its declaration's flag (DirectoryOnly), the column that says a tenant is disabled (Disabled) and change tracking",
 				"pkg/resources/tenant_directories.go: the TenantDirectory resource struct, a tenant's directory, set from a sign-in and never typed, tenant-scoped under /tenants/{tenantID}/tenant-directories",
 				"pkg/config/tenancy.go: the tenant roster (startTenants builds it with app.NewTenantRoster and starts it), TenantRoster() and TenantDeclarations() on DataConfiguration; pkg/config/data.go gained the field and the start",
 				"app/tenancy.go: TenancyConfigurer (embedded in Configurer, asking TenantRoster() and TenantDeclarations()) and App.TenantRoster(); app/app.go gained the fields and their assignments",
-				"web/console/src/app/components/ui/sign-in/, components/ui/new-tenant/ and configs/tenants.config.ts: the tenant's sign-in page (who may enter the tenant: its declared directories and whether they are the only way in, with its route and its page for the menu file in sign-in.routes.ts), the dialog a person who signed up creates their own tenant through (the create-your-own route) and the configuration of All tenants, the library's list page over the record, from the reference; the library's frame carries the tenant the URL names, the guard on the tenant segment, the refusal page and the place switcher",
 				"ran go generate ./..., which emitted the Tenant and TenantDirectory resources, the tenant segment pair under /tenants/{tenantID}, the roster constructor NewTenantRoster and the declaration reader NewTenantDeclarationReader",
 			},
 			wantSkipped: []string{noSignals, noAuth, noSeatAuth, noPermissions, noMenus},
@@ -271,22 +274,43 @@ func TestTenancyApply(t *testing.T) {
 					t.Errorf("app.go mismatch (-want +got):\n%s", diff)
 				}
 				for rel, want := range map[string]string{
-					"schema/migrations/000003_Tenants.up.sql":                                     "CREATE TABLE TenantDirectories (",
-					"schema/migrations/000003_Tenants.down.sql":                                   "DROP INDEX TenantDirectoriesByMethodConnection;\nDROP INDEX TenantDirectoriesByTenantId;\nDROP TABLE TenantDirectories;\nDROP INDEX TenantsByName;\nDROP TABLE Tenants;",
-					"schema/devseed/000001_dev_tenants.up.sql":                                    "INSERT INTO Tenants (Id, Name) VALUES ('11111111-1111-4111-8111-111111111111', 'North');",
-					"pkg/resources/tenants.go":                                                    "package resources\n\nimport (\n\t\"github.com/impulseframework/impulse\"\n\t\"github.com/impulseframework/impulse/resource\"\n)\n\ntype (\n\t// Tenant is the tenant record (@tenant)",
-					"pkg/resources/tenant_directories.go":                                         "\t// @resource\n\t// @permissionScope(domain)\n\t// @tenantDirectory\n\t// @order(Method asc, Connection asc)\n\tTenantDirectory struct {\n\t\tID impulse.UUID `spanner:\"Id\"`\n\t\t// @domain\n\t\tTenantID impulse.UUID `spanner:\"TenantId\"`\n\t\t// @directoryMethod\n\t\tMethod string `spanner:\"Method\"`\n\t\t// @directoryConnection\n\t\tConnection string `spanner:\"Connection\"`\n\t\t// @directoryDefaultSeat\n\t\tDefaultSeat *string `spanner:\"DefaultSeat\"`\n\t}",
-					"web/console/src/app/components/ui/sign-in/tenant-sign-in.component.ts":       "export class TenantSignInComponent",
-					"web/console/src/app/components/ui/sign-in/sign-in.routes.ts":                 "export const tenantSignInRoute",
-					"pkg/config/tenancy.go":                                                       "package config\n",
-					"app/tenancy.go":                                                              "package app\n",
-					"web/console/src/app/components/ui/new-tenant/new-tenant-dialog.component.ts": "export function openNewTenantDialog(",
-					"web/console/src/app/configs/tenants.config.ts":                               "export const tenantsConfig = rootConfig({",
+					"schema/migrations/000003_Tenants.up.sql":   "CREATE TABLE TenantDirectories (",
+					"schema/migrations/000003_Tenants.down.sql": "DROP INDEX TenantDirectoriesByMethodConnection;\nDROP INDEX TenantDirectoriesByTenantId;\nDROP TABLE TenantDirectories;\nDROP INDEX TenantsByName;\nDROP TABLE Tenants;",
+					"schema/devseed/000001_dev_tenants.up.sql":  "INSERT INTO Tenants (Id, Name, CreatedAt) VALUES ('11111111-1111-4111-8111-111111111111', 'North', PENDING_COMMIT_TIMESTAMP());",
+					"pkg/resources/tenants.go":                  "package resources\n\nimport (\n\t\"time\"\n\n\t\"github.com/impulseframework/impulse\"\n\t\"github.com/impulseframework/impulse/resource\"\n)\n\ntype (\n\t// Tenant is the tenant record (@tenant)",
+					"pkg/resources/tenant_directories.go":       "\t// @resource\n\t// @permissionScope(domain)\n\t// @tenantDirectory\n\t// @order(Method asc, Connection asc)\n\tTenantDirectory struct {\n\t\tID impulse.UUID `spanner:\"Id\"`\n\t\t// @domain\n\t\tTenantID impulse.UUID `spanner:\"TenantId\"`\n\t\t// @directoryMethod\n\t\tMethod string `spanner:\"Method\"`\n\t\t// @directoryConnection\n\t\tConnection string `spanner:\"Connection\"`\n\t\t// @directoryDefaultSeat\n\t\tDefaultSeat *string `spanner:\"DefaultSeat\"`\n\t\t// @directorySecondFactor\n\t\tAsksSecondFactor bool `spanner:\"AsksSecondFactor\"`\n\t}",
+					"pkg/config/tenancy.go":                     "package config\n",
+					"app/tenancy.go":                            "package app\n",
 				} {
 					if got := read(t, a, rel); !strings.Contains(got, want) {
 						t.Errorf("%s lacks %q:\n%s", rel, want, got)
 					}
 				}
+				// A directory's role is given at every sign-in, and again after a removal: the
+				// table's comment and the record's say so, and neither says it is given once.
+				for rel, wants := range map[string][]string{
+					"schema/migrations/000003_Tenants.up.sql": {
+						"-- DefaultSeat names the role the tenant gives a person who signs in through the\n-- directory and holds nothing in the tenant, at every sign-in,",
+						"tied to the directory before the tenant took it, and\n-- whatever they hold in other tenants; a person an administrator removes from the\n-- tenant is given it again the next time they sign in through the directory.",
+					},
+					"pkg/resources/tenant_directories.go": {
+						"\t// DefaultSeat is the role the tenant gives a person who signs in through the\n\t// directory and holds nothing in the tenant, at every sign-in:",
+						"A person an administrator\n\t// removes from the tenant is given the role again the next time they sign in\n\t// through the directory: disabling their account keeps one person out while\n\t// the tenant is open, and making the tenant invite only keeps everyone out who\n\t// is not invited.",
+					},
+				} {
+					got := read(t, a, rel)
+					for _, want := range wants {
+						if !strings.Contains(got, want) {
+							t.Errorf("%s lacks %q:\n%s", rel, want, got)
+						}
+					}
+					for _, old := range []string{"at their first sign-in", "given once"} {
+						if strings.Contains(got, old) {
+							t.Errorf("%s still says %q of the directory's role", rel, old)
+						}
+					}
+				}
+				wantNoTenantPageFiles(t, a)
 				config := read(t, a, "pkg/config/tenancy.go")
 				for _, want := range []string{"c.tenants = app.NewTenantRoster(resource.NewSpannerClient(c.spannerClient))", "// No live service field was found on DataConfiguration", "c.tenants.Start(ctx)", "func (c *DataConfiguration) TenantRoster() *resource.TenantRoster"} {
 					if !strings.Contains(config, want) {
@@ -318,14 +342,13 @@ func TestTenancyApply(t *testing.T) {
 			}(),
 			wantDid: []string{
 				"cmd/generate/resourcegenerator/main.go: added WithConcealedDomains(); the tenant segment /tenants derives from the Tenant record",
-				"schema/migrations/000003_Tenants.up.sql and .down.sql: the Tenants table (a generated id as its primary key, a unique Name, and DirectoryOnly) and the TenantDirectories table (a tenant's directory with its DefaultSeat, held to one for a tenant and to one tenant by its two unique indexes)",
+				"schema/migrations/000003_Tenants.up.sql and .down.sql: the Tenants table (a generated id as its primary key, a unique Name, CreatedAt, when the tenant was made, DirectoryOnly and Disabled) and the TenantDirectories table (a tenant's directory with its DefaultSeat and AsksSecondFactor, held to one for a tenant and to one tenant by its two unique indexes)",
 				"schema/devseed/000001_dev_tenants.up.sql and .down.sql: the development tenants North and South under fixed ids, a data migration for the bootstrap to apply before the logins",
-				"pkg/resources/tenants.go: the Tenant resource struct, global, keyed by a generated id, listed in name order (@order(Name asc)), with its declaration's flag (DirectoryOnly) and change tracking",
+				"pkg/resources/tenants.go: the Tenant resource struct, global, keyed by a generated id, listed in name order (@order(Name asc)), with CreatedAt for when each tenant was made (@tenantSince), its declaration's flag (DirectoryOnly), the column that says a tenant is disabled (Disabled) and change tracking",
 				"pkg/resources/tenant_directories.go: the TenantDirectory resource struct, a tenant's directory, set from a sign-in and never typed, tenant-scoped under /tenants/{tenantID}/tenant-directories",
 				"pkg/config/tenancy.go: the tenant roster (startTenants builds it with app.NewTenantRoster and starts it), TenantRoster() and TenantDeclarations() on DataConfiguration; pkg/config/data.go gained the field and the start",
 				"app/tenancy.go: TenancyConfigurer (embedded in Configurer, asking TenantRoster() and TenantDeclarations()) and App.TenantRoster(); app/app.go gained the fields and their assignments",
 				"app/app.go: UserPermissions passes the roster's Domains and the declarations to resource.SessionPermissions",
-				"web/console/src/app/components/ui/sign-in/, components/ui/new-tenant/ and configs/tenants.config.ts: the tenant's sign-in page (who may enter the tenant: its declared directories and whether they are the only way in, with its route and its page for the menu file in sign-in.routes.ts), the dialog a person who signed up creates their own tenant through (the create-your-own route) and the configuration of All tenants, the library's list page over the record, from the reference; the library's frame carries the tenant the URL names, the guard on the tenant segment, the refusal page and the place switcher",
 				"ran go generate ./..., which emitted the Tenant and TenantDirectory resources, the tenant segment pair under /tenants/{tenantID}, the roster constructor NewTenantRoster and the declaration reader NewTenantDeclarationReader",
 			},
 			wantSkipped: []string{noAuth, noSeatAuth, noMenus},
@@ -342,7 +365,7 @@ func TestTenancyApply(t *testing.T) {
 					}
 				}
 				application := read(t, a, "app/app.go")
-				for _, want := range []string{"\tTenancyConfigurer\n}", "\ttenants      *resource.TenantRoster\n", "\tdeclarations resource.TenantDeclarations\n", "\t\ttenants:      cfg.TenantRoster(),\n", "\t\tdeclarations: cfg.TenantDeclarations(),\n", "resource.SessionPermissions(r.Context(), a.access.ForUser, a.access.ForRole, a.tenants.Domains, a.declarations)"} {
+				for _, want := range []string{"\tTenancyConfigurer\n}", "\ttenants      *resource.TenantRoster\n", "\tdeclarations resource.TenantDeclarations\n", "\t\ttenants:      cfg.TenantRoster(),\n", "\t\tdeclarations: cfg.TenantDeclarations(),\n", "resource.SessionPermissions(r.Context(), a.access.ForUser, a.access.ForRole, a.tenants.Domains, a.declarations, a.collection)"} {
 					if !strings.Contains(application, want) {
 						t.Errorf("app.go lacks %q:\n%s", want, application)
 					}
@@ -358,8 +381,8 @@ func TestTenancyApply(t *testing.T) {
 			},
 			wantDid: []string{
 				"cmd/generate/resourcegenerator/main.go: added WithConcealedDomains(); the tenant segment /tenants derives from the Tenant record",
-				"schema/migrations/000002_Tenants.up.sql and .down.sql: the Tenants table (a generated id as its primary key, a unique Name, and DirectoryOnly) and the TenantDirectories table (a tenant's directory with its DefaultSeat, held to one for a tenant and to one tenant by its two unique indexes)",
-				"pkg/resources/tenants.go: the Tenant resource struct, global, keyed by a generated id, listed in name order (@order(Name asc)), with its declaration's flag (DirectoryOnly) and change tracking",
+				"schema/migrations/000002_Tenants.up.sql and .down.sql: the Tenants table (a generated id as its primary key, a unique Name, CreatedAt, when the tenant was made, DirectoryOnly and Disabled) and the TenantDirectories table (a tenant's directory with its DefaultSeat and AsksSecondFactor, held to one for a tenant and to one tenant by its two unique indexes)",
+				"pkg/resources/tenants.go: the Tenant resource struct, global, keyed by a generated id, listed in name order (@order(Name asc)), with CreatedAt for when each tenant was made (@tenantSince), its declaration's flag (DirectoryOnly), the column that says a tenant is disabled (Disabled) and change tracking",
 				"pkg/resources/tenant_directories.go: the TenantDirectory resource struct, a tenant's directory, set from a sign-in and never typed, tenant-scoped under /tenants/{tenantID}/tenant-directories",
 				"ran go generate ./..., which emitted the Tenant and TenantDirectory resources, the tenant segment pair under /tenants/{tenantID}, the roster constructor NewTenantRoster and the declaration reader NewTenantDeclarationReader",
 			},
@@ -368,7 +391,7 @@ func TestTenancyApply(t *testing.T) {
 				"no file declares a DataConfiguration struct, so the tenant roster was not added to the data level; build it where the database is opened with app.NewTenantRoster(client, resource.WithTenantSignals(<the live service>)), start it (Start) and fail the start on its error, and expose it as TenantRoster()",
 				noAuth,
 				"no file declares a Configurer interface, so the tenant roster was not exposed on the app; the generated code needs TenantRoster() *resource.TenantRoster on the handlers, answering the roster the data level built",
-				"web/angular.json has no project rooted over console/src/app/core/service, so the browser was left as it was: the tenant pages (the tenant's sign-in page, the All tenants page's configuration and the dialog a person who signed up creates their own tenant through), the tenant menus and the tenant segment in the routes",
+				"web/angular.json has no project rooted over console/src/app/core/service, so the browser was left as it was: the tenant menus and the tenant segment in the routes",
 			},
 			check: func(t *testing.T, a *app.App) {
 				t.Helper()
@@ -388,7 +411,7 @@ func TestTenancyApply(t *testing.T) {
 	withAuthDid := slices.Clone(tests[0].wantDid)
 	withAuthDid[6] = "app/tenancy.go: TenancyConfigurer (embedded in Configurer, asking TenantRoster() and TenantDeclarations()), App.TenantRoster() and App.TenantAdministratorRoles() (the staff auth's AdministratorRoles held in every tenant: the domain roles the Tenant record's generated create-your-own route gives the person who creates a tenant of their own, through the auth's identity client, which the generated contract asks the handlers for); app/app.go gained the fields and their assignments"
 	withAuthDid = slices.Insert(withAuthDid, 6,
-		"pkg/auth/staff/staff.go: Settings carries the declaration reader (TenantDeclarations) and the directory reader (TenantDirectories), New refuses a nil one, and New sets the sign-in rule on the session (signin.TenantPolicy over the reader, the memberships read through resource.SignInRoles) and the directory admission (session.Auth.SetDirectoryAdmission over the directory reader, the default role given by the identity client's DirectorySeated in the transaction that creates the person)",
+		"pkg/auth/staff/staff.go: Settings carries the declaration reader (TenantDeclarations) and the directory reader (TenantDirectories), New refuses a nil one, and New sets the sign-in rule on the session (signin.TenantPolicy over the reader, the memberships read through resource.SignInRoles) with the password-disabled check beside it (signin.PasswordsDisabledByTenants over the same reader, through resource.OutsideSignIn) and the directory admission (session.Auth.SetDirectoryAdmission over the directory reader, the default role given by the identity client's DirectorySeated in the transaction that creates the person)",
 		"pkg/config/data.go: the staff.Settings literal in NewDataConfiguration (an application composed before the staffSettings method) passes the declaration reader (app.NewTenantDeclarationReader()) and the directory reader (app.NewTenantDirectoryReader()) to the staff auth",
 	)
 	tests = append(tests, struct {
@@ -398,10 +421,12 @@ func TestTenancyApply(t *testing.T) {
 		wantSkipped []string
 		check       func(t *testing.T, a *app.App)
 	}{
-		name:        "the base with an auth package",
-		files:       authShape,
-		wantDid:     withAuthDid,
-		wantSkipped: []string{noSignals, noPermissions, noMenus},
+		name:    "the base with an auth package",
+		files:   authShape,
+		wantDid: withAuthDid,
+		// The fixture's auth package has no foothold, so the role a tenant's
+		// administrator holds is left to the author, with the step.
+		wantSkipped: []string{noSignals, noPermissions, noMenus, "pkg/auth/staff/foothold.go: not there, so the role a tenant's administrator holds was not written: " + Tenancy{Table: "Tenants"}.roleHandStep("staff")},
 		check: func(t *testing.T, a *app.App) {
 			t.Helper()
 			config := read(t, a, "pkg/config/tenancy.go")
@@ -429,13 +454,25 @@ func TestTenancyApply(t *testing.T) {
 				"\tTenantDirectories signin.DirectoryReader[*cloudspanner.ReadWriteTransaction]\n}",
 				"\tif settings.TenantDeclarations == nil {\n\t\treturn nil, errors.New(\"staff.Settings.TenantDeclarations is nil: the sign-in rule reads what each tenant declares about who may enter it through the generated reader (app.NewTenantDeclarationReader), which the data level hands in\")\n\t}\n",
 				"\tif settings.TenantDirectories == nil {\n\t\treturn nil, errors.New(\"staff.Settings.TenantDirectories is nil: the directory admission reads what the tenants declare about one directory, its default seat included, through the generated reader (app.NewTenantDirectoryReader), which the data level hands in\")\n\t}\n\n\tstore, err := spannerstore.New(",
-				"\tauthSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations))\n\n\t// The directory admission",
-				"\tauthSession.SetDirectoryAdmission(settings.TenantDirectories, identityClient.DirectorySeated())\n\n\treturn &Auth{db: db, access: accessClient, handlers: handlers, identity: identityClient}, nil\n",
+				// One rule, the tenant policy, since the base sets none, and the
+				// password-disabled check directly after it.
+				"\t// engine's read under the transaction's context as a nested transaction.\n\tauthSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations))\n" + passwordDisabledCheck + "\n\t// The directory admission",
+				"\tauthSession.SetDirectoryAdmission(settings.TenantDirectories, identityClient.DirectorySeated())\n\n\treturn &Auth{access: accessClient, handlers: handlers, identity: identityClient}, nil\n",
 				"\t\"github.com/impulseframework/impulse/session/signin\"\n",
 				"\t\"github.com/impulseframework/impulse/resource\"\n",
+				// The directory's default seat is given at every sign-in through it, and
+				// again after a removal.
+				"\t// The directory admission: what a person gets when they sign in through a\n\t// tenant's directory and hold nothing in the tenant, at every sign-in,",
+				"A person an administrator removes from\n\t// the tenant is given it again the next time they sign in through the\n\t// directory: disabling their account keeps one person out while the tenant is\n\t// open, and making the tenant invite only keeps everyone out who is not\n\t// invited.",
+				"which the directory\n\t// admission decides every sign-in through a tenant's directory with: the generated\n\t// reader (app.NewTenantDirectoryReader).",
 			} {
 				if !strings.Contains(staff, want) {
 					t.Errorf("staff.go lacks %q:\n%s", want, staff)
+				}
+			}
+			for _, old := range []string{"at their first sign-in", "is not given back", "a stranger's first sign-in"} {
+				if strings.Contains(staff, old) {
+					t.Errorf("staff.go still says %q of the directory's default seat", old)
 				}
 			}
 		},
@@ -561,6 +598,31 @@ func TestClientExpression(t *testing.T) {
 	}
 }
 
+// TestTenancyApply_theRecordThereAlready pins what the command says where the tenant
+// record's file is there already: it writes no record and leaves the file as it is, and
+// says what the record must hold for the table the migration writes, the time the
+// database writes when a tenant is made among it.
+func TestTenancyApply_theRecordThereAlready(t *testing.T) {
+	t.Parallel()
+
+	a := newBase(t, "staff")
+	const rel, mine = "pkg/resources/tenants.go", "package resources\n"
+	if err := os.WriteFile(a.Abs(rel), []byte(mine), 0o600); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+	ch := &Change{}
+	if err := (Tenancy{Table: "Tenants"}).writeRecord(a, "pkg/resources", ch); err != nil {
+		t.Fatalf("Tenancy.writeRecord() error = %v", err)
+	}
+	want := rel + " already exists, so the Tenant resource struct was not written; make sure it is a global @resource annotated @tenant and @order, keyed by a generated id (ID impulse.UUID), with a Name marked @tenantName and a CreatedAt marked @tenantSince (time.Time, conditions:\"output_only\", default_create_fn:\"resource.CommitTimestamp\"), which the tenant table's migration makes a column the database writes"
+	if !slices.Equal(ch.Skipped, []string{want}) || len(ch.Did) != 0 {
+		t.Errorf("Tenancy.writeRecord() did %q and skipped %q, want nothing done and the skip %q", ch.Did, ch.Skipped, want)
+	}
+	if got := read(t, a, rel); got != mine {
+		t.Errorf("%s was changed:\n%s", rel, got)
+	}
+}
+
 // TestTenancyMeaningSaysToFormat holds the brief to the one step the command cannot take:
 // it writes browser files under the record's and the auth's names without wrapping them
 // again, so the brief says to format them once the web root's packages are installed.
@@ -568,10 +630,409 @@ func TestTenancyMeaningSaysToFormat(t *testing.T) {
 	t.Parallel()
 
 	meaning := Tenancy{Table: "ServiceAreas"}.Meaning()
-	for _, want := range []string{"after the install, run `impulse check --only prettier --fix` once", "until then the `prettier` check names them"} {
+	for _, want := range []string{"after the install, run `impulse check --only prettier --fix` once", "which wraps again any line those names made longer or shorter and changes nothing where they left every line as it was", "a file that needs it fails the `prettier` check until then"} {
 		if !strings.Contains(meaning, want) {
 			t.Errorf("Meaning() lacks %q:\n%s", want, meaning)
 		}
+	}
+}
+
+// TestTenancyMeaning_tenantPagesAreTheLibrarys holds the brief's browser item to the
+// tenant pages being the browser package's: the routes carry its tenants page, the menu
+// file places its list of tenants and its invitation, which it names with the article
+// the record's word takes, and the dashboard opens its dialog. Nothing is said of a file
+// copied for them.
+func TestTenancyMeaning_tenantPagesAreTheLibrarys(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		table, invite string
+	}{
+		{table: "Tenants", invite: "Invite a tenant…, `inviteTenantAction`"},
+		{table: "Offices", invite: "Invite an office…, `inviteTenantAction`"},
+		{table: "Units", invite: "Invite a unit…, `inviteTenantAction`"},
+	} {
+		meaning := Tenancy{Table: tt.table}.Meaning()
+		for _, want := range []string{
+			"among them (`tenantsRoute(apiDescriptor, resourceMeta, { auth })`, the library's page)",
+			"`tenantsPage(apiDescriptor, resourceMeta, { auth })`, the library's page, which lists each ",
+			tt.invite + ", which opens the invitation from the menu; the list draws no Create button,",
+			"the library's dialog (`openCreateTenantDialog(dialog, apiDescriptor)`)",
+		} {
+			if !strings.Contains(meaning, want) {
+				t.Errorf("%s: Meaning() lacks %q:\n%s", tt.table, want, meaning)
+			}
+		}
+		for _, old := range []string{"tenantsConfig", "openNewTenantDialog", "copied dialog"} {
+			if strings.Contains(meaning, old) {
+				t.Errorf("%s: Meaning() still says %q", tt.table, old)
+			}
+		}
+	}
+}
+
+// TestTenancyApply_theBaseSuites pins what add tenancy says of the integration tests an
+// application without tenants starts with: each one the application still carries is
+// named with what becomes of it, so its author learns it from the change and not from
+// one compile error after another; an application that carries none is told nothing.
+func TestTenancyApply_theBaseSuites(t *testing.T) {
+	t.Parallel()
+
+	fates := map[string]string{
+		"test/integration/sign_up_test.go":             "test/integration/sign_up_test.go proves sign-up in an application without tenants, where opening a sign-in method names the role each new person gets; a tenanted application opens a method with no role, and a person who signs up creates a tenant of their own, so remove the file and prove sign-up as the reference's self_service_test.go does",
+		"test/integration/sign_up_role_test.go":        "test/integration/sign_up_role_test.go proves the list the role of a person who signs up is picked from, which the generator no longer writes once the application has tenants (its generated file is removed by the regeneration); remove the file",
+		"test/integration/first_administrator_test.go": "test/integration/first_administrator_test.go proves what tenancy leaves as it was, since the first administrator signs in as before; it is written against the base's harness, so where the harness takes the reference's sign-in helpers this file's calls of them follow",
+	}
+	tests := []struct {
+		name  string
+		files []string
+	}{
+		{name: "the base's three suites are each named", files: []string{"test/integration/sign_up_test.go", "test/integration/sign_up_role_test.go", "test/integration/first_administrator_test.go"}},
+		{name: "a suite the application no longer carries is not named", files: []string{"test/integration/first_administrator_test.go"}},
+		{name: "an application with none of them is told nothing"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			files := tenancyFiles()
+			for _, file := range tt.files {
+				files[file] = "package integration\n"
+			}
+			ch, err := Tenancy{Table: "Tenants"}.Apply(t.Context(), beacon(t, files), &fakeExec{})
+			if err != nil {
+				t.Fatalf("Apply() error = %v", err)
+			}
+			for file, fate := range fates {
+				if got, want := slices.Contains(ch.Skipped, fate), slices.Contains(tt.files, file); got != want {
+					t.Errorf("Skipped names %s = %t, want %t; got:\n%s", file, got, want, strings.Join(ch.Skipped, "\n"))
+				}
+			}
+		})
+	}
+	// The brief's list of the tests to write points at those lines.
+	if meaning := (Tenancy{Table: "Tenants"}).Meaning(); !strings.Contains(meaning, "under what the change could not make, say what becomes of `sign_up_test.go`, `sign_up_role_test.go` and `first_administrator_test.go`") {
+		t.Errorf("Meaning() does not point at what becomes of the base's suites:\n%s", meaning)
+	}
+}
+
+// TestBaseSuitesAreTheBasesOwn holds the suites the tenancy change says the fate of to
+// the skeletons themselves: every suite of the served stack the base carries and the
+// tenanted skeleton does not is one the change names, and it names no other. A suite
+// added to the base alone therefore fails here until the change says what becomes of it
+// in a tenanted application, before an author meets it as a compile error.
+func TestBaseSuitesAreTheBasesOwn(t *testing.T) {
+	t.Parallel()
+
+	suites := func(candidate string) []string {
+		t.Helper()
+		tree, err := skeleton.FS(candidate)
+		if err != nil {
+			t.Fatalf("skeleton.FS(%s) error = %v", candidate, err)
+		}
+		entries, err := fs.ReadDir(tree, integrationSuite)
+		if err != nil {
+			t.Fatalf("%s: reading %s: %v", candidate, integrationSuite, err)
+		}
+		var names []string
+		for _, e := range entries {
+			if strings.HasSuffix(e.Name(), "_test.go") {
+				names = append(names, e.Name())
+			}
+		}
+
+		return names
+	}
+	tenanted := suites(TenancyReferenceCandidate)
+	var want []string
+	for _, name := range suites(skeleton.Base) {
+		if !slices.Contains(tenanted, name) {
+			want = append(want, name)
+		}
+	}
+	var got []string
+	for _, suite := range baseSuites {
+		got = append(got, suite.file)
+	}
+	slices.Sort(want)
+	slices.Sort(got)
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("the suites the change names differ from the base's own, the ones the %s skeleton does not carry (-the skeletons +the change):\n%s", TenancyReferenceCandidate, diff)
+	}
+}
+
+// TestTenancyApply_theReadme holds the README's opening to the change: the base's says
+// the application has no tenancy and no resources, which add tenancy makes untrue, so
+// the sentence says what the application has now in the record's own names, and the
+// change says the rest of the README is the application's to bring up. The fixture is
+// the base skeleton's own README, so the sentence the transition reads is the one a
+// rendered application carries. A README in the application's own words is left alone.
+func TestTenancyApply_theReadme(t *testing.T) {
+	t.Parallel()
+
+	tree, err := skeleton.FS(skeleton.Base)
+	if err != nil {
+		t.Fatalf("skeleton.FS() error = %v", err)
+	}
+	base, err := fs.ReadFile(tree, "README.md")
+	if err != nil {
+		t.Fatalf("reading the base's README: %v", err)
+	}
+	const (
+		did  = "README.md: the opening says the application has tenancy (the ServiceArea record over ServiceAreas, its routes under /api/service-areas) where it said it had none"
+		left = "README.md describes the application as it was rendered beyond that sentence: say what its service areas hold and who its people are as the tenant-scoped resources arrive (the reference's README is the pattern)"
+		own  = "# beacon\n\nThe lighthouse keepers' rota.\n"
+	)
+	tests := []struct {
+		name     string
+		readme   string
+		want     string
+		wantSaid bool
+	}{
+		{
+			name: "the base's opening", readme: string(base), wantSaid: true,
+			want: "One site, one browser application, tenancy as data: the `ServiceArea` record (`@tenant`) over the\n`ServiceAreas` table is the domain universe, a tenant's key is an id the server generates, and\ntenant-scoped routes live under `/api/service-areas/{serviceAreaID}/`.\n",
+		},
+		{name: "a README in the application's own words", readme: own, want: own},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			files := tenancyFiles()
+			files["README.md"] = tt.readme
+			a := beacon(t, files)
+			ch, err := Tenancy{Table: "ServiceAreas"}.Apply(t.Context(), a, &fakeExec{})
+			if err != nil {
+				t.Fatalf("Apply() error = %v", err)
+			}
+			got := read(t, a, "README.md")
+			if !strings.Contains(got, tt.want) {
+				t.Errorf("README.md lacks %q:\n%s", tt.want, got[:min(len(got), 700)])
+			}
+			if strings.Contains(got, "no tenancy") != (!tt.wantSaid && strings.Contains(tt.readme, "no tenancy")) {
+				t.Errorf("README.md says the application has no tenancy = %t after the change:\n%s", strings.Contains(got, "no tenancy"), got[:min(len(got), 700)])
+			}
+			if got := slices.Contains(ch.Did, did); got != tt.wantSaid {
+				t.Errorf("Did names the README's opening = %t, want %t; got:\n%s", got, tt.wantSaid, strings.Join(ch.Did, "\n"))
+			}
+			if got := slices.Contains(ch.Skipped, left); got != tt.wantSaid {
+				t.Errorf("Skipped says the rest of the README is the application's = %t, want %t; got:\n%s", got, tt.wantSaid, strings.Join(ch.Skipped, "\n"))
+			}
+		})
+	}
+}
+
+// passwordDisabledCheck is what add tenancy and the auth package's template write directly
+// after the tenant policy, on the session authSession over the settings' declaration
+// reader: a blank line, the comment and the check that says whose password the tenants'
+// sign-in settings disable.
+const passwordDisabledCheck = "\n" +
+	"\t// The same rule, asked outside a sign-in, says whose password is disabled: a person\n" +
+	"\t// the rule would refuse a sign-in with a password as directory only. Their account\n" +
+	"\t// page draws no Password line and they are refused a first password\n" +
+	"\t// (SetPasswordDisabledCheck). The declarations are read with the sign-in's reader,\n" +
+	"\t// each in a transaction of its own (resource.OutsideSignIn).\n" +
+	"\tauthSession.SetPasswordDisabledCheck(signin.PasswordsDisabledByTenants(accessClient.UserManager(), resource.OutsideSignIn(db, settings.TenantDeclarations)))\n"
+
+// TestTenancyApply_oneSignInRule pins the sign-in rule add tenancy leaves on an auth:
+// one call. The base's auth package sets no rule, so the transition writes the tenant
+// policy as the Auth's rule and takes out the comment saying it sets none. An Auth has
+// one rule, a second SetSignInPolicy call panicking when the auth opens, so where New set
+// a rule already, both calls stand and the change says they must become one. Wherever the
+// tool writes the tenant policy it writes the password-disabled check directly after it;
+// where it writes no rule, the change names the check beside the call it tells the reader
+// to make.
+func TestTenancyApply_oneSignInRule(t *testing.T) {
+	t.Parallel()
+
+	twoRules := "pkg/auth/staff/staff.go: New set a sign-in rule before this change, and now sets the tenant policy beside it; an Auth has one rule and a second SetSignInPolicy call panics when the auth opens, so make the two one call: the tenant policy first, and the rule that stood chained after it with .Then"
+	base := staffPackage(t, "staff.go")
+	if n := strings.Count(base, ".SetSignInPolicy("); n != 0 {
+		t.Fatalf("the base's auth package sets a sign-in rule %d time(s), want none: the fixture of this test", n)
+	}
+	if n := strings.Count(base, authpkg.NoSignInRule); n != 1 {
+		t.Fatalf("the base's auth package says it sets no sign-in rule %d time(s), want once: the fixture of this test", n)
+	}
+	// A rule of the application's own, where the base says it sets none.
+	const houseRule = "authSession.SetSignInPolicy(houseRule)"
+	withHouseRule := func(src string) string {
+		return strings.Replace(src, authpkg.NoSignInRule, "\t"+houseRule, 1)
+	}
+	// An auth package whose New ends in a form of its own: the tool writes no rule there.
+	const skeletonEnd, ownEnd = "\treturn &Auth{access: accessClient, handlers: handlers, identity: identityClient}, nil\n", "\tauth := &Auth{access: accessClient, handlers: handlers, identity: identityClient}\n\n\treturn auth, nil\n"
+	if strings.Count(base, skeletonEnd) != 1 {
+		t.Fatalf("the base's auth package ends New as the skeleton does %d time(s), want once: the fixture of this test", strings.Count(base, skeletonEnd))
+	}
+	ownForm := strings.Replace(base, skeletonEnd, ownEnd, 1)
+	oneAlready := "pkg/auth/staff/staff.go: New does not end in `return &Auth{access: accessClient, handlers: handlers, identity: identityClient}, nil` as the skeleton's does, so the sign-in rule was not changed, and New sets one already; an Auth has one rule and a second SetSignInPolicy call panics when the auth opens, so make the call New makes now the tenant policy with the rule that stood chained after it: authSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations).Then(<the rule New sets now>)); and set the check the account page's Password line follows beside it: authSession.SetPasswordDisabledCheck(signin.PasswordsDisabledByTenants(accessClient.UserManager(), resource.OutsideSignIn(db, settings.TenantDeclarations)))"
+	// The same New with no rule at all: the tool writes none, and says which to set.
+	noneSet := "pkg/auth/staff/staff.go: New does not end in `return &Auth{access: accessClient, handlers: handlers, identity: identityClient}, nil` as the skeleton's does, so the sign-in rule was not set; call authSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations)) before the first request, and authSession.SetPasswordDisabledCheck(signin.PasswordsDisabledByTenants(accessClient.UserManager(), resource.OutsideSignIn(db, settings.TenantDeclarations))) beside it, which the account page's Password line follows"
+	tests := []struct {
+		name        string
+		staff       string
+		wantCalls   int
+		wantRule    string
+		wantSkipped bool
+		// wantLeft is a line the change leaves for the reader, beside the two above.
+		wantLeft string
+		// wantCheck says the password-disabled check follows wantRule directly.
+		wantCheck bool
+	}{
+		{
+			// The reader is told to make the one call the tenant policy, never to add a
+			// second call beside the rule that stands.
+			name: "a New of another form keeps its one rule, and the change says to make that call the tenant policy", staff: withHouseRule(ownForm), wantCalls: 1, wantLeft: oneAlready,
+			wantRule: houseRule,
+		},
+		{
+			name: "the base gains the tenant policy as its one rule", staff: base, wantCalls: 1, wantCheck: true,
+			wantRule: "authSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations))",
+		},
+		{
+			name: "a rule of another form is left, and the change says the two must become one", staff: withHouseRule(base), wantCalls: 2, wantSkipped: true, wantCheck: true,
+			wantRule: "authSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations))",
+		},
+		{
+			name: "a New of another form that sets no rule is left so, and the change names the rule and the check to set", staff: ownForm, wantCalls: 0, wantLeft: noneSet,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			files := tenancyFiles()
+			files["pkg/config/data.go"] = authConfig
+			files["pkg/auth/staff/staff.go"] = tt.staff
+			a := beacon(t, files)
+			ch, err := Tenancy{Table: "Tenants"}.Apply(t.Context(), a, &fakeExec{})
+			if err != nil {
+				t.Fatalf("Apply() error = %v", err)
+			}
+			staff := read(t, a, "pkg/auth/staff/staff.go")
+			if n := strings.Count(staff, ".SetSignInPolicy("); n != tt.wantCalls {
+				t.Errorf("staff.go calls SetSignInPolicy %d time(s), want %d:\n%s", n, tt.wantCalls, staff)
+			}
+			if !strings.Contains(staff, tt.wantRule) {
+				t.Errorf("staff.go lacks %q:\n%s", tt.wantRule, staff)
+			}
+			if got := strings.Contains(staff, tt.wantRule+"\n"+passwordDisabledCheck); got != tt.wantCheck {
+				t.Errorf("staff.go sets the password-disabled check directly after the tenant policy = %t, want %t:\n%s", got, tt.wantCheck, staff)
+			}
+			if got, want := strings.Count(staff, ".SetPasswordDisabledCheck("), strings.Count(staff, "SetSignInPolicy(signin.TenantPolicy("); got != want {
+				t.Errorf("staff.go sets the password-disabled check %d time(s) and the tenant policy %d time(s), want as many", got, want)
+			}
+			if got, want := strings.Contains(staff, authpkg.NoSignInRule), tt.wantCalls == 0; got != want {
+				t.Errorf("staff.go says it sets no sign-in rule = %t, want %t:\n%s", got, want, staff)
+			}
+			if got := slices.Contains(ch.Skipped, twoRules); got != tt.wantSkipped {
+				t.Errorf("Skipped says the two rules must become one = %t, want %t; got:\n%s", got, tt.wantSkipped, strings.Join(ch.Skipped, "\n"))
+			}
+			if tt.wantLeft != "" && !slices.Contains(ch.Skipped, tt.wantLeft) {
+				t.Errorf("Skipped lacks %q; got:\n%s", tt.wantLeft, strings.Join(ch.Skipped, "\n"))
+			}
+			for _, line := range ch.Skipped {
+				if tt.wantCalls > 0 && tt.wantLeft != "" && strings.Contains(line, "so the sign-in rule was not set; call ") {
+					t.Errorf("the change tells the reader to call SetSignInPolicy beside the rule that stands, which panics when the auth opens: %s", line)
+				}
+			}
+		})
+	}
+}
+
+// Test_retellPermissions pins the UserPermissions comment add tenancy leaves: the base
+// skeleton's says the application has no tenants, and once the function is handed the
+// roster and the declarations it says what the reference's says. A comment that is not
+// the skeleton's is left as its author wrote it.
+func Test_retellPermissions(t *testing.T) {
+	t.Parallel()
+
+	comment := func(candidate string) string {
+		t.Helper()
+		sub, err := skeleton.FS(candidate)
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, err := fs.ReadFile(sub, "app/app.go")
+		if err != nil {
+			t.Fatal(err)
+		}
+		src := string(data)
+		start, end := strings.Index(src, "// UserPermissions returns"), strings.Index(src, "func (a *App) UserPermissions(")
+		if start < 0 || end < start {
+			t.Fatalf("the %s skeleton's app/app.go carries no UserPermissions comment", candidate)
+		}
+
+		return src[start:end]
+	}
+	base, reference := comment("solo"), comment(TenancyReferenceCandidate)
+	if got := string(Tenancy{}.retellPermissions([]byte(base))); got != reference {
+		t.Errorf("the base's comment retold (-want +got):\n%s", cmp.Diff(reference, got))
+	}
+	own := "// UserPermissions answers who may do what.\n"
+	if got := string(Tenancy{}.retellPermissions([]byte(own))); got != own {
+		t.Errorf("an author's own comment was rewritten to %q", got)
+	}
+}
+
+// TestTenancyApply_theCommentFollowsTheDeclarations holds the UserPermissions comment to
+// what the function was handed: it is retold as the reference's once the roster and the
+// declarations are passed, and it is left as it was where the declarations could not be
+// handed over, since a comment saying a tenant is offered by its declaration would not
+// be true of that function.
+func TestTenancyApply_theCommentFollowsTheDeclarations(t *testing.T) {
+	t.Parallel()
+
+	tree, err := skeleton.FS(skeleton.Base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := fs.ReadFile(tree, "app/app.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	start, end := strings.Index(src, "// UserPermissions returns"), strings.Index(src, "func (a *App) UserPermissions(")
+	if start < 0 || end < start {
+		t.Fatal("the base skeleton's app/app.go carries no UserPermissions comment")
+	}
+	const plain, untenanted, retold = "// UserPermissions returns the permission checker for a request.\n", "The application has no tenants", "A tenant is offered only when the"
+	both := strings.Replace(permissionsApp, plain, src[start:end], 1)
+	if both == permissionsApp || !strings.Contains(both, untenanted) {
+		t.Fatal("the fixture App no longer carries the comment this test replaces with the base's")
+	}
+	rosterAlone := strings.Replace(both, "a.access.ForRole, nil, nil, a.collection)", "a.access.ForRole, nil, a.collection)", 1)
+	if rosterAlone == both {
+		t.Fatal("the fixture App no longer passes the two nils this test reduces to one")
+	}
+	tests := []struct {
+		name       string
+		app        string
+		wantRetold bool
+	}{
+		{name: "the roster and the declarations are handed over", app: both, wantRetold: true},
+		{name: "the declarations could not be handed over", app: rosterAlone},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			files := tenancyFiles()
+			files["app/app.go"] = tt.app
+			a := beacon(t, files)
+			ch, err := Tenancy{Table: "Tenants"}.Apply(t.Context(), a, &fakeExec{})
+			if err != nil {
+				t.Fatalf("Apply() error = %v", err)
+			}
+			got := read(t, a, "app/app.go")
+			if strings.Contains(got, retold) != tt.wantRetold || strings.Contains(got, untenanted) == tt.wantRetold {
+				t.Errorf("the comment is retold = %t and says the application has no tenants = %t, want retold = %t:\n%s", strings.Contains(got, retold), strings.Contains(got, untenanted), tt.wantRetold, got)
+			}
+			left := slices.ContainsFunc(ch.Skipped, func(line string) bool { return strings.Contains(line, "so the declarations were not handed to it") })
+			if left == tt.wantRetold {
+				t.Errorf("the change says the declarations were not handed over = %t, want %t; got:\n%s", left, !tt.wantRetold, strings.Join(ch.Skipped, "\n"))
+			}
+		})
 	}
 }
 
@@ -601,11 +1062,15 @@ func TestTenancyApply_whoIsAdmittedWithoutATenant(t *testing.T) {
 	staff := read(t, a, "pkg/auth/staff/staff.go")
 	for _, want := range []string{
 		"\t// A person who holds no tenant is admitted too (signin.AdmitWithoutTenant): a\n\t// person who signs up through a sign-in method an administrator opened signs in\n\t// first and creates a tenant of their own, and keeps their account when the method\n\t// is made invite only again.",
-		"\tauthSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations, signin.AdmitWithoutTenant()))\n",
+		"\tauthSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations, signin.AdmitWithoutTenant()))\n" + passwordDisabledCheck,
 	} {
 		if !strings.Contains(staff, want) {
 			t.Errorf("staff.go lacks %q:\n%s", want, staff)
 		}
+	}
+	// An Auth has one rule: a second call would panic when the auth opens.
+	if n := strings.Count(staff, ".SetSignInPolicy("); n != 1 {
+		t.Errorf("staff.go calls SetSignInPolicy %d time(s), want once:\n%s", n, staff)
 	}
 	if refused := "A person who holds no tenant is refused (no_tenant)"; strings.Contains(staff, refused) {
 		t.Errorf("staff.go says %q of the auth whose people create a tenant of their own", refused)
@@ -695,7 +1160,7 @@ func TestTenancyApply_theAuthATenantIsMadeThrough(t *testing.T) {
 	inAuth := []string{
 		"\t// TenantMaker makes a Tenant from an accepted invitation: the generated maker over\n\t// the record's own create patch (app.NewTenantMaker). Nobody creates a tenant\n\t// directly: staff invite one person with its details, which the auth's identity\n\t// client checks with the maker when the invitation is sent, and that person's first\n\t// sign-in makes the tenant with it. Required; New refuses nil.\n\tTenantMaker identity.TenantMaker\n}",
 		"\tif settings.TenantMaker == nil {\n\t\treturn nil, errors.New(\"staff.Settings.TenantMaker is nil: a tenant is made by an invitation's first sign-in, through the generated maker over the Tenant record (app.NewTenantMaker), which the data level hands in\")\n\t}\n\n\tstore, err := spannerstore.New(",
-		"\tidentityClient, err := staffidentity.NewClient(accessClient, authSession.API(), settings.TenantMaker, identity.WithAdministratorRoles(tenantAdministrators))\n",
+		"\tidentityClient, err := staffidentity.NewClient(accessClient, authSession.API(), settings.TenantMaker, identity.WithFirstAdministratorRoles(FirstAdministratorRoles()), identity.WithAdministratorRoles(tenantAdministrators))\n",
 	}
 	carried := "pkg/auth/staff/staff.go: Settings carries the declaration reader (TenantDeclarations), the directory reader (TenantDirectories) and what makes a tenant from an accepted invitation (TenantMaker, which New hands the identity client), New refuses a nil one, and New sets the sign-in rule on the session"
 	obligation := "the staff auth is not handed what makes a tenant from an accepted invitation, and refuses to start without it (staff.Settings.TenantMaker is nil): a tenant is made through this auth, by the first sign-in of a person its staff invited, so build the roster before the auth where the data level is opened (app.NewTenantRoster(<the client>, resource.WithTenantSignals(<the live service>)), which startTenants then only starts) and pass app.NewTenantMaker(<the roster>, <the live service>) in the auth's Settings"
@@ -736,7 +1201,13 @@ func TestTenancyApply_theAuthATenantIsMadeThrough(t *testing.T) {
 		// startTenants starts the roster the level built and constructs none, so its file
 		// imports no handlers package.
 		tenancy := read(t, a, "pkg/config/tenancy.go")
-		for _, want := range []string{"// startTenants starts the tenant roster, built over the Tenant record with the generated\n// constructor where the level is opened, ahead of the auth a tenant is made through", "\tif err := c.tenants.Start(ctx); err != nil {\n", "\tc.staff.Session().SetTenantNames(c.tenants)\n"} {
+		for _, want := range []string{
+			"// startTenants starts the tenant roster, built over the Tenant record with the generated\n// constructor where the level is opened, ahead of the auth a tenant is made through",
+			// The function builds nothing here, and opens with the start: no blank line
+			// stands after its brace, which the application's own lint refuses.
+			"func (c *DataConfiguration) startTenants(ctx context.Context) error {\n\tif err := c.tenants.Start(ctx); err != nil {\n",
+			"\tc.staff.Session().SetTenantNames(c.tenants)\n",
+		} {
 			if !strings.Contains(tenancy, want) {
 				t.Errorf("tenancy.go lacks %q:\n%s", want, tenancy)
 			}
@@ -851,7 +1322,7 @@ func TestTenancyApply_oneTenantPerPerson(t *testing.T) {
 			t.Fatalf("Apply() error = %v", err)
 		}
 		staff := read(t, a, "pkg/auth/staff/staff.go")
-		if want := "\tidentityClient, err := staffidentity.NewClient(accessClient, authSession.API(), settings.TenantMaker, identity.WithAdministratorRoles(tenantAdministrators), " + option + ")\n"; !strings.Contains(staff, want) {
+		if want := "\tidentityClient, err := staffidentity.NewClient(accessClient, authSession.API(), settings.TenantMaker, identity.WithFirstAdministratorRoles(FirstAdministratorRoles()), identity.WithAdministratorRoles(tenantAdministrators), " + option + ")\n"; !strings.Contains(staff, want) {
 			t.Errorf("staff.go lacks %q:\n%s", want, staff)
 		}
 		if !slices.Contains(ch.Did, did) {

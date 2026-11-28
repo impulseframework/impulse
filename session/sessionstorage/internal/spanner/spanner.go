@@ -10,7 +10,9 @@ import (
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/internal/spannertxn"
 	"github.com/impulseframework/impulse/securehash"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/session/sessioninfo"
@@ -21,7 +23,13 @@ import (
 	"google.golang.org/grpc/codes"
 )
 
-// SessionStorageDriver represents the session storage implementation for Spanner.
+// SessionStorageDriver represents the session storage implementation for Spanner. Every
+// read-write transaction it runs is at the serializable isolation level
+// (spannertxn.Serializable), whatever level the application set for the client. Its rules
+// read before they write (a sign-in reads the user's row and inserts a session, the
+// removal of a link or a password reads the person's other means of sign-in, a sign-in
+// code's insert reads the pending sign-in's live codes), and each holds only while Spanner
+// serializes the read with what another transaction writes at the same moment.
 type SessionStorageDriver struct {
 	spanner          *spanner.Client
 	sessionTableName string
@@ -42,6 +50,10 @@ type SessionStorageDriver struct {
 	mailLinksTableName string
 	// signInMethodsTableName names the auth schema's sign-in methods table.
 	signInMethodsTableName string
+	// signInSettingsTableName names the auth schema's sign-in settings table.
+	signInSettingsTableName string
+	// auditRecordsTableName names the auth schema's audit records table.
+	auditRecordsTableName string
 	// tokensTableName names the auth schema's tokens table.
 	tokensTableName string
 	// deviceCodesTableName names the auth schema's device codes table.
@@ -70,6 +82,8 @@ func NewSessionStorageDriver(client *spanner.Client) *SessionStorageDriver {
 		attemptsTableName:       dbtype.SignInAttemptsTable,
 		mailLinksTableName:      dbtype.MailLinksTable,
 		signInMethodsTableName:  dbtype.SignInMethodsTable,
+		signInSettingsTableName: dbtype.SignInSettingsTable,
+		auditRecordsTableName:   dbtype.AuditRecordsTable,
 		tokensTableName:         dbtype.TokensTable,
 		deviceCodesTableName:    dbtype.DeviceCodesTable,
 		factorCodesTableName:    dbtype.FactorCodesTable,
@@ -105,6 +119,17 @@ func (s *SessionStorageDriver) SetUserTableName(name string) error {
 // conflict.
 func (s *SessionStorageDriver) usernameIndex() string {
 	return s.userTableName + "ByNormalizedUsername"
+}
+
+// usernameFold is the form the normalized username column holds, over operand (the
+// column's source or a parameter), which every lookup by username compares the column
+// with. A username with an @ in it reads as an email address and is folded as an
+// address is (addressFold): its ASCII capital letters lowercased and every other
+// character as written. Any other username is normalized, put in Unicode's case folding
+// and normalized again (attempts.FoldWide says why). The key a name's failed sign-ins are
+// counted under is the same form (attempts.Normalize).
+func usernameFold(operand string) string {
+	return fmt.Sprintf(`IF(STRPOS(%[1]s, '@') > 0, %[2]s, NORMALIZE(NORMALIZE_AND_CASEFOLD(%[1]s)))`, operand, addressFold(operand))
 }
 
 // exactUsernameIndex is the unique index on the user table's username as written, named
@@ -231,6 +256,44 @@ func (s *SessionStorageDriver) SetSignInMethodsTableName(name string) error {
 	return nil
 }
 
+// SetSignInSettingsTableName sets the name of the sign-in settings table; a name that
+// is not an identifier is refused (dbtype.ValidateTableName).
+func (s *SessionStorageDriver) SetSignInSettingsTableName(name string) error {
+	if err := dbtype.ValidateTableName(name); err != nil {
+		return errors.Wrap(err, "dbtype.ValidateTableName()")
+	}
+	s.signInSettingsTableName = name
+
+	return nil
+}
+
+// SetAuditRecordsTableName sets the name of the audit records table; a name that is not
+// an identifier is refused (dbtype.ValidateTableName).
+func (s *SessionStorageDriver) SetAuditRecordsTableName(name string) error {
+	if err := dbtype.ValidateTableName(name); err != nil {
+		return errors.Wrap(err, "dbtype.ValidateTableName()")
+	}
+	s.auditRecordsTableName = name
+
+	return nil
+}
+
+// SetAuditRecordsPeriod refuses every period on Spanner: the audit records table's row
+// deletion policy, written into the application's migration (auditlog.SpannerDDL),
+// removes the rows older than the period the Auth keeps them for, so a period handed
+// here would do nothing. The refusal names what to write in its place: the policy's
+// statement for the table, or for a period of forever that a table with no policy keeps
+// every row.
+func (s *SessionStorageDriver) SetAuditRecordsPeriod(period auditlog.Period) error {
+	const refused = "session.KeepAuditRecords does nothing on Spanner, where the audit records table's row deletion policy removes old rows. Leave the option out"
+	if _, ok := period.Days(); !ok {
+		return errors.New(refused + ": a table with no row deletion policy keeps every row.")
+	}
+	statements := auditlog.SpannerDDL(s.auditRecordsTableName, period)
+
+	return errors.Newf("%s and add this statement to a migration: %s", refused, statements[len(statements)-1])
+}
+
 // Session returns the session information from the database for given sessionID
 func (s *SessionStorageDriver) Session(ctx context.Context, sessionID impulse.UUID) (*dbtype.SessionData, error) {
 	ctx, span := tracer.Start(ctx)
@@ -250,7 +313,7 @@ func (s *SessionStorageDriver) Session(ctx context.Context, sessionID impulse.UU
 	row, err := iter.Next()
 	if err != nil {
 		if errors.Is(err, iterator.Done) {
-			return nil, httpio.NewNotFoundMessagef("session %q not found", sessionID)
+			return nil, dbtype.SessionNotFound(sessionID)
 		}
 
 		return nil, errors.Wrap(err, "spanner.RowIterator.Next()")
@@ -380,7 +443,7 @@ func (s *SessionStorageDriver) UpdateSessionActivity(ctx context.Context, sessio
 
 	if _, err := s.spanner.Apply(ctx, []*spanner.Mutation{mutation}); err != nil {
 		if spanner.ErrCode(err) == codes.NotFound {
-			return httpio.NewNotFoundMessagef("session %q not found", sessionUpdate.ID)
+			return dbtype.SessionNotFound(sessionUpdate.ID)
 		}
 
 		return errors.Wrap(err, "spanner.Client.Apply()")
@@ -451,7 +514,7 @@ func (s *SessionStorageDriver) applySessionInsert(ctx context.Context, id impuls
 	}
 
 	// Use a ReadWriteTransaction so the resolver can read within the same transaction.
-	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		if err := txn.BufferWrite(sessionMutations); err != nil {
 			return errors.Wrap(err, "txn.BufferWrite()")
 		}
@@ -474,7 +537,7 @@ func (s *SessionStorageDriver) applySessionInsert(ctx context.Context, id impuls
 		return nil
 	})
 	if err != nil {
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return nil
@@ -535,7 +598,7 @@ func (s *SessionStorageDriver) DestroySession(ctx context.Context, sessionID imp
 		statements = append(statements, endRecord)
 	}
 
-	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		if _, err := txn.BatchUpdate(ctx, statements); err != nil {
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.BatchUpdate()")
 		}
@@ -543,7 +606,7 @@ func (s *SessionStorageDriver) DestroySession(ctx context.Context, sessionID imp
 		return nil
 	})
 	if err != nil {
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return nil
@@ -564,7 +627,7 @@ func (s *SessionStorageDriver) User(ctx context.Context, id impulse.UUID) (*dbty
 	user := &dbtype.SessionUser{}
 	if err := spxscan.Get(ctx, s.spanner.Single(), user, stmt); err != nil {
 		if errors.Is(err, spxapi.ErrNotFound) {
-			return nil, httpio.NewNotFoundMessagef("user id %q does not exist", id)
+			return nil, dbtype.AccountNotFound(id)
 		}
 
 		return nil, errors.Wrap(err, "spxscan.Get()")
@@ -581,14 +644,14 @@ func (s *SessionStorageDriver) UserByUserName(ctx context.Context, username stri
 	stmt := spanner.NewStatement(fmt.Sprintf(`
 		SELECT %s
 		FROM %s
-		WHERE NormalizedUsername = NORMALIZE_AND_CASEFOLD(@username)
-	`, s.userSelectColumns(), s.userTableName))
+		WHERE NormalizedUsername = %s
+	`, s.userSelectColumns(), s.userTableName, usernameFold("@username")))
 	stmt.Params["username"] = username
 
 	user := &dbtype.SessionUser{}
 	if err := spxscan.Get(ctx, s.spanner.Single(), user, stmt); err != nil {
 		if errors.Is(err, spxapi.ErrNotFound) {
-			return nil, httpio.NewNotFoundMessagef("username %q does not exist", username)
+			return nil, dbtype.UsernameNotFound(username)
 		}
 
 		return nil, errors.Wrap(err, "spxscan.Get()")
@@ -645,10 +708,10 @@ func (s *SessionStorageDriver) CreateUser(ctx context.Context, insertUser *dbtyp
 
 	if _, err := s.spanner.Apply(ctx, mutations); err != nil {
 		if s.usernameConflict(err) {
-			return nil, httpio.NewConflictMessagef("username %q already exists", user.Username)
+			return nil, httpio.NewConflictMessageWithError(errors.Newf("username %q already exists", user.Username), dbtype.UsernameTakenMessage)
 		}
 		if spanner.ErrCode(err) == codes.AlreadyExists && strings.Contains(err.Error(), s.emailIndex()) {
-			return nil, errEmailTaken(*insertUser.Email)
+			return nil, errEmailTaken(insertedAddress(insertUser))
 		}
 
 		return nil, errors.Wrap(err, "spanner.Client.Apply()")
@@ -663,7 +726,7 @@ func (s *SessionStorageDriver) CreateUser(ctx context.Context, insertUser *dbtyp
 // under a stale username. On a store whose usernames are the addresses the rename is
 // refused: the address, and with it the username, changes through a verified link
 // (VerifyUserEmail).
-func (s *SessionStorageDriver) SetUserUsername(ctx context.Context, userID impulse.UUID, newUsername string) error {
+func (s *SessionStorageDriver) SetUserUsername(ctx context.Context, userID impulse.UUID, newUsername string, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -671,79 +734,100 @@ func (s *SessionStorageDriver) SetUserUsername(ctx context.Context, userID impul
 		return errUsernameIsEmail()
 	}
 
-	return s.renameUser(ctx, userID, newUsername, nil)
+	return s.renameUser(ctx, userID, newUsername, nil, record)
 }
 
-// renameUser renames the user and, in the same transaction, its live sessions and the
-// live impersonations it holds as an actor, writing the extra user columns with the
-// new name. A taken name is a Conflict.
-func (s *SessionStorageDriver) renameUser(ctx context.Context, userID impulse.UUID, newUsername string, extra map[string]any) error {
-	row := map[string]any{idColumn: userID, usernameColumn: newUsername}
-	for column, value := range extra {
-		row[column] = value
-	}
-	mutation := spanner.UpdateMap(s.userTableName, row)
-
-	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
-		row, err := txn.ReadRow(ctx, s.userTableName, spanner.Key{userID}, []string{"Username"})
-		if err != nil {
-			return errors.Wrap(err, "spanner.ReadWriteTransaction.ReadRow()")
+// renameUser is renameUserIn in a transaction of its own, which buffers record, nil for
+// none, after the rename. A taken name is a Conflict.
+func (s *SessionStorageDriver) renameUser(ctx context.Context, userID impulse.UUID, newUsername string, extra map[string]any, record *auditlog.Record) error {
+	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		if err := s.renameUserIn(ctx, txn, userID, newUsername, extra); err != nil {
+			return err
 		}
 
-		var oldUsername string
-		if err := row.Column(0, &oldUsername); err != nil {
-			return errors.Wrap(err, "spanner.Row.Column()")
-		}
-
-		if err := txn.BufferWrite([]*spanner.Mutation{mutation}); err != nil {
-			return errors.Wrap(err, "spanner.ReadWriteTransaction.BufferWrite()")
-		}
-
-		// A live role-principal impersonation by a foreign actor carrying this name belongs
-		// to that actor, not to the renamed user, and keeps the name its record names.
-		sessionsStmt := spanner.NewStatement(fmt.Sprintf(`
-				UPDATE %s s
-				SET Username = @newUsername, UpdatedAt = PENDING_COMMIT_TIMESTAMP()
-				WHERE s.Username = @oldUsername AND s.Expired = FALSE AND NOT %s
-		`, s.sessionTableName, s.foreignRolePrincipalRecord()))
-		sessionsStmt.Params["oldUsername"] = oldUsername
-		sessionsStmt.Params["newUsername"] = newUsername
-
-		if _, err := txn.Update(ctx, sessionsStmt); err != nil {
-			return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
-		}
-
-		// The live impersonations this user holds as a local actor follow the rename, so
-		// they stay reachable by the new name; ended records keep the name of their time.
-		if s.impersonation != nil {
-			recordsStmt := spanner.NewStatement(fmt.Sprintf(`
-					UPDATE %s
-					SET ActorUsername = @newUsername
-					WHERE ActorUsername = @oldUsername AND ActorRealm IS NULL AND EndedAt IS NULL
-			`, s.impersonation.TableName))
-			recordsStmt.Params["oldUsername"] = oldUsername
-			recordsStmt.Params["newUsername"] = newUsername
-
-			if _, err := txn.Update(ctx, recordsStmt); err != nil {
-				return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
-			}
-		}
-
-		return nil
+		return s.bufferAuditRecord(txn, record)
 	})
 	if err != nil {
 		if spanner.ErrCode(err) == codes.NotFound {
-			return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+			return dbtype.AccountNotFound(userID)
 		}
 
 		if s.usernameConflict(err) {
-			return httpio.NewConflictMessagef("username %q already exists", newUsername)
+			return httpio.NewConflictMessageWithError(errors.Newf("username %q already exists", newUsername), dbtype.UsernameTakenMessage)
 		}
 		if spanner.ErrCode(err) == codes.AlreadyExists && strings.Contains(err.Error(), s.emailIndex()) {
 			return errEmailTaken(newUsername)
 		}
 
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return errors.Wrap(err, "spannertxn.Serializable()")
+	}
+
+	return nil
+}
+
+// renameUserIn renames the user and, inside tx, its live sessions and the live
+// impersonations it holds as an actor, writing the extra user columns with the new
+// name. The user's row is a buffered mutation, so a taken name ends the transaction
+// with the database's AlreadyExists at the commit; a missing user is NotFound from the
+// read of its current name.
+func (s *SessionStorageDriver) renameUserIn(ctx context.Context, tx *spanner.ReadWriteTransaction, userID impulse.UUID, newUsername string, extra map[string]any) error {
+	update := map[string]any{idColumn: userID, usernameColumn: newUsername}
+	for column, value := range extra {
+		update[column] = value
+	}
+
+	row, err := tx.ReadRow(ctx, s.userTableName, spanner.Key{userID}, []string{"Username"})
+	if err != nil {
+		return errors.Wrap(err, "spanner.ReadWriteTransaction.ReadRow()")
+	}
+
+	var oldUsername string
+	if err := row.Column(0, &oldUsername); err != nil {
+		return errors.Wrap(err, "spanner.Row.Column()")
+	}
+
+	if err := tx.BufferWrite([]*spanner.Mutation{spanner.UpdateMap(s.userTableName, update)}); err != nil {
+		return errors.Wrap(err, "spanner.ReadWriteTransaction.BufferWrite()")
+	}
+
+	// A live role-principal impersonation by a foreign actor carrying this name belongs
+	// to that actor, not to the renamed user, and keeps the name its record names.
+	// A rename is no use of a session: UpdatedAt, which is when a session was last used,
+	// is left as it is, so a session that timed out stays timed out. A session that
+	// belongs to another account is never renamed, whatever name its row carries.
+	ownRows := ""
+	if s.users {
+		ownRows = " AND (s.UserId IS NULL OR s.UserId = @userId)"
+	}
+	sessionsStmt := spanner.NewStatement(fmt.Sprintf(`
+			UPDATE %s s
+			SET Username = @newUsername
+			WHERE s.Username = @oldUsername AND s.Expired = FALSE AND NOT %s%s
+	`, s.sessionTableName, s.foreignRolePrincipalRecord(), ownRows))
+	sessionsStmt.Params["oldUsername"] = oldUsername
+	sessionsStmt.Params["newUsername"] = newUsername
+	if s.users {
+		sessionsStmt.Params["userId"] = userID.String()
+	}
+
+	if _, err := tx.Update(ctx, sessionsStmt); err != nil {
+		return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
+	}
+
+	// The live impersonations this user holds as a local actor follow the rename, so
+	// they stay reachable by the new name; ended records keep the name of their time.
+	if s.impersonation != nil {
+		recordsStmt := spanner.NewStatement(fmt.Sprintf(`
+				UPDATE %s
+				SET ActorUsername = @newUsername
+				WHERE ActorUsername = @oldUsername AND ActorRealm IS NULL AND EndedAt IS NULL
+		`, s.impersonation.TableName))
+		recordsStmt.Params["oldUsername"] = oldUsername
+		recordsStmt.Params["newUsername"] = newUsername
+
+		if _, err := tx.Update(ctx, recordsStmt); err != nil {
+			return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
+		}
 	}
 
 	return nil
@@ -779,7 +863,7 @@ func (s *SessionStorageDriver) UpgradeUserPasswordHash(ctx context.Context, user
 		return err
 	}
 
-	return s.replaceProvenPassword(ctx, userID, proven, map[string]any{passwordHashColumn: passwordHash}, nil)
+	return s.replaceProvenPassword(ctx, userID, proven, map[string]any{passwordHashColumn: passwordHash}, nil, nil)
 }
 
 // ChangeUserPassword replaces the password hash a user proved (proven) with hash, one
@@ -792,7 +876,7 @@ func (s *SessionStorageDriver) UpgradeUserPasswordHash(ctx context.Context, user
 // being replaced reads the same row in its own transaction, so of the two Spanner runs
 // one after the other: the session is there to be ended, or the sign-in finds the new
 // password and inserts none.
-func (s *SessionStorageDriver) ChangeUserPassword(ctx context.Context, userID impulse.UUID, proven, hash *securehash.Hash) error {
+func (s *SessionStorageDriver) ChangeUserPassword(ctx context.Context, userID impulse.UUID, proven, hash *securehash.Hash, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -804,7 +888,7 @@ func (s *SessionStorageDriver) ChangeUserPassword(ctx context.Context, userID im
 		return err
 	}
 
-	return s.replaceProvenPassword(ctx, userID, proven, map[string]any{passwordHashColumn: passwordHash, passwordChangeRequiredColumn: false}, s.destroyUserSessionsIn)
+	return s.replaceProvenPassword(ctx, userID, proven, map[string]any{passwordHashColumn: passwordHash, passwordChangeRequiredColumn: false}, s.destroyUserSessionsIn, record)
 }
 
 // SetFirstUserPassword gives a user who holds no password hash, the one they chose,
@@ -813,7 +897,7 @@ func (s *SessionStorageDriver) ChangeUserPassword(ctx context.Context, userID im
 // password keeps it (ErrPasswordHeld, a Conflict), and an unknown user is NotFound. Of
 // two first passwords that race Spanner aborts one, and its rerun finds the other's
 // password held. No session is ended.
-func (s *SessionStorageDriver) SetFirstUserPassword(ctx context.Context, userID impulse.UUID, hash *securehash.Hash) error {
+func (s *SessionStorageDriver) SetFirstUserPassword(ctx context.Context, userID impulse.UUID, hash *securehash.Hash, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -826,11 +910,11 @@ func (s *SessionStorageDriver) SetFirstUserPassword(ctx context.Context, userID 
 	}
 	columns := map[string]any{idColumn: userID, passwordHashColumn: passwordHash, passwordChangeRequiredColumn: false}
 
-	_, err = s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err = spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		row, err := txn.ReadRow(ctx, s.userTableName, spanner.Key{userID.String()}, []string{passwordHashColumn})
 		if err != nil {
 			if spanner.ErrCode(err) == codes.NotFound {
-				return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+				return dbtype.AccountNotFound(userID)
 			}
 
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.ReadRow()")
@@ -840,16 +924,16 @@ func (s *SessionStorageDriver) SetFirstUserPassword(ctx context.Context, userID 
 			return errors.Wrap(err, "spanner.Row.Columns()")
 		}
 		if held.Valid {
-			return httpio.NewConflictMessageWithError(dbtype.ErrPasswordHeld, "the user already has a password: it is changed with the old one")
+			return httpio.NewConflictMessageWithError(dbtype.ErrPasswordHeld, dbtype.PasswordHeldMessage)
 		}
 		if err := txn.BufferWrite([]*spanner.Mutation{spanner.UpdateMap(s.userTableName, columns)}); err != nil {
 			return errors.Wrap(err, "txn.BufferWrite()")
 		}
 
-		return nil
+		return s.bufferAuditRecord(txn, record)
 	})
 	if err != nil {
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return nil
@@ -859,10 +943,11 @@ func (s *SessionStorageDriver) SetFirstUserPassword(ctx context.Context, userID 
 // row's password hash and found it to be proven. Of this write and another write of the
 // row that race, Spanner aborts one, and its rerun reads what the other wrote. also, nil
 // for none, is what the transaction does besides, once the hash is found proven: its
-// reads come before the row's mutation is buffered.
+// reads come before the row's mutation is buffered. record, nil for none, is buffered
+// with the row's mutation.
 func (s *SessionStorageDriver) replaceProvenPassword(
 	ctx context.Context, userID impulse.UUID, proven *securehash.Hash, columns map[string]any,
-	also func(ctx context.Context, txn *spanner.ReadWriteTransaction, userID impulse.UUID) error,
+	also func(ctx context.Context, txn *spanner.ReadWriteTransaction, userID impulse.UUID) error, record *auditlog.Record,
 ) error {
 	provenHash, err := passwordHashValue(proven)
 	if err != nil {
@@ -870,7 +955,7 @@ func (s *SessionStorageDriver) replaceProvenPassword(
 	}
 	columns[idColumn] = userID
 
-	_, err = s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err = spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		if err := s.holdsProvenPasswordIn(ctx, txn, userID, provenHash); err != nil {
 			return err
 		}
@@ -883,10 +968,10 @@ func (s *SessionStorageDriver) replaceProvenPassword(
 			return errors.Wrap(err, "txn.BufferWrite()")
 		}
 
-		return nil
+		return s.bufferAuditRecord(txn, record)
 	})
 	if err != nil {
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return nil
@@ -900,7 +985,7 @@ func (s *SessionStorageDriver) holdsProvenPasswordIn(ctx context.Context, tx *sp
 	row, err := tx.ReadRow(ctx, s.userTableName, spanner.Key{userID.String()}, []string{passwordHashColumn})
 	if err != nil {
 		if spanner.ErrCode(err) == codes.NotFound {
-			return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+			return dbtype.AccountNotFound(userID)
 		}
 
 		return errors.Wrap(err, "spanner.ReadWriteTransaction.ReadRow()")
@@ -910,56 +995,7 @@ func (s *SessionStorageDriver) holdsProvenPasswordIn(ctx context.Context, tx *sp
 		return errors.Wrap(err, "spanner.Row.Columns()")
 	}
 	if !held.Valid || !proven.Valid || held.StringVal != proven.StringVal {
-		return httpio.NewConflictMessageWithError(dbtype.ErrPasswordChanged, "the password has changed since it was checked: check it again and retry")
-	}
-
-	return nil
-}
-
-// ReplaceUserPassword sets a user's password hash and whether the user must change the
-// password before anything else is served (true for a password an operator set, false
-// for one the user chose), and expires every session of the user, in one transaction:
-// the password is replaced and the sessions ended together, or neither is. It follows
-// no proof of the password it replaces and overwrites whatever the row holds. A sign-in
-// that inserts a session on proof of the password being replaced reads the same row in
-// its own transaction, so of the two Spanner runs one after the other: the session is
-// there to be ended, or the sign-in finds the new password and inserts none.
-func (s *SessionStorageDriver) ReplaceUserPassword(ctx context.Context, userID impulse.UUID, hash *securehash.Hash, changeRequired bool) error {
-	ctx, span := tracer.Start(ctx)
-	defer span.End()
-
-	if !s.users {
-		return errors.New("ReplaceUserPassword needs the auth schema: use Auth storage")
-	}
-	passwordHash, err := passwordHashValue(hash)
-	if err != nil {
-		return err
-	}
-
-	_, err = s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
-		// The row is read in the transaction that writes it: a user that does not
-		// exist is told so before anything is ended.
-		if _, err := txn.ReadRow(ctx, s.userTableName, spanner.Key{userID.String()}, []string{idColumn}); err != nil {
-			if spanner.ErrCode(err) == codes.NotFound {
-				return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
-			}
-
-			return errors.Wrap(err, "spanner.ReadWriteTransaction.ReadRow()")
-		}
-		// The sessions are ended first: their reads come before the row's mutation is
-		// buffered.
-		if err := s.destroyUserSessionsIn(ctx, txn, userID); err != nil {
-			return err
-		}
-		replacement := spanner.UpdateMap(s.userTableName, map[string]any{idColumn: userID, passwordHashColumn: passwordHash, passwordChangeRequiredColumn: changeRequired})
-		if err := txn.BufferWrite([]*spanner.Mutation{replacement}); err != nil {
-			return errors.Wrap(err, "txn.BufferWrite()")
-		}
-
-		return nil
-	})
-	if err != nil {
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return httpio.NewConflictMessageWithError(dbtype.ErrPasswordChanged, dbtype.PasswordChangedMessage)
 	}
 
 	return nil
@@ -976,7 +1012,7 @@ func (s *SessionStorageDriver) TouchUserSignIn(ctx context.Context, userID impul
 	touch := spanner.UpdateMap(s.userTableName, map[string]any{idColumn: userID, "LastSignInAt": spanner.CommitTimestamp})
 	if _, err := s.spanner.Apply(ctx, []*spanner.Mutation{touch}); err != nil {
 		if spanner.ErrCode(err) == codes.NotFound {
-			return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+			return dbtype.AccountNotFound(userID)
 		}
 
 		return errors.Wrap(err, "spanner.Client.Apply()")
@@ -986,7 +1022,7 @@ func (s *SessionStorageDriver) TouchUserSignIn(ctx context.Context, userID impul
 }
 
 // DeactivateUser deactivates a user
-func (s *SessionStorageDriver) DeactivateUser(ctx context.Context, id impulse.UUID) error {
+func (s *SessionStorageDriver) DeactivateUser(ctx context.Context, id impulse.UUID, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -1002,10 +1038,14 @@ func (s *SessionStorageDriver) DeactivateUser(ctx context.Context, id impulse.UU
 	if err != nil {
 		return errors.Wrap(err, "spanner.UpdateStruct()")
 	}
+	audit, err := s.auditRecordMutations(record)
+	if err != nil {
+		return err
+	}
 
-	if _, err := s.spanner.Apply(ctx, []*spanner.Mutation{mutation}); err != nil {
+	if _, err := s.spanner.Apply(ctx, append([]*spanner.Mutation{mutation}, audit...)); err != nil {
 		if spanner.ErrCode(err) == codes.NotFound {
-			return httpio.NewNotFoundMessagef("user id %q does not exist", id)
+			return dbtype.AccountNotFound(id)
 		}
 
 		return errors.Wrap(err, "spanner.Client.Apply()")
@@ -1016,7 +1056,7 @@ func (s *SessionStorageDriver) DeactivateUser(ctx context.Context, id impulse.UU
 
 // DeleteUser deletes a user. On the auth schema, the user's identity links are
 // deleted with it, in the same transaction.
-func (s *SessionStorageDriver) DeleteUser(ctx context.Context, id impulse.UUID) error {
+func (s *SessionStorageDriver) DeleteUser(ctx context.Context, id impulse.UUID, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -1025,7 +1065,7 @@ func (s *SessionStorageDriver) DeleteUser(ctx context.Context, id impulse.UUID) 
 			WHERE Id = @id`, s.userTableName))
 	stmt.Params["id"] = id
 
-	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		if s.users {
 			links := spanner.NewStatement(fmt.Sprintf(`DELETE FROM %s WHERE UserId = @userId`, s.identitiesTableName))
 			links.Params["userId"] = id.String()
@@ -1037,20 +1077,20 @@ func (s *SessionStorageDriver) DeleteUser(ctx context.Context, id impulse.UUID) 
 		if deleteCount, err := txn.Update(ctx, stmt); err != nil {
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
 		} else if deleteCount == 0 {
-			return httpio.NewNotFoundMessagef("user id %q does not exist", id)
+			return dbtype.AccountNotFound(id)
 		}
 
-		return nil
+		return s.bufferAuditRecord(txn, record)
 	})
 	if err != nil {
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return nil
 }
 
 // ActivateUser activates a user
-func (s *SessionStorageDriver) ActivateUser(ctx context.Context, id impulse.UUID) error {
+func (s *SessionStorageDriver) ActivateUser(ctx context.Context, id impulse.UUID, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -1066,10 +1106,14 @@ func (s *SessionStorageDriver) ActivateUser(ctx context.Context, id impulse.UUID
 	if err != nil {
 		return errors.Wrap(err, "spanner.UpdateStruct()")
 	}
+	audit, err := s.auditRecordMutations(record)
+	if err != nil {
+		return err
+	}
 
-	if _, err := s.spanner.Apply(ctx, []*spanner.Mutation{mutation}); err != nil {
+	if _, err := s.spanner.Apply(ctx, append([]*spanner.Mutation{mutation}, audit...)); err != nil {
 		if spanner.ErrCode(err) == codes.NotFound {
-			return httpio.NewNotFoundMessagef("user id %q does not exist", id)
+			return dbtype.AccountNotFound(id)
 		}
 
 		return errors.Wrap(err, "spanner.Client.Apply()")
@@ -1098,7 +1142,7 @@ func (s *SessionStorageDriver) DestroyAllUserSessions(ctx context.Context, usern
 	`, s.sessionTableName, s.foreignRolePrincipalRecord(), s.heldByLocalActor()))
 	selectSessions.Params["username"] = username
 
-	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		ids, _, err := selectSessionIDs(ctx, txn, selectSessions)
 		if err != nil {
 			return err
@@ -1125,7 +1169,7 @@ func (s *SessionStorageDriver) DestroyAllUserSessions(ctx context.Context, usern
 		return nil
 	})
 	if err != nil {
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return nil
@@ -1184,11 +1228,11 @@ func (s *SessionStorageDriver) UpdateCustomSessionData(ctx context.Context, sess
 		return errors.New("custom session data config is not set")
 	}
 
-	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		sessionRow, err := txn.ReadRow(ctx, s.sessionTableName, spanner.Key{sessionID}, []string{expiredColumnName})
 		if err != nil {
 			if spanner.ErrCode(err) == codes.NotFound {
-				return httpio.NewNotFoundMessagef("session %q not found", sessionID)
+				return dbtype.SessionNotFound(sessionID)
 			}
 
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.ReadRow()")
@@ -1198,7 +1242,7 @@ func (s *SessionStorageDriver) UpdateCustomSessionData(ctx context.Context, sess
 			return errors.Wrap(err, "spanner.Row.Column()")
 		}
 		if expired {
-			return httpio.NewBadRequestMessage("cannot update custom session data for an expired session")
+			return httpio.NewBadRequestMessage(dbtype.SessionDataOnExpiredSessionMessage)
 		}
 
 		data := s.customData.Codec.NewStruct()
@@ -1231,7 +1275,7 @@ func (s *SessionStorageDriver) UpdateCustomSessionData(ctx context.Context, sess
 		return nil
 	})
 	if err != nil {
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return nil

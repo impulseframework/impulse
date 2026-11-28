@@ -53,6 +53,7 @@ type methodHandlers struct {
 	login              http.HandlerFunc
 	changeUserPassword http.HandlerFunc
 	removeUserPassword http.HandlerFunc
+	strength           http.HandlerFunc
 }
 
 // externalMethod is a registered redirect-based method with the account rule its
@@ -97,10 +98,18 @@ type signInMethods[Tx any] struct {
 	// passwords.
 	hasher      *securehash.SecureHasher
 	autoUpgrade bool
+	// minimumStrength is the bits a password must reach to be set (strongEnough): the
+	// password method's minimum, the default while it is not registered, since user
+	// management still sets passwords.
+	minimumStrength int
 	// attempts limits failed password attempts. It is built over the store under the
 	// default limit, and the password method's registration replaces it with one
 	// under its own, so a password check through the API is limited either way.
 	attempts *attempts.Limiter
+	// asks counts the questions each client asks the password strength route, under
+	// strengthAskLimit, apart from attempts, so asking never locks a sign-in. It asks
+	// the store nothing.
+	asks *attempts.Limiter
 	// compare checks a password against a hash with the method's hasher; a test counts
 	// the checks through it.
 	compare func(hash *securehash.Hash, password string) (upgrade bool, err error)
@@ -212,12 +221,15 @@ func (a *Auth[S, U, Tx]) couldAdmitAddress(email string) bool {
 }
 
 // init sets the methods of a new Auth over storage, before any registration: the
-// default hasher and attempt limit, no external methods.
+// default hasher, minimum strength and attempt limit, the ask limit of the password
+// strength route, no external methods.
 func (m *signInMethods[Tx]) init(storage sessionstorage.AuthStore[Tx]) {
 	m.registered = make(map[string]bool)
 	m.hasher = securehash.New(securehash.Argon2())
 	m.autoUpgrade = true
+	m.minimumStrength = sessioncore.DefaultMinimumStrength
 	m.attempts = attempts.New(sessioncore.DefaultAttemptLimit, storage)
+	m.asks = attempts.New(strengthAskLimit, storage)
 	m.external = make(map[string]*externalMethod[Tx])
 	m.outlets = make(map[string]bool)
 	m.compare = func(hash *securehash.Hash, password string) (bool, error) {
@@ -262,7 +274,9 @@ func (m *signInMethods[Tx]) dummyHash() (*securehash.Hash, error) {
 }
 
 // registered returns the Auth's sign-in methods and closes registration. Every read
-// goes through here, so a read never races a registration.
+// goes through here, so a read never races a registration, but for signInFailureLimit,
+// which is asked while the application is still wiring the Auth and takes the lock
+// instead.
 func (a *Auth[S, U, Tx]) registered() *signInMethods[Tx] {
 	if !a.methods.inUse.Load() {
 		a.methods.mu.Lock()
@@ -271,6 +285,16 @@ func (a *Auth[S, U, Tx]) registered() *signInMethods[Tx] {
 	}
 
 	return &a.methods
+}
+
+// signInFailureLimit is SignInFailureLimit: the failures of the limit the attempts are
+// counted by as the registrations stand, read under the methods' lock so the read never
+// races a registration. It leaves registration open.
+func (a *Auth[S, U, Tx]) signInFailureLimit() int {
+	a.methods.mu.Lock()
+	defer a.methods.mu.Unlock()
+
+	return a.methods.attempts.Limit().Failures
 }
 
 // serving wraps every handler and middleware the Auth hands out, so the first request
@@ -292,6 +316,13 @@ func (a *Auth[S, U, Tx]) refuseRegistration(name string, method sessioninfo.Auth
 	}
 	if name == "" {
 		panic(fmt.Sprintf("session: the %s sign-in method is registered without a name: name each registration (two Entra tenants are two registrations)", method))
+	}
+	// A sign-in's first auth event carries its method's name. A method named after a
+	// step the library runs would record that step with every sign-in, and the
+	// library's rules read those events as its own proof (recordsTheLibrarysStep).
+	if recordsTheLibrarysStep(method) {
+		panic(fmt.Sprintf("session: a sign-in method is registered as the method %q, the name of a step the library runs and records itself "+
+			"(the mailed code, a remembered browser, a connection's attestation, a tenant's word for its directory): give the method a name of its own, such as \"partner\"", method))
 	}
 	// The registration's state cookie is named for it; a name no cookie can carry is
 	// refused here rather than at the first login.
@@ -346,6 +377,7 @@ func (a *Auth[S, U, Tx]) register(reg *signInRegistration) methodHandlers {
 	a.refuseBeside(reg.name, reg.method, false)
 	a.methods.registered[reg.name] = true
 	a.methods.hasher, a.methods.autoUpgrade = reg.password.Hasher, reg.password.AutoUpgrade
+	a.methods.minimumStrength = reg.password.MinimumStrength
 	a.methods.attempts = attempts.New(reg.password.Attempts, a.storage)
 	settings := *reg.password
 	a.methods.password = &settings
@@ -353,7 +385,7 @@ func (a *Auth[S, U, Tx]) register(reg *signInRegistration) methodHandlers {
 
 	return methodHandlers{
 		login: a.serving(a.passwordLogin()), changeUserPassword: a.serving(a.changeUserPasswordHandler()),
-		removeUserPassword: a.serving(a.removeUserPasswordHandler()),
+		removeUserPassword: a.serving(a.removeUserPasswordHandler()), strength: a.serving(a.passwordStrengthHandler()),
 	}
 }
 
@@ -381,6 +413,13 @@ func (a *Auth[S, U, Tx]) RegisterExternal(reg *signin.Registration[Tx]) signin.H
 	m, err := reg.Build(a.cookies.ForRegistration(reg.Name))
 	if err != nil {
 		panic(fmt.Errorf("session: the %s sign-in method: %w", reg.Method, err))
+	}
+	// A registration has one method name: the one it is registered as is the one the
+	// method it builds carries, which every identity of its sign-ins is held to
+	// (ownMethod).
+	if m.Name != reg.Method {
+		panic(fmt.Sprintf("session: the sign-in method registered under the name %q is registered as the method %q and builds a method named %q: "+
+			"a registration has one method name, so set Registration.Method and Method.Name to the same one", reg.Name, reg.Method, m.Name))
 	}
 	a.refuseBeside(reg.Name, reg.Method, m.SyncRoles != nil)
 	if m.SyncRoles != nil {
@@ -411,33 +450,37 @@ type PasswordMethod struct {
 	login              http.HandlerFunc
 	changeUserPassword http.HandlerFunc
 	removeUserPassword http.HandlerFunc
+	strength           http.HandlerFunc
 }
 
 // PasswordSignIn registers username and password sign-in on auth and returns its
 // handlers. It takes the password options (HashAlgorithm, AutoUpgradeHashes,
-// AttemptLimit, UsernameIsEmail); cookie and session options belong to
-// NewAuth. Whether a person with no account may sign up with a password is no option:
+// AttemptLimit, MinimumPasswordStrength, UsernameIsEmail); cookie and session options
+// belong to NewAuth. Whether a person with no account may sign up with a password is no option:
 // an administrator opens the method in the running application (see "Sign-up" in the
 // README), and until then it is invite only.
 //
 // It panics when the method is already registered on auth, when auth has served a
-// request, when it is given an option that is not a password option, or when the
-// attempt limit is not at least one failure within a positive window and lock. The
-// registration is named "password".
+// request, when it is given an option that is not a password option, when the attempt
+// limit is not at least one failure within a positive window and lock, or when the
+// minimum strength is under one bit. The registration is named "password".
 func PasswordSignIn(auth signInRegistry, options ...PasswordOption) *PasswordMethod {
 	settings := sessioncore.DefaultPasswordSettings()
 	reg := &signInRegistration{name: string(sessioninfo.MethodPassword), method: sessioninfo.MethodPassword, password: &settings}
 	for _, opt := range options {
 		if !settings.Apply(opt) {
-			reg.err = errors.New("PasswordSignIn takes password options (HashAlgorithm, AutoUpgradeHashes, AttemptLimit, UsernameIsEmail); pass cookie and session options to NewAuth")
+			reg.err = errors.New("PasswordSignIn takes password options (HashAlgorithm, AutoUpgradeHashes, AttemptLimit, MinimumPasswordStrength, UsernameIsEmail); pass cookie and session options to NewAuth")
 		}
 	}
 	if limit := settings.Attempts; reg.err == nil && (limit.Failures < 1 || limit.Window <= 0 || limit.Lock <= 0) {
 		reg.err = errors.Newf("AttemptLimit(%d, %s, %s): the limit is at least one failure within a positive window, locking for a positive period", limit.Failures, limit.Window, limit.Lock)
 	}
+	if reg.err == nil && settings.MinimumStrength < 1 {
+		reg.err = errors.Newf("MinimumPasswordStrength(%d): the minimum is at least 1 bit", settings.MinimumStrength)
+	}
 	h := registerMethod(auth, reg)
 
-	return &PasswordMethod{login: h.login, changeUserPassword: h.changeUserPassword, removeUserPassword: h.removeUserPassword}
+	return &PasswordMethod{login: h.login, changeUserPassword: h.changeUserPassword, removeUserPassword: h.removeUserPassword, strength: h.strength}
 }
 
 // Login accepts {"username", "password"}. On success it applies the sign-in policy and
@@ -465,11 +508,29 @@ func (m *PasswordMethod) ChangeUserPassword() http.HandlerFunc { return m.change
 // their last means of sign-in (409). The user's sessions stand, this one among them. It
 // validates the session itself, so it is routed beside the change, outside
 // ValidateSession and behind ValidateXSRFToken, and refuses a user who must change
-// their password as ValidateSession does (403, password_change_required): a temporary
-// password is changed, not removed. Name its path to Methods (MethodList.RemovePassword)
+// their password as ValidateSession does (403, password_change_required): a password
+// under the mark is changed, not removed. Name its path to Methods (MethodList.RemovePassword)
 // for the account page to offer it.
 func (m *PasswordMethod) RemoveUserPassword() http.HandlerFunc {
 	return m.removeUserPassword
+}
+
+// Strength accepts {"password"} and, where the page has them, the person's "username",
+// "name" and "email", and answers how strong the password is while the person types it,
+// before it is set: {"strongEnough", "strength", "minimum"}, with "reason", one sentence
+// that says why, while strongEnough is false. strength is where the password stands from 0
+// to 100 and minimum is where the application's minimum (MinimumPasswordStrength) sits on
+// the same scale, so a page draws a bar and a mark and calculates nothing; strongEnough is
+// true exactly when strength has reached minimum. It is the judgment every path that sets a
+// password holds it to, against the details the request carries: it reads no session,
+// account or link, and the path that sets the password judges against the account's own.
+// The password is in no log line. A client that asks 3,000 times within five minutes, from
+// one address or under one cookie, is answered 429 with too_many_attempts and the wait,
+// counted apart from sign-in attempts. A person at an invitation, a sign-up or a reset
+// link has no session, so route it behind ValidateXSRFToken, outside ValidateSession, and
+// name its path to Methods (MethodList.PasswordStrength).
+func (m *PasswordMethod) Strength() http.HandlerFunc {
+	return m.strength
 }
 
 // frontChannelLogout handles a provider-initiated logout: it ends every live session

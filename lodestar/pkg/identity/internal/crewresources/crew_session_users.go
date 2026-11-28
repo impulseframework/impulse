@@ -4,9 +4,12 @@
 package crewresources
 
 import (
+	"sync/atomic"
 	"time"
 
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/resource"
 )
 
 type (
@@ -16,20 +19,99 @@ type (
 	// holds one; it identifies nobody. The password hash is not a field, so it is never
 	// read or written here, and the normalized columns are the table's own.
 	//
+	// The username is what a list that points to an account shows it by. It is the
+	// table's name (@name), so a field of another resource that holds an account's id,
+	// by a foreign key to this table or by @enumerate of this list, gets a name field
+	// read from it, and a change record of that field keeps the username.
+	//
+	// An account's delete takes with it the application's rows that name the account in
+	// a column that says so (@deletedWith), after a question that counts them, and is
+	// refused while a row names it in a column that does not.
+	//
 	// @resource
 	// @suppress(patchHandler)
 	// @outlet(default)
 	// @order(Username asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(account)
 	CrewSessionUser struct {
-		ID                     impulse.UUID `spanner:"Id"`
-		Username               string       `spanner:"Username"`
-		Name                   *string      `spanner:"Name"`
-		Email                  *string      `spanner:"Email"`
-		EmailVerifiedAt        *time.Time   `spanner:"EmailVerifiedAt"`
-		Disabled               bool         `spanner:"Disabled"`
-		PasswordChangeRequired bool         `spanner:"PasswordChangeRequired"`
-		CreatedAt              time.Time    `spanner:"CreatedAt"`
-		LastSignInAt           *time.Time   `spanner:"LastSignInAt"`
+		ID impulse.UUID `spanner:"Id"`
+		// @name
+		Username               string     `spanner:"Username"`
+		Name                   *string    `spanner:"Name"`
+		Email                  *string    `spanner:"Email"`
+		EmailVerifiedAt        *time.Time `spanner:"EmailVerifiedAt"`
+		Disabled               bool       `spanner:"Disabled"`
+		PasswordChangeRequired bool       `spanner:"PasswordChangeRequired"`
+		CreatedAt              time.Time  `spanner:"CreatedAt"`
+		LastSignInAt           *time.Time `spanner:"LastSignInAt"`
 	}
 )
+
+// crewSessionUserAdministeredTenantsQuery answers the sectors each person of the Crew
+// auth administers, a row for each, RowKey the account's id and Tenant the sector: one of
+// the roles the auth's permission engine names as a sector's administrator's
+// (@enteringAdministratorRoles) held in the sector itself, by a membership of the
+// person's own or through a group kept in that sector, in an assignment that has not ended,
+// one that has not begun included. The methods that change how a person signs in refuse a
+// caller by the same count (the identity package's requireEnteringFor), and each row of
+// the auth's people reads it (TenantsToEnter).
+const crewSessionUserAdministeredTenantsQuery = `
+SELECT ta.UserId AS RowKey, ta.DomainId AS Tenant
+FROM CrewUserRoles ta
+WHERE ta.Kind = 'domain' AND ta.Axis = ''
+  AND ta.Role IN UNNEST(@enteringAdministratorRoles)
+  AND (ta.EndsAt IS NULL OR ta.EndsAt > CURRENT_TIMESTAMP())
+UNION DISTINCT
+SELECT tm.UserId AS RowKey, tg.DomainId AS Tenant
+FROM CrewGroupRoles tr
+JOIN CrewGroups tg ON tg.Id = tr.GroupId
+JOIN CrewGroupMembers tm ON tm.GroupId = tr.GroupId
+WHERE tg.Kind = 'domain' AND tg.Axis = ''
+  AND tr.Kind = 'domain' AND tr.Axis = '' AND tr.DomainId = tg.DomainId
+  AND tr.Role IN UNNEST(@enteringAdministratorRoles)
+  AND (tr.EndsAt IS NULL OR tr.EndsAt > CURRENT_TIMESTAMP())
+  AND (tm.EndsAt IS NULL OR tm.EndsAt > CURRENT_TIMESTAMP())
+`
+
+// crewSessionUserAdministrators are the roles whose holders administer a sector, as the
+// Crew auth's permission engine names them: what the query reads as
+// @enteringAdministratorRoles. None until the auth's identity client is built, and then
+// nobody is taken for an administrator.
+var crewSessionUserAdministrators atomic.Pointer[[]string]
+
+// SetCrewSessionUserAdministratorRoles tells the lists of the Crew auth which roles administer a
+// sector: the ones its permission engine answers who administers a sector by. The
+// auth's generated identity client calls it where it is built, so a row offers the methods
+// that change how a sector's administrator signs in by the names the methods themselves
+// refuse by.
+func SetCrewSessionUserAdministratorRoles(roles []accesstypes.Role) {
+	names := make([]string, 0, len(roles))
+	for _, role := range roles {
+		names = append(names, string(role))
+	}
+	crewSessionUserAdministrators.Store(&names)
+}
+
+// crewSessionUserTenantsToEnter is what each row of the Crew auth's people answers
+// TenantsToEnter with: the query, the roles it reads, and column, the row's column that
+// holds the account's id.
+func crewSessionUserTenantsToEnter(column string) resource.TenantsToEnter {
+	administrators := []string{}
+	if named := crewSessionUserAdministrators.Load(); named != nil {
+		administrators = *named
+	}
+
+	return resource.TenantsToEnter{
+		Query:  crewSessionUserAdministeredTenantsQuery,
+		Params: map[string]any{"enteringAdministratorRoles": administrators},
+		Match:  map[string]string{"RowKey": column},
+	}
+}
+
+// TenantsToEnter names the sectors the person administers: a caller whose session
+// does not enter one of them is not offered the methods that change how the person signs
+// in or whether their account stands.
+func (CrewSessionUser) TenantsToEnter() resource.TenantsToEnter {
+	return crewSessionUserTenantsToEnter("Id")
+}

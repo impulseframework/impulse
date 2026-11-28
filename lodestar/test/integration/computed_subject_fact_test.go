@@ -11,9 +11,14 @@ package integration
 // lists, reads and downloads the manifests of the missions Hammer flies and no other; the
 // Purser's grants carry no condition and reach every manifest of the sector. Every
 // expectation is read off the seed: the Hammer missions are the ones the condition
-// language suite pins for the Flight Lead's missions.
+// language suite pins for the Flight Lead's missions. A computed list is searched and
+// sorted by its rows' real values, after its condition has left out the rows the caller is
+// not shown. The Flight Lead holds the title under the list's own condition, so her search
+// of the manifests and her sort by the title read the manifests of Hammer's missions alone,
+// and the Purser's search reads every manifest of the sector.
 
 import (
+	"bytes"
 	"net/http"
 	"slices"
 	"strconv"
@@ -111,7 +116,7 @@ func TestComputedSubjectFact(t *testing.T) {
 		// absent row gets, which the refused row's answer has to equal.
 		absentStatus, absent := doRequestAs(t, h, "lead", http.MethodGet, sectorPath(anvil, manifests+"/"+missionBeaconID), "")
 		status, body = doRequestAs(t, h, "lead", http.MethodGet, sectorPath(anvil, manifests+"/"+missionHaulerID), "")
-		if status != absentStatus || string(body) != string(absent) {
+		if status != absentStatus || !bytes.Equal(body, absent) {
 			t.Errorf("the Flight Lead reads the hauler manifest as %d %q, want the answer an absent row gets: %d %q", status, body, absentStatus, absent)
 		}
 		if strings.Contains(string(body), missionHaulerID) {
@@ -133,5 +138,66 @@ func TestComputedSubjectFact(t *testing.T) {
 		// The Purser downloads the sheet the Flight Lead is refused.
 		open := fileRequestAs(t, h, "purser", sectorPath(anvil, manifests+"/"+missionHaulerID+"/content"), nil)
 		assertStatus(t, open.Code, http.StatusOK, open.Body.Bytes())
+	})
+
+	t.Run("the Flight Lead's search of the manifests reads the manifests of Hammer's missions alone", func(t *testing.T) {
+		t.Parallel()
+
+		// The title is the manifests' search field. The Flight Lead holds it under the very
+		// condition she holds the list under, so the search reads only the rows that
+		// condition keeps: the Lantern pod's mission, which Hammer flies. The box travels in
+		// the URL, as the browser sends it.
+		status, body := doRequestAs(t, h, "lead", http.MethodGet, sectorPath(anvil, manifests+"?"+filter(`*:search:"lantern"`)), "")
+		assertStatus(t, status, http.StatusOK, body)
+		var ids []string
+		for _, row := range decodeRows(t, body) {
+			ids = append(ids, cell[string](t, row, "missionId"))
+			if title := cell[string](t, row, "title"); !strings.Contains(strings.ToLower(title), "lantern") {
+				t.Errorf("the Flight Lead's search answered %q, which does not name the Lantern", title)
+			}
+		}
+		if !slices.Contains(ids, missionPodID) {
+			t.Errorf("the Flight Lead's search answered %v, want the Lantern pod's mission among them", ids)
+		}
+		for _, id := range ids {
+			if !slices.Contains(hammer, id) {
+				t.Errorf("the Flight Lead's search answered the mission %s, which Hammer does not fly", id)
+			}
+		}
+	})
+
+	t.Run("the Purser's search is answered", func(t *testing.T) {
+		t.Parallel()
+
+		status, body := doRequestAs(t, h, "purser", http.MethodGet, sectorPath(anvil, manifests+"?"+filter(`*:search:"lantern"`)), "")
+		assertStatus(t, status, http.StatusOK, body)
+		rows := decodeRows(t, body)
+		if len(rows) == 0 {
+			t.Fatalf("the Purser's search for the Lantern pod's mission answered no row: %s", body)
+		}
+		for _, row := range rows {
+			if title := cell[string](t, row, "title"); !strings.Contains(strings.ToLower(title), "lantern") {
+				t.Errorf("the Purser's search answered %q, which does not name the Lantern", title)
+			}
+		}
+	})
+
+	t.Run("the Flight Lead's sort by the title orders the manifests of Hammer's missions", func(t *testing.T) {
+		t.Parallel()
+
+		status, body := doRequestAs(t, h, "lead", http.MethodGet, sectorPath(anvil, manifests+"?sort=title&limit=200"), "")
+		assertStatus(t, status, http.StatusOK, body)
+		var ids, titles []string
+		for _, row := range decodeRows(t, body) {
+			ids = append(ids, cell[string](t, row, "missionId"))
+			titles = append(titles, cell[string](t, row, "title"))
+		}
+		if !slices.IsSorted(titles) {
+			t.Errorf("the Flight Lead's manifests by title = %q, want them in order", titles)
+		}
+		slices.Sort(ids)
+		if !slices.Equal(ids, hammer) {
+			t.Errorf("the Flight Lead's manifests by title = %v, want Hammer's missions %v", ids, hammer)
+		}
 	})
 }

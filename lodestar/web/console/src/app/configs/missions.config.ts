@@ -1,6 +1,114 @@
+import { Injector } from '@angular/core';
+import { MatDialog } from '@angular/material/dialog';
+import { Api, apiDescriptor } from '@app/service/zz_gen_api';
 import { BriefingTemplates, ClientRosters, MissionBoards, Missions, Resources } from '@app/service/zz_gen_constants';
-import { DomainRoutePath } from '@app/service/zz_gen_resources';
-import { enumeratedConfig, field, listViewConfig, rootConfig, section } from '@impulseframework/resource-angular/types';
+import { DomainRoutePath, resourceMeta } from '@app/service/zz_gen_resources';
+import { sharingConfig } from '@impulseframework/resource-angular/identity-pages';
+import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
+import {
+  ColumnConfig,
+  enumeratedConfig,
+  field,
+  FieldElement,
+  listViewConfig,
+  RecordData,
+  RESOURCE_DOMAIN,
+  rootConfig,
+  section,
+} from '@impulseframework/resource-angular/types';
+
+/** The fields of a mission's page, the call sheet, with the labels the page gives them. */
+const callSheet: FieldElement[] = [
+  field({ name: Missions.fieldName.title, label: 'Title', cols: 6 }),
+  field({
+    name: Missions.fieldName.clientId,
+    label: 'Client',
+    cols: 6,
+    enumeratedConfig: enumeratedConfig({
+      listDisplay: [ClientRosters.fieldName.name, ClientRosters.fieldName.contactCount],
+      viewDisplay: [ClientRosters.fieldName.name, ClientRosters.fieldName.contactCount],
+      listConcatFn: 'hyphen-concat',
+      viewConcatFn: 'hyphen-concat',
+      sorts: [{ field: ClientRosters.fieldName.name, direction: 'asc' }],
+      // The roster is paged and projects the clients' token column on Name, so the
+      // picker's panel carries the search box: typing narrows the page on the server.
+      searchable: true,
+    }),
+  }),
+  field({ name: Missions.fieldName.kindId, label: 'Kind', cols: 4 }),
+  field({ name: Missions.fieldName.hazard, label: 'Hazard', cols: 4 }),
+  field({ name: Missions.fieldName.fee, label: 'Fee', cols: 4 }),
+  field({ name: Missions.fieldName.deadline, label: 'Deadline', cols: 6 }),
+  field({
+    name: Missions.fieldName.briefingTemplateId,
+    label: 'Briefing template',
+    cols: 6,
+    enumeratedConfig: enumeratedConfig({
+      listDisplay: [BriefingTemplates.fieldName.name],
+      viewDisplay: [BriefingTemplates.fieldName.name],
+      searchable: true,
+    }),
+  }),
+  field({ name: Missions.fieldName.statusId, label: 'Status', cols: 4 }),
+  field({ name: Missions.fieldName.brief, label: 'Brief', cols: 12 }),
+  field({ name: Missions.fieldName.notes, label: 'Notes', cols: 12 }),
+];
+
+/** The list's columns: the board's fields, under the headings the list gives them. */
+const boardColumns: ColumnConfig[] = [
+  { id: MissionBoards.fieldName.title },
+  { id: MissionBoards.fieldName.clientId, header: 'Client' },
+  { id: MissionBoards.fieldName.squadronId, header: 'Squadron' },
+  { id: MissionBoards.fieldName.statusId, header: 'Status' },
+  { id: MissionBoards.fieldName.briefingTemplateId, header: 'Briefing' },
+  { id: MissionBoards.fieldName.deadline },
+  { id: MissionBoards.fieldName.daysLeft, header: 'Days left' },
+];
+
+/**
+ * The columns a mission's history names its fields by: the board's, then a column for each
+ * field of the call sheet the board does not show, under the label the page gives it.
+ */
+const historyColumns: ColumnConfig[] = [
+  ...boardColumns,
+  { id: Missions.fieldName.kindId, header: 'Kind' },
+  { id: Missions.fieldName.hazard, header: 'Hazard' },
+  { id: Missions.fieldName.fee, header: 'Fee' },
+  { id: Missions.fieldName.brief, header: 'Brief' },
+  { id: Missions.fieldName.notes, header: 'Notes' },
+];
+
+/**
+ * Opens a mission's history over the page, from its row on the list and from its own
+ * page alike: the library's pop-up (`@impulseframework/resource-angular/change-history`),
+ * loaded when a person first asks for one, titled with the mission's name. It reads the
+ * mission's change records in the open sector, and hands the pop-up the Missions resource
+ * and the page's columns (`historyColumns`: the list's, then the call sheet's other
+ * fields), so each field is named and each value written as the list does, the deadline as
+ * the list's Deadline cell writes a moment, and a field no column is on (the assigned
+ * squadron) by its name in words; the fields a person can narrow the history to are the
+ * ones the columns are on. Where a change record kept the name of the row a field pointed
+ * at (the squadron, the status), From and To read the name as it was then.
+ *
+ * Demonstrates: change-history, change-history.names, change-tracking, event-source.
+ */
+export function openMissionHistory(row: RecordData, injector: Injector): void {
+  const dialog = injector.get(MatDialog);
+  const sector = injector.get(RESOURCE_DOMAIN)();
+  if (sector === undefined) {
+    throw new Error('no sector open');
+  }
+  const missions = (injector.get(RESOURCE_CLIENT) as Api).domain(sector).missions;
+  const id = String(row['id'] ?? '');
+  void import('@impulseframework/resource-angular/change-history').then((history) =>
+    history.openChangeHistory(dialog, {
+      title: `History of ${String(row['title'] ?? '')}`,
+      read: (query) => missions.changes([id], query),
+      resource: Resources.Missions,
+      columns: historyColumns,
+    }),
+  );
+}
 
 // Missions is the config-driven page in the open sector: the library's list, form,
 // and pickers over a domain-scoped resource (RESOURCE_DOMAIN is the sector the URL
@@ -30,8 +138,13 @@ import { enumeratedConfig, field, listViewConfig, rootConfig, section } from '@i
 // (title, client, squadron, status, deadline) filter always, and days left, computed in
 // the SQL and indexed by nothing but declared allow_filter, filters only beside one of
 // them — its control waits, with a hint, until an indexed filter is in the request, and
-// clearing the last indexed filter clears it too. A page size over the view's maximum,
-// or a filter the server refuses, is shown in the server's words.
+// clearing the last indexed filter clears it too. The Briefing column is on an id whose
+// resource declares no name, so it shows the stored key, sorts by it, and filters by it
+// as days left does, beside an indexed filter. It is drawn for a role that lists the
+// key on the board, the sector marshal alone: the dispatcher reads a mission's template
+// until the mission is completed, failed or stood down, and the board lists those
+// missions too, so the dispatcher's board carries no Briefing column. A page size over
+// the view's maximum, or a filter the server refuses, is shown in the server's words.
 //
 // The two pickers read on their sources' maximums, from the generated descriptor. The
 // client roster declares one, so the client picker pages the roster one server page at
@@ -42,15 +155,24 @@ import { enumeratedConfig, field, listViewConfig, rootConfig, section } from '@i
 //
 // The board's box sits above the grid, beside the column filters, and both narrow one
 // request: the page sends the complete column filters and the box as conjuncts of one
-// AND, `(statusId:eq:open),*:search:"survey"`, so the key set the box gathers over the
-// two indexes and the filters' residual narrow the same page, with its count and its
-// declared order. The box counts as the indexed touch the days-left control waits for, so
+// AND, `(statusId:eq:open),*:search:"survey"`, so the box, which searches the mission's
+// title, and the filters narrow the same page, with its count and its declared order. A
+// client is found by the Client column's own filter, which matches the client's name or
+// part of it. The box counts as the indexed touch the days-left control waits for, so
 // a days-left filter rides beside the box alone and leaves when the last indexed touch,
 // the box or a status filter, is cleared. The deadline's menu takes a date as a person
 // writes it, 2026-12-15 or 12/15/2026, a month or a minute, and the server reads the
 // whole span it names in the person's zone, which the browser sends with the request.
 //
 // Demonstrates: picker.config-driven, picker.paged, picker.whole, @enumerate.plain-column, @enumerate.key-view, picker.read-disabled, @rowsOf.same-row, list.server-paged, metadata.filterable, search.beside-filters, filter.written-dates.
+// A mission's Sharing, under its call sheet: who holds a role on the mission alone, a person
+// or a group of the sector, with the buttons that share it and Remove on each row, built
+// from the crew's generated management (sharingConfig). A caller whose grants list none of
+// it sees no list, and one who may not share sees the list without its buttons.
+//
+// Demonstrates: @holdsRoles.
+const missionSharing = sharingConfig(apiDescriptor, resourceMeta, { auth: 'Crew', record: Resources.Missions });
+
 export const missionsConfig = rootConfig({
   page: { label: 'Missions', icon: 'flag' },
   routeData: { route: `${DomainRoutePath}/missions` },
@@ -58,53 +180,14 @@ export const missionsConfig = rootConfig({
     title: 'Missions',
     createTitle: 'Mission',
     primaryResource: Resources.MissionBoards,
-    listColumns: [
-      { id: MissionBoards.fieldName.title },
-      { id: MissionBoards.fieldName.clientName, header: 'Client' },
-      { id: MissionBoards.fieldName.squadronName, header: 'Squadron' },
-      { id: MissionBoards.fieldName.statusId },
-      { id: MissionBoards.fieldName.deadline },
-      { id: MissionBoards.fieldName.daysLeft, header: 'Days left' },
-    ],
+    listColumns: boardColumns,
     elements: [
       section({
         label: 'Call sheet',
-        children: [
-          field({ name: Missions.fieldName.title, label: 'Title', cols: 6 }),
-          field({
-            name: Missions.fieldName.clientId,
-            label: 'Client',
-            cols: 6,
-            enumeratedConfig: enumeratedConfig({
-              listDisplay: [ClientRosters.fieldName.name, ClientRosters.fieldName.contactCount],
-              viewDisplay: [ClientRosters.fieldName.name, ClientRosters.fieldName.contactCount],
-              listConcatFn: 'hyphen-concat',
-              viewConcatFn: 'hyphen-concat',
-              sorts: [{ field: ClientRosters.fieldName.name, direction: 'asc' }],
-              // The roster is paged and projects the clients' token column on Name, so the
-              // picker's panel carries the search box: typing narrows the page on the server.
-              searchable: true,
-            }),
-          }),
-          field({ name: Missions.fieldName.kindId, label: 'Kind', cols: 4 }),
-          field({ name: Missions.fieldName.hazard, label: 'Hazard', cols: 4 }),
-          field({ name: Missions.fieldName.fee, label: 'Fee', cols: 4 }),
-          field({ name: Missions.fieldName.deadline, label: 'Deadline', cols: 6 }),
-          field({
-            name: Missions.fieldName.briefingTemplateId,
-            label: 'Briefing template',
-            cols: 6,
-            enumeratedConfig: enumeratedConfig({
-              listDisplay: [BriefingTemplates.fieldName.name],
-              viewDisplay: [BriefingTemplates.fieldName.name],
-              searchable: true,
-            }),
-          }),
-          field({ name: Missions.fieldName.statusId, label: 'Status', cols: 4 }),
-          field({ name: Missions.fieldName.brief, label: 'Brief', cols: 12 }),
-          field({ name: Missions.fieldName.notes, label: 'Notes', cols: 12 }),
-        ],
+        children: callSheet,
       }),
     ],
+    rowButtons: [{ label: 'History', icon: 'history', run: openMissionHistory }],
   }),
+  relatedConfigs: missionSharing ? [missionSharing] : [],
 });

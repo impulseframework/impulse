@@ -7,14 +7,16 @@
 // palette's theme on html, the look where no choice was made, and every palette's color
 // tokens under html[data-palette='<id>']; ThemeService (provideTheme in app.config.ts,
 // which names the same ids) sets that attribute from the person's choice, and
-// color-scheme on html from their light or dark, which flips every token since mat.theme
-// emits both values of each. The first palette is the brand's: impulse brand generates it
-// from the primary color brand.json declares (Angular Material's theme-color schematic,
-// written beside this file as _theme-colors.scss) and puts it here, and writes the
-// manifest's theme_color and background_color and index.html's theme-color from the same
-// declaration, which carry the colors as literals.
-// The portal offers one palette, so Appearance in the person's menu offers light and dark alone; a second
-// entry here, and in provideTheme, is the whole of offering a choice of colors.
+// color-scheme on html from their light, dark or device setting (`light dark`, under
+// which the browser draws whichever the device is set to), which flips every token since
+// mat.theme emits both values of each. The first palette is the brand's: impulse brand
+// generates it from the primary color brand.json declares (Angular Material's theme-color
+// schematic, written beside this file as _theme-colors.scss) and puts it here, and writes
+// the manifest's theme_color and background_color and index.html's theme-color from the
+// same declaration, which carry the colors as literals.
+// The portal offers one palette, so Appearance in the person's menu offers Light, Dark
+// and Match my device alone; a second entry here, and in provideTheme, is the whole of
+// offering a choice of colors.
 @use '@angular/material' as mat;
 @use '@impulseframework/resource-angular/theme';
 @use './theme-colors' as brand;

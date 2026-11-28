@@ -25,23 +25,38 @@ import (
 
 // The keys of the lists of a side.
 const (
-	identityListUsers          = "users"
-	identityListRoles          = "roles"
+	identityListUsers = "users"
+	identityListRoles = "roles"
+	// The list the side's methods that give a role pick it from (identity_givable.go,
+	// and a tenant's in identity_tenant.go).
+	identityListRolesToGive    = "rolesToGive"
 	identityListIdentities     = "identities"
 	identityListSignInWays     = "signInWays"
 	identityListInvitations    = "invitations"
 	identityListSessions       = "sessions"
 	identityListSignInAttempts = "signInAttempts"
 	identityListSignInMethods  = "signInMethods"
-	identityListSignUpRoles    = "signUpRoles"
-	// The invitations that make a tenant and still stand (identity_invitedtenant.go).
+	// What every sign-in asks for, and the lengths a browser is remembered for
+	// (identity_signinsettings.go).
+	identityListSignInSettings  = "signInSettings"
+	identityListRememberLengths = "rememberLengths"
+	identityListSignUpRoles     = "signUpRoles"
+	// The invitations that make a tenant and still stand (identity_invitedtenant.go), and
+	// the tenants, each with what no table holds of it (identity_listedtenant.go).
 	identityListInvitedTenants = "invitedTenants"
+	identityListTenants        = "tenants"
 	// The lists over the groups of people (identity_groups.go): the groups, the people
 	// of a group, the roles a group holds, and the roles people hold through a group.
 	identityListGroups        = "groups"
 	identityListGroupUsers    = "groupUsers"
 	identityListGroupRoles    = "groupRoles"
 	identityListThroughGroups = "rolesThroughGroups"
+	// The tenant's directory, on a tenant's side: the record a tenant's one directory is
+	// a row of, which the Sign-in settings page sets and removes.
+	identityListDirectories = "directories"
+	// The audit log, the whole log on the whole application's side and a tenant's rows on
+	// a tenant's (identity_auditlog.go).
+	identityListAuditLog = "auditLog"
 )
 
 // identityPart is one list or method of a side: the key a page knows it by and the name
@@ -58,30 +73,74 @@ type tsAPIIdentity struct {
 	Auth   string
 	Label  string
 	Tenant string
-	// TenantResource is the tenant record's resource where the outlet serves it: a page
-	// that lists a role or an invitation across tenants reads the tenant's name from it,
-	// since the row carries the tenant's key, an id nobody reads. Empty where the outlet
-	// does not serve the record, and the page shows the key.
+	// TenantResource is the tenant record's resource where the outlet serves it: the pages
+	// read from its metadata the field the record's rows are known by. A row of the whole
+	// application's lists carries the tenant's key, an id nobody reads, and the tenant's
+	// name beside it where every outlet of the instance serves the record (TenantPicker).
+	// Empty where the outlet does not serve the record: the pages then name a tenant from
+	// the reader's own list of tenants, or in words.
 	TenantResource string
-	Sides          []*tsAPIIdentitySide
+	// TenantDirectoryOnlyField is the tenant record's directory-only field as the wire
+	// names it, where the outlet serves the record (TenantResource) and the record
+	// declares the switch: a tenant's Sign-in settings page reads it from the tenant's
+	// own row for a reader who holds none of the tenant's sign-in methods. Empty
+	// otherwise.
+	TenantDirectoryOnlyField string
+	// TenantSinceField is the tenant record's field that says when a tenant was made
+	// (@tenantSince), as the wire names it, where the outlet serves the record
+	// (TenantResource) and the record marks one: the tenants page leaves it out of a
+	// tenant's form where the list of tenants says it as Since. Empty otherwise.
+	TenantSinceField string
+	// RolesFrom is the directories that decide the auth's roles, in the words of its
+	// login page's buttons ("Google", "Google or Microsoft"), where a directory writes
+	// them: the auth keeps no groups of its own, and the Groups page says whose groups
+	// do that job. Empty where the application gives the roles by hand.
+	RolesFrom string
+	Sides     []*tsAPIIdentitySide
 }
 
 // tsAPIIdentitySide is one side of an auth's management: the whole application's (the
-// global scope) or a tenant's (the domain scope), with its lists and its methods.
+// global scope) or a tenant's (the domain scope), with its lists and its methods, and on a
+// tenant's side the sharing of each record a role of the auth can be held on.
 type tsAPIIdentitySide struct {
 	Scope   accesstypes.PermissionScope
 	Lists   []identityPart
 	Methods []identityPart
+	Sharing []tsAPIRecordSharing
+}
+
+// tsAPIRecordSharing is one record's sharing as the descriptor carries it (sharingOn): the
+// record's resource, what a sentence calls one of the records and several, the list of who
+// holds what on one, the list a role is picked from, and the methods that give and take a
+// person's role on one and, where the auth keeps groups, a group's.
+type tsAPIRecordSharing struct {
+	Record    string
+	One       string
+	Many      string
+	Holders   string
+	Roles     string
+	Give      string
+	Take      string
+	GiveGroup string
+	TakeGroup string
 }
 
 // pageLists names the structs of the lists of a side by what each holds. The whole
 // application's are the declarations over the auth's tables; a tenant's are the lists
-// the tenant keeps of them (listName).
+// the tenant keeps of them (listName). A person's roles are the one list that says where
+// each comes from, on both sides (identity_holdings.go). The whole application's
+// identities are the list that says who manages each account where the application has
+// a tenant record, and the declaration over the table where it has none. A tenant's side
+// also names the directories record, where the application declares one, for the page of
+// a tenant's sign-in settings. The sessions are the list that says which of them are live
+// (identity_sessions.go).
 func (i *identityInstance) pageLists(tenant bool) []identityPart {
+	data := &identitySourceData{identityInstance: i}
 	if tenant {
-		return []identityPart{
+		parts := []identityPart{
 			{identityListUsers, i.listName(listPeopleSuffix)},
-			{identityListRoles, i.listName(listRolesSuffix)},
+			{identityListRoles, i.listName(listHeldRolesSuffix)},
+			{identityListRolesToGive, data.TenantRoleChoice()},
 			{identityListIdentities, i.listName(listIdentitiesSuffix)},
 			{identityListSignInWays, i.signInWayName(true)},
 			{identityListInvitations, i.listName(listInvitationsSuffix)},
@@ -89,27 +148,55 @@ func (i *identityInstance) pageLists(tenant bool) []identityPart {
 			{identityListGroupUsers, i.groupListName(listGroupPeopleSuffix, true)},
 			{identityListGroupRoles, i.groupListName(listGroupRolesSuffix, true)},
 			{identityListThroughGroups, i.groupListName(listThroughGroupsSuffix, true)},
+			{identityListAuditLog, i.listName(listAuditRecordsSuffix)},
 		}
+		if i.tenant != nil && i.tenant.directories != "" {
+			parts = append(parts, identityPart{identityListDirectories, i.tenant.directories})
+		}
+
+		return parts
 	}
-	data := &identitySourceData{identityInstance: i}
+
+	// A person's roles are one list, and the accounts are listed with what each holds,
+	// where the schema holds what they read, and the groups and their roles are listed
+	// with what each holds (identity_holdings.go).
+	users, roles, groups, groupRoles := data.User(), data.Membership(), data.Group(), data.GroupRole()
+	if i.listsHeldRoles() {
+		users, roles = data.ListedUser(), data.HeldRole()
+	}
+	identities := data.Identity()
+	if i.listsIdentities() {
+		identities = data.ListedIdentity()
+	}
+	if i.keepsGroups() {
+		groups, groupRoles = data.ListedGroup(), data.ListedGroupRole()
+	}
 
 	parts := []identityPart{
-		{identityListUsers, data.User()},
-		{identityListRoles, data.Membership()},
-		{identityListIdentities, data.Identity()},
+		{identityListUsers, users},
+		{identityListRoles, roles},
+		{identityListRolesToGive, data.GivableRole()},
+		{identityListIdentities, identities},
 		{identityListSignInWays, i.signInWayName(false)},
-		{identityListInvitations, data.MailLink()},
-		{identityListSessions, data.Session()},
-		{identityListSignInAttempts, data.SignInAttempt()},
+		{identityListInvitations, data.ListedMailLink()},
+		{identityListSessions, data.ListedSession()},
+		{identityListSignInAttempts, data.ListedSignInAttempt()},
 		{identityListSignInMethods, data.SignInMethod()},
+		{identityListSignInSettings, data.SignInSetting()},
+		{identityListRememberLengths, data.RememberLength()},
 		{identityListSignUpRoles, data.SignUpRole()},
-		{identityListGroups, data.Group()},
+		{identityListGroups, groups},
 		{identityListGroupUsers, i.groupListName(listGroupPeopleSuffix, false)},
-		{identityListGroupRoles, data.GroupRole()},
+		{identityListGroupRoles, groupRoles},
 		{identityListThroughGroups, i.groupListName(listThroughGroupsSuffix, false)},
+		{identityListTakenRoles, data.TakenRole()},
+		{identityListAuditLog, data.ListedAuditRecord()},
 	}
 	if i.invitesTenants() {
 		parts = append(parts, identityPart{identityListInvitedTenants, i.invitedTenantName()})
+	}
+	if i.listsTenants() {
+		parts = append(parts, identityPart{identityListTenants, i.listedTenantName()})
 	}
 
 	return parts
@@ -119,13 +206,17 @@ func (i *identityInstance) pageLists(tenant bool) []identityPart {
 // name them (writeIdentitySources, tenantMethodSources): the act, then whose it is, the
 // auth's for the whole application and the auth's with the tenant record's name for a
 // tenant. The methods that end one session and unlock a sign-in are the whole
-// application's alone.
+// application's alone, and the one that removes a person from a tenant is a tenant's
+// alone. A tenant's side of an application that declares a directories
+// record also names the tenant record's methods that take its directory and set how the
+// tenant's people enter (tenantdirectorytake.go, tenantdirectoryrole.go,
+// tenantdirectoryonly.go, tenantdirectoryfactor.go).
 func (i *identityInstance) pageMethods(tenant bool) []identityPart {
 	subject := i.subject(tenant)
 	parts := []identityPart{
-		{"create", "Create" + subject + "User"},
 		{"invite", "Invite" + subject + "User"},
 		{"withdrawInvitation", "Withdraw" + subject + "Invitation"},
+		{"resendInvitation", "Resend" + subject + "Invitation"},
 		{"assignRole", "Assign" + subject + "Role"},
 		{"removeRole", "Remove" + subject + "Role"},
 		{"disable", "Disable" + subject + "User"},
@@ -134,7 +225,7 @@ func (i *identityInstance) pageMethods(tenant bool) []identityPart {
 		{"rename", "Rename" + subject + "User"},
 		{"setName", "Set" + subject + "UserName"},
 		{"setEmail", "Set" + subject + "UserEmail"},
-		{"setTemporaryPassword", "Set" + subject + "TemporaryPassword"},
+		{"sendPasswordResetLink", "Send" + subject + "UserPasswordResetLink"},
 		{"requirePasswordChange", "Require" + subject + "PasswordChange"},
 		{"endUserSessions", "End" + subject + "UserSessions"},
 		{"revokeTrustedDevices", "Revoke" + subject + "UserTrustedDevices"},
@@ -155,6 +246,11 @@ func (i *identityInstance) pageMethods(tenant bool) []identityPart {
 			identityPart{"unlockSignIn", "Unlock" + i.auth + "SignIn"},
 			identityPart{"openSignUp", "Open" + i.auth + "SignUp"},
 			identityPart{"makeInviteOnly", "Make" + i.auth + "InviteOnly"},
+			identityPart{"setSelfServiceReset", "Set" + i.auth + "SelfServiceReset"},
+			identityPart{"requireSecondFactor", "Require" + i.auth + "SecondFactor"},
+			identityPart{"stopRequiringSecondFactor", "StopRequiring" + i.auth + "SecondFactor"},
+			identityPart{"setRememberedBrowsers", "Set" + i.auth + "RememberedBrowsers"},
+			identityPart{identityMethodTakeRole, i.takeRoleMethod()},
 		)
 		if i.invitesTenants() {
 			parts = append(parts,
@@ -163,8 +259,47 @@ func (i *identityInstance) pageMethods(tenant bool) []identityPart {
 			)
 		}
 	}
+	if tenant {
+		parts = append(parts, identityPart{"removeFromTenant", "Remove" + subject + "User"})
+	}
+	if tenant && i.tenant != nil && i.tenant.directories != "" {
+		parts = append(parts,
+			identityPart{"takeDirectory", takeDirectoryMethodName(i.tenant.name)},
+			identityPart{"openToDirectory", openToDirectoryMethodName(i.tenant.name)},
+			identityPart{"makeDirectoryInviteOnly", makeInviteOnlyMethodName(i.tenant.name)},
+			identityPart{"makeDirectoryOnly", makeDirectoryOnlyMethodName(i.tenant.name)},
+			identityPart{"endDirectoryOnly", endDirectoryOnlyMethodName(i.tenant.name)},
+			identityPart{"vouchForDirectorySecondFactor", vouchForDirectoryMethodName(i.tenant.name)},
+			identityPart{"stopVouchingForDirectorySecondFactor", stopVouchingForDirectoryMethodName(i.tenant.name)},
+		)
+	}
 
 	return parts
+}
+
+// tenantDirectoryOnlyWire is the tenant record's directory-only field as the wire names
+// it, where the package's tenant record declares the switch; empty otherwise.
+func (t *typescriptGenerator) tenantDirectoryOnlyWire() string {
+	for _, res := range t.resources {
+		if res.declaresDirectoryOnly() {
+			return res.DirectoryOnlyField.WireName()
+		}
+	}
+
+	return ""
+}
+
+// tenantSinceWire is the tenant record's field that says when a tenant was made, as the
+// wire names it, where the package's tenant record marks one (@tenantSince); empty
+// otherwise.
+func (t *typescriptGenerator) tenantSinceWire() string {
+	for _, res := range t.resources {
+		if res.IsTenant && res.TenantSinceField != nil {
+			return res.TenantSinceField.WireName()
+		}
+	}
+
+	return ""
 }
 
 // identityOn is the descriptor's identity block for the target's outlet: every auth
@@ -186,12 +321,14 @@ func (t *typescriptGenerator) identityOn(data *tsAPIData) []*tsAPIIdentity {
 		if !slices.Contains(inst.outlets, t.targetOutlet()) {
 			continue
 		}
-		identity := &tsAPIIdentity{Auth: inst.auth, Label: authLabel(inst.auth)}
+		identity := &tsAPIIdentity{Auth: inst.auth, Label: authLabel(inst.auth), RolesFrom: strings.NewReplacer(`\`, `\\`, `'`, `\'`).Replace(inst.rolesFrom())}
 		sides := []bool{false}
 		if inst.tenant != nil {
 			identity.Tenant = inst.tenant.name
 			if name := t.pluralize(inst.tenant.name); resources[name] {
 				identity.TenantResource = name
+				identity.TenantDirectoryOnlyField = t.tenantDirectoryOnlyWire()
+				identity.TenantSinceField = t.tenantSinceWire()
 			}
 			sides = append(sides, true)
 		}
@@ -213,6 +350,9 @@ func (t *typescriptGenerator) identityOn(data *tsAPIData) []*tsAPIIdentity {
 					side.Methods = append(side.Methods, method)
 				}
 			}
+			if tenant {
+				side.Sharing = t.sharingOn(inst, resources, methods)
+			}
 			identity.Sides = append(identity.Sides, side)
 		}
 		if len(identity.Sides) > 0 {
@@ -221,6 +361,44 @@ func (t *typescriptGenerator) identityOn(data *tsAPIData) []*tsAPIIdentity {
 	}
 
 	return out
+}
+
+// sharingOn is the sharing of each record of the instance the outlet serves, for a
+// tenant's side: a record whose two lists and two methods of a person's the outlet serves,
+// with the group's pair where it serves both, in the order of the instance's records.
+func (t *typescriptGenerator) sharingOn(inst *identityInstance, resources, methods map[string]bool) []tsAPIRecordSharing {
+	quote := strings.NewReplacer(`\`, `\\`, `'`, `\'`)
+	var out []tsAPIRecordSharing
+	for _, record := range inst.sharedRecords() {
+		names := inst.sharing(&record)
+		holders, roles := t.pluralize(names.Holders), t.pluralize(names.Roles)
+		if !resources[string(record.resource)] || !resources[holders] || !resources[roles] || !methods[names.Give] || !methods[names.Take] {
+			continue
+		}
+		one, many := t.recordWords(&record)
+		entry := tsAPIRecordSharing{
+			Record: string(record.resource), One: quote.Replace(one), Many: quote.Replace(many),
+			Holders: holders, Roles: roles, Give: names.Give, Take: names.Take,
+		}
+		if names.GiveGroup != "" && methods[names.GiveGroup] && methods[names.TakeGroup] {
+			entry.GiveGroup, entry.TakeGroup = names.GiveGroup, names.TakeGroup
+		}
+		out = append(out, entry)
+	}
+
+	return out
+}
+
+// recordWords are what a sentence calls one of the record's rows and several, as the
+// collection says them of a record that holds roles (resource.RecordData).
+func (t *typescriptGenerator) recordWords(record *identityHeldRecord) (one, many string) {
+	for _, res := range t.resources {
+		if res.Name() == record.name && res.heldRecord != nil {
+			return res.heldRecord.One, res.heldRecord.Many
+		}
+	}
+
+	return "", ""
 }
 
 // authLabel is the words a page shows for an Auth: its PascalCase name split into

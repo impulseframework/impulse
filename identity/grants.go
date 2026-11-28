@@ -10,6 +10,7 @@ import (
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/internal/words"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -24,9 +25,11 @@ import (
 // of the group's own method, which says who manages groups at all:
 //
 //   - putting a person in a group needs, for each role the group holds, what giving that
-//     person the role there needs;
+//     person the role there needs, and for each role it holds on a record, what giving them
+//     the role on that record needs;
 //   - taking a person out needs, for each, what taking the role from them needs;
-//   - giving a group a role needs what giving it to each person in the group needs;
+//   - giving a group a role needs what giving it to each person in the group needs, and
+//     giving it a role on a record what giving each of them the role on that record needs;
 //   - taking a role from a group needs what taking it from each of them needs.
 //
 // What a role change needs of the caller is the role file's to say, so the rules ask the
@@ -51,18 +54,26 @@ type RoleGrants interface {
 	// MayGive reports whether the caller may give the person the role in the scope: the
 	// grant of the method that gives a role admits it for that role and that person.
 	MayGive(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, role accesstypes.Role) (bool, error)
+	// MayGiveOn reports whether the caller may give the person the role on the record: what
+	// the method that gives a person a role on a record of that kind asks, with the person,
+	// the role and the record.
+	MayGiveOn(ctx context.Context, txn resource.ReadWriteTransaction, at accesstypes.RecordScope, userID impulse.UUID, role accesstypes.Role) (bool, error)
 	// MayTake reports whether the caller may take the role the person holds in the scope
 	// away: the grant of the method that takes a role away admits it for that role.
 	MayTake(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, role accesstypes.Role) (bool, error)
 	// CouldGive reports whether the caller could give the role in the scope by hand, to
-	// somebody: one of the methods a person gives a role with (the one that gives a
-	// person a role, the create and the invitation that start a person with one, the
-	// one that gives a group a role) does not refuse this caller the role. It is the
-	// question of a list a role is picked from (Manager.RolesToGive), asked before
-	// anybody is named: where what is left of a grant's condition reads the row a
-	// method names (the person, the group), the role could be given to some of them,
-	// and the answer is yes. It reads no row, and so takes no transaction.
-	CouldGive(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error)
+	// somebody, with the method named: one of the methods a person gives a role with
+	// (the one that gives a person a role, the invitation that starts a person with
+	// one, the one that gives a group a role), by the name its grant is
+	// written under. The answer is that method's own and no other's: each has its own
+	// grant, and a role one of them takes from this caller another may refuse. It is the
+	// question of a list a role is picked from (Manager.GivableRoles,
+	// Manager.RolesToGive), asked for the method whose dialog picks, before anybody is
+	// named: where what is left of the grant's condition reads the row the method names
+	// (the person, the group), the role could be given to some of them, and the answer
+	// is yes. It reads no row, and so takes no transaction. A method that gives no role
+	// by hand where the request was made is an error and never an answer.
+	CouldGive(ctx context.Context, method accesstypes.Resource, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error)
 }
 
 // WithRoleGrants hands the manager the answers of the role file's grants on the methods
@@ -120,15 +131,73 @@ func (m *Manager) judged(ctx context.Context) (bool, error) {
 	return true, nil
 }
 
+// roleInWords names a role as a sentence a person reads names it, "Night shift lead" for
+// NightShiftLead, never by its code name, which a refusal's cause keeps for the server's
+// log. The rule is the library's one (words.RoleInWords).
+func roleInWords(role accesstypes.Role) string {
+	return words.RoleInWords(string(role))
+}
+
 // refuseGivingThrough holds a change that gives people a group's roles to what giving
 // each role directly needs: every person named is asked for every role named, and the
 // first the caller may not give refuses the change. act says what was asked, as a
 // sentence a person reads completes ("putting a person in the group Night shift gives
-// them").
+// them"). The person is told the act and the role it gives that they may not give, in
+// one sentence that names the role in words (roleInWords): an administrator stopped by
+// one of a group's roles needs to know which. The role's code name, and who gives it,
+// is the refusal's cause, kept for the server's log.
 func (m *Manager) refuseGivingThrough(ctx context.Context, txn resource.ReadWriteTransaction, kept accesstypes.PolicyScope, roles []access.GroupRoleKey, users []accesstypes.User, act string) error {
 	return m.judgeThrough(ctx, txn, kept, roles, users, m.grants.MayGive, func(role accesstypes.Role) error {
-		return httpio.NewForbiddenMessagef("%s the role %s, which you may not give them: someone who may give the role does it", act, string(role))
+		return httpio.NewForbiddenMessageWithError(
+			errors.Newf("%s the role %s, which you may not give them: someone who may give the role does it", act, string(role)),
+			sentenceStart(act)+" the role "+roleInWords(role)+", which you may not give them.",
+		)
 	})
+}
+
+// refuseGivingOnThrough holds a change that gives a person a group's roles on records,
+// putting them in the group or giving the group a role on a record, to what giving them
+// each role on its record directly needs: the person is asked for every role named, in
+// order, and the first the caller may not give refuses the change, in the sentence
+// refuseGivingThrough writes with the role said to be held on one record, by what the store
+// calls one record of its kind (Store.RecordNamed: the word alone, never the record's name,
+// which the caller may have no right to see): "... gives them the role Project editor on
+// one project, which you may not give them there." A request made under a tenant asks what
+// the method that gives a person a role on a record of that kind asks
+// (RoleGrants.MayGiveOn); one made for the whole application asks what giving the role
+// across the record's tenant asks (RoleGrants.MayGive), since no method of the whole
+// application gives a role on one record. The cause, kept for the server's log, names the
+// record.
+func (m *Manager) refuseGivingOnThrough(ctx context.Context, txn resource.ReadWriteTransaction, roles []access.RecordGroupRoleKey, userID impulse.UUID, act string) error {
+	_, inTenant := resource.CallerFrom(ctx).Scope.Domain()
+	for i := range roles {
+		held := &roles[i]
+		at := accesstypes.NewRecordScope(accesstypes.Domain(held.Domain), accesstypes.Resource(held.Resource), held.Record)
+		var allowed bool
+		var err error
+		if inTenant {
+			allowed, err = m.grants.MayGiveOn(ctx, txn, at, userID, held.Role)
+		} else {
+			allowed, err = m.grants.MayGive(ctx, txn, accesstypes.DomainPolicyScope(at.Domain()), userID, held.Role)
+		}
+		if err != nil {
+			return errors.Wrap(err, "identity.RoleGrants")
+		}
+		if !allowed {
+			cause := errors.Newf("%s the role %s on %s, which you may not give them: someone who may give the role on the record does it", act, string(held.Role), at.String())
+			// A role left on a record of a kind no role is held on any more has no word in
+			// the store (RecordNamed errs): the refusal stands, in the sentence
+			// refuseGivingThrough writes.
+			word, _, err := m.store.RecordNamed(ctx, txn, at)
+			if err != nil {
+				return httpio.NewForbiddenMessageWithError(cause, sentenceStart(act)+" the role "+roleInWords(held.Role)+", which you may not give them.")
+			}
+
+			return httpio.NewForbiddenMessageWithError(cause, sentenceStart(act)+" the role "+roleInWords(held.Role)+" on one "+word+", which you may not give them there.")
+		}
+	}
+
+	return nil
 }
 
 // refuseTakingThrough holds a change that takes a group's roles from people to what
@@ -136,7 +205,10 @@ func (m *Manager) refuseGivingThrough(ctx context.Context, txn resource.ReadWrit
 // them.
 func (m *Manager) refuseTakingThrough(ctx context.Context, txn resource.ReadWriteTransaction, kept accesstypes.PolicyScope, roles []access.GroupRoleKey, users []accesstypes.User, act string) error {
 	return m.judgeThrough(ctx, txn, kept, roles, users, m.grants.MayTake, func(role accesstypes.Role) error {
-		return httpio.NewForbiddenMessagef("%s the role %s, which you may not take from them: someone who may take the role away does it", act, string(role))
+		return httpio.NewForbiddenMessageWithError(
+			errors.Newf("%s the role %s, which you may not take from them: someone who may take the role away does it", act, string(role)),
+			sentenceStart(act)+" the role "+roleInWords(role)+", which you may not take from them.",
+		)
 	})
 }
 
@@ -209,15 +281,36 @@ func lengthens(had, next accesstypes.Period, now time.Time) bool {
 	return had.Upcoming(now) && (next.Start.IsZero() || next.Start.Before(had.Start))
 }
 
+// shortens reports whether an assignment that counts now would, given the period next,
+// stop counting at an instant from now on at which it counts with the period it had: a
+// start that has not come, and an end where it had none or one that came later. An
+// assignment that does not count now, because its period is over or has not begun, is
+// not shortened by any period: it gives nothing today that a new period could take.
+func shortens(had, next accesstypes.Period, now time.Time) bool {
+	if !had.Contains(now) {
+		return false
+	}
+	if !next.Contains(now) {
+		return true
+	}
+
+	return !next.End.IsZero() && (had.End.IsZero() || next.End.Before(had.End))
+}
+
 // refuseLongerForOneself is the rule that nobody lengthens their own holding: an act of
 // the caller that would make something the caller holds last longer than it was given
 // for is refused, and is done by someone else who may. own says the assignment is the
 // caller's own (their role, their place in a group, or a role of a group they are in),
-// and what names it in the refusal ("your own role").
+// and what names it in the refusal ("your own role"). The person is told that they
+// cannot, in one sentence; who does it instead is the refusal's cause, kept for the
+// server's log.
 func refuseLongerForOneself(own bool, had, next accesstypes.Period, what string) error {
 	if !own || !lengthens(had, next, time.Now()) {
 		return nil
 	}
 
-	return httpio.NewForbiddenMessagef("you cannot make %s last longer than it was given for: someone else who may give it gives it a new period", what)
+	return httpio.NewForbiddenMessageWithErrorf(
+		errors.Newf("you cannot make %s last longer than it was given for: someone else who may give it gives it a new period", what),
+		"You cannot make %s last longer than it was given for.", what,
+	)
 }

@@ -37,15 +37,22 @@
 // email address is held apart from their username, added and verified by the person
 // through a mailed link, or entered unverified by an operator.
 //
-// Every crew session carries a second factor, whichever way the person signed in
-// (requireSecondFactor, the sign-in rule's last word): the fleet's
-// directory attests for its people when the deployment says the fleet administers it,
-// a browser a person asked to be remembered stands in for the factor, and otherwise the
-// login page runs the sign-in code the auth mails. Headquarters makes the server forget
+// Whether a session then carries a second factor is the auth's sign-in setting (the
+// Sign-in page), which the session library reads at every sign-in. The fleet's directory
+// attests for its people when the deployment says the fleet administers it, a browser a
+// person asked to be remembered stands in for the factor, and otherwise the login page
+// runs the sign-in code the auth mails. Headquarters makes the server forget
 // a person's remembered browsers from the person's account
 // (RevokeCrewUserTrustedDevices).
 //
-// Demonstrates: auth.password, auth.two-populations, auth.multi-method, auth.directory-roles, auth.open-sign-up, auth.invitation, auth.email-address, auth.password-sign-up, auth.second-factor, auth.trusted-device.
+// A person who forgot their password gets back in by a link mailed to the address they
+// confirmed (session.Auth.PasswordReset, whose three handlers the generated router
+// mounts): Headquarters or a sector's marshal sends one from the person's row, and the
+// person asks for one at the sign-in page while Headquarters allows it
+// (SetCrewSelfServiceReset). An address Headquarters sets for a person is theirs once
+// its mailbox confirms it (session.EmailHandlers.Confirm).
+//
+// Demonstrates: auth.password, auth.two-populations, auth.multi-method, auth.directory-roles, auth.open-sign-up, auth.invitation, auth.email-address, auth.password-sign-up, auth.password-reset, auth.second-factor, auth.trusted-device.
 package crew
 
 import (
@@ -69,13 +76,18 @@ import (
 	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/google"
 	"github.com/impulseframework/impulse/session/oidc"
-	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage"
 	"github.com/impulseframework/impulse/session/signin"
 )
 
 const (
-	// Name is the auth's name: the cookie its sessions ride in.
+	// Name is the auth's name. It is the name of this package's directory, the name
+	// generation knows the auth by, the name a @subjectSet says in its auth: part,
+	// the name the role file carries ("auth" in roles.json) and is handed over under
+	// (access.WithDefaultRoles(Roles(), Name)), and the cookie its sessions ride in.
+	// It is not a setting: an engine handed a name generation does not know, or a
+	// role file that carries another name, refuses to open, so renaming the auth
+	// renames the directory, this constant and the role file's "auth" together.
 	Name = "crew"
 	// TablePrefix is the name's PascalCase form, which prefixes every table the auth owns.
 	TablePrefix = "Crew"
@@ -112,10 +124,11 @@ const (
 	// view-as or act-as-role session carries who established it, the sign-in attempts
 	// the password method's attempt limiter counts per sign-in name, the mail links
 	// (the invitations, verifications and sign-ups the auth mails, each a single-use
-	// token), and the second factor's: the sign-in codes mailed for a pending sign-in
-	// and the browsers people asked to be remembered. The names are spelled out in full
-	// (not TablePrefix + "SessionUsers") so the tool's session-tables check, which
-	// reads the literals, finds their migrations.
+	// token), the audit records (the auth's audit log: one row for each act that changes
+	// an account, who holds what, or how people sign in), and the second factor's: the
+	// sign-in codes mailed for a pending sign-in and the browsers people asked to be
+	// remembered. The names are spelled out in full (not TablePrefix + "SessionUsers") so
+	// the tool's session-tables check, which reads the literals, finds their migrations.
 	sessionsTable       = "CrewSessions"
 	usersTable          = "CrewSessionUsers"
 	identitiesTable     = "CrewSessionIdentities"
@@ -123,6 +136,8 @@ const (
 	pendingTable        = "CrewSessionPendingSignIns"
 	attemptsTable       = "CrewSessionSignInAttempts"
 	methodsTable        = "CrewSessionSignInMethods"
+	signInSettingsTable = "CrewSessionSignInSettings"
+	auditRecordsTable   = "CrewSessionAuditRecords"
 	mailLinksTable      = "CrewSessionMailLinks"
 	factorCodesTable    = "CrewSessionFactorCodes"
 	trustedDevicesTable = "CrewSessionTrustedDevices"
@@ -131,8 +146,9 @@ const (
 	// flow keep.
 	tokensTable      = "CrewSessionTokens"
 	deviceCodesTable = "CrewSessionDeviceCodes"
-	// ImpersonationsTable is exported: the watch desk names it.
-	ImpersonationsTable = "CrewSessionImpersonations"
+	// The records of the sessions held as someone else, which the watch desk lists
+	// through the auth's generated resource.
+	impersonationsTable = "CrewSessionImpersonations"
 
 	// DroidsOutlet is the machine outlet the auth issues tokens for: the droids'
 	// telemetry channel (/droids), which the generator program declares Tokens of this
@@ -233,9 +249,14 @@ type Settings struct {
 	// path joined with /device, where the console mounts the library's device approval
 	// page.
 	DevicePage string
-	// Collection is the generated permission collection the role file validates against:
-	// the resources, fields and conditions the release declares. The router package
-	// generates it and imports this one, so the configuration passes it in.
+	// Collection is the generated permission collection: the resources, permissions and
+	// fields the release declares, which the permission engine holds every grant to. The
+	// role file validates against it when the engine opens, a grant written to a custom
+	// role is refused unless the collection lists what it names, and a stored grant that
+	// names anything else is skipped and reported each time the policy loads. The router
+	// package generates it (router.Collection()) and imports this one, so the
+	// configuration passes it in. Required; New refuses nil, a nil
+	// pointer of a collection's type included (access.IsNilCollection).
 	Collection access.PermissionCollection
 	// ChangeSignal carries the engine's policy-change hints between the application's
 	// instances (auth.PolicySignal over the live service): the engine announces after
@@ -249,8 +270,8 @@ type Settings struct {
 	TenantDeclarations signin.DeclarationReader[*cloudspanner.ReadWriteTransaction]
 	// TenantDirectories reads every sector's declaration of one directory with the
 	// default seat its row carries, in the sign-in's transaction: the generated reader
-	// (app.NewSectorDirectoryReader), which the directory admission decides a stranger's
-	// first sign-in with. Required; New refuses nil.
+	// (app.NewSectorDirectoryReader), which the directory admission decides every
+	// sign-in through a sector's directory with. Required; New refuses nil.
 	TenantDirectories signin.DirectoryReader[*cloudspanner.ReadWriteTransaction]
 	// TenantMaker makes a sector from an accepted invitation: the generated maker over
 	// the Sector record's create patch (app.NewSectorMaker), which the crew's identity
@@ -263,6 +284,8 @@ type Settings struct {
 // saying what the missing piece is for.
 func (s *Settings) required() error {
 	switch {
+	case access.IsNilCollection(s.Collection):
+		return errors.New("crew.Settings.Collection is required: the permission engine holds every grant to the permission collection the release declares; pass the generated router's (router.Collection())")
 	case s.ChangeSignal == nil:
 		return errors.New("crew.Settings.ChangeSignal is required: the engine announces and watches policy changes through it")
 	case s.TenantDeclarations == nil:
@@ -411,7 +434,7 @@ func (h *Handlers) SeedToken(ctx context.Context, username, outlet, secret strin
 		if tok.Outlet != outlet || tok.Name != seededTokenName {
 			continue
 		}
-		if err := h.store.RevokeUserToken(ctx, userID, tok.ID, sessionstorage.TokenRevokedByHand); err != nil {
+		if err := h.store.RevokeUserToken(ctx, userID, tok.ID, sessionstorage.TokenRevokedByHand, nil); err != nil {
 			return errors.Wrap(err, "sessionstorage.Auth.RevokeUserToken()")
 		}
 	}
@@ -423,7 +446,7 @@ func (h *Handlers) SeedToken(ctx context.Context, username, outlet, secret strin
 		ID: id, TokenHash: hash[:], Kind: sessionstorage.TokenApplication, UserID: userID, Outlet: outlet, Name: seededTokenName,
 		ExpiresAt: time.Now().AddDate(seededTokenLifetime, 0, 0),
 	}
-	if err := h.store.InsertToken(ctx, seeded); err != nil {
+	if err := h.store.InsertToken(ctx, seeded, nil); err != nil {
 		return errors.Wrap(err, "sessionstorage.Auth.InsertToken()")
 	}
 
@@ -437,8 +460,8 @@ func (h *Handlers) PasswordLogin() http.HandlerFunc {
 }
 
 // PasswordChange is the password method's change: {"oldPassword", "newPassword"} in
-// from a signed-in person, who may be one whose operator-set password must change before
-// anything else is served. It validates the session itself, so the generated router
+// from a signed-in person, who may be one an administrator required a new password of,
+// which they choose before anything else is served. It validates the session itself, so the generated router
 // mounts it outside ValidateSession, behind the XSRF guard.
 func (h *Handlers) PasswordChange() http.HandlerFunc {
 	return h.password.ChangeUserPassword()
@@ -452,6 +475,11 @@ func (h *Handlers) PasswordChange() http.HandlerFunc {
 // the XSRF guard.
 func (h *Handlers) PasswordRemove() http.HandlerFunc {
 	return h.password.RemoveUserPassword()
+}
+
+// PasswordStrength answers how strong a password is while a person types it, before it is set.
+func (h *Handlers) PasswordStrength() http.HandlerFunc {
+	return h.password.Strength()
 }
 
 // FirstPasswordSendCode mails the signed-in person who has no password, because they
@@ -471,6 +499,27 @@ func (h *Handlers) FirstPasswordSendCode() http.HandlerFunc {
 // changes it with the old one (PasswordChange).
 func (h *Handlers) FirstPasswordSet() http.HandlerFunc {
 	return h.FirstPassword().Set()
+}
+
+// PasswordResetRequest takes a person's own request for a link that resets their
+// password ({"email"}), served while an administrator has turned that on: the answer is
+// the same whether or not the address has a login, and an address with none is mailed
+// nothing.
+func (h *Handlers) PasswordResetRequest() http.HandlerFunc {
+	return h.PasswordReset().Request()
+}
+
+// PasswordResetOpen opens a password reset link ({"token"}), the person's own or one an
+// administrator sent, and answers the username it resets the password of.
+func (h *Handlers) PasswordResetOpen() http.HandlerFunc {
+	return h.PasswordReset().Open()
+}
+
+// PasswordResetComplete sets the new password a reset link's reader chose ({"token",
+// "password"}): the link is spent, the old password is refused from then on, every
+// session of the person ends, and they sign in with the new password.
+func (h *Handlers) PasswordResetComplete() http.HandlerFunc {
+	return h.PasswordReset().Complete()
 }
 
 // GoogleLogin sends the browser to the fleet's Google directory.
@@ -553,6 +602,14 @@ func (h *Handlers) EmailVerify() http.HandlerFunc {
 	return h.Email().Verify()
 }
 
+// EmailConfirm confirms an address an administrator set for a person, from the link
+// mailed to the new address ({"token"}): the login holds the address it had until then.
+// The reader of the link confirms it signed in or not, since they may have lost the
+// mailbox their sign-in code goes to.
+func (h *Handlers) EmailConfirm() http.HandlerFunc {
+	return h.Email().Confirm()
+}
+
 // SignUpStart mails a sign-up link to the address a stranger gives ({"email"}): the
 // password method's open sign-up, which answers alike whatever the address's state.
 func (h *Handlers) SignUpStart() http.HandlerFunc {
@@ -617,7 +674,7 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	if err := settings.required(); err != nil {
 		return nil, err
 	}
-	store, err := spannerstore.New(db, spannerstore.WithPrefix(TablePrefix))
+	store, err := spannerstore.New(db, spannerstore.WithPrefix(TablePrefix), spannerstore.WithAuditRecords(auditRecordsTable))
 	if err != nil {
 		return nil, errors.Wrap(err, "spannerstore.New()")
 	}
@@ -638,7 +695,7 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// anyone, but for the Super Administrator role she also holds.
 	//
 	// Demonstrates: auth.super-administrator, tenancy.directory-only.
-	accessClient, err := access.New(store, access.WithDefaultRoles(settings.Collection, Roles()), access.WithChangeSignal(settings.ChangeSignal),
+	accessClient, err := access.New(store, settings.Collection, access.WithDefaultRoles(Roles(), Name), access.WithChangeSignal(settings.ChangeSignal),
 		access.WithSuperAdministratorMethods(crewidentity.SuperAdministratorMethods()...),
 		access.WithTenantAdministratorRoles(sectorAdministratorRoles()...))
 	if err != nil {
@@ -651,7 +708,7 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// The impersonation record rides beside the sessions, so StartImpersonatedSession
 	// can mint view-as and act-as-role sessions, and the auth events table records how
 	// each session was authenticated.
-	impersonation, err := sessionstorage.NewImpersonationTable(ImpersonationsTable)
+	impersonation, err := sessionstorage.NewImpersonationTable(impersonationsTable)
 	if err != nil {
 		return nil, errors.Wrap(err, "sessionstorage.NewImpersonationTable()")
 	}
@@ -661,35 +718,37 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	}
 
 	// One Auth session that every method establishes, which mails as the fleet
-	// (session.WithMail): the invitations the auth's generated management sends, the
+	// (session.MailSettings): the invitations the auth's generated management sends, the
 	// verification of an address a person adds, and the sign-up links, each leading to
-	// the console's login page with its token in the query.
+	// the console's login page with its token in the address's fragment.
 	//
 	// The Auth is built knowing who holds the Super Administrator role
 	// (session.SuperAdministratorsBy, an argument no Auth is built without): a holder
-	// signs in with a second factor whatever the sign-in rule set below asks of anyone
-	// else, held for the mailed code by a rule of the library's own after the crew's.
-	// Here the crew's rule asks everyone already, so the library's changes nothing a
-	// person sees; it is what keeps the factor on a super administrator if the crew's
-	// rule is ever relaxed.
+	// signs in with a second factor whatever the crew's sign-in setting says, held for
+	// the mailed code by a rule of the library's own after the crew's. While the setting
+	// requires a second factor of everyone, the library's rule changes nothing a person
+	// sees; it is what keeps the factor on a super administrator once Headquarters turns
+	// the setting off.
 	sessionStore := sessionstorage.NewSpannerAuth(db, sessionstorage.WithImpersonation(impersonation), sessionstorage.WithAuthEvents(events))
 	crewSession, err := session.NewAuth[session.NoCustomData, session.NoCustomData](
 		sessionStore,
 		settings.CookieKey,
 		session.SuperAdministratorsBy(signin.SuperAdministrators(resource.SignInRoles(accessClient.UserManager()))),
+		session.MailSettings{Sender: settings.Mail.Sender, Application: Application, LoginURL: settings.Mail.LoginURL},
 		session.WithSessionTableName(sessionsTable),
 		session.WithUserTableName(usersTable),
 		session.WithIdentitiesTableName(identitiesTable),
 		session.WithPendingSignInsTableName(pendingTable),
 		session.WithSignInAttemptsTableName(attemptsTable),
 		session.WithSignInMethodsTableName(methodsTable),
+		session.WithSignInSettingsTableName(signInSettingsTable),
+		session.WithAuditRecordsTableName(auditRecordsTable),
 		session.WithMailLinksTableName(mailLinksTable),
 		session.WithTokensTableName(tokensTable),
 		session.WithDeviceCodesTableName(deviceCodesTable),
 		session.WithFactorCodesTableName(factorCodesTable),
 		session.WithTrustedDevicesTableName(trustedDevicesTable),
 		session.WithTrustedDeviceCookieName(TrustedDeviceCookie),
-		session.WithMail(settings.Mail.Sender, session.MailSettings{Application: Application, LoginURL: settings.Mail.LoginURL}),
 		session.WithCookieName(Name),
 		session.WithXSRFCookieName(XSRFCookie),
 		session.WithSessionTimeout(settings.SessionTimeout),
@@ -761,48 +820,57 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// The sign-in rule: the library's tenant policy. A person's sectors are where they
 	// hold a role (the engine's memberships), and what each sector admits is its
 	// declaration, read in the sign-in's transaction. A sector's declaration restricts
-	// its own door alone: a sector that is not directory only admits everyone it
-	// seats, however they signed in, and a directory-only sector admits a sign-in
-	// through its own directory and nothing else. So a person is refused only when
-	// every sector that seats them is directory only and none has the way they signed
-	// in as its directory (the bosun, whose only sector is Bastion, is refused
-	// directory_only by password). A super administrator is admitted whatever a
-	// sector declares; a directory-only sector's own marshal who signs in with a
-	// password is held for the mailed code and then enters that sector (the engine
-	// names who administers a sector); a person holding a role outside any one sector (a global role,
-	// or one held in every sector) is admitted and then enters a sector only where
-	// its declaration admits their session, as anyone does; a sign-in whose directory
-	// names the roles (the client's) is admitted on the library's checks;
-	// a person who holds no sector is admitted too (signin.AdmitWithoutTenant), since
-	// the pioneer signs up first and charts her sector after. Which sectors the session
-	// then reaches is decided again, sector by sector, where its chart is computed
-	// (app.UserPermissions): every sector that seats the person, but a directory-only
-	// sector whose directory they did not sign in through, which stays on the chart
-	// marked closed, with the reason. The memberships are read outside the sign-in's transaction
-	// (resource.SignInRoles): the Spanner client refuses the engine's read under the
-	// transaction's context as a nested transaction.
-	// The rule's last word is the second factor every crew session carries
-	// (requireSecondFactor): a sign-in the tenant policy admits waits for the
-	// code the auth mails, unless the fleet's directory attested for the person or the
-	// browser is one they asked to be remembered.
+	// its own door alone: a sector that is not directory only admits everyone it seats,
+	// however they signed in, and a directory-only sector admits a sign-in through its
+	// own directory and nothing else. So a person is refused only when every sector that
+	// seats them is directory only and none has the way they signed in as its directory
+	// (the bosun, whose only sector is Bastion, is refused directory_only by password).
+	// A super administrator is admitted whatever a sector declares; a directory-only
+	// sector's own marshal who signs in with a password is held for the mailed code and
+	// then enters that sector (the engine names who administers a sector); a person
+	// holding a role outside any one sector (a global role, or one held in every sector)
+	// is admitted and then enters a sector only where its declaration admits their
+	// session, as anyone does; a sign-in whose directory names the roles (the client's)
+	// is admitted on the library's checks; a person who holds no sector is admitted too
+	// (signin.AdmitWithoutTenant), since the pioneer signs up first and charts her
+	// sector after. One part of a sector's declaration reaches past its own door: an
+	// account that signs in through a directory-only sector's directory signs in through
+	// that directory alone, whichever sectors seat the person. Any other sign-in of the
+	// account is refused, a password too, with the two exceptions above: that sector's
+	// own marshal's password, held for the mailed code, and a super administrator.
+	// Which sectors the session then reaches is decided again, sector by sector, where
+	// its chart is computed (app.UserPermissions): every sector that seats the person,
+	// but a directory-only sector whose directory they did not sign in through, which
+	// stays on the chart, listed as not available, with the reason. The memberships are read
+	// outside the sign-in's transaction (resource.SignInRoles): the Spanner client
+	// refuses the engine's read under the transaction's context as a nested transaction.
+	// Whether a session then carries a second factor is the auth's sign-in setting (the
+	// Sign-in page), which the session library reads at every sign-in.
 	//
-	// Demonstrates: tenancy.declaration, tenancy.directory-only, auth.second-factor.
-	crewSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations, signin.AdmitWithoutTenant()).Then(requireSecondFactor))
+	// Demonstrates: tenancy.declaration, tenancy.directory-only.
+	crewSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations, signin.AdmitWithoutTenant()))
+
+	// The same rule, asked outside a sign-in, says whose password is disabled: a person
+	// the rule would refuse a sign-in with a password as directory only. Their account
+	// page draws no Password line and they are refused a first password
+	// (SetPasswordDisabledCheck). The declarations are read with the sign-in's reader,
+	// each in a transaction of its own (resource.OutsideSignIn).
+	crewSession.SetPasswordDisabledCheck(signin.PasswordsDisabledByTenants(accessClient.UserManager(), resource.OutsideSignIn(db, settings.TenantDeclarations)))
 
 	// The crew's identity client (pkg/identity, generated): the rules that manage the
 	// auth's people, over the engine that reads its memberships and the API of the
-	// session manager that signs them in, whose hasher makes the hash of a temporary
-	// password one of its methods sets. A membership one of its methods commits is
-	// announced by that engine, on this instance at the commit and on every other
-	// through the policy signal. The client knows the roles that administer a sector
-	// (identity.WithAdministratorRoles, the ones held in every sector), so a person who
-	// removes a role from themselves in a sector is judged by the rule on its last
-	// administrator: no sector is left without a marshal. The service as a whole is
-	// kept by the client's own rule on the last super administrator, whose role and
-	// account stay whoever asks. The store under it writes a
-	// membership as a create that leaves a row that is there alone (the generated create
-	// patch's OrSkip), so a role given twice is written once and keeps the time it was
-	// first given.
+	// session manager that signs them in, which makes the link an invitation mails. A
+	// membership one of its methods commits is announced by that engine, on this
+	// instance at the commit and on every other through the policy signal. The client
+	// knows the roles that administer a sector (identity.WithAdministratorRoles, the
+	// ones held in every sector), so a person who removes a role from themselves in a
+	// sector is judged by the rule on its last administrator: nobody leaves a sector
+	// without a marshal by giving up their own role. The service as a whole is kept by
+	// the client's own rule on the last super administrator, whose role and account
+	// stay whoever asks. The store under it
+	// writes a membership as a create that leaves a row that is there alone (the
+	// generated create patch's OrSkip), so a role given twice is written once and keeps
+	// the time it was first given.
 	//
 	// The client makes the sectors too. Nobody charts a sector directly: Headquarters
 	// invites one person with the sector's details, which the client checks against the
@@ -823,18 +891,19 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// and hands that transaction, so the role is written with the step or not at all.
 	// They are set here, where the auth is built, so no crew auth is open without them.
 	//
-	// The directory admission: what a fleet member gets at their first sign-in through
-	// a sector's directory, before the registration's account rule is reached. The row
-	// of the sector whose directory the identity came through decides: a row with a
-	// default seat creates a stranger and seats them with it in one transaction (Cinder
-	// seats them SectorCrew), and the sign-in rule then finds the membership; a row with
-	// none refuses a stranger (invitation_only), and no account is created, unless they
-	// followed an invitation link, which is the way in. A person whose account stood
-	// before is given the default seat too, at the sign-in that links the account to
-	// the directory, where they hold no role in the sector: a persona who signs in
-	// through the fleet's directory for the first time and confirms with their password
-	// is seated at Cinder then. It is given once for a link, so a role a marshal removes
-	// afterwards is not given back by signing in. A directory no sector has falls to
+	// The directory admission: what a fleet member gets when they sign in through a
+	// sector's directory and hold nothing in the sector, at every sign-in, before the
+	// registration's account rule is reached. The row of the sector whose directory the
+	// identity came through decides: a row with a default seat creates a stranger and
+	// seats them with it in one transaction (Cinder seats them SectorCrew), and the
+	// sign-in rule then finds the membership; a row with none refuses a stranger
+	// (invitation_only), and no account is created, unless they followed an invitation
+	// link, which is the way in. A person whose account stood before is given the default
+	// seat too, at their next sign-in through the directory, where they hold nothing in
+	// the sector: a persona who signs in through the fleet's directory for the first time
+	// and confirms with their password is seated at Cinder then. A role a marshal removes
+	// is given again at the person's next sign-in through the directory, and disabling
+	// the account keeps a person out. A directory no sector has falls to
 	// the registration's rule as before (the pioneer's sign-up, a personal account,
 	// which is no sector's directory). The crew's roles are the application's, so the
 	// admission is set on this auth; an auth whose directory writes the roles (the
@@ -860,10 +929,22 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// when its person next signs in. The session library calls this hook once the
 	// session is committed, and the identity client removes the person's ended roles and
 	// places, nothing else and never the account; a failure is logged and the session
-	// stands. The members' roles are their directory's and carry no period: no hook.
+	// stands. The same hook announces the sign-in to the open pages: the session it made,
+	// the person's account, and the identities and roles a sign-in can write, so a list
+	// of accounts, a person's page and a tenant's people show them without a reload. The
+	// generated handlers hand the client the live service to announce through; until
+	// they do, nothing is announced. The members' roles are their directory's and carry
+	// no period, so their hook removes none.
 	//
 	// Demonstrates: auth.periods.
 	crewSession.SetSignedInHook(identityClient.SignedIn(resource.NewSpannerClient(db)))
+
+	// A person's own tenants, on their account page: the session library asks the
+	// identity client which tenants the person holds something in, with the roles held
+	// in each, and has it take the person out of one at their own word (OwnTenants).
+	// The rules are the identity package's: a tenant's last administrator does not
+	// leave it, and an account left holding nothing stays.
+	crewSession.SetOwnTenants(identityClient.OwnTenants(resource.NewSpannerClient(db)))
 
 	// The machine outlet the auth issues tokens for, registered before the first
 	// request as the methods are: the droids' channel, whose token check the generated
@@ -947,25 +1028,16 @@ func (a *Auth) Identity() *crewidentity.Client {
 	return a.identity
 }
 
-// Close releases the permission engine.
+// Close waits for the mail the auth is still sending, then releases the permission
+// engine. A reset link a crew member asked for is mailed after their request is answered
+// (session.AuthAPI.WaitForMail), so the configuration closes the auth once the server
+// has stopped and before it closes the database, and no link a person was promised is
+// lost.
 func (a *Auth) Close() error {
+	a.handlers.API().WaitForMail()
 	if err := a.access.Close(); err != nil {
 		return errors.Wrap(err, "access.Client.Close()")
 	}
 
 	return nil
-}
-
-// requireSecondFactor is the last word of the crew's sign-in rule, chained after the
-// tenant policy (signin.Policy.Then): every session carries a second factor, with the
-// sign-in code the library mails as the factor the login page runs
-// (signin.RequireMFA(sessioninfo.MethodEmailCode)). The library satisfies it before it
-// holds the sign-in: a directory the fleet administers attests for its people
-// (auth.Directory.Administered), a browser the person asked to be remembered after a code
-// stands in for the next thirty days, and otherwise the sign-in waits for the code the
-// person reads from their mail. The requirement is the rule's, not a tenant's, so no
-// sector turns it off. Each auth package holds its own, as impulse writes it and as
-// impulse check reads it; the members' is the same rule.
-func requireSecondFactor(context.Context, *cloudspanner.ReadWriteTransaction, *sessioninfo.NewSessionRequest) (*signin.Decision, error) {
-	return signin.RequireMFA(sessioninfo.MethodEmailCode), nil
 }

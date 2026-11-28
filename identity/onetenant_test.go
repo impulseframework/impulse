@@ -158,76 +158,107 @@ func TestManager_AssignRole_oneTenantPerPerson(t *testing.T) {
 	})
 }
 
-// TestManager_CreateUser_oneTenantPerPerson pins what the rule of one tenant per person
-// finds on a person created in a tenant: nothing. A role is held by an account and never
-// by a name, and an account that is created holds nothing, so the person is created with
-// their role in the tenant whatever another account holds, and whatever a membership
-// says that names the new username and no account.
-func TestManager_CreateUser_oneTenantPerPerson(t *testing.T) {
+// TestManager_HoldsTenant pins the read the generated create-your-tenant route makes in
+// the transaction that writes the tenant: whether the person holds a role in some
+// tenant. A membership of their own held in one tenant counts, and so does a place in a
+// group kept in one; a role held for the whole application or in every tenant is no
+// tenant's, a role another account holds is not theirs, and a membership whose period
+// has ended places them nowhere. The answer is the same whether or not the application
+// declared one tenant per person: the route's rule is its own.
+func TestManager_HoldsTenant(t *testing.T) {
 	t.Parallel()
 
+	holds := func(scope accesstypes.PolicyScope, role accesstypes.Role) access.MembershipKey {
+		return access.NewMembershipKey(scope, dana, role)
+	}
+	crewID := impulse.Must(impulse.UUIDFromString("0190b000-0000-7000-8000-0000000007a1"))
+	inGroup := access.GroupMemberKey{Group: GroupID(crewID), User: User(userID)}
 	tests := []struct {
 		name  string
 		holds []access.MembershipKey
-		// refused marks the one case the rule refuses.
-		refused bool
+		// ended are the memberships whose period has ended.
+		ended []access.MembershipKey
+		// group is the scope a group the person is in is kept in, nil for no group.
+		group *accesstypes.PolicyScope
+		want  bool
 	}{
-		{name: "nobody holds a role anywhere"},
-		{name: "another account holds a role in another tenant", holds: []access.MembershipKey{access.NewMembershipKey(betaScope, dana, "Reader")}},
-		{
-			name:  "a membership in another tenant names the new username and no account",
-			holds: []access.MembershipKey{access.NewMembershipKey(betaScope, accesstypes.User("pat"), "Reader")},
-		},
-		{
-			// The management creates an account under an id the store generates, which holds
-			// nothing. The fake store hands out one that holds a role here, so that the cases
-			// above are known to run with the rule on: the role a new person is given is
-			// judged by what their account's id holds.
-			name:  "an id that already held a role in another tenant would be refused",
-			holds: []access.MembershipKey{access.NewMembershipKey(betaScope, User(createdID), "Reader")}, refused: true,
-		},
+		{name: "a person who holds nothing holds no tenant"},
+		{name: "a role in a tenant", holds: []access.MembershipKey{holds(alphaScope, "Reader")}, want: true},
+		{name: "a role for the whole application is no tenant's", holds: []access.MembershipKey{holds(globalScope, "Steward")}},
+		{name: "a role in every tenant is no tenant's", holds: []access.MembershipKey{holds(everyScope, "Reader")}},
+		{name: "a role for the whole application beside one in a tenant", holds: []access.MembershipKey{holds(globalScope, "Steward"), holds(betaScope, "Reader")}, want: true},
+		{name: "a role another account holds in a tenant is not the person's", holds: []access.MembershipKey{access.NewMembershipKey(betaScope, erin, "Reader")}},
+		{name: "a role in a tenant whose period has ended places the person nowhere", holds: []access.MembershipKey{holds(alphaScope, "Reader")}, ended: []access.MembershipKey{holds(alphaScope, "Reader")}},
+		{name: "a place in a group kept in a tenant", group: &alphaScope, want: true},
+		{name: "a place in a group kept for the whole application is no tenant's", group: &globalScope},
 	}
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			store := &fakeStore{memberships: map[access.MembershipKey]bool{}, roles: map[access.RoleKey]bool{}, nextID: createdID}
-			for _, key := range tt.holds {
-				store.memberships[key] = true
+		for _, declared := range []bool{false, true} {
+			name := tt.name
+			if declared {
+				name += ", where a person belongs to one tenant"
 			}
-			m, _ := newManager(t, store, tenantRoles, WithOneTenantPerPerson())
+			t.Run(name, func(t *testing.T) {
+				t.Parallel()
 
-			var got impulse.UUID
-			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-				ctx = inAlpha(ctx, erin)
-				tenant, err := m.Tenant(ctx)
-				if err != nil {
+				store := &fakeStore{memberships: map[access.MembershipKey]bool{}, roles: map[access.RoleKey]bool{}}
+				for _, key := range tt.holds {
+					store.memberships[key] = true
+				}
+				past := time.Now().Add(-time.Hour)
+				store.membershipPeriods = map[access.MembershipKey]accesstypes.Period{}
+				for _, key := range tt.ended {
+					store.membershipPeriods[key] = accesstypes.Period{End: past}
+				}
+				if tt.group != nil {
+					key := access.NewMembershipKey(*tt.group, "", "")
+					store.groups = map[impulse.UUID]*Group{crewID: {Kind: key.Kind, Axis: key.Axis, Domain: key.Domain, Name: "Crew"}}
+					store.groupMembers = map[access.GroupMemberKey]bool{inGroup: true}
+				}
+				var opts []Option
+				if declared {
+					opts = append(opts, WithOneTenantPerPerson())
+				}
+				m, _ := newManager(t, store, tenantRoles, opts...)
+
+				var got bool
+				err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+					var err error
+					got, err = m.HoldsTenant(ctx, txn, userID)
+
 					return err
+				})
+				if err != nil {
+					t.Fatalf("HoldsTenant() error = %v", err)
 				}
-				got, err = tenant.CreateUser(ctx, txn, &NewAccount{Username: "pat", Roles: []accesstypes.Role{"Reader"}})
-
-				return err
+				if got != tt.want {
+					t.Errorf("HoldsTenant() = %v, want %v", got, tt.want)
+				}
+				if len(store.writes) != 0 {
+					t.Errorf("HoldsTenant() buffered %v, want a read alone", store.writes)
+				}
 			})
-			if tt.refused {
-				assertOtherTenant(t, err, "beta")
-				if diff := cmp.Diff([]string{"insert user pat <none>"}, store.writes); diff != "" {
-					t.Errorf("buffered writes of the transaction that failed (-want +got): no membership\n%s", diff)
-				}
-
-				return
-			}
-			if err != nil {
-				t.Fatalf("CreateUser() error = %v, want the person created: a new account holds nothing", err)
-			}
-			if got != createdID {
-				t.Errorf("CreateUser() = %s, want the new user's id %s", got, createdID)
-			}
-			want := []string{"insert user pat <none>", "insert membership domain/alpha " + createdID.String() + " Reader"}
-			if diff := cmp.Diff(want, store.writes); diff != "" {
-				t.Errorf("buffered writes (-want +got):\n%s", diff)
-			}
-		})
+		}
 	}
+
+	t.Run("a failed read of what the person holds fails the call", func(t *testing.T) {
+		t.Parallel()
+
+		store := &fakeStore{memberships: map[access.MembershipKey]bool{}, roles: map[access.RoleKey]bool{}, failOn: "Memberships"}
+		m, _ := newManager(t, store, tenantRoles)
+
+		err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+			held, err := m.HoldsTenant(ctx, txn, userID)
+			if held {
+				t.Errorf("HoldsTenant() = true beside its error")
+			}
+
+			return err
+		})
+		if !errors.Is(err, errStore) {
+			t.Errorf("HoldsTenant() error = %v, want the store's failure", err)
+		}
+	})
 }
 
 // TestManager_Invite_oneTenantPerPerson pins the rule on an invitation when it is sent:
@@ -307,7 +338,7 @@ func TestManager_Invite_oneTenantPerPerson(t *testing.T) {
 			})
 			if tt.refused {
 				assertOtherTenant(t, err, "beta")
-				if !strings.Contains(httpio.Messages(err)[0], "an account already holds the address dana@example.com") {
+				if httpio.Messages(err)[0] != "An account already holds the address dana@example.com and belongs to another tenant, and a person belongs to one tenant here. The invitation is not sent." {
 					t.Errorf("the refusal %q does not say the address has an account", httpio.Messages(err)[0])
 				}
 				if len(store.writes) != 0 || len(mail.sent) != 0 {
@@ -358,7 +389,7 @@ func TestManager_signInHooks_oneTenantPerPerson(t *testing.T) {
 	seat := func(tenants ...accesstypes.Domain) []signin.DirectorySeat {
 		seats := make([]signin.DirectorySeat, 0, len(tenants))
 		for _, tenant := range tenants {
-			seats = append(seats, signin.DirectorySeat{Tenant: tenant, Role: "Reader"})
+			seats = append(seats, signin.DirectorySeat{Tenant: tenant, Role: "Reader", Directory: acmeDirectory})
 		}
 
 		return seats
@@ -431,6 +462,39 @@ func TestManager_signInHooks_oneTenantPerPerson(t *testing.T) {
 		assertOtherTenant(t, err)
 		if committed != nil {
 			t.Error("a hook that failed answered a committed function")
+		}
+	})
+
+	t.Run("a person of one tenant moved by another's directory is refused a third tenant's invitation in the same sign-in", func(t *testing.T) {
+		t.Parallel()
+		m, store := build(t, access.NewMembershipKey(betaScope, dana, "Reader"))
+		store.roles[access.RoleKey{Kind: "domain", Domain: "gamma", Role: "Reader"}] = true
+		tx := new(spanner.ReadWriteTransaction)
+
+		if _, err := m.DirectorySeated("Staff").Seat(t.Context(), tx, userID, "dana", seat("alpha")); err != nil {
+			t.Fatalf("the directory's default role: error = %v, want the person moved", err)
+		}
+		_, err := m.InvitationAccepted("Staff")(t.Context(), tx, userID, "dana", invitation("gamma", "Reader"))
+		assertOtherTenant(t, err, "alpha", "beta", "gamma")
+		want := []string{"delete membership domain/beta " + id + " Reader", "insert membership domain/alpha " + id + " Reader"}
+		if diff := cmp.Diff(want, store.writes); diff != "" {
+			t.Errorf("buffered writes (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("a person of one tenant moved by another's directory is refused that tenant's own invitation in the same sign-in: they sign in once without it", func(t *testing.T) {
+		t.Parallel()
+		m, store := build(t, access.NewMembershipKey(betaScope, dana, "Reader"))
+		tx := new(spanner.ReadWriteTransaction)
+
+		if _, err := m.DirectorySeated("Staff").Seat(t.Context(), tx, userID, "dana", seat("alpha")); err != nil {
+			t.Fatalf("the directory's default role: error = %v, want the person moved", err)
+		}
+		_, err := m.InvitationAccepted("Staff")(t.Context(), tx, userID, "dana", invitation("alpha", "Writer"))
+		assertOtherTenant(t, err, "alpha", "beta")
+		want := []string{"delete membership domain/beta " + id + " Reader", "insert membership domain/alpha " + id + " Reader"}
+		if diff := cmp.Diff(want, store.writes); diff != "" {
+			t.Errorf("buffered writes (-want +got):\n%s", diff)
 		}
 	})
 
@@ -581,7 +645,7 @@ func TestManager_RemoveRole_oneTenantPerPerson(t *testing.T) {
 				return m.RemoveRole(ctx, txn, tt.scope, userID, tt.role)
 			})
 			if tt.wantWrite == "" {
-				if !httpio.HasConflict(err) || !strings.Contains(httpio.Messages(err)[0], "this account holds roles in more than one tenant") {
+				if !httpio.HasConflict(err) || httpio.Messages(err)[0] != "This account holds roles in more than one tenant, which only a person who also holds a role for the whole application or in every tenant may. Take the roles in all but one tenant away first." {
 					t.Fatalf("RemoveRole() error = %v, want a Conflict that says the person holds roles in more than one tenant", err)
 				}
 				for _, tenant := range []string{"alpha", "beta"} {

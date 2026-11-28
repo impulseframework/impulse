@@ -51,6 +51,11 @@ func TestDeriveEnumerationResource(t *testing.T) {
 			},
 			wantErr: "remove @" + validateUpdateTypeKeyword + ", @" + manualAddResourceSetKeyword + "(" + string(PatchHandler) + ")",
 		},
+		{
+			name:    "a delete rule contradicts a read-only table",
+			mutate:  func(res *resourceInfo) { res.ValidateDeleteType = "WidgetKindDeleteRule" },
+			wantErr: "remove @" + validateDeleteTypeKeyword,
+		},
 	}
 
 	structs := fixtureStructs(loadCollectionFixture(t))
@@ -98,6 +103,9 @@ func TestResourceFieldsTypescriptType_enumeration(t *testing.T) {
 			client: &client{
 				enumerateTables: map[string]string{"WidgetKinds": "WidgetKind"},
 				enumValues:      map[string][]*enumData{"WidgetKinds": kinds},
+				tableMap: map[string]*tableMetadata{
+					"Suppliers": {Columns: map[string]columnMeta{"Id": {IsPrimaryKey: true}, "Code": {}}},
+				},
 			},
 			routerResources:      []accesstypes.Resource{"WidgetKinds", "Suppliers"},
 			outletExcludedTables: map[string]struct{}{},
@@ -112,6 +120,7 @@ func TestResourceFieldsTypescriptType_enumeration(t *testing.T) {
 	tests := []struct {
 		name            string
 		referenced      string
+		column          string
 		foreignKey      bool
 		excluded        bool
 		wantEnumerated  bool
@@ -121,6 +130,9 @@ func TestResourceFieldsTypescriptType_enumeration(t *testing.T) {
 		{name: "the enumeration wins even though the table is also a resource", referenced: "WidgetKinds", foreignKey: true, wantEnumerated: true, wantEnumeration: "WidgetKind"},
 		{name: "an enumeration table off the outlet falls back to the resource rule", referenced: "WidgetKinds", foreignKey: true, excluded: true, wantEnumerated: true},
 		{name: "a key into an ordinary resource is resource-backed", referenced: "Suppliers", foreignKey: true, wantEnumerated: true},
+		{name: "a key into an ordinary resource by its key column is resource-backed", referenced: "Suppliers", column: "Id", foreignKey: true, wantEnumerated: true},
+		// A picker writes the key of the row picked, and the column holds the row's code.
+		{name: "a foreign key to a column outside the resource's key stays a string", referenced: "Suppliers", column: "Code", foreignKey: true},
 		{name: "a key into a table that is neither stays a string", referenced: "Ledgers", foreignKey: true},
 		{name: "a plain column is untouched", referenced: "WidgetKinds"},
 	}
@@ -133,6 +145,7 @@ func TestResourceFieldsTypescriptType_enumeration(t *testing.T) {
 			res := fixtureResource(t, structs, "Widget", func(res *resourceInfo) {
 				res.Fields[1].IsForeignKey = tt.foreignKey
 				res.Fields[1].ReferencedResource = tt.referenced
+				res.Fields[1].ReferencedField = tt.column
 			})
 			if err := newGenerator(tt.excluded).resourceFieldsTypescriptType(res); err != nil {
 				t.Fatalf("resourceFieldsTypescriptType() error = %v", err)

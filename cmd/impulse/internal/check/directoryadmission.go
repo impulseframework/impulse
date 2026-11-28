@@ -19,8 +19,9 @@ import (
 // directoryAdmission verifies that an application whose tenant record declares
 // directories seats a stranger the way the framework admits them: the directories
 // record (@tenantDirectory) carries a column annotated @directoryDefaultSeat, the role a
-// stranger the directory vouches for is seated with at their first sign-in, NULL where
-// the tenant admits them by invitation only; every auth whose roles the application
+// person the directory vouches for is seated with when they sign in through it and hold
+// nothing in the tenant, at every sign-in, NULL where the tenant admits them by
+// invitation only; every auth whose roles the application
 // assigns (one registering no method with RoleSync, whose directory would write them)
 // sets the directory admission on its session Auth (SetDirectoryAdmission, over the
 // generated directory reader), so a stranger from a declared directory is created seated
@@ -89,7 +90,7 @@ func (c directoryAdmission) Run(_ context.Context, env *Env) Result {
 	var details, records, grants []string
 	for _, d := range declared {
 		if d.record.DefaultSeatField == "" {
-			details = append(details, fmt.Sprintf("%s:%d: %s declares no column annotated %s; the tenant directory record carries a nullable DefaultSeat column (STRING(64), annotated %s; a migration adds it to the directories table), what a stranger the directory vouches for is seated with at their first sign-in, named by the tenant's administrator on the Sign-in page", d.record.File, d.record.Line, d.record.Name, directoryDefaultSeatTag, directoryDefaultSeatTag))
+			details = append(details, fmt.Sprintf("%s:%d: %s declares no column annotated %s; the tenant directory record carries a nullable DefaultSeat column (STRING(64), annotated %s; a migration adds it to the directories table), what a person the directory vouches for is seated with when they sign in through it and hold nothing in the tenant, named by the tenant's administrator on the Sign-in page", d.record.File, d.record.Line, d.record.Name, directoryDefaultSeatTag, directoryDefaultSeatTag))
 
 			continue
 		}
@@ -177,7 +178,7 @@ func callsInPackage(a *app.App, dir, method string) (bool, error) {
 	}
 	for _, e := range entries {
 		name := e.Name()
-		if e.IsDir() || !strings.HasSuffix(name, ".go") || isTestFile(name) || strings.HasPrefix(name, "zz_gen_") {
+		if e.IsDir() || !app.GoToolReads(name) || isTestFile(name) || strings.HasPrefix(name, "zz_gen_") {
 			continue
 		}
 		rel := path.Join(dir, name)
@@ -322,5 +323,5 @@ func isVowel(b byte) bool {
 
 // Meaning explains the invariant for the brief.
 func (directoryAdmission) Meaning() string {
-	return "A tenant that has a directory decides what a person gets at their first sign-in through it: the directories record (the struct annotated `@tenantDirectory`, the skeletons' `TenantDirectory` in `pkg/resources/tenant_directories.go`) carries a nullable default seat column (`DefaultSeat *string`, annotated `@directoryDefaultSeat`, STRING(64) in the directories table, which a migration adds), the tenant's role the person is given, or NULL, and the tenant admits the directory's people by invitation only. Every auth whose roles the application assigns (the password method, and a directory method registered with `DisableRoleSync`; an auth whose one registration carries `RoleSync` is the directory's) carries the generated directory reader in its Settings (`TenantDirectories`, built with `New<Record>DirectoryReader` on the data level) and sets the admission on its session Auth beside its sign-in policy, `authSession.SetDirectoryAdmission(settings.TenantDirectories, identityClient.DirectorySeated())`, the last argument the hook of the identity client the auth builds from its generated management (`<auth>identity.NewClient`), which gives the role in the transaction that links the person's account to the directory, so a stranger from a tenant's directory is created holding the row's role, or refused with no account (`invitation_only`), before the registration's account rule, and a person whose account stood before is given the role at the sign-in that links the account, where they hold no role in the tenant; an auth whose directory writes the roles sets none. The tenant's administrator makes the choice on the Sign-in page with two methods the generator writes in the tenant's scope, so the administrator role (`pkg/auth/<auth>/roles.json`) holds Execute on both: `Open<Record>ToDirectory`, which names the role behind a warning the person reads and confirms by typing a word, and holds the role to one the caller could give directly, and `Make<Record>InviteOnly`, which clears it. The record shows the default seat on List and Read and its own update never writes it. Each piece is taken by hand, which nothing compiles against, and this check holds them."
+	return "A tenant that has a directory decides what a person gets when they sign in through it and hold nothing in the tenant: the directories record (the struct annotated `@tenantDirectory`, the skeletons' `TenantDirectory` in `pkg/resources/tenant_directories.go`) carries a nullable default seat column (`DefaultSeat *string`, annotated `@directoryDefaultSeat`, STRING(64) in the directories table, which a migration adds), the tenant's role the person is given, or NULL, and the tenant admits the directory's people by invitation only. Every auth whose roles the application assigns (the password method, and a directory method registered with `DisableRoleSync`; an auth whose one registration carries `RoleSync` is the directory's) carries the generated directory reader in its Settings (`TenantDirectories`, built with `New<Record>DirectoryReader` on the data level) and sets the admission on its session Auth beside its sign-in policy, `authSession.SetDirectoryAdmission(settings.TenantDirectories, identityClient.DirectorySeated())`, the last argument the hook of the identity client the auth builds from its generated management (`<auth>identity.NewClient`), which gives the role in the sign-in's transaction, so a stranger from a tenant's directory is created holding the row's role, or refused with no account (`invitation_only`), before the registration's account rule, and a person whose account stood before is given the role at their next sign-in through the directory, where they hold nothing in the tenant, and again after an administrator removes it; an auth whose directory writes the roles sets none. The tenant's administrator makes the choice on the Sign-in page with two methods the generator writes in the tenant's scope, so the administrator role (`pkg/auth/<auth>/roles.json`) holds Execute on both: `Open<Record>ToDirectory`, which names the role behind a warning the person reads and confirms by typing a word, and holds the role to one the caller could give directly, and `Make<Record>InviteOnly`, which clears it. The record shows the default seat on List and Read and its own update never writes it. Each piece is taken by hand, which nothing compiles against, and this check holds them."
 }

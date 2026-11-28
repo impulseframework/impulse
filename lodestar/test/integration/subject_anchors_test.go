@@ -84,7 +84,8 @@ func TestSubjectAnchorWrites(t *testing.T) {
 		// At Bastion, Dunn flies with Portcullis: assigning the open beacon repair to
 		// Portcullis passes grant A; assigning it to Hammer (an Anvil squadron Dunn
 		// also flies with) fails, because Hammer is not in Bastion's partition of
-		// subject.squadrons.
+		// subject.squadrons: an update's own conditions are asked before the squadron it
+		// names.
 		status, body := doRequestAs(t, h, "dispatcher", http.MethodPatch, "/console/api/resources",
 			fmt.Sprintf(`[{"op":"patch","path":%q,"value":{"assignedSquadronId":%q}}]`, opPath(bastion, "missions/"+missionBeaconID), squadronHammerID))
 		assertStatus(t, status, http.StatusForbidden, body)

@@ -3,7 +3,8 @@
     {
       "id": "f0000000-0000-4000-8000-000000000001",
       "user": "governor",
-      "password": "lodestar",
+      "name": "Governor Greer",
+      "password": "follow-the-lodestar-home",
       "roles": {
         "global": [
           "SuperAdministrator",
@@ -12,6 +13,7 @@
           "BulletinOfficer",
           "ClientBrowser",
           "CommandStaff",
+          "StandIn",
           "BriefingClerk"
         ],
         "everyDomain": [
@@ -22,7 +24,8 @@
     {
       "id": "f0000000-0000-4000-8000-000000000002",
       "user": "marshal",
-      "password": "lodestar",
+      "name": "Marshal Maren",
+      "password": "follow-the-lodestar-home",
       "roles": {
         "global": [
           "CrewCommon",
@@ -41,7 +44,8 @@
     {
       "id": "f0000000-0000-4000-8000-000000000003",
       "user": "cadet",
-      "password": "lodestar",
+      "name": "Cadet Cass",
+      "password": "follow-the-lodestar-home",
       "roles": {
         "global": [
           "CrewCommon",
@@ -58,7 +62,8 @@
     {
       "id": "f0000000-0000-4000-8000-000000000004",
       "user": "pilot",
-      "password": "lodestar",
+      "name": "Pilot Pax",
+      "password": "follow-the-lodestar-home",
       "roles": {
         "global": [
           "CrewCommon",
@@ -79,7 +84,8 @@
     {
       "id": "f0000000-0000-4000-8000-000000000005",
       "user": "veteran",
-      "password": "lodestar",
+      "name": "Veteran Vela",
+      "password": "follow-the-lodestar-home",
       "roles": {
         "global": [
           "CrewCommon",
@@ -96,7 +102,8 @@
     {
       "id": "f0000000-0000-4000-8000-000000000006",
       "user": "lead",
-      "password": "lodestar",
+      "name": "Flight Lead Lior",
+      "password": "follow-the-lodestar-home",
       "roles": {
         "global": [
           "CrewCommon",
@@ -113,7 +120,8 @@
     {
       "id": "f0000000-0000-4000-8000-000000000007",
       "user": "dispatcher",
-      "password": "lodestar",
+      "name": "Dispatcher Dunn",
+      "password": "follow-the-lodestar-home",
       "roles": {
         "global": [
           "CrewCommon",
@@ -135,7 +143,8 @@
     {
       "id": "f0000000-0000-4000-8000-000000000008",
       "user": "overseer",
-      "password": "lodestar",
+      "name": "Overseer Orla",
+      "password": "follow-the-lodestar-home",
       "roles": {
         "global": [
           "CrewCommon",
@@ -153,7 +162,8 @@
     {
       "id": "f0000000-0000-4000-8000-000000000009",
       "user": "booking",
-      "password": "lodestar",
+      "name": "Booking Agent Bex",
+      "password": "follow-the-lodestar-home",
       "roles": {
         "global": [
           "CrewCommon",
@@ -171,7 +181,8 @@
     {
       "id": "f0000000-0000-4000-8000-000000000010",
       "user": "wingco",
-      "password": "lodestar",
+      "name": "Wing Commander Wilde",
+      "password": "follow-the-lodestar-home",
       "roles": {
         "global": [
           "CrewCommon",
@@ -188,7 +199,8 @@
     {
       "id": "f0000000-0000-4000-8000-000000000011",
       "user": "engineer",
-      "password": "lodestar",
+      "name": "Engineer Ezra",
+      "password": "follow-the-lodestar-home",
       "roles": {
         "global": [
           "CrewCommon"
@@ -204,7 +216,8 @@
     {
       "id": "f0000000-0000-4000-8000-000000000012",
       "user": "quartermaster",
-      "password": "lodestar",
+      "name": "Quartermaster Quill",
+      "password": "follow-the-lodestar-home",
       "roles": {
         "global": [
           "CrewCommon"
@@ -220,7 +233,8 @@
     {
       "id": "f0000000-0000-4000-8000-000000000013",
       "user": "supercargo",
-      "password": "lodestar",
+      "name": "Supercargo Sol",
+      "password": "follow-the-lodestar-home",
       "roles": {
         "global": [
           "CrewCommon",
@@ -237,7 +251,8 @@
     {
       "id": "f0000000-0000-4000-8000-000000000014",
       "user": "salvor",
-      "password": "lodestar",
+      "name": "Salvor Sable",
+      "password": "follow-the-lodestar-home",
       "roles": {
         "global": [
           "CrewCommon",
@@ -253,7 +268,8 @@
     {
       "id": "f0000000-0000-4000-8000-000000000015",
       "user": "yeoman",
-      "password": "lodestar",
+      "name": "Yeoman Yael",
+      "password": "follow-the-lodestar-home",
       "roles": {
         "global": [
           "CrewCommon",
@@ -269,7 +285,8 @@
     {
       "id": "f0000000-0000-4000-8000-000000000016",
       "user": "purser",
-      "password": "lodestar",
+      "name": "Purser Priya",
+      "password": "follow-the-lodestar-home",
       "roles": {
         "global": [
           "CrewCommon"
@@ -285,7 +302,8 @@
     {
       "id": "f0000000-0000-4000-8000-000000000017",
       "user": "registrar",
-      "password": "lodestar",
+      "name": "Registrar Rhea",
+      "password": "follow-the-lodestar-home",
       "roles": {
         "global": [
           "CrewCommon"
@@ -301,7 +319,8 @@
     {
       "id": "f0000000-0000-4000-8000-000000000018",
       "user": "photographer",
-      "password": "lodestar",
+      "name": "Photographer Petra",
+      "password": "follow-the-lodestar-home",
       "roles": {
         "global": [
           "CrewCommon"
@@ -317,11 +336,13 @@
     {
       "id": "f0000000-0000-4000-8000-000000000019",
       "user": "archivist",
-      "password": "lodestar",
+      "name": "Archivist Ada",
+      "password": "follow-the-lodestar-home",
       "roles": {
         "global": [
           "CrewCommon",
-          "ClientBrowser"
+          "ClientBrowser",
+          "BriefingClerk"
         ],
         "everyDomain": [
           "Archivist"
@@ -331,7 +352,8 @@
     {
       "id": "f0000000-0000-4000-8000-000000000020",
       "user": "assessor",
-      "password": "lodestar",
+      "name": "Assessor Asa",
+      "password": "follow-the-lodestar-home",
       "roles": {
         "global": [
           "CrewCommon"
@@ -346,7 +368,8 @@
     {
       "id": "f0000000-0000-4000-8000-000000000021",
       "user": "hazards",
-      "password": "lodestar",
+      "name": "Hazard Analyst Hale",
+      "password": "follow-the-lodestar-home",
       "roles": {
         "global": [
           "CrewCommon"
@@ -366,7 +389,8 @@
     {
       "id": "f0000000-0000-4000-8000-000000000022",
       "user": "dock",
-      "password": "lodestar",
+      "name": "Dockmaster Dara",
+      "password": "follow-the-lodestar-home",
       "roles": {
         "global": [
           "CrewCommon"
@@ -382,7 +406,8 @@
     {
       "id": "f0000000-0000-4000-8000-000000000023",
       "user": "watch",
-      "password": "lodestar",
+      "name": "Night Watch Nadia",
+      "password": "follow-the-lodestar-home",
       "roles": {
         "global": [
           "CrewCommon"
@@ -398,7 +423,8 @@
     {
       "id": "f0000000-0000-4000-8000-000000000024",
       "user": "harbormaster",
-      "password": "lodestar",
+      "name": "Harbormaster Hollis",
+      "password": "follow-the-lodestar-home",
       "roles": {
         "global": [
           "CrewCommon"
@@ -406,6 +432,7 @@
         "domains": {
           "Anvil": [
             "Harbormaster",
+            "MusterClerk",
             "SectorCrew"
           ]
         }
@@ -414,7 +441,8 @@
     {
       "id": "f0000000-0000-4000-8000-000000000025",
       "user": "adjutant",
-      "password": "lodestar",
+      "name": "Adjutant Alba",
+      "password": "follow-the-lodestar-home",
       "roles": {
         "global": [
           "CrewCommon",
@@ -431,7 +459,8 @@
     {
       "id": "f0000000-0000-4000-8000-000000000026",
       "user": "surveyor",
-      "password": "lodestar",
+      "name": "Surveyor Shen",
+      "password": "follow-the-lodestar-home",
       "roles": {
         "global": [
           "CrewCommon",
@@ -445,7 +474,8 @@
     {
       "id": "f0000000-0000-4000-8000-000000000027",
       "user": "rigger",
-      "password": "lodestar",
+      "name": "Rigger Rook",
+      "password": "follow-the-lodestar-home",
       "roles": {
         "domains": {
           "Anvil": [
@@ -460,7 +490,8 @@
     {
       "id": "f0000000-0000-4000-8000-000000000028",
       "user": "bosun",
-      "password": "lodestar",
+      "name": "Bosun Bram",
+      "password": "follow-the-lodestar-home",
       "roles": {
         "domains": {
           "Bastion": [
@@ -472,7 +503,8 @@
     {
       "id": "f0000000-0000-4000-8000-000000000029",
       "user": "armorer",
-      "password": "lodestar",
+      "name": "Armorer Arlo",
+      "password": "follow-the-lodestar-home",
       "roles": {
         "global": [
           "CrewCommon"
@@ -487,10 +519,12 @@
     {
       "id": "f0000000-0000-4000-8000-000000000031",
       "user": "liaison",
-      "password": "lodestar",
+      "name": "Liaison Lark",
+      "password": "follow-the-lodestar-home",
       "roles": {
         "global": [
-          "CrewCommon"
+          "CrewCommon",
+          "BriefingClerk"
         ],
         "domains": {
           "Anvil": [
@@ -506,7 +540,8 @@
     {
       "id": "f0000000-0000-4000-8000-000000000032",
       "user": "deckhand",
-      "password": "lodestar",
+      "name": "Deckhand Dev",
+      "password": "follow-the-lodestar-home",
       "roles": {
         "global": [
           "CrewCommon",
@@ -517,7 +552,8 @@
     {
       "id": "f0000000-0000-4000-8000-000000000033",
       "user": "relief",
-      "password": "lodestar",
+      "name": "Relief Rae",
+      "password": "follow-the-lodestar-home",
       "roles": {
         "global": [
           "CrewCommon",
@@ -531,9 +567,26 @@
             "Cadet",
             "SectorCrew"
           ],
-          "days": 30
+          "days": 30,
+          "reason": "Covering Anvil's deck while the hangar is refitted"
         }
       ]
+    },
+    {
+      "id": "f0000000-0000-4000-8000-000000000034",
+      "user": "sentry",
+      "name": "Sentry Sol",
+      "password": "follow-the-lodestar-home",
+      "roles": {
+        "global": [
+          "CrewCommon"
+        ],
+        "domains": {
+          "Anvil": [
+            "Armorer"
+          ]
+        }
+      }
     }
   ],
   "groups": [
@@ -551,6 +604,22 @@
       },
       "members": [
         "deckhand"
+      ]
+    },
+    {
+      "name": "Bay keepers",
+      "description": "The people who keep Anvil's Quarantine Bay: the group holds a pass to run the bay, so each of them does.",
+      "domain": "Anvil",
+      "roles": {},
+      "members": [
+        "sentry"
+      ],
+      "passes": [
+        {
+          "id": "61000000-0000-4000-8000-000000000006",
+          "hangar": "Quarantine Bay",
+          "level": "run"
+        }
       ]
     }
   ],

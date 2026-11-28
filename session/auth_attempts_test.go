@@ -3,8 +3,10 @@ package session
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -195,7 +197,7 @@ func TestAuth_AttemptLimit_OwnPasswordProofs(t *testing.T) {
 			run: func(t *testing.T, f *authFixture) {
 				f.store.EXPECT().Session(gomock.Any(), sessionID).DoAndReturn(sessionAtEachRead(sessionID, pat())).Times(3)
 				f.store.EXPECT().User(gomock.Any(), userID).Return(pat(), nil).Times(6)
-				f.store.EXPECT().RemoveProvenUserPassword(gomock.Any(), userID, held, gomock.Any()).Return(nil)
+				f.store.EXPECT().RemoveProvenUserPassword(gomock.Any(), userID, held, gomock.Any(), aRecord()).Return(nil)
 				for range 2 {
 					post(f.password.RemoveUserPassword(), `{"password":"wrong"}`)
 				}
@@ -215,7 +217,7 @@ func TestAuth_AttemptLimit_OwnPasswordProofs(t *testing.T) {
 			run: func(t *testing.T, f *authFixture) {
 				f.store.EXPECT().Session(gomock.Any(), sessionID).DoAndReturn(sessionAtEachRead(sessionID, pat())).Times(2)
 				f.store.EXPECT().User(gomock.Any(), userID).Return(pat(), nil).Times(4)
-				f.store.EXPECT().RemoveProvenUserPassword(gomock.Any(), userID, held, gomock.Any()).
+				f.store.EXPECT().RemoveProvenUserPassword(gomock.Any(), userID, held, gomock.Any(), aRecord()).
 					Return(httpio.NewConflictMessageWithError(sessionstorage.ErrLastSignInMethod, "the user has no other means of sign-in"))
 				post(f.password.RemoveUserPassword(), `{"password":"wrong"}`)
 				if rr := post(f.password.RemoveUserPassword(), `{"password":"pw"}`); rr.Code != http.StatusConflict {
@@ -399,38 +401,14 @@ func TestAuth_AttemptLimit_Resets(t *testing.T) {
 				f.login("pat", "wrong", "10.0.0.1", "tok")
 				f.login("pat", "wrong", "10.0.0.1", "tok")
 				f.store.EXPECT().User(gomock.Any(), userID).Return(pat(), nil)
-				f.store.EXPECT().ChangeUserPassword(gomock.Any(), userID, gomock.Any(), gomock.Any()).Return(nil)
-				createSession(f.store, sessionID, nil)
-				if err := f.auth.API().ChangeSessionUserPassword(context.Background(), httptest.NewRecorder(), userID, &ChangeSessionUserPasswordRequest{OldPassword: "pw", NewPassword: "a new password"}); err != nil {
+				f.store.EXPECT().ChangeUserPassword(gomock.Any(), userID, gomock.Any(), gomock.Any(), aRecord()).Return(nil)
+				if err := f.auth.API().ChangeSessionUserPassword(context.Background(), httptest.NewRecorder(), userID, &ChangeSessionUserPasswordRequest{OldPassword: "pw", NewPassword: "a new password, chosen with care"}); err != nil {
 					t.Fatalf("ChangeSessionUserPassword() error = %v", err)
 				}
 				// The old password's match reset the name, as a login's match does, and the
 				// change reset it again, whatever this limiter remembered of it.
 				if _, _, clears := f.counts(); clears != 2 || f.attemptsRecord("pat") != nil {
 					t.Errorf("clears = %d, record = %v; want the record deleted by the proof and cleared again by the change", clears, f.attemptsRecord("pat"))
-				}
-			},
-		},
-		{
-			name: "a password the user set through a flow of the application's own, and a temporary one an operator reset, reset the name",
-			run: func(t *testing.T, f *authFixture) {
-				f.store.EXPECT().UserByUserName(gomock.Any(), "pat").Return(pat(), nil).Times(3)
-				f.login("pat", "wrong", "10.0.0.1", "tok")
-				f.login("pat", "wrong", "10.0.0.1", "tok")
-				f.store.EXPECT().User(gomock.Any(), userID).Return(pat(), nil).Times(2)
-				f.store.EXPECT().ReplaceUserPassword(gomock.Any(), userID, gomock.Any(), gomock.Any()).Return(nil).Times(2)
-				if err := f.auth.API().SetSessionUserPassword(context.Background(), userID, "chosen well"); err != nil {
-					t.Fatalf("SetSessionUserPassword() error = %v", err)
-				}
-				if f.attemptsRecord("pat") != nil {
-					t.Error("the name's attempts survived the set password, want them cleared")
-				}
-				f.login("pat", "wrong", "10.0.0.1", "tok")
-				if err := f.auth.API().ResetSessionUserPassword(context.Background(), userID, "temporary"); err != nil {
-					t.Fatalf("ResetSessionUserPassword() error = %v", err)
-				}
-				if _, _, clears := f.counts(); clears != 2 || f.attemptsRecord("pat") != nil {
-					t.Errorf("clears = %d, record = %v; want one clear per password change and no record", clears, f.attemptsRecord("pat"))
 				}
 			},
 		},
@@ -471,7 +449,7 @@ func TestAuth_AttemptLimit_EveryCheck(t *testing.T) {
 					if rr.Code != http.StatusUnauthorized {
 						t.Fatalf("unknown name = %d %s, want 401", rr.Code, rr.Body.String())
 					}
-					if body := refusal(t, rr); body.Message != "Invalid Credentials" || body.Code != "" {
+					if body := refusal(t, rr); body.Message != "The username or password is wrong. Check what you entered and try again" || body.Code != "" {
 						t.Errorf("unknown name body = %+v, want the same invalid credentials as a wrong password", body)
 					}
 				}
@@ -497,6 +475,36 @@ func TestAuth_AttemptLimit_EveryCheck(t *testing.T) {
 				}
 				if r := f.attemptsRecord("pat"); r == nil || r.Failures != 1 {
 					t.Errorf("record = %+v, want the failure counted", r)
+				}
+			},
+		},
+		{
+			name: "failed sign-ins under the text of an address's own counts are a name's failures and close nothing of the address's",
+			run: func(t *testing.T, f *authFixture) {
+				// A stranger types the keys the mail and the reset links of pat's address are
+				// counted under, in the library's capitals and without, to the limit, each
+				// from a client of its own so no client is held.
+				f.store.EXPECT().UserByUserName(gomock.Any(), gomock.Any()).Return(nil, httpio.NewNotFoundMessage("no such user")).AnyTimes()
+				for i, spellings := range [][]string{
+					{"MAIL:pat@lakeside.edu", "mail:pat@lakeside.edu", "Mail:pat@lakeside.edu"},
+					{"RESET:pat@lakeside.edu", "reset:pat@lakeside.edu", "Reset:pat@lakeside.edu"},
+				} {
+					for n, typed := range spellings {
+						client := fmt.Sprintf("10.%d.%d.1", i, n)
+						if rr := f.login(typed, "pw", client, client); rr.Code != http.StatusUnauthorized {
+							t.Fatalf("a sign-in under %q = %d %s, want 401", typed, rr.Code, rr.Body.String())
+						}
+					}
+				}
+				for _, own := range []string{mailLimitKey("pat@lakeside.edu"), resetLimitKey("pat@lakeside.edu")} {
+					if r := f.attemptsRecord(own); r != nil {
+						t.Errorf("the address's own count %q = %+v after the failed sign-ins, want none: no name a person types is counted under it", own, r)
+					}
+				}
+				for _, name := range []string{"mail:pat@lakeside.edu", "reset:pat@lakeside.edu"} {
+					if r := f.attemptsRecord(name); r == nil || r.LockedUntil == nil {
+						t.Errorf("the name %q = %+v, want the failures counted and locked under the name as it folds", name, r)
+					}
 				}
 			},
 		},
@@ -813,7 +821,7 @@ func TestPasswordSignIn_AttemptLimitRefused(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
-			a, err := NewAuth[NoCustomData, NoCustomData](newAuthStoreMock(ctrl), cookieKey, NoSuperAdministrators())
+			a, err := NewAuth[NoCustomData, NoCustomData](newAuthStoreMock(ctrl), cookieKey, NoSuperAdministrators(), quietMail())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -886,8 +894,8 @@ func TestRetryAfterSeconds(t *testing.T) {
 }
 
 // TestSignInAttemptName pins the key a name's failed sign-ins are counted under, for a
-// caller that deletes the row itself: the name case-folded and in NFC, as the limiter
-// keys it.
+// caller that deletes the row itself: the name as the users table normalizes it, as the
+// limiter keys it.
 func TestSignInAttemptName(t *testing.T) {
 	t.Parallel()
 
@@ -899,6 +907,7 @@ func TestSignInAttemptName(t *testing.T) {
 		{name: "a lowercase name is itself", username: "pat", want: "pat"},
 		{name: "another case is the same name", username: "Pat@Example.COM", want: "pat@example.com"},
 		{name: "a decomposed letter is composed", username: "renée", want: "renée"},
+		{name: "an address keeps a letter from outside ASCII as written: the Kelvin sign is not a k", username: "\u212aim@Lakeside.EDU", want: "\u212aim@lakeside.edu"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -914,29 +923,62 @@ func TestSignInAttemptName(t *testing.T) {
 	}
 }
 
-// TestAuthAPI_HashPassword pins the hash a caller writes in a transaction of its own:
-// the text the users table's column holds, made by the password method's hasher, which
-// the sign-in then compares the password against; an empty password is refused.
-func TestAuthAPI_HashPassword(t *testing.T) {
+// TestAccountAttemptKeys holds the rows named as one account's to the keys the library
+// itself counts under: the username's failed sign-ins, the wrong sign-in codes entered
+// for the account and the guesses at the code of its first password, both kept under
+// the account's id, and the mail, the sign-in codes and the reset links the address is
+// sent. A count the library adds for an account joins the list, or a caller that asks
+// whether a row is an account's misses it.
+func TestAccountAttemptKeys(t *testing.T) {
 	t.Parallel()
 
-	f := newAuthFixture(t, gomock.NewController(t))
-	text, err := f.auth.API().HashPassword("correct horse")
-	if err != nil {
-		t.Fatalf("HashPassword() error = %v", err)
+	id := impulse.UUID{}
+	if err := id.UnmarshalText([]byte("0191a5b0-7c1e-7000-8000-000000000001")); err != nil {
+		t.Fatalf("impulse.UUID.UnmarshalText() error = %v", err)
 	}
-	var hash securehash.Hash
-	if err := hash.UnmarshalText([]byte(text)); err != nil {
-		t.Fatalf("the hash does not read back as the column's text: %v", err)
+	tests := []struct {
+		name  string
+		email string
+		want  []string
+	}{
+		{
+			name:  "an account with an address",
+			email: "Pat@Example.com",
+			want:  []string{"pat", firstPasswordKey(id), codeGuessKey(id), mailLimitKey("pat@example.com"), codeLimitKey("pat@example.com"), resetLimitKey("pat@example.com")},
+		},
+		{
+			name:  "an account with no address has no mail to count, and the counts kept under the account stay its own",
+			email: " ",
+			want:  []string{"pat", firstPasswordKey(id), codeGuessKey(id)},
+		},
 	}
-	hasher := securehash.New(securehash.Argon2())
-	if _, err := hasher.Compare(&hash, "correct horse"); err != nil {
-		t.Errorf("the hash does not match its password: %v", err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := AccountAttemptKeys(id, "Pat", tt.email)
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("AccountAttemptKeys() (-want +got):\n%s", diff)
+			}
+			// A row as the list shows it is found among them, whatever the case it was
+			// asked for in.
+			for _, key := range got {
+				if SignInAttemptKey(key) != key {
+					t.Errorf("SignInAttemptKey(%q) = %q: the key of a listed row is not itself", key, SignInAttemptKey(key))
+				}
+			}
+			// The wrong sign-in codes entered for the account are among them, under its id
+			// as the table keeps the row.
+			if row := "CODE-GUESS:" + id.String(); !slices.Contains(got, row) {
+				t.Errorf("AccountAttemptKeys() = %v, want %q among them", got, row)
+			}
+		})
 	}
-	if _, err := hasher.Compare(&hash, "wrong"); err == nil {
-		t.Error("the hash matches another password")
-	}
-	if _, err := f.auth.API().HashPassword(""); !httpio.HasBadRequest(err) {
-		t.Errorf("HashPassword(\"\") error = %v, want a bad request", err)
+	// Every kind of count the library keeps beside the names is one of an account's.
+	all := strings.Join(AccountAttemptKeys(id, "pat", "pat@example.com"), "\n")
+	for _, kind := range []string{attempts.KindMail, attempts.KindCode, attempts.KindReset, attempts.KindCodeGuess, attempts.KindFirstPassword} {
+		if !strings.Contains(all, kind+":") {
+			t.Errorf("AccountAttemptKeys() names no row of the kind %s", kind)
+		}
 	}
 }

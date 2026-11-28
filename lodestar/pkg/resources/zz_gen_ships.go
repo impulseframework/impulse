@@ -12,6 +12,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -21,6 +22,95 @@ func (Ship) Resource() accesstypes.Resource {
 
 func (Ship) DefaultConfig() resource.Config {
 	return defaultConfig()
+}
+
+// NamedRows names the columns that name a row of another resource the application lists
+// (HangarID, ClassID): a create or an update sets one only to a row its caller can list, so the
+// library answers any other as a row that is not there.
+func (Ship) NamedRows() []resource.NamedRow {
+	return []resource.NamedRow{
+		{Field: "HangarID", Resource: "Hangars", Table: "Hangars", KeyColumn: "Id", TenantColumn: "SectorId"},
+		{Field: "ClassID", Resource: "ShipClasses", Table: "ShipClasses", KeyColumn: "Id"},
+	}
+}
+
+// TenantBinding is the row's way to its tenant: the library writes the tenant on every
+// change record of the row, whoever writes the row.
+func (Ship) TenantBinding() resource.TenantBinding {
+	return resource.TenantBinding{Field: "HangarID", Path: []resource.BindingHop{{Table: "Hangars", JoinColumn: "Id", Column: "SectorId"}}}
+}
+
+// DeleteTree describes what keeps a Ship from being deleted: the kinds with a
+// row directly under a Ship that the database does not remove with it, each
+// with the columns that name the Ship. A delete of a Ship with
+// such a row is refused in a sentence that says what is in the way.
+func (Ship) DeleteTree() *resource.DeleteTree {
+	return &resource.DeleteTree{
+		Record: "Ships",
+		Words:  resource.DeleteWords{One: "ship", Many: "ships"},
+		Key:    []string{"Id"},
+		Cost:   resource.DeleteCost{IndexEntries: 3, Files: 0},
+		Tenant: &resource.DomainBindingData{Column: "HangarId", Path: []resource.BindingHop{{Table: "Hangars", JoinColumn: "Id", Column: "SectorId"}}},
+		Under: []resource.DeleteKind{
+			{
+				Resource: "DroidReports",
+				Words:    resource.DeleteWords{One: "droid report", Many: "droid reports"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"ShipId"}, Table: "Ships", References: []string{"Id"}},
+					},
+				},
+			},
+			{
+				Resource: "Refits",
+				Words:    resource.DeleteWords{One: "refit", Many: "refits"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "ShipId", Path: []resource.BindingHop{{Table: "Ships", JoinColumn: "Id", Column: "HangarId"}, {Table: "Hangars", JoinColumn: "Id", Column: "SectorId"}}},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"ShipId"}, Table: "Ships", References: []string{"Id"}},
+					},
+				},
+			},
+			{
+				Resource: "Sorties",
+				Words:    resource.DeleteWords{One: "sortie", Many: "sorties"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "MissionId", Path: []resource.BindingHop{{Table: "Missions", JoinColumn: "Id", Column: "SectorId"}}},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"ShipId"}, Table: "Ships", References: []string{"Id"}},
+					},
+				},
+			},
+		},
+	}
+}
+
+// NameFields names the resource's name fields: beside each id that points to a row with
+// a name, the name of that row, which a list shows, sorts by and filters by. A name is
+// looked up in the pointed-to table by the id; it is no column of this resource.
+func (Ship) NameFields() []resource.NameField {
+	return []resource.NameField{
+		{Field: "HangarName", Key: "HangarID", Resource: "Hangars", Tag: "name", Table: "Hangars", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "SectorId"},
+		{Field: "ClassName", Key: "ClassID", Resource: "ShipClasses", Tag: "designation", Table: "ShipClasses", KeyColumn: "Id", NameColumn: "Designation", TenantColumn: ""},
+	}
+}
+
+// RecordedNames names the rows a change record of the resource keeps the name of:
+// for each field that points at a row with a name, where the name is read. A
+// tracked write that changes such a field reads the name in its own transaction,
+// and the change record keeps it beside the id.
+func (Ship) RecordedNames() []resource.NameField {
+	return []resource.NameField{
+		{Field: "", Key: "HangarID", Resource: "Hangars", Tag: "name", Table: "Hangars", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "SectorId"},
+		{Field: "", Key: "ClassID", Resource: "ShipClasses", Tag: "designation", Table: "ShipClasses", KeyColumn: "Id", NameColumn: "Designation", TenantColumn: ""},
+	}
 }
 
 // SecretContext names what a secret of the row is bound to: its primary key, column by
@@ -455,11 +545,11 @@ func (p *ShipCreatePatch) ToStruct() *Ship {
 	return p.patchSet.ToStruct()
 }
 
-func (p *ShipCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *ShipCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *ShipCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *ShipCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -663,11 +753,11 @@ func (p *ShipUpdatePatch) ToStruct() *Ship {
 	return p.patchSet.ToStruct()
 }
 
-func (p *ShipUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *ShipUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *ShipUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *ShipUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -881,11 +971,11 @@ func NewShipTouch(id impulse.UUID) *ShipTouch {
 	return &ShipTouch{patchSet: patchSet}
 }
 
-func (p *ShipTouch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *ShipTouch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *ShipTouch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *ShipTouch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -909,11 +999,11 @@ func NewShipDeletePatch(id impulse.UUID) *ShipDeletePatch {
 	return &ShipDeletePatch{patchSet: patchSet}
 }
 
-func (p *ShipDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *ShipDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *ShipDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *ShipDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

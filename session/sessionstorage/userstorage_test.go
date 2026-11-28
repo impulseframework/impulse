@@ -192,7 +192,7 @@ func Test_userStorage_SetUserUsername(t *testing.T) {
 			id:       userID,
 			username: username,
 			prepare: func(mockDB *Mockdb) {
-				mockDB.EXPECT().SetUserUsername(gomock.Any(), userID, username).Return(nil)
+				mockDB.EXPECT().SetUserUsername(gomock.Any(), userID, username, gomock.Nil()).Return(nil)
 			},
 		},
 		{
@@ -200,7 +200,7 @@ func Test_userStorage_SetUserUsername(t *testing.T) {
 			id:       userID,
 			username: username,
 			prepare: func(mockDB *Mockdb) {
-				mockDB.EXPECT().SetUserUsername(gomock.Any(), userID, username).Return(errors.New("db error"))
+				mockDB.EXPECT().SetUserUsername(gomock.Any(), userID, username, gomock.Nil()).Return(errors.New("db error"))
 			},
 			wantErr: true,
 		},
@@ -218,7 +218,7 @@ func Test_userStorage_SetUserUsername(t *testing.T) {
 			if tt.prepare != nil {
 				tt.prepare(mockDB)
 			}
-			if err := storage.SetUserUsername(context.Background(), tt.id, tt.username); (err != nil) != tt.wantErr {
+			if err := storage.SetUserUsername(context.Background(), tt.id, tt.username, nil); (err != nil) != tt.wantErr {
 				t.Errorf("userStorage.SetUserUsername() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
@@ -325,14 +325,14 @@ func Test_userStorage_DeactivateUser(t *testing.T) {
 			name: "success",
 			id:   userID,
 			mock: func(m *Mockdb) {
-				m.EXPECT().DeactivateUser(gomock.Any(), userID).Return(nil)
+				m.EXPECT().DeactivateUser(gomock.Any(), userID, gomock.Nil()).Return(nil)
 			},
 		},
 		{
 			name: "error",
 			id:   userID,
 			mock: func(m *Mockdb) {
-				m.EXPECT().DeactivateUser(gomock.Any(), userID).Return(someErr)
+				m.EXPECT().DeactivateUser(gomock.Any(), userID, gomock.Nil()).Return(someErr)
 			},
 			wantErr: true,
 			err:     someErr,
@@ -351,7 +351,7 @@ func Test_userStorage_DeactivateUser(t *testing.T) {
 				},
 			}
 
-			if err := p.DeactivateUser(context.Background(), tt.id); (err != nil) != tt.wantErr {
+			if err := p.DeactivateUser(context.Background(), tt.id, nil); (err != nil) != tt.wantErr {
 				t.Errorf("userStorage.DeactivateUser() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
@@ -378,14 +378,14 @@ func Test_userStorage_DeleteUser(t *testing.T) {
 			name: "success",
 			id:   userID,
 			mock: func(m *Mockdb) {
-				m.EXPECT().DeleteUser(gomock.Any(), userID).Return(nil)
+				m.EXPECT().DeleteUser(gomock.Any(), userID, gomock.Nil()).Return(nil)
 			},
 		},
 		{
 			name: "error",
 			id:   userID,
 			mock: func(m *Mockdb) {
-				m.EXPECT().DeleteUser(gomock.Any(), userID).Return(someErr)
+				m.EXPECT().DeleteUser(gomock.Any(), userID, gomock.Nil()).Return(someErr)
 			},
 			wantErr: true,
 			err:     someErr,
@@ -404,7 +404,7 @@ func Test_userStorage_DeleteUser(t *testing.T) {
 				},
 			}
 
-			if err := p.DeleteUser(context.Background(), tt.id); (err != nil) != tt.wantErr {
+			if err := p.DeleteUser(context.Background(), tt.id, nil); (err != nil) != tt.wantErr {
 				t.Errorf("userStorage.DeleteUser() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
@@ -431,14 +431,14 @@ func Test_userStorage_ActivateUser(t *testing.T) {
 			name: "success",
 			id:   userID,
 			mock: func(m *Mockdb) {
-				m.EXPECT().ActivateUser(gomock.Any(), userID).Return(nil)
+				m.EXPECT().ActivateUser(gomock.Any(), userID, gomock.Nil()).Return(nil)
 			},
 		},
 		{
 			name: "error",
 			id:   userID,
 			mock: func(m *Mockdb) {
-				m.EXPECT().ActivateUser(gomock.Any(), userID).Return(someErr)
+				m.EXPECT().ActivateUser(gomock.Any(), userID, gomock.Nil()).Return(someErr)
 			},
 			wantErr: true,
 			err:     someErr,
@@ -457,7 +457,7 @@ func Test_userStorage_ActivateUser(t *testing.T) {
 				},
 			}
 
-			if err := p.ActivateUser(context.Background(), tt.id); (err != nil) != tt.wantErr {
+			if err := p.ActivateUser(context.Background(), tt.id, nil); (err != nil) != tt.wantErr {
 				t.Errorf("userStorage.ActivateUser() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})

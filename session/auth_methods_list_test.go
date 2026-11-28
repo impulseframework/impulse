@@ -32,13 +32,44 @@ func registerThree(t *testing.T) *Auth[NoCustomData, NoCustomData, mockTx] {
 	return a
 }
 
+// registerTwoDirectories registers a Google and an Azure registration and no password
+// method on a bare Auth: the Auth of an application where nobody signs in with a
+// password, which asks nobody for one.
+func registerTwoDirectories(t *testing.T) *Auth[NoCustomData, NoCustomData, mockTx] {
+	t.Helper()
+
+	a := newBareAuth(t, gomock.NewController(t))
+	google.SignIn(a, "google", resolveAll[google.Identity](), &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Workspaces: google.Workspace("example", "example.com")})
+	azure.SignIn(a, "lakeside-entra", resolveAll[azure.Identity](), &azure.Config{RoleSync: signin.DisableRoleSync(), Authority: testAuthority, Tenants: azure.Tenant(tenantLake), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/entra/callback"})
+
+	return a
+}
+
+// listAuth is the Auth a list is checked against: the one with the password method
+// beside the two directories, or, for noPassword, the one with the directories alone.
+func listAuth(t *testing.T, noPassword bool) *Auth[NoCustomData, NoCustomData, mockTx] {
+	t.Helper()
+
+	if noPassword {
+		return registerTwoDirectories(t)
+	}
+
+	return registerThree(t)
+}
+
 func TestAuth_Methods(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
-		list *MethodList
-		want map[string]any
+		name       string
+		noPassword bool
+		// addresses registers the password method with its usernames the addresses
+		// (UsernameIsEmail), alone on the Auth.
+		addresses bool
+		// ownTenants sets an own-tenants hook on the Auth (SetOwnTenants).
+		ownTenants bool
+		list       *MethodList
+		want       map[string]any
 	}{
 		{
 			name: "every listed method in the list's order, the password one a form, the external ones redirects, with the pending routes",
@@ -48,11 +79,12 @@ func TestAuth_Methods(t *testing.T) {
 					{Name: "password", Label: "Password", Path: "/api/user/password/login"},
 					{Name: "lakeside-entra", Label: "Lakeside", Path: "/api/user/lakeside-entra/login"},
 				},
-				Pending:        PendingRoutes{Status: "/api/user/pending", Confirm: "/api/user/pending/confirm", Cancel: "/api/user/pending/cancel"},
-				ChangePassword: "/api/user/password",
-				ForgetBrowser:  "/api/user/browser/forget",
-				ChangeName:     "/api/user/name",
-				ChangeLook:     "/api/user/look",
+				Pending:          PendingRoutes{Status: "/api/user/pending", Confirm: "/api/user/pending/confirm", Cancel: "/api/user/pending/cancel"},
+				ChangePassword:   "/api/user/password",
+				PasswordStrength: "/api/user/password/strength",
+				ForgetBrowser:    "/api/user/browser/forget",
+				ChangeName:       "/api/user/name",
+				ChangeLook:       "/api/user/look",
 			},
 			want: map[string]any{
 				"methods": []any{
@@ -60,19 +92,93 @@ func TestAuth_Methods(t *testing.T) {
 					map[string]any{"name": "password", "method": "password", "kind": "password", "label": "Password", "path": "/api/user/password/login"},
 					map[string]any{"name": "lakeside-entra", "method": "azure", "kind": "redirect", "label": "Lakeside", "path": "/api/user/lakeside-entra/login"},
 				},
-				"pending":        map[string]any{"status": "/api/user/pending", "confirm": "/api/user/pending/confirm", "cancel": "/api/user/pending/cancel"},
-				"changePassword": "/api/user/password",
-				"forgetBrowser":  "/api/user/browser/forget",
-				"changeName":     "/api/user/name",
-				"changeLook":     "/api/user/look",
+				"pending":          map[string]any{"status": "/api/user/pending", "confirm": "/api/user/pending/confirm", "cancel": "/api/user/pending/cancel"},
+				"changePassword":   "/api/user/password",
+				"passwordStrength": "/api/user/password/strength",
+				"forgetBrowser":    "/api/user/browser/forget",
+				"changeName":       "/api/user/name",
+				"changeLook":       "/api/user/look",
+			},
+		},
+		{
+			name: "the routes of the person's own username, sessions and remembered browsers are told as the list names them",
+			list: &MethodList{
+				Methods:          []AdvertisedMethod{{Name: "password", Label: "Password", Path: "/api/user/password/login"}},
+				ChangePassword:   "/api/user/password",
+				PasswordStrength: "/api/user/password/strength",
+				ChangeUsername:   "/api/user/username",
+				UsernameFree:     "/api/user/username/free",
+				OwnSessions:      OwnSessionsRoutes{List: "/api/user/sessions", End: "/api/user/sessions/end", EndOthers: "/api/user/sessions/end-others"},
+				ForgetBrowsers:   "/api/user/browser/forget-all",
+			},
+			want: map[string]any{
+				"methods":          []any{map[string]any{"name": "password", "method": "password", "kind": "password", "label": "Password", "path": "/api/user/password/login"}},
+				"changePassword":   "/api/user/password",
+				"passwordStrength": "/api/user/password/strength",
+				"changeUsername":   "/api/user/username",
+				"usernameFree":     "/api/user/username/free",
+				"ownSessions":      map[string]any{"list": "/api/user/sessions", "end": "/api/user/sessions/end", "endOthers": "/api/user/sessions/end-others"},
+				"forgetBrowsers":   "/api/user/browser/forget-all",
+			},
+		},
+		{
+			name:       "the routes of the person's own tenants are told where the list names both and the Auth holds the hook that answers them",
+			ownTenants: true,
+			list: &MethodList{
+				Methods:          []AdvertisedMethod{{Name: "password", Label: "Password", Path: "/api/user/password/login"}},
+				ChangePassword:   "/api/user/password",
+				PasswordStrength: "/api/user/password/strength",
+				OwnTenants:       OwnTenantsRoutes{List: "/api/user/tenants", Leave: "/api/user/tenants/leave"},
+			},
+			want: map[string]any{
+				"methods":          []any{map[string]any{"name": "password", "method": "password", "kind": "password", "label": "Password", "path": "/api/user/password/login"}},
+				"changePassword":   "/api/user/password",
+				"passwordStrength": "/api/user/password/strength",
+				"ownTenants":       map[string]any{"list": "/api/user/tenants", "leave": "/api/user/tenants/leave"},
+			},
+		},
+		{
+			name: "an Auth that holds no own-tenants hook is told neither of the person's tenants' routes, whatever the list names",
+			list: &MethodList{
+				Methods:          []AdvertisedMethod{{Name: "password", Label: "Password", Path: "/api/user/password/login"}},
+				ChangePassword:   "/api/user/password",
+				PasswordStrength: "/api/user/password/strength",
+				OwnTenants:       OwnTenantsRoutes{List: "/api/user/tenants", Leave: "/api/user/tenants/leave"},
+			},
+			want: map[string]any{
+				"methods":          []any{map[string]any{"name": "password", "method": "password", "kind": "password", "label": "Password", "path": "/api/user/password/login"}},
+				"changePassword":   "/api/user/password",
+				"passwordStrength": "/api/user/password/strength",
+			},
+		},
+		{
+			name:      "where the usernames are the addresses the username routes are left out, whatever the list names, and the sessions' routes are told",
+			addresses: true,
+			list: &MethodList{
+				Methods:          []AdvertisedMethod{{Name: "password", Label: "Password", Path: "/api/user/password/login"}},
+				ChangePassword:   "/api/user/password",
+				PasswordStrength: "/api/user/password/strength",
+				ChangeUsername:   "/api/user/username",
+				UsernameFree:     "/api/user/username/free",
+				OwnSessions:      OwnSessionsRoutes{List: "/api/user/sessions", End: "/api/user/sessions/end", EndOthers: "/api/user/sessions/end-others"},
+				ForgetBrowsers:   "/api/user/browser/forget-all",
+			},
+			want: map[string]any{
+				"methods":          []any{map[string]any{"name": "password", "method": "password", "kind": "password", "label": "Password", "path": "/api/user/password/login"}},
+				"changePassword":   "/api/user/password",
+				"passwordStrength": "/api/user/password/strength",
+				"usernameIsEmail":  true,
+				"ownSessions":      map[string]any{"list": "/api/user/sessions", "end": "/api/user/sessions/end", "endOthers": "/api/user/sessions/end-others"},
+				"forgetBrowsers":   "/api/user/browser/forget-all",
 			},
 		},
 		{
 			name: "a registered method that is not listed is not offered, and no pending routes means no pending block",
-			list: &MethodList{Methods: []AdvertisedMethod{{Name: "password", Label: "Sign in", Path: "/login"}}, ChangePassword: "/password"},
+			list: &MethodList{Methods: []AdvertisedMethod{{Name: "password", Label: "Sign in", Path: "/login"}}, ChangePassword: "/password", PasswordStrength: "/password/strength"},
 			want: map[string]any{
-				"methods":        []any{map[string]any{"name": "password", "method": "password", "kind": "password", "label": "Sign in", "path": "/login"}},
-				"changePassword": "/password",
+				"methods":          []any{map[string]any{"name": "password", "method": "password", "kind": "password", "label": "Sign in", "path": "/login"}},
+				"changePassword":   "/password",
+				"passwordStrength": "/password/strength",
 			},
 		},
 		{
@@ -82,11 +188,60 @@ func TestAuth_Methods(t *testing.T) {
 				"methods": []any{map[string]any{"name": "google", "method": "google", "kind": "redirect", "label": "Google", "path": "/api/user/google/login"}},
 			},
 		},
+		{
+			name:       "a list of an Auth that registers no password method may leave the confirm path out, and the page is then told of none",
+			noPassword: true,
+			list: &MethodList{
+				Methods: []AdvertisedMethod{{Name: "google", Label: "Google", Path: "/api/user/google/login"}},
+				Pending: PendingRoutes{
+					Status: "/api/user/pending", Cancel: "/api/user/pending/cancel",
+					SendCode: "/api/user/pending/code", VerifyCode: "/api/user/pending/code/verify", EnrollEmail: "/api/user/pending/email",
+				},
+			},
+			want: map[string]any{
+				"methods": []any{map[string]any{"name": "google", "method": "google", "kind": "redirect", "label": "Google", "path": "/api/user/google/login"}},
+				"pending": map[string]any{
+					"status": "/api/user/pending", "cancel": "/api/user/pending/cancel",
+					"sendCode": "/api/user/pending/code", "verifyCode": "/api/user/pending/code/verify", "enrollEmail": "/api/user/pending/email",
+				},
+			},
+		},
+		{
+			name: "a list that does not offer the password method names the confirm path where the Auth registers the method, and the page is told it: " +
+				"a sign-in through the directory may wait for a password",
+			list: &MethodList{
+				Methods: []AdvertisedMethod{{Name: "google", Label: "Google", Path: "/api/user/google/login"}},
+				Pending: PendingRoutes{Status: "/api/user/pending", Confirm: "/api/user/pending/confirm", Cancel: "/api/user/pending/cancel"},
+			},
+			want: map[string]any{
+				"methods": []any{map[string]any{"name": "google", "method": "google", "kind": "redirect", "label": "Google", "path": "/api/user/google/login"}},
+				"pending": map[string]any{"status": "/api/user/pending", "confirm": "/api/user/pending/confirm", "cancel": "/api/user/pending/cancel"},
+			},
+		},
+		{
+			name:       "a list of an Auth that registers no password method that names the confirm path is told it: an account rule of the application's own may ask for a confirmation",
+			noPassword: true,
+			list: &MethodList{
+				Methods: []AdvertisedMethod{{Name: "google", Label: "Google", Path: "/api/user/google/login"}},
+				Pending: PendingRoutes{Status: "/api/user/pending", Confirm: "/api/user/pending/confirm", Cancel: "/api/user/pending/cancel"},
+			},
+			want: map[string]any{
+				"methods": []any{map[string]any{"name": "google", "method": "google", "kind": "redirect", "label": "Google", "path": "/api/user/google/login"}},
+				"pending": map[string]any{"status": "/api/user/pending", "confirm": "/api/user/pending/confirm", "cancel": "/api/user/pending/cancel"},
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			a := registerThree(t)
+			a := listAuth(t, tt.noPassword)
+			if tt.addresses {
+				a = newBareAuth(t, gomock.NewController(t))
+				PasswordSignIn(a, UsernameIsEmail())
+			}
+			if tt.ownTenants {
+				a.SetOwnTenants(unaskedOwnTenants())
+			}
 
 			rr := httptest.NewRecorder()
 			a.Methods(tt.list).ServeHTTP(rr, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/user/methods", http.NoBody))
@@ -109,33 +264,58 @@ func TestAuth_MethodsRefused(t *testing.T) {
 
 	pending := PendingRoutes{Status: "/api/user/pending", Confirm: "/api/user/pending/confirm", Cancel: "/api/user/pending/cancel"}
 	tests := []struct {
-		name string
-		list *MethodList
-		want string
+		name       string
+		noPassword bool
+		list       *MethodList
+		want       string
 	}{
 		{name: "no list", list: nil, want: "given no sign-in method"},
 		{name: "an empty list", list: &MethodList{}, want: "given no sign-in method"},
 		{name: "a method without a name", list: &MethodList{Methods: []AdvertisedMethod{{Label: "x", Path: "/login"}}}, want: "without a name"},
 		{name: "a method that is not registered", list: &MethodList{Methods: []AdvertisedMethod{{Name: "workos", Label: "SSO", Path: "/sso"}}}, want: `"workos", which is not registered on this Auth`},
-		{name: "a method listed twice", list: &MethodList{Methods: []AdvertisedMethod{{Name: "password", Label: "a", Path: "/a"}, {Name: "password", Label: "b", Path: "/b"}}, ChangePassword: "/password"}, want: `"password" twice`},
+		{name: "a method listed twice", list: &MethodList{Methods: []AdvertisedMethod{{Name: "password", Label: "a", Path: "/a"}, {Name: "password", Label: "b", Path: "/b"}}, ChangePassword: "/password", PasswordStrength: "/password/strength"}, want: `"password" twice`},
 		{name: "a method without a label", list: &MethodList{Methods: []AdvertisedMethod{{Name: "password", Path: "/login"}}}, want: "without a label"},
 		{name: "a relative path", list: &MethodList{Methods: []AdvertisedMethod{{Name: "password", Label: "x", Path: "api/user/login"}}}, want: "not a canonical path"},
 		{name: "a scheme-relative path", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "//evil.example/login"}}}, want: "not a canonical path"},
 		{name: "a dot segment", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/api/../login"}}}, want: "not a canonical path"},
 		{name: "the root", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/"}}}, want: "not a canonical path"},
-		{name: "some of the pending routes", list: &MethodList{Methods: []AdvertisedMethod{{Name: "password", Label: "x", Path: "/login"}}, Pending: PendingRoutes{Status: "/api/user/pending"}, ChangePassword: "/password"}, want: "name the status, confirm and cancel paths together"},
-		{name: "a pending route off-site", list: &MethodList{Methods: []AdvertisedMethod{{Name: "password", Label: "x", Path: "/login"}}, Pending: PendingRoutes{Status: pending.Status, Confirm: "https://evil.example/confirm", Cancel: pending.Cancel}, ChangePassword: "/password"}, want: "name the status, confirm and cancel paths together"},
+		{name: "some of the pending routes", list: &MethodList{Methods: []AdvertisedMethod{{Name: "password", Label: "x", Path: "/login"}}, Pending: PendingRoutes{Status: "/api/user/pending"}, ChangePassword: "/password", PasswordStrength: "/password/strength"}, want: "name the status, confirm and cancel paths together"},
+		{name: "a pending route off-site", list: &MethodList{Methods: []AdvertisedMethod{{Name: "password", Label: "x", Path: "/login"}}, Pending: PendingRoutes{Status: pending.Status, Confirm: "https://evil.example/confirm", Cancel: pending.Cancel}, ChangePassword: "/password", PasswordStrength: "/password/strength"}, want: "name the status, confirm and cancel paths together"},
+		{name: "the password method without the confirm path", list: &MethodList{Methods: []AdvertisedMethod{{Name: "password", Label: "x", Path: "/login"}}, Pending: PendingRoutes{Status: pending.Status, Cancel: pending.Cancel}, ChangePassword: "/password", PasswordStrength: "/password/strength"}, want: "name the status, confirm and cancel paths together"},
+		{name: "the password method beside a directory without the confirm path", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/google"}, {Name: "password", Label: "x", Path: "/login"}}, Pending: PendingRoutes{Status: pending.Status, Cancel: pending.Cancel}, ChangePassword: "/password", PasswordStrength: "/password/strength"}, want: "name the status, confirm and cancel paths together"},
+		{name: "a list that does not offer the password method without the confirm path, on an Auth that registers the method", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/google"}}, Pending: PendingRoutes{Status: pending.Status, Cancel: pending.Cancel}}, want: "this Auth registers the password method"},
+		{name: "no password method and some of the pending routes", noPassword: true, list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, Pending: PendingRoutes{Status: pending.Status}}, want: "name the status and cancel paths together"},
+		{name: "no password method and a cancel path off-site", noPassword: true, list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, Pending: PendingRoutes{Status: pending.Status, Cancel: "https://evil.example/cancel"}}, want: "this Auth registers no password method, so the list may leave the confirm path out"},
+		{name: "no password method and a confirm path off-site", noPassword: true, list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, Pending: PendingRoutes{Status: pending.Status, Confirm: "https://evil.example/confirm", Cancel: pending.Cancel}}, want: "name the status, confirm and cancel paths together"},
+		{name: "no password method and the mailed code's routes alone", noPassword: true, list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, Pending: PendingRoutes{SendCode: "/api/user/pending/code", VerifyCode: "/api/user/pending/code/verify", EnrollEmail: "/api/user/pending/email"}}, want: "name the status and cancel paths together"},
 		{name: "the password method without the password change route", list: &MethodList{Methods: []AdvertisedMethod{{Name: "password", Label: "x", Path: "/login"}}}, want: "lists the password method with the password change route \"\""},
-		{name: "a password change route off-site", list: &MethodList{Methods: []AdvertisedMethod{{Name: "password", Label: "x", Path: "/login"}}, ChangePassword: "https://evil.example/password"}, want: "lists the password method with the password change route"},
-		{name: "a forget-this-browser route off-site", list: &MethodList{Methods: []AdvertisedMethod{{Name: "password", Label: "x", Path: "/login"}}, ChangePassword: "/password", ForgetBrowser: "https://evil.example/forget"}, want: "forget-this-browser route"},
-		{name: "a change-your-name route off-site", list: &MethodList{Methods: []AdvertisedMethod{{Name: "password", Label: "x", Path: "/login"}}, ChangePassword: "/password", ChangeName: "https://evil.example/name"}, want: "change-your-name route"},
-		{name: "a keep-your-look route off-site", list: &MethodList{Methods: []AdvertisedMethod{{Name: "password", Label: "x", Path: "/login"}}, ChangePassword: "/password", ChangeLook: "https://evil.example/look"}, want: "keep-your-look route"},
+		{name: "a password change route off-site", list: &MethodList{Methods: []AdvertisedMethod{{Name: "password", Label: "x", Path: "/login"}}, ChangePassword: "https://evil.example/password", PasswordStrength: "/password/strength"}, want: "lists the password method with the password change route"},
+		{name: "the password method without the password strength route", list: &MethodList{Methods: []AdvertisedMethod{{Name: "password", Label: "x", Path: "/login"}}, ChangePassword: "/password"}, want: "lists the password method with the password strength route \"\": give it the path its Strength handler is mounted at"},
+		{name: "a password strength route off-site", list: &MethodList{Methods: []AdvertisedMethod{{Name: "password", Label: "x", Path: "/login"}}, ChangePassword: "/password", PasswordStrength: "https://evil.example/strength"}, want: "lists the password method with the password strength route \"https://evil.example/strength\""},
+		{name: "a password strength route without the password method", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, PasswordStrength: "/password/strength"}, want: "is given the password strength route \"/password/strength\" but lists no password method"},
+		{name: "a forget-this-browser route off-site", list: &MethodList{Methods: []AdvertisedMethod{{Name: "password", Label: "x", Path: "/login"}}, ChangePassword: "/password", PasswordStrength: "/password/strength", ForgetBrowser: "https://evil.example/forget"}, want: "forget-this-browser route"},
+		{name: "a change-your-name route off-site", list: &MethodList{Methods: []AdvertisedMethod{{Name: "password", Label: "x", Path: "/login"}}, ChangePassword: "/password", PasswordStrength: "/password/strength", ChangeName: "https://evil.example/name"}, want: "change-your-name route"},
+		{name: "a change-your-username route off-site", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, ChangeUsername: "https://evil.example/username", UsernameFree: "/api/user/username/free"}, want: "session: Methods is given the change-your-username route \"https://evil.example/username\", which is not a canonical path in the application: give it the path its ChangeUsername handler is mounted at, such as /api/user/username"},
+		{name: "an is-this-name-free route off-site", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, ChangeUsername: "/api/user/username", UsernameFree: "//evil.example/free"}, want: "session: Methods is given the is-this-name-free route \"//evil.example/free\", which is not a canonical path in the application: give it the path its UsernameFree handler is mounted at, such as /api/user/username/free"},
+		{name: "the change-your-username route alone", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, ChangeUsername: "/api/user/username"}, want: "session: Methods is given the change-your-username route without the is-this-name-free route, or the second without the first: name both, or neither"},
+		{name: "the is-this-name-free route alone", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, UsernameFree: "/api/user/username/free"}, want: "session: Methods is given the change-your-username route without the is-this-name-free route, or the second without the first: name both, or neither"},
+		{name: "a where-you-are-signed-in route off-site", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, OwnSessions: OwnSessionsRoutes{List: "https://evil.example/sessions", End: "/api/user/sessions/end", EndOthers: "/api/user/sessions/end-others"}}, want: "session: Methods is given the where-you-are-signed-in route \"https://evil.example/sessions\", which is not a canonical path in the application: give it the path its OwnSessions handler is mounted at, such as /api/user/sessions"},
+		{name: "a sign-out-of-one-browser route off-site", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, OwnSessions: OwnSessionsRoutes{List: "/api/user/sessions", End: "/api/user/sessions/../end", EndOthers: "/api/user/sessions/end-others"}}, want: "session: Methods is given the sign-out-of-one-browser route \"/api/user/sessions/../end\", which is not a canonical path in the application: give it the path its EndOwnSession handler is mounted at, such as /api/user/sessions/end"},
+		{name: "a sign-out-everywhere-else route off-site", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, OwnSessions: OwnSessionsRoutes{List: "/api/user/sessions", End: "/api/user/sessions/end", EndOthers: "/"}}, want: "session: Methods is given the sign-out-everywhere-else route \"/\", which is not a canonical path in the application: give it the path its EndOtherSessions handler is mounted at, such as /api/user/sessions/end-others"},
+		{name: "two of the where-you-are-signed-in routes", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, OwnSessions: OwnSessionsRoutes{List: "/api/user/sessions", End: "/api/user/sessions/end"}}, want: "session: Methods is given some of the where-you-are-signed-in routes and not all: name List, End and EndOthers, or none"},
+		{name: "one of the where-you-are-signed-in routes", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, OwnSessions: OwnSessionsRoutes{EndOthers: "/api/user/sessions/end-others"}}, want: "session: Methods is given some of the where-you-are-signed-in routes and not all: name List, End and EndOthers, or none"},
+		{name: "the your-tenants route alone", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, OwnTenants: OwnTenantsRoutes{List: "/api/user/tenants"}}, want: "session: Methods is given one of the your-tenants routes and not the other: name List and Leave, or neither"},
+		{name: "the leave-a-tenant route alone", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, OwnTenants: OwnTenantsRoutes{Leave: "/api/user/tenants/leave"}}, want: "session: Methods is given one of the your-tenants routes and not the other: name List and Leave, or neither"},
+		{name: "a your-tenants route off-site", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, OwnTenants: OwnTenantsRoutes{List: "https://evil.example/tenants", Leave: "/api/user/tenants/leave"}}, want: "session: Methods is given the your-tenants route \"https://evil.example/tenants\", which is not a canonical path in the application: give it the path its OwnTenants handler is mounted at, such as /api/user/tenants"},
+		{name: "a leave-a-tenant route off-site", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, OwnTenants: OwnTenantsRoutes{List: "/api/user/tenants", Leave: "/api/user/tenants/../leave"}}, want: "session: Methods is given the leave-a-tenant route \"/api/user/tenants/../leave\", which is not a canonical path in the application: give it the path its LeaveTenant handler is mounted at, such as /api/user/tenants/leave"},
+		{name: "a forget-all-remembered-browsers route off-site", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, ForgetBrowsers: "api/user/browser/forget-all"}, want: "session: Methods is given the forget-all-remembered-browsers route \"api/user/browser/forget-all\", which is not a canonical path in the application: give it the path its ForgetBrowsers handler is mounted at, such as /api/user/browser/forget-all"},
+		{name: "a keep-your-look route off-site", list: &MethodList{Methods: []AdvertisedMethod{{Name: "password", Label: "x", Path: "/login"}}, ChangePassword: "/password", PasswordStrength: "/password/strength", ChangeLook: "https://evil.example/look"}, want: "keep-your-look route"},
 		{name: "a password change route without the password method", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, ChangePassword: "/password"}, want: "lists no password method"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			a := registerThree(t)
+			a := listAuth(t, tt.noPassword)
 
 			recovered := registrationPanic(func() { a.Methods(tt.list) })
 			if recovered == nil {
@@ -151,7 +331,7 @@ func TestAuth_MethodsRefused(t *testing.T) {
 		t.Parallel()
 		a := registerThree(t)
 
-		h := a.Methods(&MethodList{Methods: []AdvertisedMethod{{Name: "password", Label: "Password", Path: "/login"}}, Pending: pending, ChangePassword: "/password"})
+		h := a.Methods(&MethodList{Methods: []AdvertisedMethod{{Name: "password", Label: "Password", Path: "/login"}}, Pending: pending, ChangePassword: "/password", PasswordStrength: "/password/strength"})
 		if a.methods.inUse.Load() {
 			t.Fatal("Methods() closed registration at wiring")
 		}
@@ -164,9 +344,10 @@ func TestAuth_MethodsRefused(t *testing.T) {
 
 // invitationList is a list naming the password method and the invitation routes.
 var invitationList = &MethodList{
-	Methods:        []AdvertisedMethod{{Name: "password", Label: "Password", Path: "/api/user/password/login"}},
-	ChangePassword: "/api/user/password",
-	Invitation:     InvitationRoutes{Open: "/api/user/invitation", Accept: "/api/user/invitation/accept", SignUp: "/api/user/invitation/sign-up"},
+	Methods:          []AdvertisedMethod{{Name: "password", Label: "Password", Path: "/api/user/password/login"}},
+	ChangePassword:   "/api/user/password",
+	PasswordStrength: "/api/user/password/strength",
+	Invitation:       InvitationRoutes{Open: "/api/user/invitation", Accept: "/api/user/invitation/accept", SignUp: "/api/user/invitation/sign-up"},
 }
 
 // openedInvitation invites pat into lakeside and opens the invitation in the browser,
@@ -232,6 +413,20 @@ func TestAuth_MethodsStandingInvitation(t *testing.T) {
 		}
 	})
 
+	t.Run("the standing invitation carries the name the inviter gave, as Open() does", func(t *testing.T) {
+		t.Parallel()
+		f, recorder, links := newMailFixture(t, gomock.NewController(t))
+		if _, err := f.auth.API().Invite(context.Background(), &InvitationRequest{Email: "pat@lakeside.edu", Name: "Pat Reyes", TenantID: "lakeside", RoleNames: []string{"Teacher"}}); err != nil {
+			t.Fatalf("Invite() error = %v", err)
+		}
+		cookies := invitationCookies(t, f, links, tokenIn(t, recorder.Messages()[0].Text, "invitation"))
+
+		standing, _ := invitationBlock(t, f, invitationList, cookies)["standing"].(map[string]any)
+		if standing["name"] != "Pat Reyes" {
+			t.Errorf("standing invitation = %v, want the name Pat Reyes", standing)
+		}
+	})
+
 	t.Run("the standing invitation says whether an account holds the address and whether it signs in with a password", func(t *testing.T) {
 		t.Parallel()
 		f, _, links := newMailFixture(t, gomock.NewController(t))
@@ -277,7 +472,7 @@ func TestAuth_MethodsStandingInvitation(t *testing.T) {
 		t.Parallel()
 		f, _, links := newMailFixture(t, gomock.NewController(t))
 		cookies := openedInvitation(t, f, links)
-		list := &MethodList{Methods: invitationList.Methods, ChangePassword: invitationList.ChangePassword}
+		list := &MethodList{Methods: invitationList.Methods, ChangePassword: invitationList.ChangePassword, PasswordStrength: invitationList.PasswordStrength}
 
 		if got := invitationBlock(t, f, list, cookies); got != nil {
 			t.Errorf("invitation block = %v, want none", got)

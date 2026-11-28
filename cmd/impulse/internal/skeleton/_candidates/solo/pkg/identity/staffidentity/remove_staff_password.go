@@ -22,8 +22,9 @@ import (
 // @rpc
 // @outlet(default)
 // @answers(204)
+// @class(credential)
 type RemoveStaffPassword struct {
-	// @target(StaffSessionUser)
+	// @target(StaffListedUser)
 	UserID impulse.UUID
 }
 

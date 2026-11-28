@@ -55,6 +55,12 @@ func newTrustedDevice(userID impulse.UUID, hash []byte) *dbtype.TrustedDevice {
 	}
 }
 
+// longBeforeAnyDevice is a remembered-after cut a day before any device a test inserts:
+// a read with it finds a device by its end date and revocation alone.
+func longBeforeAnyDevice() time.Time {
+	return time.Now().Add(-24 * time.Hour)
+}
+
 // insertPending inserts a pending MFA wait of userID holding hash and returns it.
 func insertPending(ctx context.Context, t *testing.T, d AuthDriver, userID impulse.UUID, hash []byte) *dbtype.PendingSignIn {
 	t.Helper()
@@ -297,6 +303,50 @@ func testFactorCodesInsertedAtOnce(ctx context.Context, t *testing.T, h *AuthHar
 	}
 }
 
+// testAddressTakenOffEndsCodes holds an administrator's taking of an address off a user
+// to the sign-in codes mailed before it: every live code of the user's pending sign-ins
+// is consumed in the transaction that takes the address off, so none of them can write
+// the address back, and another user's codes stand.
+func testAddressTakenOffEndsCodes(ctx context.Context, t *testing.T, h *AuthHarness) {
+	in := h.New(ctx, t, Auth, AuthConfig{Auth: true})
+	pat, lee := createUser(ctx, t, in.Driver, "pat"), createUser(ctx, t, in.Driver, "lee")
+	if err := in.Driver.SetUserEmail(ctx, pat.ID, strPtr(codeAddress), nil); err != nil {
+		t.Fatalf("SetUserEmail() error = %v", err)
+	}
+	waits := []*dbtype.PendingSignIn{
+		insertPending(ctx, t, in.Driver, pat.ID, tokenHash(1)),
+		insertPending(ctx, t, in.Driver, pat.ID, tokenHash(2)),
+		insertPending(ctx, t, in.Driver, lee.ID, tokenHash(3)),
+	}
+	codes := make([]*dbtype.FactorCode, len(waits))
+	for i, wait := range waits {
+		codes[i] = newFactorCode(wait.ID, tokenHash(byte(10+i)))
+		if err := in.Driver.InsertFactorCode(ctx, codes[i], time.Now()); err != nil {
+			t.Fatalf("InsertFactorCode() error = %v", err)
+		}
+	}
+
+	if err := in.Driver.SetUserEmail(ctx, pat.ID, nil, nil); err != nil {
+		t.Fatalf("SetUserEmail(nil) error = %v", err)
+	}
+	assertEmail(t, "User() after the address was taken off", mustUser(ctx, t, in.Driver, pat.ID), nil, false)
+	for i, whose := range []string{"the user's first pending sign-in", "the user's second pending sign-in"} {
+		if _, err := in.Driver.FactorCodeByPending(ctx, waits[i].ID, time.Now()); !httpio.HasNotFound(err) {
+			t.Errorf("FactorCodeByPending() of %s after the address was taken off error = %v, want NotFound: the code is ended", whose, err)
+		}
+		if state := factorCodeState(ctx, t, in.Driver, codes[i].ID); state.ConsumedAt == nil {
+			t.Errorf("the code of %s is not consumed after the address was taken off", whose)
+		}
+	}
+	if got, err := in.Driver.FactorCodeByPending(ctx, waits[2].ID, time.Now()); err != nil || got.ID != codes[2].ID {
+		t.Errorf("FactorCodeByPending() of another user's pending sign-in = %v, %v, want its code standing", got, err)
+	}
+
+	if err := in.Driver.SetUserEmail(ctx, impulse.Must(impulse.NewUUID()), nil, nil); !httpio.HasNotFound(err) {
+		t.Errorf("SetUserEmail(nil) of a user that does not exist error = %v, want NotFound", err)
+	}
+}
+
 func testTrustedDeviceLifecycle(ctx context.Context, t *testing.T, h *AuthHarness) {
 	in := h.New(ctx, t, Auth, AuthConfig{Auth: true})
 	user := createUser(ctx, t, in.Driver, "pat@lakeside.edu")
@@ -310,7 +360,7 @@ func testTrustedDeviceLifecycle(ctx context.Context, t *testing.T, h *AuthHarnes
 		}
 	}
 
-	got, err := in.Driver.TrustedDeviceByToken(ctx, laptop.TokenHash, time.Now())
+	got, err := in.Driver.TrustedDeviceByToken(ctx, laptop.TokenHash, time.Now(), longBeforeAnyDevice())
 	if err != nil {
 		t.Fatalf("TrustedDeviceByToken() error = %v", err)
 	}
@@ -320,7 +370,7 @@ func testTrustedDeviceLifecycle(ctx context.Context, t *testing.T, h *AuthHarnes
 	if got.LastUsedAt != nil || got.RevokedAt != nil {
 		t.Errorf("TrustedDeviceByToken() = LastUsedAt %v, RevokedAt %v; want both nil on a fresh device", got.LastUsedAt, got.RevokedAt)
 	}
-	if _, err := in.Driver.TrustedDeviceByToken(ctx, expired.TokenHash, time.Now()); !httpio.HasNotFound(err) {
+	if _, err := in.Driver.TrustedDeviceByToken(ctx, expired.TokenHash, time.Now(), longBeforeAnyDevice()); !httpio.HasNotFound(err) {
 		t.Errorf("TrustedDeviceByToken() of an expired device error = %v, want NotFound", err)
 	}
 
@@ -357,17 +407,17 @@ func testTrustedDeviceLifecycle(ctx context.Context, t *testing.T, h *AuthHarnes
 	} else {
 		w.assertStamped(t, "RevokedAt", *got.RevokedAt)
 	}
-	if _, err := in.Driver.TrustedDeviceByToken(ctx, laptop.TokenHash, time.Now()); !httpio.HasNotFound(err) {
+	if _, err := in.Driver.TrustedDeviceByToken(ctx, laptop.TokenHash, time.Now(), longBeforeAnyDevice()); !httpio.HasNotFound(err) {
 		t.Errorf("TrustedDeviceByToken() of a revoked device error = %v, want NotFound", err)
 	}
-	if _, err := in.Driver.TrustedDeviceByToken(ctx, phone.TokenHash, time.Now()); err != nil {
+	if _, err := in.Driver.TrustedDeviceByToken(ctx, phone.TokenHash, time.Now(), longBeforeAnyDevice()); err != nil {
 		t.Errorf("TrustedDeviceByToken() of the other device error = %v, want it live: a revocation by token reaches one device", err)
 	}
 
 	// The reset: every device of the user at once, the expired one included, so the
 	// person's next sign-in from any of them asks for the factor.
 	w = startWindow(h.ClockLead)
-	if err := in.Driver.RevokeTrustedDevices(ctx, user.ID); err != nil {
+	if err := in.Driver.RevokeTrustedDevices(ctx, user.ID, nil); err != nil {
 		t.Fatalf("RevokeTrustedDevices() error = %v", err)
 	}
 	w.done()
@@ -404,7 +454,7 @@ func testFactorsCascade(ctx context.Context, t *testing.T, h *AuthHarness) {
 		t.Error("InsertFactorCode() for an unknown pending sign-in error = nil, want the schema's refusal")
 	}
 
-	if err := in.Driver.DeleteUser(ctx, user.ID); err != nil {
+	if err := in.Driver.DeleteUser(ctx, user.ID, nil); err != nil {
 		t.Fatalf("DeleteUser() error = %v", err)
 	}
 	if _, err := in.Driver.TrustedDeviceState(ctx, device.TokenHash); !httpio.HasNotFound(err) {

@@ -13,12 +13,14 @@ import (
 	"strings"
 
 	"github.com/go-playground/errors/v5"
+
+	"github.com/impulseframework/impulse/internal/apptree"
 )
 
 // FeatureFlag is one feature flag declaration: a constant of type resource.Feature in a
 // resources package, whose identifier @feature names, whose value is the flag's name as
-// the FeatureFlags table holds it, and whose doc comment is the description the flags
-// dialog shows.
+// the FeatureFlags table holds it, and whose doc comment is the description the Feature
+// flags page shows.
 type FeatureFlag struct {
 	File string
 	Line int
@@ -170,9 +172,13 @@ func parseFeatureGates(rel string, src []byte) ([]FeatureGate, error) {
 // FeatureUses finds every hand-written reference to a declared flag's constant: in Go,
 // the identifier in the declaring package or the qualified selector from another package,
 // outside the declaration itself (an annotation is a comment and never an identifier);
-// in the browser applications, Feature.<Constant> in TypeScript and templates. Generated
-// files and build products are not read. The tree is opened as a root, so the walk stays
-// inside it.
+// in the browser applications, Feature.<Constant> in TypeScript and templates. The Go
+// files read are the ones the scan read, tests among them: what the application's builds
+// compile, and nothing the Go tool passes over. The browser files are every source file
+// of a browser application, whatever its directory is called: the Go tool's rule about a
+// name that begins with "_" or "." is no rule of the browser's build, which compiles
+// src/app/_shared like any other directory. Generated files, dependencies and build
+// products are not read. The tree is opened as a root, so the reads stay inside it.
 func (a *App) FeatureUses() ([]FeatureUse, error) {
 	if len(a.Features) == 0 {
 		return nil, nil
@@ -184,42 +190,43 @@ func (a *App) FeatureUses() ([]FeatureUse, error) {
 	defer root.Close()
 
 	var uses []FeatureUse
+	for _, rel := range a.goRead {
+		if strings.HasPrefix(path.Base(rel), generatedPrefix) {
+			continue
+		}
+		data, err := root.ReadFile(filepath.FromSlash(rel))
+		if err != nil {
+			return nil, errors.Wrap(err, "os.Root.ReadFile()")
+		}
+		found, err := a.goFeatureUses(rel, data)
+		if err != nil {
+			return nil, err
+		}
+		uses = append(uses, found...)
+	}
 	err = fs.WalkDir(root.FS(), ".", func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return errors.Wrap(err, "fs.WalkDir()")
 		}
 		if d.IsDir() {
-			if p != "." && skippedDirs[d.Name()] {
+			if p != "." && apptree.HoldsDependenciesOrOutput(d.Name()) {
 				return fs.SkipDir
 			}
 
 			return nil
 		}
 		name := d.Name()
-		if strings.HasPrefix(name, "zz_gen_") {
+		if strings.HasPrefix(name, generatedPrefix) || !webSourceExt[path.Ext(name)] {
 			return nil
 		}
-		switch {
-		case strings.HasSuffix(name, ".go"):
-			data, err := root.ReadFile(filepath.FromSlash(p))
-			if err != nil {
-				return errors.Wrap(err, "os.Root.ReadFile()")
-			}
-			found, err := a.goFeatureUses(p, data)
-			if err != nil {
-				return err
-			}
-			uses = append(uses, found...)
-		case webSourceExt[path.Ext(name)]:
-			if _, inWeb := a.WebAppFor(p); !inWeb {
-				return nil
-			}
-			data, err := root.ReadFile(filepath.FromSlash(p))
-			if err != nil {
-				return errors.Wrap(err, "os.Root.ReadFile()")
-			}
-			uses = append(uses, a.webFeatureUses(p, data)...)
+		if _, inWeb := a.WebAppFor(p); !inWeb {
+			return nil
 		}
+		data, err := root.ReadFile(filepath.FromSlash(p))
+		if err != nil {
+			return errors.Wrap(err, "os.Root.ReadFile()")
+		}
+		uses = append(uses, a.webFeatureUses(p, data)...)
 
 		return nil
 	})
@@ -236,6 +243,9 @@ func (a *App) FeatureUses() ([]FeatureUse, error) {
 
 	return uses, nil
 }
+
+// generatedPrefix opens the name of every file a generator writes.
+const generatedPrefix = "zz_gen_"
 
 // webSourceExt are the browser source files a flag's constant is read in.
 var webSourceExt = map[string]bool{".ts": true, ".html": true}

@@ -211,8 +211,9 @@ func TestSessionStorageDriver_InsertSession(t *testing.T) {
 			preAssertions: []string{
 				`SELECT COUNT(*) = 5 FROM "Sessions"`,
 			},
+			// The five the fixture holds were last active years ago: the insert removes them.
 			postAssertions: []string{
-				`SELECT COUNT(*) = 6 FROM "Sessions"`,
+				`SELECT COUNT(*) = 1 FROM "Sessions"`,
 			},
 		},
 		{
@@ -497,7 +498,7 @@ func TestSessionStorageDriver_CreateUser(t *testing.T) {
 			hash:       hash,
 			sourceURL:  []string{"file://../../../schema/postgresql/migrations", "file://testdata/users_test/valid_users"},
 			wantErr:    true,
-			wantErrMsg: `username "testuser" already exists`,
+			wantErrMsg: dbtype.UsernameTakenMessage,
 		},
 	}
 	for _, tt := range tests {
@@ -596,7 +597,7 @@ func TestSessionStorageDriver_SetUserUsername(t *testing.T) {
 			newUsername: "disableduser",
 			sourceURL:   fullFixtures,
 			wantErr:     true,
-			wantErrMsg:  `username "disableduser" already exists`,
+			wantErrMsg:  dbtype.UsernameTakenMessage,
 			postAssertions: []string{
 				`SELECT "Username" = 'testUser' FROM "SessionUsers" WHERE "Id" = '27b43588-b743-4133-8730-e0439065a844'`,
 				`SELECT COUNT(*) = 2 FROM "Sessions" WHERE "Username" = 'testUser' AND "Expired" = FALSE`,
@@ -614,7 +615,7 @@ func TestSessionStorageDriver_SetUserUsername(t *testing.T) {
 			c := NewSessionStorageDriver(conn.Pool)
 
 			runAssertions(ctx, t, conn.Pool, tt.preAssertions)
-			err = c.SetUserUsername(ctx, tt.id, tt.newUsername)
+			err = c.SetUserUsername(ctx, tt.id, tt.newUsername, nil)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("SessionStorageDriver.SetUserUsername() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -751,7 +752,7 @@ func TestSessionStorageDriver_DeactivateUser(t *testing.T) {
 			c := NewSessionStorageDriver(conn.Pool)
 
 			runAssertions(ctx, t, conn.Pool, tt.preAssertions)
-			err = c.DeactivateUser(ctx, tt.id)
+			err = c.DeactivateUser(ctx, tt.id, nil)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("SessionStorageDriver.DeactivateUser() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -812,7 +813,7 @@ func TestSessionStorageDriver_DeleteUser(t *testing.T) {
 			c := NewSessionStorageDriver(conn.Pool)
 
 			runAssertions(ctx, t, conn.Pool, tt.preAssertions)
-			err = c.DeleteUser(ctx, tt.id)
+			err = c.DeleteUser(ctx, tt.id, nil)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("SessionStorageDriver.DeleteUser() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -862,7 +863,7 @@ func TestSessionStorageDriver_ActivateUser(t *testing.T) {
 			c := NewSessionStorageDriver(conn.Pool)
 
 			runAssertions(ctx, t, conn.Pool, tt.preAssertions)
-			err = c.ActivateUser(ctx, tt.id)
+			err = c.ActivateUser(ctx, tt.id, nil)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("SessionStorageDriver.ActivateUser() error = %v, wantErr %v", err, tt.wantErr)
 			}

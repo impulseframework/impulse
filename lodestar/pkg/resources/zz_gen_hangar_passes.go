@@ -12,6 +12,8 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
+	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -23,6 +25,79 @@ func (HangarPass) DefaultConfig() resource.Config {
 	return defaultConfig()
 }
 
+// GroupColumns names the columns that name a group of people (GroupID): a row is
+// written only with a group its own tenant keeps, so the library refuses a create or an
+// update that names another tenant's group, or a group kept for the whole application,
+// whoever writes it.
+func (HangarPass) GroupColumns() []resource.GroupColumn {
+	return []resource.GroupColumn{
+		{Field: "GroupID", Name: "groupId", Tenant: "SectorID", Groups: "CrewGroups", Key: "Id", Kept: "DomainId", TenantWord: "sector"},
+	}
+}
+
+// NamedRows names the columns that name a row of another resource the application lists
+// (HangarID, UserID, SquadronID, GroupID): a create or an update sets one only to a row its caller can list, so the
+// library answers any other as a row that is not there.
+func (HangarPass) NamedRows() []resource.NamedRow {
+	return []resource.NamedRow{
+		{Field: "HangarID", Resource: "Hangars", Table: "Hangars", KeyColumn: "Id", TenantColumn: "SectorId"},
+		{Field: "UserID", Resource: "CrewSectorUsers", Table: "CrewSectorUsers", KeyColumn: "Id", TenantColumn: "DomainId", View: true},
+		{Field: "SquadronID", Resource: "Squadrons", Table: "Squadrons", KeyColumn: "Id", TenantColumn: "WingId", TenantPath: []resource.BindingHop{{Table: "Wings", JoinColumn: "Id", Column: "SectorId"}}},
+		{Field: "GroupID", Resource: "CrewSectorGroups", Table: "CrewSectorGroups", KeyColumn: "Id", TenantColumn: "DomainId", View: true, Stored: &resource.NamedRow{Table: "CrewGroups", KeyColumn: "Id"}},
+	}
+}
+
+// TenantBinding is the row's way to its tenant: the library writes the tenant on every
+// change record of the row, whoever writes the row.
+func (HangarPass) TenantBinding() resource.TenantBinding {
+	return resource.TenantBinding{Field: "SectorID"}
+}
+
+// HangarPassTakenRows is how a delete of a record of another package deletes a
+// HangarPass with it (resource.NewTakenRows): a record of the library's that a
+// HangarPass names in a column that says so (@deletedWith). The row goes through its
+// own delete, armed against the caller unless the call is trusted.
+func HangarPassTakenRows() resource.TakenRows {
+	return resource.NewTakenRows(func(patchSet *resource.PatchSet[HangarPass], caller *resource.Caller) {
+		patch := &HangarPassDeletePatch{patchSet: patchSet}
+		if !caller.IsZero() {
+			patch.Enforce(caller)
+			patchSet.RegisterDeleteCheckFunc(func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+				return RefuseImpersonatorAsHangarPassSubject(ctx, txn, resource.OperationDelete, patchSet.PrimaryKey(), patchSet)
+			})
+		}
+	})
+}
+
+// NameFields names the resource's name fields: beside each id that points to a row with
+// a name, the name of that row, which a list shows, sorts by and filters by. A name is
+// looked up in the pointed-to table by the id; it is no column of this resource.
+func (HangarPass) NameFields() []resource.NameField {
+	return []resource.NameField{
+		{Field: "SectorName", Key: "SectorID", Resource: "Sectors", Tag: "name", Table: "Sectors", KeyColumn: "Id", NameColumn: "Name", TenantColumn: ""},
+		{Field: "HangarName", Key: "HangarID", Resource: "Hangars", Tag: "name", Table: "Hangars", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "SectorId"},
+		{Field: "UserName", Key: "UserID", Resource: "CrewSectorUsers", Tag: "displayName", Table: "CrewSectorUsers", KeyColumn: "Id", NameColumn: "DisplayName", View: true, TenantColumn: "DomainId"},
+		{Field: "SquadronName", Key: "SquadronID", Resource: "Squadrons", Tag: "name", Table: "Squadrons", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "WingId", TenantPath: []resource.BindingHop{{Table: "Wings", JoinColumn: "Id", Column: "SectorId"}}},
+		{Field: "GroupName", Key: "GroupID", Resource: "CrewSectorGroups", Tag: "name", Table: "CrewSectorGroups", KeyColumn: "Id", NameColumn: "Name", View: true, TenantColumn: "DomainId"},
+		{Field: "LevelName", Key: "LevelID", Resource: "", Tag: "", Table: "PassLevels", KeyColumn: "Id", NameColumn: "Description", TenantColumn: ""},
+	}
+}
+
+// RecordedNames names the rows a change record of the resource keeps the name of:
+// for each field that points at a row with a name, where the name is read. A
+// tracked write that changes such a field reads the name in its own transaction,
+// and the change record keeps it beside the id.
+func (HangarPass) RecordedNames() []resource.NameField {
+	return []resource.NameField{
+		{Field: "", Key: "SectorID", Resource: "Sectors", Tag: "name", Table: "Sectors", KeyColumn: "Id", NameColumn: "Name", TenantColumn: ""},
+		{Field: "", Key: "HangarID", Resource: "Hangars", Tag: "name", Table: "Hangars", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "SectorId"},
+		{Field: "", Key: "UserID", Resource: "CrewSectorUsers", Tag: "username", Table: "CrewSessionUsers", KeyColumn: "Id", NameColumn: "Username", TenantColumn: "", GrantInTenant: true},
+		{Field: "", Key: "SquadronID", Resource: "Squadrons", Tag: "name", Table: "Squadrons", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "WingId", TenantPath: []resource.BindingHop{{Table: "Wings", JoinColumn: "Id", Column: "SectorId"}}},
+		{Field: "", Key: "GroupID", Resource: "CrewSectorGroups", Tag: "name", Table: "CrewGroups", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "DomainId"},
+		{Field: "", Key: "LevelID", Resource: "", Tag: "", Table: "PassLevels", KeyColumn: "Id", NameColumn: "Description", TenantColumn: ""},
+	}
+}
+
 // hangarPassRead mirrors the wire shape the resource routes list
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; hangarPassReadSets holds one Set per read operation.
@@ -32,6 +107,7 @@ type hangarPassRead struct {
 	HangarID   impulse.UUID     `json:"hangarId"`
 	UserID     *string          `json:"userId"`
 	SquadronID impulse.NullUUID `json:"squadronId"`
+	GroupID    impulse.NullUUID `json:"groupId"`
 	LevelID    string           `json:"levelId"`
 	ExpiresAt  *time.Time       `json:"expiresAt"`
 }
@@ -45,8 +121,9 @@ type hangarPassWrite struct {
 	ID         impulse.UUID     `json:"-"`
 	SectorID   impulse.UUID     `json:"-"`
 	HangarID   impulse.UUID     `json:"hangarId"`
-	UserID     *string          `json:"userId"     sqltype:"STRING(36)"`
-	SquadronID impulse.NullUUID `json:"squadronId"`
+	UserID     *string          `json:"userId"     immutable:"true"     sqltype:"STRING(36)"`
+	SquadronID impulse.NullUUID `json:"squadronId" immutable:"true"`
+	GroupID    impulse.NullUUID `json:"groupId"    immutable:"true"`
 	LevelID    string           `json:"levelId"    sqltype:"STRING(64)"`
 	ExpiresAt  *time.Time       `json:"expiresAt"`
 }
@@ -162,6 +239,7 @@ func (c *HangarPassColumns) All() *HangarPassColumns {
 		"HangarID",
 		"UserID",
 		"SquadronID",
+		"GroupID",
 		"LevelID",
 		"ExpiresAt",
 	}
@@ -195,6 +273,12 @@ func (c *HangarPassColumns) UserID() *HangarPassColumns {
 
 func (c *HangarPassColumns) SquadronID() *HangarPassColumns {
 	c.fields = append(c.fields, "SquadronID")
+
+	return c
+}
+
+func (c *HangarPassColumns) GroupID() *HangarPassColumns {
+	c.fields = append(c.fields, "GroupID")
 
 	return c
 }
@@ -241,6 +325,10 @@ func (p HangarPassQueryPartialClause) UserID() HangarPassQueryIdent[string] {
 
 func (p HangarPassQueryPartialClause) SquadronID() HangarPassQueryIdent[impulse.UUID] {
 	return HangarPassQueryIdent[impulse.UUID]{Ident: resource.NewIdent[impulse.UUID]("SquadronID", p.partialClause, true)}
+}
+
+func (p HangarPassQueryPartialClause) GroupID() HangarPassQueryIdent[impulse.UUID] {
+	return HangarPassQueryIdent[impulse.UUID]{Ident: resource.NewIdent[impulse.UUID]("GroupID", p.partialClause, true)}
 }
 
 func (p HangarPassQueryPartialClause) LevelID() HangarPassQueryIdent[string] {
@@ -333,6 +421,10 @@ func (c *hangarPassSort) SquadronID() *HangarPassSort {
 	return c.addField("SquadronID")
 }
 
+func (c *hangarPassSort) GroupID() *HangarPassSort {
+	return c.addField("GroupID")
+}
+
 func (c *hangarPassSort) LevelID() *HangarPassSort {
 	return c.addField("LevelID")
 }
@@ -399,11 +491,11 @@ func (p *HangarPassCreatePatch) ToStruct() *HangarPass {
 	return p.patchSet.ToStruct()
 }
 
-func (p *HangarPassCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *HangarPassCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *HangarPassCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *HangarPassCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -420,6 +512,9 @@ func (p *HangarPassCreatePatch) Enforce(caller *resource.Caller) *HangarPassCrea
 }
 
 func (p *HangarPassCreatePatch) registerDefaultFuncs() {
+	p.patchSet.RegisterValidateCreateFunc(func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		return new(HangarPassCreateValidator).Validate(ctx, txn, p)
+	})
 }
 
 func (p *HangarPassCreatePatch) ID() impulse.UUID {
@@ -494,6 +589,22 @@ func (p *HangarPassCreatePatch) SquadronID() impulse.NullUUID {
 
 func (p *HangarPassCreatePatch) SquadronIDIsSet() bool {
 	return p.patchSet.IsSet("SquadronID")
+}
+
+func (p *HangarPassCreatePatch) SetGroupID(v impulse.NullUUID) *HangarPassCreatePatch {
+	p.patchSet.Set("GroupID", v)
+
+	return p
+}
+
+func (p *HangarPassCreatePatch) GroupID() impulse.NullUUID {
+	v, _ := p.patchSet.Get("GroupID").(impulse.NullUUID)
+
+	return v
+}
+
+func (p *HangarPassCreatePatch) GroupIDIsSet() bool {
+	return p.patchSet.IsSet("GroupID")
 }
 
 func (p *HangarPassCreatePatch) SetLevelID(v string) *HangarPassCreatePatch {
@@ -571,11 +682,11 @@ func (p *HangarPassUpdatePatch) ToStruct() *HangarPass {
 	return p.patchSet.ToStruct()
 }
 
-func (p *HangarPassUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *HangarPassUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *HangarPassUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *HangarPassUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -692,6 +803,22 @@ func (p *HangarPassUpdatePatch) SquadronIDIsSet() bool {
 	return p.patchSet.IsSet("SquadronID")
 }
 
+func (p *HangarPassUpdatePatch) SetGroupID(v impulse.NullUUID) *HangarPassUpdatePatch {
+	p.patchSet.Set("GroupID", v)
+
+	return p
+}
+
+func (p *HangarPassUpdatePatch) GroupID() impulse.NullUUID {
+	v, _ := p.patchSet.Get("GroupID").(impulse.NullUUID)
+
+	return v
+}
+
+func (p *HangarPassUpdatePatch) GroupIDIsSet() bool {
+	return p.patchSet.IsSet("GroupID")
+}
+
 func (p *HangarPassUpdatePatch) SetLevelID(v string) *HangarPassUpdatePatch {
 	p.patchSet.Set("LevelID", v)
 
@@ -753,11 +880,11 @@ func NewHangarPassDeletePatch(id impulse.UUID) *HangarPassDeletePatch {
 	return &HangarPassDeletePatch{patchSet: patchSet}
 }
 
-func (p *HangarPassDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *HangarPassDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *HangarPassDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *HangarPassDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -782,4 +909,26 @@ func (p *HangarPassDeletePatch) ID() impulse.UUID {
 // Diff is intended for unit testing, and reports the differences between two values using github.com/google/go-cmp/cmp
 func (p *HangarPassDeletePatch) Diff(got *HangarPassDeletePatch, opts ...cmp.Option) string {
 	return resource.PatchSetDiff(opts...)(p.patchSet, got.patchSet)
+}
+
+// RefuseImpersonatorAsHangarPassSubject asks, of one write of the hangar pass
+// record, what a record that decides what a person may do is asked in a session that
+// acts as someone else: nobody writes the row that decides it for themselves. op is the
+// write, key the row's key (empty for an add whose id is generated) and patchSet the
+// write's fields. The record's generated write, where it has one, calls it once the
+// operation is decoded, ahead of the create, the change and the delete, and the delete
+// of a row taken with the record it is under (resource.NewTakenRows) calls it as a
+// removal, so the two ask the same. It answers nil outside such a session.
+func RefuseImpersonatorAsHangarPassSubject(ctx context.Context, txn resource.ReadWriteTransaction, op resource.OperationType, key resource.KeySet, patchSet *resource.PatchSet[HangarPass]) error {
+	if err := identity.RefuseImpersonatorAsRowSubject(ctx, txn, op, key, patchSet, "hangar pass", "UserID"); err != nil {
+		return errors.Wrap(err, "identity.RefuseImpersonatorAsRowSubject()")
+	}
+	if err := identity.RefuseImpersonatorAsSetSubject(ctx, txn, op, key, patchSet, "hangar pass", "SquadronID", "squadrons"); err != nil {
+		return errors.Wrap(err, "identity.RefuseImpersonatorAsSetSubject()")
+	}
+	if err := identity.RefuseImpersonatorAsSetSubject(ctx, txn, op, key, patchSet, "hangar pass", "GroupID", "crewGroups"); err != nil {
+		return errors.Wrap(err, "identity.RefuseImpersonatorAsSetSubject()")
+	}
+
+	return nil
 }

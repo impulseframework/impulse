@@ -20,7 +20,8 @@ var (
 
 // Tables names the tables one policy store keeps: the custom roles, the memberships and
 // the custom roles' grants, with the index the memberships are listed by user through,
-// and the groups of people with their members and the roles each group holds.
+// the groups of people with their members and the roles each group holds, and the roles
+// held on one record of a tenant, a person's and a group's.
 type Tables struct {
 	Roles      string
 	UserRoles  string
@@ -39,11 +40,20 @@ type Tables struct {
 	GroupsByName         string
 	GroupMembersByUserID string
 	GroupRolesByScope    string
+	// RecordUserRoles are the roles people hold on one record of a tenant, and
+	// RecordGroupRoles the roles groups hold on one, each keyed by the record first.
+	// RecordUserRolesByUserID is the index on a person's that leads with the user, and
+	// RecordGroupRolesByGroupID the index on a group's that leads with the group.
+	RecordUserRoles           string
+	RecordGroupRoles          string
+	RecordUserRolesByUserID   string
+	RecordGroupRolesByGroupID string
 }
 
 // TablesWithPrefix answers the names of the policy store kept under prefix and store:
 // {prefix}{store}Roles, {prefix}{store}UserRoles and {prefix}{store}RoleGrants, and
-// {prefix}{store}Groups, {prefix}{store}GroupMembers and {prefix}{store}GroupRoles. It is the
+// {prefix}{store}Groups, {prefix}{store}GroupMembers and {prefix}{store}GroupRoles, and
+// {prefix}{store}RecordUserRoles and {prefix}{store}RecordGroupRoles. It is the
 // one rule both stores name their tables by, exported so whatever else names them (an
 // application's migrations, the code generator declaring the management resources over
 // them) cannot spell them another way. An application with several independent policy
@@ -69,5 +79,10 @@ func TablesWithPrefix(prefix, store string) (Tables, error) {
 		GroupsByName:         base + "GroupsByName",
 		GroupMembersByUserID: base + "GroupMembersByUserId",
 		GroupRolesByScope:    base + "GroupRolesByScope",
+
+		RecordUserRoles:           base + "RecordUserRoles",
+		RecordGroupRoles:          base + "RecordGroupRoles",
+		RecordUserRolesByUserID:   base + "RecordUserRolesByUserId",
+		RecordGroupRolesByGroupID: base + "RecordGroupRolesByGroupId",
 	}, nil
 }

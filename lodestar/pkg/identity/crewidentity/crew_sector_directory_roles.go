@@ -30,9 +30,11 @@ import (
 // @suppress(readHandler)
 // @outlet(default)
 // @order(Name asc)
+// @rowWord(role)
 type CrewSectorDirectoryRole struct {
 	// @primarykey
 	// @attribute(name)
+	// @roleOf(Crew)
 	Name        string `spanner:"Name"`
 	Description string `spanner:"Description"`
 }

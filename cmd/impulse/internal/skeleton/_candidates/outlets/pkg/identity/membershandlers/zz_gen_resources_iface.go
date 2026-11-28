@@ -13,16 +13,27 @@ type Resourcer interface {
 	resource.Resourcer
 	membersresources.MembersGroup | membersresources.MembersGroupMember |
 		membersresources.MembersGroupRole | membersresources.MembersGroupUser |
+		membersresources.MembersHeldRole | membersresources.MembersListedGroup |
+		membersresources.MembersListedGroupRole | membersresources.MembersListedIdentity |
+		membersresources.MembersListedMailLink | membersresources.MembersListedSession |
+		membersresources.MembersListedSignInAttempt | membersresources.MembersListedUser |
 		membersresources.MembersRole | membersresources.MembersRoleGrant |
 		membersresources.MembersSession | membersresources.MembersSessionAuthEvent |
 		membersresources.MembersSessionIdentity | membersresources.MembersSessionMailLink |
 		membersresources.MembersSessionSignInAttempt |
-		membersresources.MembersSessionSignInMethod | membersresources.MembersSessionToken |
+		membersresources.MembersSessionSignInMethod |
+		membersresources.MembersSessionSignInSetting | membersresources.MembersSessionToken |
 		membersresources.MembersSessionTrustedDevice | membersresources.MembersSessionUser |
-		membersresources.MembersTenantGroup | membersresources.MembersTenantGroupRole |
-		membersresources.MembersTenantGroupUser | membersresources.MembersTenantIdentity |
+		membersresources.MembersTakenRole | membersresources.MembersTenantGroup |
+		membersresources.MembersTenantGroupRole | membersresources.MembersTenantGroupUser |
+		membersresources.MembersTenantHeldRole | membersresources.MembersTenantIdentity |
 		membersresources.MembersTenantInvitation | membersresources.MembersTenantUser |
 		membersresources.MembersTenantUserGroupRole |
 		membersresources.MembersTenantUserRole | membersresources.MembersUserGroupRole |
-		membersresources.MembersUserRole | membersidentity.MembersTenantRole
+		membersresources.MembersUserRole | membersidentity.MembersGivableRole |
+		membersidentity.MembersListedAuditRecord | membersidentity.MembersListedRoleGrant |
+		membersidentity.MembersRememberLength | membersidentity.MembersSignInMethod |
+		membersidentity.MembersSignInSetting | membersidentity.MembersTakeLength |
+		membersidentity.MembersTakeableRole | membersidentity.MembersTenantAuditRecord |
+		membersidentity.MembersTenantRole
 }

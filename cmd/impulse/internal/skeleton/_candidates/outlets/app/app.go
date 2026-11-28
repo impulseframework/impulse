@@ -14,7 +14,6 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
-	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/auth"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/auth/members"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/auth/staff"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/identity/membersidentity"
@@ -108,6 +107,10 @@ type Configurer interface {
 	// release built it): what the generated router's session outlets check a browser
 	// application's X-Api-Version against.
 	AppVersion() string
+	// Environment is the name of the environment the application runs in
+	// (APP_ENVIRONMENT, unset in production): what every answer of the server names and
+	// the About pop-up shows.
+	Environment() string
 	ConsoleDist() string
 	PortalDist() string
 }
@@ -135,6 +138,11 @@ type App struct {
 	validate        *validator.Validate
 	logExporter     logger.Exporter
 	version         string
+	environment     string
+	// collection is the generated permission collection, built once: the session
+	// permissions read each action's classes off it, so the mask of an impersonated
+	// session can refuse a class of actions (resource.Masked).
+	collection *resource.GeneratedCollection
 	// consoleApp and portalApp serve the two built bundles under /console and /portal: the
 	// resource package's served browser app holds the deep-link rewrite, the prefix strip,
 	// and the two cache classes a service worker needs (hashed files immutable, everything
@@ -164,6 +172,8 @@ func New(cfg Configurer) *App {
 		validate:        cfg.Validator(),
 		logExporter:     cfg.LogExporter(),
 		version:         cfg.AppVersion(),
+		environment:     cfg.Environment(),
+		collection:      router.Collection(),
 		consoleApp:      resource.NewBrowserApp(cfg.ConsoleDist(), "/console"),
 		portalApp:       resource.NewBrowserApp(cfg.PortalDist(), "/portal"),
 		live:            cfg.Live(),
@@ -190,20 +200,11 @@ func New(cfg Configurer) *App {
 	return a
 }
 
-// BindAuth is the middleware a session group carries to say which auth authenticated its
-// requests, so the permission checks and the tenant visibility of everything behind it
-// answer from that auth's store. A group that binds nothing gets the default auth.
-func (a *App) BindAuth(name string) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			next.ServeHTTP(w, r.WithContext(auth.Bind(r.Context(), name)))
-		})
-	}
-}
-
-// engine returns the permission engine of the auth the request came through.
+// engine returns the permission engine of the auth the request came through, which the
+// generated router binds each outlet's requests to (resource.BoundAuth). A request bound
+// to no auth gets the default auth's engine.
 func (a *App) engine(ctx context.Context) access.Controller {
-	if engine, ok := a.engines[auth.Name(ctx)]; ok {
+	if engine, ok := a.engines[resource.BoundAuth(ctx)]; ok {
 		return engine
 	}
 
@@ -231,6 +232,13 @@ func (a *App) LogExporter() logger.Exporter {
 // X-Api-Version against. A development build reports dev, which checks nothing.
 func (a *App) ServerVersion() string {
 	return a.version
+}
+
+// ServerEnvironment is the name of the environment this server runs in, the
+// configuration's APP_ENVIRONMENT: what the generated router names on every answer
+// (X-Environment) and the About pop-up shows. Production is told none and reports none.
+func (a *App) ServerEnvironment() string {
+	return a.environment
 }
 
 // SecurityHeaders is a middleware that sets security-related headers on the response.
@@ -319,11 +327,15 @@ func (a *App) Devices() router.DevicesTokens {
 // sign-in where the tenant is not directory only, a sign-in through the tenant's own
 // directory where it is), and a super administrator of the engine reaches every
 // tenant. A tenant that seats the person and is closed to the session stays in its
-// tenant list marked closed, with the reason.
+// tenant list as not available, with the reason.
+// A tenant that is disabled is offered to nobody but a super administrator, and stays
+// in its people's tenant lists the same way.
+// The mask reads each action's classes off the generated collection, so a session whose
+// mask refuses a class of actions is refused every action that carries it.
 func (a *App) UserPermissions(r *http.Request) resource.UserPermissions {
 	engine := a.engine(r.Context())
 
-	return resource.SessionPermissions(r.Context(), engine.ForUser, engine.ForRole, a.tenants.Domains, a.declarations)
+	return resource.SessionPermissions(r.Context(), engine.ForUser, engine.ForRole, a.tenants.Domains, a.declarations, a.collection)
 }
 
 // TenantRoster returns the application's tenant roster, the generated contract's

@@ -42,6 +42,10 @@ func (h *Handlers) EndCrewSessionImpersonation() http.HandlerFunc {
 		// write or a read against the caller (Enforce) evaluates the same checker,
 		// scope, and decision instant.
 		ctx = resource.WithCaller(ctx, gate.Caller())
+		// The method's name rides the context too: who made a change
+		// (eventsource.UserEvent) reads it there, so every change record the body writes
+		// names the method.
+		ctx = resource.WithRPC(ctx, "EndCrewSessionImpersonation")
 
 		p := (*crewidentity.EndCrewSessionImpersonation)(params)
 
@@ -78,10 +82,16 @@ func (h *Handlers) EndCrewSessionImpersonation() http.HandlerFunc {
 				SetSessionID(p.SessionID).
 				Read(ctx, txn)
 			if err != nil {
+				if httpio.HasNotFound(err) {
+					// No row has the key. Every row the method cannot reach is
+					// answered alike, so the words never say a row is there.
+					return resource.TargetNotFound("CrewSessionImpersonation", p.SessionID)
+				}
+
 				return errors.Wrap(err, "crewresources.CrewSessionImpersonationQuery.Read()")
 			}
 			if row == nil {
-				return httpio.NewNotFoundMessagef("CrewSessionImpersonation %s does not exist", p.SessionID)
+				return resource.TargetNotFound("CrewSessionImpersonation", p.SessionID)
 			}
 
 			// A row-referencing condition on the caller's Execute grant
@@ -102,7 +112,7 @@ func (h *Handlers) EndCrewSessionImpersonation() http.HandlerFunc {
 				return httpio.NewEncoder(w).Ok(nil)
 			}
 
-			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "spanner.Client.ReadWriteTransaction()"))
+			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "resource.Client.ExecuteFunc()"))
 		}
 
 		live.Publish(ctx, w, h.LiveService(), h.liveDerivations, "", touched)

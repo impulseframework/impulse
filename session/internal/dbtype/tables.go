@@ -33,10 +33,12 @@ const (
 	SignInAttemptsTable = "SessionSignInAttempts"
 	MailLinksTable      = "SessionMailLinks"
 	SignInMethodsTable  = "SessionSignInMethods"
+	SignInSettingsTable = "SessionSignInSettings"
 	FactorCodesTable    = "SessionFactorCodes"
 	TrustedDevicesTable = "SessionTrustedDevices"
 	TokensTable         = "SessionTokens"
 	DeviceCodesTable    = "SessionDeviceCodes"
 	AuthEventsTable     = "SessionAuthEvents"
 	ImpersonationsTable = "SessionImpersonations"
+	AuditRecordsTable   = "SessionAuditRecords"
 )

@@ -8,7 +8,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/access/internal/policy"
 	"github.com/impulseframework/impulse/accesstypes"
-	"google.golang.org/api/iterator"
+	"github.com/impulseframework/impulse/internal/spannertxn"
 	"google.golang.org/grpc/codes"
 )
 
@@ -37,9 +37,7 @@ const (
 type groupStatements struct {
 	setDescription string
 	deleteGroup    string
-	hasMembers     string
-	hasRoles       string
-	deleteEnded    []string
+	deleteHeld     []string
 	group          string
 	listGroups     string
 	listMembers    string
@@ -47,8 +45,12 @@ type groupStatements struct {
 	listRoles      string
 	listUserRoles  string
 	listRoleGroups string
+	countMembersIn string
+	listRolesIn    string
 	roleHeld       string
 	deleteEndedOf  string
+	heldInDomain   string
+	endedInDomain  string
 	readGroups     string
 	readMembers    string
 	readRoles      string
@@ -58,11 +60,10 @@ func newGroupStatements(n *tableNames) groupStatements {
 	return groupStatements{
 		setDescription: fmt.Sprintf("UPDATE %s SET Description = @description, UpdatedAt = PENDING_COMMIT_TIMESTAMP() WHERE Id = @group", n.groups),
 		deleteGroup:    fmt.Sprintf("DELETE FROM %s WHERE Id = @group", n.groups),
-		hasMembers:     fmt.Sprintf("SELECT 1 FROM %s WHERE GroupId = @group AND %s LIMIT 1", n.groupMembers, standing("")),
-		hasRoles:       fmt.Sprintf("SELECT 1 FROM %s WHERE GroupId = @group AND %s LIMIT 1", n.groupRoles, standing("")),
-		deleteEnded: []string{
-			fmt.Sprintf("DELETE FROM %s WHERE GroupId = @group AND %s", n.groupMembers, ended),
-			fmt.Sprintf("DELETE FROM %s WHERE GroupId = @group AND %s", n.groupRoles, ended),
+		deleteHeld: []string{
+			fmt.Sprintf("DELETE FROM %s WHERE GroupId = @group", n.groupMembers),
+			fmt.Sprintf("DELETE FROM %s WHERE GroupId = @group", n.groupRoles),
+			fmt.Sprintf("DELETE FROM %s WHERE GroupId = @group", n.recordGroupRoles),
 		},
 		group: fmt.Sprintf("SELECT Id, Kind, Axis, DomainId, Name, Description FROM %s WHERE Id = @group", n.groups),
 		listGroups: fmt.Sprintf("SELECT Id, Kind, Axis, DomainId, Name, Description FROM %s@{FORCE_INDEX=%s} WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain ORDER BY Name",
@@ -77,9 +78,18 @@ WHERE m.UserId = @user AND %s AND %s ORDER BY r.Kind, r.Axis, r.DomainId, r.Role
 		listRoleGroups: fmt.Sprintf(`SELECT g.Id, g.Kind, g.Axis, g.DomainId, g.Name, g.Description
 FROM %s@{FORCE_INDEX=%s} r JOIN %s g ON g.Id = r.GroupId
 WHERE r.Kind = @kind AND r.Axis = @axis AND r.DomainId = @domain AND r.Role = @role AND %s ORDER BY g.Name, g.Id`, n.groupRoles, n.groupRolesIndex, n.groups, counting("r.")),
+		countMembersIn: fmt.Sprintf(`SELECT m.GroupId, COUNT(*)
+FROM %s@{FORCE_INDEX=%s} g JOIN %s m ON m.GroupId = g.Id
+WHERE g.Kind = @kind AND g.Axis = @axis AND g.DomainId = @domain AND %s GROUP BY m.GroupId`, n.groups, n.groupsByName, n.groupMembers, standing("m.")),
+		listRolesIn: fmt.Sprintf(`SELECT r.GroupId, r.Kind, r.Axis, r.DomainId, r.Role, r.StartsAt, r.EndsAt
+FROM %s@{FORCE_INDEX=%s} g JOIN %s r ON r.GroupId = g.Id
+WHERE g.Kind = @kind AND g.Axis = @axis AND g.DomainId = @domain AND %s ORDER BY r.GroupId, r.Kind, r.Axis, r.DomainId, r.Role`, n.groups, n.groupsByName, n.groupRoles, standing("r.")),
 		roleHeld: fmt.Sprintf("SELECT 1 FROM %s@{FORCE_INDEX=%s} WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain AND Role = @role AND %s LIMIT 1",
 			n.groupRoles, n.groupRolesIndex, standing("")),
 		deleteEndedOf: fmt.Sprintf("DELETE FROM %s WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain AND Role = @role AND %s", n.groupRoles, ended),
+		// The group roles held in one domain that read a role's every-domain row.
+		heldInDomain:  fmt.Sprintf("SELECT u.DomainId FROM %s u WHERE %s AND %s ORDER BY u.DomainId LIMIT 1", n.groupRoles, readsEveryDomainRow(n.roles), standing("u.")),
+		endedInDomain: fmt.Sprintf("DELETE FROM %s u WHERE %s AND u.%s", n.groupRoles, readsEveryDomainRow(n.roles), ended),
 		readGroups:    fmt.Sprintf("SELECT Id, Kind, Axis, DomainId FROM %s", n.groups),
 		readMembers:   fmt.Sprintf("SELECT GroupId, UserId, StartsAt, EndsAt FROM %s", n.groupMembers),
 		readRoles:     fmt.Sprintf("SELECT GroupId, Kind, Axis, DomainId, Role, StartsAt, EndsAt FROM %s", n.groupRoles),
@@ -214,7 +224,7 @@ func (s *Store) InsertGroup(ctx context.Context, group *policy.GroupRow) (bool, 
 // the group was there.
 func (s *Store) SetGroupDescription(ctx context.Context, group accesstypes.Group, description string) (bool, error) {
 	var found bool
-	_, err := s.client.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err := spannertxn.Serializable(ctx, s.client, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		count, err := txn.Update(ctx, spanner.Statement{SQL: s.groups.setDescription, Params: map[string]any{paramGroup: string(group), paramDescription: description}})
 		if err != nil {
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
@@ -224,32 +234,22 @@ func (s *Store) SetGroupDescription(ctx context.Context, group accesstypes.Group
 		return nil
 	})
 	if err != nil {
-		return false, errors.Wrap(err, "spanner.Client.ReadWriteTransaction() describe group")
+		return false, errors.Wrap(err, "spannertxn.Serializable() describe group")
 	}
 
 	return found, nil
 }
 
-// DeleteGroup deletes the group's row and reports whether it was there. A
-// group that still has a member or a role that has not ended is refused,
-// checked in the delete's own transaction; the ended ones go with the group,
-// and the foreign keys of the two tables stand behind the check.
+// DeleteGroup deletes the group with its members and the roles it holds, in a tenant and
+// on records, in one transaction, whatever their periods, and reports whether the group
+// was there.
 func (s *Store) DeleteGroup(ctx context.Context, group accesstypes.Group) (bool, error) {
 	params := map[string]any{paramGroup: string(group)}
 	var deleted bool
-	_, err := s.client.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
-		for _, check := range []struct{ sql, what string }{{s.groups.hasMembers, "members"}, {s.groups.hasRoles, "roles"}} {
-			held, err := queryHasRow(ctx, txn, spanner.Statement{SQL: check.sql, Params: params})
-			if err != nil {
-				return err
-			}
-			if held {
-				return errors.Wrapf(policy.ErrStillAssigned, "group %s still has %s", group, check.what)
-			}
-		}
-		for _, sql := range s.groups.deleteEnded {
+	_, err := spannertxn.Serializable(ctx, s.client, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		for _, sql := range s.groups.deleteHeld {
 			if _, err := txn.Update(ctx, spanner.Statement{SQL: sql, Params: params}); err != nil {
-				return errors.Wrap(err, "spanner.ReadWriteTransaction.Update() ended rows")
+				return errors.Wrap(err, "spanner.ReadWriteTransaction.Update() the group's members and roles")
 			}
 		}
 		count, err := txn.Update(ctx, spanner.Statement{SQL: s.groups.deleteGroup, Params: params})
@@ -261,25 +261,10 @@ func (s *Store) DeleteGroup(ctx context.Context, group accesstypes.Group) (bool,
 		return nil
 	})
 	if err != nil {
-		return false, errors.Wrap(err, "spanner.Client.ReadWriteTransaction() delete group")
+		return false, errors.Wrap(err, "spannertxn.Serializable() delete group")
 	}
 
 	return deleted, nil
-}
-
-// queryHasRow reports whether the statement yields a row.
-func queryHasRow(ctx context.Context, txn *spanner.ReadWriteTransaction, stmt spanner.Statement) (bool, error) {
-	iter := txn.Query(ctx, stmt)
-	defer iter.Stop()
-	if _, err := iter.Next(); err != nil {
-		if errors.Is(err, iterator.Done) {
-			return false, nil
-		}
-
-		return false, errors.Wrap(err, "spanner.RowIterator.Next()")
-	}
-
-	return true, nil
 }
 
 // Group returns the group kept under the id; found is false where none is.
@@ -343,12 +328,28 @@ func (s *Store) queryGroups(ctx context.Context, stmt spanner.Statement) ([]poli
 
 // InsertGroupMember gives one person's place in a group its period: the person
 // is added where they are not in the group, and their place given the new
-// period where they are. The group's row must exist.
+// period where they are. The group's row must exist: it is read first, and where
+// it is not there policy.ErrNoGroup is wrapped and nothing is written.
 func (s *Store) InsertGroupMember(ctx context.Context, group accesstypes.Group, user accesstypes.User, period accesstypes.Period) error {
 	return s.assign(ctx, s.names.groupMembers,
 		[]string{colGroupID, colUser},
 		spanner.Key{string(group), string(user)},
-		period, "spanner.Client.ReadWriteTransaction() assign group member")
+		period, []requirement{s.groupHeld(group)}, nil, "spannertxn.Serializable() assign group member")
+}
+
+// groupHeld is the requirement of a group's member or role: the group's row. Where it
+// is not there it answers policy.ErrNoGroup wrapped.
+func (s *Store) groupHeld(group accesstypes.Group) requirement {
+	return func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		switch _, err := txn.ReadRow(ctx, s.names.groups, spanner.Key{string(group)}, []string{colID}); {
+		case spanner.ErrCode(err) == codes.NotFound:
+			return errors.Wrapf(policy.ErrNoGroup, "group %s", group)
+		case err != nil:
+			return errors.Wrap(err, "spanner.ReadWriteTransaction.ReadRow() group")
+		}
+
+		return nil
+	}
 }
 
 // DeleteGroupMember removes one person from a group; removing one who is not
@@ -378,14 +379,31 @@ func (s *Store) ListGroupMembers(ctx context.Context, group accesstypes.Group) (
 
 // InsertGroupRole gives one role a group holds in scope its period: the role is
 // added where the group does not hold it there, and given the new period where
-// it does. The group's row must exist; the role is named by name alone.
+// it does. The group's row must exist: it is read first, and where it is not
+// there policy.ErrNoGroup is wrapped and nothing is written. The role is named by
+// name alone.
 func (s *Store) InsertGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role, period accesstypes.Period) error {
+	return s.assignGroupRole(ctx, group, scope, role, period, []requirement{s.groupHeld(group)})
+}
+
+// InsertCustomGroupRole writes what InsertGroupRole writes, only while the roles
+// table holds a row of the custom role where the group's role reads it, as
+// InsertCustomUserRole reads it, and wraps policy.ErrNoRole where it holds none.
+// The role is read before the group, so where neither is there the answer is
+// policy.ErrNoRole.
+func (s *Store) InsertCustomGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role, period accesstypes.Period) error {
+	return s.assignGroupRole(ctx, group, scope, role, period, []requirement{s.customRoleHeld(scope, role), s.groupHeld(group)})
+}
+
+// assignGroupRole writes one role a group holds in scope with its period once each
+// of needs is there.
+func (s *Store) assignGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role, period accesstypes.Period, needs []requirement) error {
 	kind, axis, domain := policy.ScopeColumns(scope)
 
 	return s.assign(ctx, s.names.groupRoles,
 		[]string{colGroupID, colKind, colAxis, colDomain, colRole},
 		spanner.Key{string(group), kind, axis, domain, string(role)},
-		period, "spanner.Client.ReadWriteTransaction() assign group role")
+		period, needs, nil, "spannertxn.Serializable() assign group role")
 }
 
 // DeleteGroupRole removes one role a group holds in scope; removing one it
@@ -426,6 +444,69 @@ func (s *Store) ListGroupRoles(ctx context.Context, group accesstypes.Group) ([]
 	})
 	if err != nil {
 		return nil, errors.Wrap(err, "spanner.Client.Single().Query() group roles")
+	}
+
+	return roles, nil
+}
+
+// CountGroupMembersIn returns how many people each group kept in scope has: the
+// places in it that have not ended, the ones that count now and the ones that
+// have not begun. A group with none is not in the answer.
+func (s *Store) CountGroupMembersIn(ctx context.Context, scope accesstypes.PolicyScope) (map[accesstypes.Group]int, error) {
+	kind, axis, domain, err := policy.GroupColumns(scope)
+	if err != nil {
+		return nil, errors.Wrap(err, "policy.GroupColumns()")
+	}
+	counts := make(map[accesstypes.Group]int)
+	stmt := spanner.Statement{SQL: s.groups.countMembersIn, Params: map[string]any{paramKind: kind, paramAxis: axis, paramDomain: domain}}
+	err = s.client.Single().Query(ctx, stmt).Do(func(row *spanner.Row) error {
+		var group string
+		var count int64
+		if err := row.Columns(&group, &count); err != nil {
+			return errors.Wrap(err, "spanner.Row.Columns()")
+		}
+		counts[accesstypes.Group(group)] = int(count)
+
+		return nil
+	})
+	if err != nil {
+		return nil, errors.Wrap(err, "spanner.Client.Single().Query() group member counts")
+	}
+
+	return counts, nil
+}
+
+// ListGroupRolesIn returns the roles the groups kept in scope hold that have
+// not ended, each with its group and its period, sorted by group, then by
+// where the role is held, then by role.
+func (s *Store) ListGroupRolesIn(ctx context.Context, scope accesstypes.PolicyScope) ([]policy.Membership, error) {
+	kind, axis, domain, err := policy.GroupColumns(scope)
+	if err != nil {
+		return nil, errors.Wrap(err, "policy.GroupColumns()")
+	}
+	roles := make([]policy.Membership, 0)
+	stmt := spanner.Statement{SQL: s.groups.listRolesIn, Params: map[string]any{paramKind: kind, paramAxis: axis, paramDomain: domain}}
+	err = s.client.Single().Query(ctx, stmt).Do(func(row *spanner.Row) error {
+		var group, kind, axis, domain, role string
+		var start, end spanner.NullTime
+		if err := row.Columns(&group, &kind, &axis, &domain, &role, &start, &end); err != nil {
+			return errors.Wrap(err, "spanner.Row.Columns()")
+		}
+		held, err := policy.ScopeFromColumns(kind, axis, domain)
+		if err != nil {
+			return errors.Wrap(err, "policy.ScopeFromColumns()")
+		}
+		roles = append(roles, policy.Membership{
+			Scope:  held,
+			Member: policy.Subject{Kind: policy.SubjectGroup, Name: group},
+			Role:   accesstypes.Role(role),
+			Period: periodOf(start, end),
+		})
+
+		return nil
+	})
+	if err != nil {
+		return nil, errors.Wrap(err, "spanner.Client.Single().Query() group roles in a scope")
 	}
 
 	return roles, nil

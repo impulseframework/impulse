@@ -26,12 +26,21 @@ import (
 type (
 	// {{ .InviteTenant }} brings an organization in by inviting one person: a link is
 	// mailed to the address, and the first sign-in of whoever follows it makes the
+	{{- if .TenantDirectories }}
 	// {{ .TenantWord }} from the details given here, seats the person as its first
 	// administrator and, where they signed in through their organization's directory (a
 	// Google Workspace, a Microsoft Entra tenant), makes that the {{ .TenantWord }}'s
 	// directory. The invited person enters nothing and changes nothing by accepting. No
 	// {{ .TenantWord }} exists until then: to change the details, withdraw the invitation
 	// ({{ .WithdrawInvitedTenant }}) and send another.
+	{{- else }}
+	// {{ .TenantWord }} from the details given here and seats the person as its first
+	// administrator, whichever sign-in method they came through: the application
+	// declares no directories record, so no {{ .TenantWord }} takes a directory. The
+	// invited person enters nothing and changes nothing by accepting. No
+	// {{ .TenantWord }} exists until then: to change the details, withdraw the invitation
+	// ({{ .WithdrawInvitedTenant }}) and send another.
+	{{- end }}
 	//
 	// The details are the {{ .TenantName }} record's own fields, each named for the
 	// record, and they are held to the rules the record's create applies when the
@@ -43,11 +52,11 @@ type (
 	// reads each as the attribute its field declares.{{ end }}
 	//
 	// The message is sent once the invitation is committed, and the answer says whether
-	// it went (Sent). When it did not, the invitation is withdrawn, so no link stands
-	// that nobody holds: invite again.
+	// it went (Sent). When it did not, the invitation is ended, not mailed, so no link
+	// stands that nobody holds: invite again.
 	//
 	// @rpc
-	// @outlet({{ .Outlets }})
+	// @outlet({{ .Outlets }})` + identityAccessClass + `
 	{{ .InviteTenant }} struct {
 		// Email is the address the invitation is mailed to, and Name the name the sender
 		// gives the person.
@@ -71,10 +80,12 @@ type (
 		{{- if .TenantSeats }}
 		// DefaultRole is the role a person from the {{ .TenantWord }}'s directory starts with,
 		// where the first sign-in sets one; empty, the {{ .TenantWord }} admits its
-		// directory's people by invitation. It is a role the caller could give a person
-		// directly, and a grant's condition reads it as new.role.
+		// directory's people by invitation. It is picked from the roles the caller could
+		// start a new {{ .TenantWord }}'s people with ({{ Pluralize .InvitedTenantRole }}),
+		// and a grant's condition reads it as new.role.
 		//
 		// @attribute(role)
+		// @enumerate({{ Pluralize .InvitedTenantRole }})
 		DefaultRole *string
 		{{- end }}
 	}
@@ -108,7 +119,7 @@ func (m *{{ .InviteTenant }}) Execute(ctx context.Context, reader resource.Clien
 	invitation := &identity.TenantInvitation{
 		Email: m.Email,
 		Name:  m.Name,
-		{{- if .TenantNameField }}
+		{{- if and .TenantNameField (not .TenantNameNullable) }}
 		TenantName: fmt.Sprint(m.{{ .TenantName }}{{ .TenantNameField }}),
 		{{- else }}
 		TenantName: fmt.Sprint({{ printf "%q" .TenantWord }}),
@@ -121,6 +132,13 @@ func (m *{{ .InviteTenant }}) Execute(ctx context.Context, reader resource.Clien
 		DefaultRole: m.DefaultRole,
 		{{- end }}
 	}
+	{{- if and .TenantNameField .TenantNameNullable }}
+	// The invitation page names the {{ .TenantWord }} by the name the sender gave it, and by
+	// the word for one where they gave none.
+	if m.{{ .TenantName }}{{ .TenantNameField }} != nil {
+		invitation.TenantName = string(*m.{{ .TenantName }}{{ .TenantNameField }})
+	}
+	{{- end }}
 	if err := client.manager.CheckInvitedTenant(ctx, reader, invitation); err != nil {
 		return nil, errors.Wrap(err, "identity.Manager.CheckInvitedTenant()")
 	}
@@ -181,6 +199,7 @@ import (
 // @suppress(readHandler)
 // @outlet({{ .Outlets }})
 // @order(CreatedAt asc)
+// @rowWord(invitation)
 type {{ .InvitedTenant }} struct {
 	// @primarykey
 	ID    impulse.UUID ` + "`spanner:\"Id\"`" + `
@@ -194,6 +213,7 @@ type {{ .InvitedTenant }} struct {
 	{{ .TenantName }}DirectoryOnly *bool ` + "`spanner:\"{{ .TenantName }}DirectoryOnly\"`" + `
 	{{- end }}
 	{{- if .TenantSeats }}
+	// @roleOf({{ .Auth }})
 	DefaultRole *string ` + "`spanner:\"DefaultRole\"`" + `
 	{{- end }}
 	InvitedByUserID *impulse.UUID ` + "`spanner:\"InvitedByUserId\"`" + `
@@ -337,7 +357,7 @@ import (
 //
 // @rpc
 // @outlet({{ .Outlets }})
-// @answers(204)
+// @answers(204)` + identityAccessClass + `
 type {{ .WithdrawInvitedTenant }} struct {
 	// InvitationID is the invitation's id, as the list of them carries it
 	// ({{ Pluralize .InvitedTenant }}).
@@ -351,6 +371,77 @@ func (m *{{ .WithdrawInvitedTenant }}) Execute(ctx context.Context, txn resource
 	}
 
 	return nil
+}
+`
+
+	// identityInvitedTenantRolesTemplate is the list the starting role of the invitation
+	// that makes a tenant is picked from, where the invitation carries one.
+	identityInvitedTenantRolesTemplate = `// Code generated by resourcegeneration. DO NOT EDIT.
+// Source: {{ .Source }}
+
+package {{ .Package }}
+
+import (
+	"context"
+	"iter"
+
+	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/resource"
+)
+
+// {{ .InvitedTenantRole }} is one role the people of a new {{ .TenantWord }}'s directory
+// may start with: a role held in every {{ .TenantWord }}, the role file's or a custom
+// one, with its description. The starting role of an invitation that makes a
+// {{ .TenantWord }} ({{ .InviteTenant }}) is picked from the list, which holds the roles
+// that invitation takes from the caller and no other: the ones the caller could give a
+// person in a {{ .TenantWord }} directly (the grant of Assign{{ .Auth }}Role, asked with
+// each role for a {{ .TenantWord }} that does not exist yet) and that the invitation's
+// own grant does not refuse (a condition there reads the role as new.role). The Super
+// Administrator role is not among them. A caller who may give no role is listed none,
+// and sends the invitation without one.
+//
+// It is a computed resource: the role file's roles are held by the permission engine,
+// so the engine is asked and no query selects the list. The role file grants it like
+// any resource.
+//
+// @computed
+// @suppress(readHandler)
+// @outlet({{ .Outlets }})
+// @order(Name asc)
+// @rowWord(role)
+type {{ .InvitedTenantRole }} struct {
+	// @primarykey
+	// @attribute(name)
+	// @roleOf({{ .Auth }})
+	Name        string ` + "`spanner:\"Name\"`" + `
+	Description string ` + "`spanner:\"Description\"`" + `
+}
+
+// Resource implements resource.Resourcer.
+func ({{ .InvitedTenantRole }}) Resource() accesstypes.Resource {
+	return "{{ Pluralize .InvitedTenantRole }}"
+}
+
+// List{{ .InvitedTenantRole }} yields the roles the people of a new {{ .TenantWord }}'s
+// directory may start with; the generated handler applies the request's filter, sort
+// and page over them. The roles are the ones the request's caller may name on the
+// invitation: the list's frame stamps the caller the request was checked as on the
+// context, as a method's does, and the rule reads it there.
+func List{{ .InvitedTenantRole }}(ctx context.Context, _ *resource.QuerySet[{{ .InvitedTenantRole }}], _ resource.Client, client *Client) iter.Seq2[*{{ .InvitedTenantRole }}, error] {
+	return func(yield func(*{{ .InvitedTenantRole }}, error) bool) {
+		roles, err := client.manager.StartingRoles(ctx, {{ .InviteTenant }}{}.Method())
+		if err != nil {
+			yield(nil, errors.Wrap(err, "identity.Manager.StartingRoles()"))
+
+			return
+		}
+		for _, role := range roles {
+			if !yield(&{{ .InvitedTenantRole }}{Name: string(role.Name), Description: role.Description}, nil) {
+				return
+			}
+		}
+	}
 }
 `
 )

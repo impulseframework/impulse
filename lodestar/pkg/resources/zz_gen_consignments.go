@@ -13,6 +13,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -22,6 +23,42 @@ func (Consignment) Resource() accesstypes.Resource {
 
 func (Consignment) DefaultConfig() resource.Config {
 	return defaultConfig()
+}
+
+// NamedRows names the columns that name a row of another resource the application lists
+// (ClientID): a create or an update sets one only to a row its caller can list, so the
+// library answers any other as a row that is not there.
+func (Consignment) NamedRows() []resource.NamedRow {
+	return []resource.NamedRow{
+		{Field: "ClientID", Resource: "Clients", Table: "Clients", KeyColumn: "Id"},
+	}
+}
+
+// TenantBinding is the row's way to its tenant: the library writes the tenant on every
+// change record of the row, whoever writes the row.
+func (Consignment) TenantBinding() resource.TenantBinding {
+	return resource.TenantBinding{Field: "SectorID"}
+}
+
+// NameFields names the resource's name fields: beside each id that points to a row with
+// a name, the name of that row, which a list shows, sorts by and filters by. A name is
+// looked up in the pointed-to table by the id; it is no column of this resource.
+func (Consignment) NameFields() []resource.NameField {
+	return []resource.NameField{
+		{Field: "SectorName", Key: "SectorID", Resource: "Sectors", Tag: "name", Table: "Sectors", KeyColumn: "Id", NameColumn: "Name", TenantColumn: ""},
+		{Field: "ClientName", Key: "ClientID", Resource: "Clients", Tag: "name", Table: "Clients", KeyColumn: "Id", NameColumn: "Name", TenantColumn: ""},
+	}
+}
+
+// RecordedNames names the rows a change record of the resource keeps the name of:
+// for each field that points at a row with a name, where the name is read. A
+// tracked write that changes such a field reads the name in its own transaction,
+// and the change record keeps it beside the id.
+func (Consignment) RecordedNames() []resource.NameField {
+	return []resource.NameField{
+		{Field: "", Key: "SectorID", Resource: "Sectors", Tag: "name", Table: "Sectors", KeyColumn: "Id", NameColumn: "Name", TenantColumn: ""},
+		{Field: "", Key: "ClientID", Resource: "Clients", Tag: "name", Table: "Clients", KeyColumn: "Id", NameColumn: "Name", TenantColumn: ""},
+	}
 }
 
 // consignmentRead mirrors the wire shape the resource routes list
@@ -429,11 +466,11 @@ func (p *ConsignmentCreatePatch) ToStruct() *Consignment {
 	return p.patchSet.ToStruct()
 }
 
-func (p *ConsignmentCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *ConsignmentCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *ConsignmentCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *ConsignmentCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -613,11 +650,11 @@ func (p *ConsignmentUpdatePatch) ToStruct() *Consignment {
 	return p.patchSet.ToStruct()
 }
 
-func (p *ConsignmentUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *ConsignmentUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *ConsignmentUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *ConsignmentUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -807,11 +844,11 @@ func NewConsignmentDeletePatch(id impulse.UUID) *ConsignmentDeletePatch {
 	return &ConsignmentDeletePatch{patchSet: patchSet}
 }
 
-func (p *ConsignmentDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *ConsignmentDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *ConsignmentDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *ConsignmentDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

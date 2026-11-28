@@ -22,7 +22,7 @@ import (
 //     value of the request, so no request names another tenant;
 //   - a role is given and taken in the tenant alone, and a role a person holds in every
 //     tenant is not one tenant's to take;
-//   - a person is created, and an address invited, into the tenant.
+//   - an address is invited into the tenant.
 //
 // A method that names a person names a row of the tenant's own list, which the generated
 // frame locates within the tenant before the method runs: a person who holds no role in
@@ -98,9 +98,10 @@ func (t *Tenant) AssignRole(ctx context.Context, txn resource.ReadWriteTransacti
 }
 
 // RemoveRole buffers the removal of a role a person holds in the tenant, under the rules
-// of Manager.RemoveRole: the last administrator of the tenant keeps the role, and a
-// person left with no role anywhere is deleted. The person's id and the role are the key
-// of the row in the tenant's list of the roles held there.
+// of Manager.RemoveRole: the tenant's last administrator of its own cannot give the role
+// up, though someone whose role lets them take it from that person may, and a person
+// left with no role anywhere is deleted. The person's id and the role are the key of the
+// row in the tenant's list of the roles held there.
 //
 // The role goes where the tenant holds a membership of its own for it. A role the person
 // holds in every tenant alone is a row of the tenant's list too, and is not the tenant's
@@ -111,47 +112,66 @@ func (t *Tenant) RemoveRole(ctx context.Context, txn resource.ReadWriteTransacti
 	defer span.End()
 
 	if role == "" {
-		return httpio.NewBadRequestMessage("the role to take away is empty")
+		return httpio.NewBadRequestMessage(noRoleNamedMessage)
 	}
+	if err := t.manager.refuseImpersonatorAsSubject(ctx, userID, "take a role from yourself"); err != nil {
+		return err
+	}
+	_, key, err := t.heldRole(ctx, txn, userID, role)
+	if err != nil {
+		return err
+	}
+	if key == nil {
+		return nil
+	}
+
+	return t.manager.removeMembership(ctx, txn, t.scope(), userID, key)
+}
+
+// noRoleNamedMessage is said of a request to take a role away from a person in the
+// tenant that names no role.
+const noRoleNamedMessage = "No role is named. Name the role to take away."
+
+// heldRole reads a role a person holds in the tenant, as its removal and the warning
+// before it read it (RemoveRole, RoleRemovalWarning), once each has refused an empty
+// role and the account a session views as: the person's username, and the tenant's own
+// membership of the role, nil where the tenant holds none. An account that is not there
+// is refused, and so is a role the person holds in every tenant alone, which is not the
+// tenant's to take.
+func (t *Tenant) heldRole(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, role accesstypes.Role) (string, *access.MembershipKey, error) {
 	username, found, err := t.manager.store.Username(ctx, txn, userID)
 	if err != nil {
-		return errors.Wrap(err, "identity.Store.Username()")
+		return "", nil, errors.Wrap(err, "identity.Store.Username()")
 	}
 	if !found {
-		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+		return "", nil, accountNotFound(userID)
 	}
 
 	key := access.NewMembershipKey(t.scope(), User(userID), role)
 	own, err := t.manager.store.HasMembership(ctx, txn, &key)
 	if err != nil {
-		return errors.Wrap(err, "identity.Store.HasMembership()")
+		return "", nil, errors.Wrap(err, "identity.Store.HasMembership()")
 	}
 	if own {
-		return t.manager.removeMembership(ctx, txn, t.scope(), userID, &key)
+		return username, &key, nil
 	}
 
 	every := access.NewMembershipKey(accesstypes.EveryDomainPolicyScope(), User(userID), role)
 	everywhere, err := t.manager.store.HasMembership(ctx, txn, &every)
 	if err != nil {
-		return errors.Wrap(err, "identity.Store.HasMembership()")
+		return "", nil, errors.Wrap(err, "identity.Store.HasMembership()")
 	}
 	if everywhere {
 		word := t.manager.tenantWord
+		const (
+			said  = "This person holds the role %s in every %s, which is not one %s's to take away."
+			cause = "%s holds the role %s in every %s, which is not one %s's to take away"
+		)
 
-		return httpio.NewConflictMessagef("%s holds the role %s in every %s, which is not one %s's to take away", username, role, word, word)
+		return "", nil, httpio.NewConflictMessageWithErrorf(errors.Newf(cause, username, role, word, word), said, roleInWords(role), word, word)
 	}
 
-	return nil
-}
-
-// CreateUser buffers a new user who holds the roles in the tenant (see
-// Manager.CreateUser). The roles are held in the tenant whatever scope the account
-// names.
-func (t *Tenant) CreateUser(ctx context.Context, txn resource.ReadWriteTransaction, account *NewAccount) (impulse.UUID, error) {
-	inTenant := *account
-	inTenant.Scope = t.scope()
-
-	return t.manager.CreateUser(ctx, txn, &inTenant)
+	return username, nil, nil
 }
 
 // Invite buffers an invitation into the tenant and has its link mailed once the

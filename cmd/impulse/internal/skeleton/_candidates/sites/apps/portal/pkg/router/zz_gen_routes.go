@@ -47,9 +47,9 @@ type GeneratedHandlers interface {
 	LiveUnsubscribe() http.HandlerFunc
 	LiveToken() http.HandlerFunc
 	// PermissionDigest serves the session user's per-scope permission digest:
-	// advisory grant structure for the UI (resource → permission → granted or
-	// conditional, denied targets absent), with the scope taken from the request
-	// (?domain= names a tenant partition, absent means global).
+	// advisory grant structure for the UI (resource → permission → granted,
+	// conditional on time or conditional, denied targets absent), with the scope
+	// taken from the request (?domain= names a tenant partition, absent means global).
 	PermissionDigest() http.HandlerFunc
 	// UserDomains serves the session user's domain membership: the sorted domains
 	// where they hold at least one grant — the tenant picker's source, on the same
@@ -58,9 +58,11 @@ type GeneratedHandlers interface {
 
 	Announcements() http.HandlerFunc
 	Announcement() http.HandlerFunc
+	AnnouncementChangeHistory() http.HandlerFunc
 
 	FeatureFlags() http.HandlerFunc
 	FeatureFlag() http.HandlerFunc
+	FeatureFlagChanges() http.HandlerFunc
 
 	Features() http.HandlerFunc
 
@@ -104,6 +106,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/api/tenants/{tenantID}/announcements/{announcementID}", announcementHandler)
 	bounded.Post("/api/tenants/{tenantID}/announcements/{announcementID}", announcementHandler)
 
+	bounded.Get("/api/tenants/{tenantID}/announcements/{announcementID}/changes", domainGuard(h.AnnouncementChangeHistory()))
+
 	featureFlagsHandler := h.FeatureFlags()
 	bounded.Get("/api/feature-flags", featureFlagsHandler)
 	bounded.Post("/api/feature-flags", featureFlagsHandler)
@@ -111,6 +115,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	featureFlagHandler := h.FeatureFlag()
 	bounded.Get("/api/feature-flags/{featureFlagName}", featureFlagHandler)
 	bounded.Post("/api/feature-flags/{featureFlagName}", featureFlagHandler)
+
+	bounded.Get("/api/feature-flags/{featureFlagName}/changes", h.FeatureFlagChanges())
 
 	bounded.Get("/api/features", h.Features())
 

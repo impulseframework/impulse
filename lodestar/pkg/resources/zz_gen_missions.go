@@ -12,6 +12,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/shopspring/decimal"
 )
@@ -22,6 +23,149 @@ func (Mission) Resource() accesstypes.Resource {
 
 func (Mission) DefaultConfig() resource.Config {
 	return defaultConfig()
+}
+
+// NamedRows names the columns that name a row of another resource the application lists
+// (ClientID, BriefingTemplateID, AssignedSquadronID): a create or an update sets one only to a row its caller can list, so the
+// library answers any other as a row that is not there.
+func (Mission) NamedRows() []resource.NamedRow {
+	return []resource.NamedRow{
+		{Field: "ClientID", Resource: "ClientRosters", Table: "ClientRosters", KeyColumn: "Id", TenantColumn: "SectorId", View: true, Stored: &resource.NamedRow{Table: "Clients", KeyColumn: "Id"}},
+		{Field: "BriefingTemplateID", Resource: "BriefingTemplates", Table: "", KeyColumn: "", Computed: true},
+		{Field: "AssignedSquadronID", Resource: "Squadrons", Table: "Squadrons", KeyColumn: "Id", TenantColumn: "WingId", TenantPath: []resource.BindingHop{{Table: "Wings", JoinColumn: "Id", Column: "SectorId"}}},
+	}
+}
+
+// TenantBinding is the row's way to its tenant: the library writes the tenant on every
+// change record of the row, whoever writes the row.
+func (Mission) TenantBinding() resource.TenantBinding {
+	return resource.TenantBinding{Field: "SectorID"}
+}
+
+// DeleteTree describes what a delete of a Mission takes with it and what refuses
+// it (@deleteCascade). The kinds taken are in the order their rows are deleted, deepest
+// first, each with its ways up to the Mission and what the delete of one of its
+// rows costs. The kinds under Under are the ones with a row directly under a Mission
+// that the database does not remove with it.
+func (Mission) DeleteTree() *resource.DeleteTree {
+	return &resource.DeleteTree{
+		Record: "Missions",
+		Words:  resource.DeleteWords{One: "mission", Many: "missions"},
+		Key:    []string{"Id"},
+		Cost:   resource.DeleteCost{IndexEntries: 10, Files: 0},
+		Tenant: &resource.DomainBindingData{Column: "SectorId"},
+		Taken: []resource.DeleteKind{
+			{
+				Resource: "SortieExpenses",
+				Words:    resource.DeleteWords{One: "sortie expense", Many: "sortie expenses"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 1, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SortieId", Path: []resource.BindingHop{{Table: "Sorties", JoinColumn: "Id", Column: "MissionId"}, {Table: "Missions", JoinColumn: "Id", Column: "SectorId"}}},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"SortieId"}, Table: "Sorties", References: []string{"Id"}},
+						{Columns: []string{"MissionId"}, Table: "Missions", References: []string{"Id"}},
+					},
+				},
+				Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[SortieExpense], caller *resource.Caller) {
+					patch := &SortieExpenseDeletePatch{patchSet: patchSet}
+					patch.registerValidateFunc()
+					if !caller.IsZero() {
+						patch.Enforce(caller)
+					}
+				}),
+			},
+			{
+				Resource: "Sorties",
+				Words:    resource.DeleteWords{One: "sortie", Many: "sorties"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "MissionId", Path: []resource.BindingHop{{Table: "Missions", JoinColumn: "Id", Column: "SectorId"}}},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"MissionId"}, Table: "Missions", References: []string{"Id"}},
+					},
+				},
+				Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[Sortie], caller *resource.Caller) {
+					patch := &SortieDeletePatch{patchSet: patchSet}
+					if !caller.IsZero() {
+						patch.Enforce(caller)
+					}
+				}),
+			},
+			{
+				Resource: "MissionDocuments",
+				Words:    resource.DeleteWords{One: "mission document", Many: "mission documents"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 1},
+				Tenant:   &resource.DomainBindingData{Column: "MissionId", Path: []resource.BindingHop{{Table: "Missions", JoinColumn: "Id", Column: "SectorId"}}},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"MissionId"}, Table: "Missions", References: []string{"Id"}},
+					},
+				},
+				Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[MissionDocument], caller *resource.Caller) {
+					patch := &MissionDocumentDeletePatch{patchSet: patchSet}
+					if !caller.IsZero() {
+						patch.Enforce(caller)
+					}
+				}),
+			},
+		},
+		Under: []resource.DeleteKind{
+			{
+				Resource: "MissionDocuments",
+				Words:    resource.DeleteWords{One: "mission document", Many: "mission documents"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 1},
+				Tenant:   &resource.DomainBindingData{Column: "MissionId", Path: []resource.BindingHop{{Table: "Missions", JoinColumn: "Id", Column: "SectorId"}}},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"MissionId"}, Table: "Missions", References: []string{"Id"}},
+					},
+				},
+			},
+			{
+				Resource: "Sorties",
+				Words:    resource.DeleteWords{One: "sortie", Many: "sorties"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "MissionId", Path: []resource.BindingHop{{Table: "Missions", JoinColumn: "Id", Column: "SectorId"}}},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"MissionId"}, Table: "Missions", References: []string{"Id"}},
+					},
+				},
+			},
+		},
+	}
+}
+
+// NameFields names the resource's name fields: beside each id that points to a row with
+// a name, the name of that row, which a list shows, sorts by and filters by. A name is
+// looked up in the pointed-to table by the id; it is no column of this resource.
+func (Mission) NameFields() []resource.NameField {
+	return []resource.NameField{
+		{Field: "SectorName", Key: "SectorID", Resource: "Sectors", Tag: "name", Table: "Sectors", KeyColumn: "Id", NameColumn: "Name", TenantColumn: ""},
+		{Field: "KindName", Key: "KindID", Resource: "", Tag: "", Table: "MissionKinds", KeyColumn: "Id", NameColumn: "Description", TenantColumn: ""},
+		{Field: "RequiredCertName", Key: "RequiredCertID", Resource: "", Tag: "", Table: "Certifications", KeyColumn: "Id", NameColumn: "Description", TenantColumn: ""},
+		{Field: "StatusName", Key: "StatusID", Resource: "", Tag: "", Table: "MissionStatuses", KeyColumn: "Id", NameColumn: "Description", TenantColumn: ""},
+	}
+}
+
+// RecordedNames names the rows a change record of the resource keeps the name of:
+// for each field that points at a row with a name, where the name is read. A
+// tracked write that changes such a field reads the name in its own transaction,
+// and the change record keeps it beside the id.
+func (Mission) RecordedNames() []resource.NameField {
+	return []resource.NameField{
+		{Field: "", Key: "SectorID", Resource: "Sectors", Tag: "name", Table: "Sectors", KeyColumn: "Id", NameColumn: "Name", TenantColumn: ""},
+		{Field: "", Key: "ClientID", Resource: "Clients", Tag: "name", Table: "Clients", KeyColumn: "Id", NameColumn: "Name", TenantColumn: ""},
+		{Field: "", Key: "KindID", Resource: "", Tag: "", Table: "MissionKinds", KeyColumn: "Id", NameColumn: "Description", TenantColumn: ""},
+		{Field: "", Key: "RequiredCertID", Resource: "", Tag: "", Table: "Certifications", KeyColumn: "Id", NameColumn: "Description", TenantColumn: ""},
+		{Field: "", Key: "AssignedSquadronID", Resource: "Squadrons", Tag: "name", Table: "Squadrons", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "WingId", TenantPath: []resource.BindingHop{{Table: "Wings", JoinColumn: "Id", Column: "SectorId"}}},
+		{Field: "", Key: "StatusID", Resource: "", Tag: "", Table: "MissionStatuses", KeyColumn: "Id", NameColumn: "Description", TenantColumn: ""},
+	}
 }
 
 // missionRead mirrors the wire shape the resource routes list
@@ -575,11 +719,11 @@ func (p *MissionCreatePatch) ToStruct() *Mission {
 	return p.patchSet.ToStruct()
 }
 
-func (p *MissionCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *MissionCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *MissionCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *MissionCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -926,11 +1070,11 @@ func (p *MissionUpdatePatch) ToStruct() *Mission {
 	return p.patchSet.ToStruct()
 }
 
-func (p *MissionUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *MissionUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *MissionUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *MissionUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -1276,11 +1420,54 @@ func NewMissionDeletePatch(id impulse.UUID) *MissionDeletePatch {
 	return &MissionDeletePatch{patchSet: patchSet}
 }
 
-func (p *MissionDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+// WithEverythingUnder says the delete takes the rows under the Mission with it:
+// every row of the kinds its @deleteCascade lists as taken, each deleted as its own
+// delete would delete it. It takes the kinds handed to the delete as well (DeleteAlso).
+// Without it, a delete of a Mission that has such rows
+// deletes nothing and is answered with the question a person is asked first
+// (httpio.HasPreconditionRequired). Where the rows cost more than one save takes, the
+// delete takes what fits, deepest first, and Left answers the rows that save deleted:
+// buffer the delete again, in a transaction of its own, until Left answers nil.
+// It is for code that deletes outside a request, and every save of such a delete asks
+// everything again before it takes a row: a request's delete goes on the token its
+// question gave (WithDeleteToken).
+func (p *MissionDeletePatch) WithEverythingUnder() *MissionDeletePatch {
+	p.patchSet.DeleteEverythingUnder()
+
+	return p
+}
+
+// WithDeleteToken says the delete takes the rows under the Mission on the token
+// its question gave (resource.PatchSet.DeleteWithToken): it takes them only where the
+// token holds, and is answered with the question again where it does not.
+func (p *MissionDeletePatch) WithDeleteToken(token string) *MissionDeletePatch {
+	p.patchSet.DeleteWithToken(token)
+
+	return p
+}
+
+// Left is what the delete says once it is buffered (resource.DeleteLeft): the rows the
+// save deleted where rows are left under the Mission, which stands until a save
+// takes the last of them; nil where the delete finished, the Mission with it.
+func (p *MissionDeletePatch) Left() *resource.DeleteLeft {
+	return p.patchSet.DeleteLeft()
+}
+
+// DeleteAlso hands the delete kinds of row it takes with the Mission that its
+// description does not list (resource.TakenKind): the question counts them, the check
+// before the delete asks them, and each round takes what fits of them after the kinds
+// the description lists and before the Mission.
+func (p *MissionDeletePatch) DeleteAlso(kinds ...resource.TakenKind) *MissionDeletePatch {
+	p.patchSet.DeleteAlso(kinds...)
+
+	return p
+}
+
+func (p *MissionDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *MissionDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *MissionDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

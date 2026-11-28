@@ -3,9 +3,13 @@ package live
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -115,7 +119,7 @@ func TestRenewHandler(t *testing.T) {
 			user:       longName(MaxPrincipalIDLength + 1),
 			body:       `{"tab":"tab-1","subscriptions":[{"resource":"Clients"}]}`,
 			wantStatus: http.StatusForbidden,
-			wantBody:   "over the limit of 128",
+			wantBody:   overLimitWords,
 		},
 	}
 
@@ -159,6 +163,151 @@ func TestRenewHandler(t *testing.T) {
 			}
 			if want := before.Add(SubscriptionTTL); resp.ExpiresAt.Before(want.Add(-time.Second)) || resp.ExpiresAt.After(want.Add(time.Minute)) {
 				t.Errorf("expiresAt = %v, want about %v", resp.ExpiresAt, want)
+			}
+			if diff := cmp.Diff(tt.wantSubs, fake.Subscriptions(), cmpopts.IgnoreFields(Subscription{}, "Expiry"), cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("Subscriptions() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// namesDigest is the grants a renewal of names subscriptions re-checks against: the
+// dispatcher may list the squadrons' names in anvil and not the squadrons, may list the
+// crews there and not their names, may list the makers' names, which belong to no
+// tenant, and the bays in anvil, whose name is their key.
+var namesDigest = map[string]accesstypes.Decision{
+	"List|anvil|Squadrons.name": accesstypes.Granted(),
+	"List|anvil|Crews":          accesstypes.Granted(),
+	"List|global|Makers.name":   accesstypes.Granted(),
+	"List|anvil|Bays":           accesstypes.Granted(),
+}
+
+// TestRenewHandler_names pins the renewal of a list a page holds for the names it shows:
+// it is re-checked by List on the name field, the grant the page's read asked, kept or
+// dropped by that alone, and written as the resource's list in the tenant; one names no
+// key and is never a list across tenants.
+func TestRenewHandler_names(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus int
+		wantKept   []SubscriptionRequest
+		wantDrop   []SubscriptionRequest
+		wantSubs   []Subscription
+		wantBody   string
+	}{
+		{
+			name:       "kept by the name's grant though the list's is not held, echoed with its name field; the record holds the list",
+			body:       `{"tab":"tab-1","subscriptions":[{"resource":"Squadrons","domain":"anvil","nameField":"name"}]}`,
+			wantStatus: http.StatusOK,
+			wantKept:   []SubscriptionRequest{{Resource: "Squadrons", Domain: "anvil", NameField: "name"}},
+			wantDrop:   []SubscriptionRequest{},
+			wantSubs:   []Subscription{{Principal: "crew|dispatcher", Tab: "tab-1", Resource: "Squadrons", Domain: "anvil"}},
+		},
+		{
+			name:       "dropped where the name's grant is denied though the list's is held",
+			body:       `{"tab":"tab-1","subscriptions":[{"resource":"Crews","domain":"anvil","nameField":"name"}]}`,
+			wantStatus: http.StatusOK,
+			wantKept:   []SubscriptionRequest{},
+			wantDrop:   []SubscriptionRequest{{Resource: "Crews", Domain: "anvil", NameField: "name"}},
+		},
+		{
+			name: "one list sent with its name field and without: each decided by its own grant",
+			body: `{"tab":"tab-1","subscriptions":[
+				{"resource":"Squadrons","domain":"anvil","nameField":"name"},
+				{"resource":"Squadrons","domain":"anvil"},
+				{"resource":"Crews","domain":"anvil"},
+				{"resource":"Crews","domain":"anvil","nameField":"name"}]}`,
+			wantStatus: http.StatusOK,
+			wantKept: []SubscriptionRequest{
+				{Resource: "Squadrons", Domain: "anvil", NameField: "name"},
+				{Resource: "Crews", Domain: "anvil"},
+			},
+			wantDrop: []SubscriptionRequest{
+				{Resource: "Squadrons", Domain: "anvil"},
+				{Resource: "Crews", Domain: "anvil", NameField: "name"},
+			},
+			wantSubs: []Subscription{
+				{Principal: "crew|dispatcher", Tab: "tab-1", Resource: "Crews", Domain: "anvil"},
+				{Principal: "crew|dispatcher", Tab: "tab-1", Resource: "Squadrons", Domain: "anvil"},
+			},
+		},
+		{
+			name: "a name of no tenant is re-checked globally; a name that is the key, as the list",
+			body: `{"tab":"tab-1","subscriptions":[
+				{"resource":"Makers","nameField":"name"},
+				{"resource":"Bays","domain":"anvil"}]}`,
+			wantStatus: http.StatusOK,
+			wantKept: []SubscriptionRequest{
+				{Resource: "Makers", NameField: "name"},
+				{Resource: "Bays", Domain: "anvil"},
+			},
+			wantDrop: []SubscriptionRequest{},
+			wantSubs: []Subscription{
+				{Principal: "crew|dispatcher", Tab: "tab-1", Resource: "Bays", Domain: "anvil"},
+				{Principal: "crew|dispatcher", Tab: "tab-1", Resource: "Makers"},
+			},
+		},
+		{
+			name:       "a name field with a key is refused",
+			body:       `{"tab":"tab-1","subscriptions":[{"resource":"Squadrons","key":"q1","domain":"anvil","nameField":"name"}]}`,
+			wantStatus: http.StatusBadRequest,
+			wantBody:   "the Squadrons subscription names a key and a name field: a page's names are read from the resource's list, which names no key",
+		},
+		{
+			name:       "a name field across tenants is refused",
+			body:       `{"tab":"tab-1","subscriptions":[{"resource":"Hangars","acrossTenants":true,"nameField":"name"}]}`,
+			wantStatus: http.StatusBadRequest,
+			wantBody:   "the Hangars subscription across tenants names a name field: a page's names are read from the list of one tenant, or of none, never from a list across tenants",
+		},
+		{
+			name:       "a name field that holds a dot is refused",
+			body:       `{"tab":"tab-1","subscriptions":[{"resource":"Squadrons","domain":"anvil","nameField":"a.b"}]}`,
+			wantStatus: http.StatusBadRequest,
+			wantBody:   "the Squadrons subscription's name field holds a dot: nameField is the name of one field of the resource, which holds none",
+		},
+		{
+			name:       "a resource that holds a dot is refused, though the grants know it as a field",
+			body:       `{"tab":"tab-1","subscriptions":[{"resource":"Squadrons.name","domain":"anvil"}]}`,
+			wantStatus: http.StatusBadRequest,
+			wantBody:   "the Squadrons.name subscription's resource holds a dot: a subscription names a resource by its own name, which holds none, and a list held for its names names the field in nameField",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			fake := NewFake()
+			handler := RenewHandler(fake, permissionsFor(&grantTable{decisions: namesDigest}), WithListsAcrossTenants(declaredLists{"Hangars"}))
+			req := httptest.NewRequestWithContext(withSession(t.Context(), crewAuth, "dispatcher"), http.MethodPost, "/api/live/renew", strings.NewReader(tt.body))
+			rr := httptest.NewRecorder()
+			handler.ServeHTTP(rr, req)
+
+			if rr.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d: %s", rr.Code, tt.wantStatus, rr.Body.String())
+			}
+			if tt.wantStatus != http.StatusOK {
+				if !strings.Contains(rr.Body.String(), tt.wantBody) {
+					t.Errorf("body = %q, want it to contain %q", rr.Body.String(), tt.wantBody)
+				}
+				if got := fake.Subscriptions(); len(got) != 0 {
+					t.Errorf("a refused renewal wrote %v", got)
+				}
+
+				return
+			}
+			var resp RenewResponse
+			if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+				t.Fatalf("json.Unmarshal() error = %v: %s", err, rr.Body.String())
+			}
+			if diff := cmp.Diff(tt.wantKept, resp.Kept); diff != "" {
+				t.Errorf("kept mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tt.wantDrop, resp.Dropped); diff != "" {
+				t.Errorf("dropped mismatch (-want +got):\n%s", diff)
 			}
 			if diff := cmp.Diff(tt.wantSubs, fake.Subscriptions(), cmpopts.IgnoreFields(Subscription{}, "Expiry"), cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("Subscriptions() mismatch (-want +got):\n%s", diff)
@@ -289,6 +438,161 @@ func TestUnsubscribeHandler(t *testing.T) {
 	}
 }
 
+// recordedContexts is the fake service with the context of each call an unsubscribe
+// makes on the record and the identity kept, and with a call refused where its context
+// has ended, as a backend's client refuses one.
+type recordedContexts struct {
+	*Fake
+
+	mu   sync.Mutex
+	seen []context.Context
+}
+
+// note keeps the call's context and answers the context's error where it has ended.
+func (r *recordedContexts) note(ctx context.Context) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.seen = append(r.seen, ctx)
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("the call was made under a context that has ended: %w", err)
+	}
+
+	return nil
+}
+
+func (r *recordedContexts) Unsubscribe(ctx context.Context, principal, tab string) error {
+	if err := r.note(ctx); err != nil {
+		return err
+	}
+
+	return r.Fake.Unsubscribe(ctx, principal, tab)
+}
+
+func (r *recordedContexts) UnsubscribeAll(ctx context.Context, principal string) error {
+	if err := r.note(ctx); err != nil {
+		return err
+	}
+
+	return r.Fake.UnsubscribeAll(ctx, principal)
+}
+
+func (r *recordedContexts) Revoke(ctx context.Context, uid string) error {
+	if err := r.note(ctx); err != nil {
+		return err
+	}
+
+	return r.Fake.Revoke(ctx, uid)
+}
+
+// contexts returns the context of each call made so far.
+func (r *recordedContexts) contexts() []context.Context {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return slices.Clone(r.seen)
+}
+
+// TestUnsubscribeHandler_closedPage pins an unsubscribe whose connection ended right
+// after the request arrived, as a closing page's does: what it asked for is done all the
+// same, and the answer is the 204 of a request that went well, so nothing is logged for
+// it. Every call it makes on the record and the identity runs under a context the
+// request's end did not reach, with the handler's own limit on it and the request's
+// values still in it. A record that refuses the delete is still a failure, closed page
+// or not: the answer is the 500 the handler logs as an error.
+func TestUnsubscribeHandler_closedPage(t *testing.T) {
+	t.Parallel()
+
+	everyone := []string{"crew|dispatcher/tab-1", "crew|dispatcher/tab-2", "crew|mechanic/tab-3"}
+	tests := []struct {
+		name string
+		body string
+		// refused is what the record answers the calls with, nil for a record that works.
+		refused     error
+		wantStatus  int
+		wantCalls   int
+		wantLeft    []string // "principal/tab"
+		wantRevoked []string
+	}{
+		{
+			name:       "a tab leaving",
+			body:       `{"tab":"tab-1"}`,
+			wantStatus: http.StatusNoContent,
+			wantCalls:  1,
+			wantLeft:   []string{"crew|dispatcher/tab-2", "crew|mechanic/tab-3"},
+		},
+		{
+			name:        "a logout",
+			body:        `{"tab":"tab-1","all":true}`,
+			wantStatus:  http.StatusNoContent,
+			wantCalls:   2,
+			wantLeft:    []string{"crew|mechanic/tab-3"},
+			wantRevoked: []string{"crew|dispatcher"},
+		},
+		{
+			name:       "a tab leaving, and the record refuses the delete",
+			body:       `{"tab":"tab-1"}`,
+			refused:    errors.New("the record is down"),
+			wantStatus: http.StatusInternalServerError,
+			wantCalls:  1,
+			wantLeft:   everyone,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			svc := &recordedContexts{Fake: NewFake()}
+			now := time.Now()
+			if err := svc.Register(t.Context(), []Subscription{
+				{Principal: "crew|dispatcher", Tab: "tab-1", Resource: "Ships", Domain: "anvil", Expiry: now.Add(time.Minute)},
+				{Principal: "crew|dispatcher", Tab: "tab-2", Resource: "Ships", Key: "s1", Expiry: now.Add(time.Minute)},
+				{Principal: "crew|mechanic", Tab: "tab-3", Resource: "Refits", Domain: "anvil", Expiry: now.Add(time.Minute)},
+			}); err != nil {
+				t.Fatalf("Register() error = %v", err)
+			}
+			svc.Err = tt.refused
+			// The connection ends once the request has arrived: its context is canceled
+			// before the handler has done anything.
+			closed, closePage := context.WithCancel(withSession(t.Context(), crewAuth, "dispatcher"))
+			closePage()
+			req := httptest.NewRequestWithContext(closed, http.MethodPost, "/api/live/unsubscribe", strings.NewReader(tt.body))
+			rr := httptest.NewRecorder()
+			asked := time.Now()
+			UnsubscribeHandler(svc).ServeHTTP(rr, req)
+			svc.Err = nil
+
+			if rr.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d: %s", rr.Code, tt.wantStatus, rr.Body.String())
+			}
+			subs := svc.Subscriptions()
+			left := make([]string, 0, len(subs))
+			for _, sub := range subs {
+				left = append(left, sub.Principal+"/"+sub.Tab)
+			}
+			if diff := cmp.Diff(tt.wantLeft, left); diff != "" {
+				t.Errorf("subscriptions left mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tt.wantRevoked, svc.Revoked(), cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("Revoked() mismatch (-want +got):\n%s", diff)
+			}
+
+			calls := svc.contexts()
+			if len(calls) != tt.wantCalls {
+				t.Fatalf("calls on the record and the identity = %d, want %d", len(calls), tt.wantCalls)
+			}
+			for i, ctx := range calls {
+				deadline, ok := ctx.Deadline()
+				if !ok || deadline.Before(asked.Add(RecordTimeout)) || deadline.After(time.Now().Add(RecordTimeout)) {
+					t.Errorf("call %d ran under a deadline of %v (set: %v), want the handler's own limit of %s from when the request came", i+1, deadline, ok, RecordTimeout)
+				}
+				if principal, err := PrincipalID(ctx); err != nil || principal != "crew|dispatcher" {
+					t.Errorf("call %d: PrincipalID() of its context = (%q, %v), want the request's values still in it", i+1, principal, err)
+				}
+			}
+		})
+	}
+}
+
 func TestTokenHandler(t *testing.T) {
 	t.Parallel()
 
@@ -298,6 +602,8 @@ func TestTokenHandler(t *testing.T) {
 		wantStatus int
 		want       *TokenPayload
 		wantBody   string
+		// notInBody are words the body must not carry.
+		notInBody []string
 	}{
 		{
 			name:       "the payload names the session principal, qualified by its auth",
@@ -321,7 +627,8 @@ func TestTokenHandler(t *testing.T) {
 			name:       "a principal id over the uid limit is refused before anything is minted",
 			ctx:        withSession(context.Background(), crewAuth, longName(MaxPrincipalIDLength+1)),
 			wantStatus: http.StatusForbidden,
-			wantBody:   "live pages are not served to this sign-in: its principal id is 129 bytes, over the limit of 128",
+			wantBody:   overLimitWords,
+			notInBody:  []string{"129", "128", "bytes"},
 		},
 		{
 			name:       "a request no auth was bound to is a server error",
@@ -343,6 +650,11 @@ func TestTokenHandler(t *testing.T) {
 			}
 			if tt.wantBody != "" && !strings.Contains(rr.Body.String(), tt.wantBody) {
 				t.Errorf("body = %q, want it to contain %q", rr.Body.String(), tt.wantBody)
+			}
+			for _, word := range tt.notInBody {
+				if strings.Contains(rr.Body.String(), word) {
+					t.Errorf("body = %q, which carries %q", rr.Body.String(), word)
+				}
 			}
 			if tt.want == nil {
 				return

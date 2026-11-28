@@ -37,7 +37,7 @@ func newSignUpApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) *si
 	db, store := be.newStore(ctx, t)
 	recorder := &mail.Recorder{}
 	auth, err := session.NewAuth[appSessionData, appUserData](withCustomData(t, store, h), cookieKey, session.NoSuperAdministrators(),
-		session.WithMail(recorder, session.MailSettings{Application: "Lakeside", LoginURL: "https://app.example/login"}))
+		session.MailSettings{Sender: recorder, Application: "Lakeside", LoginURL: "https://app.example/login"})
 	if err != nil {
 		t.Fatalf("session.NewAuth() error = %v", err)
 	}
@@ -57,9 +57,10 @@ func newSignUpApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) *si
 		r.With(auth.ValidateXSRFToken).Post("/sign-up/open", auth.SignUp().Open())
 		r.With(auth.ValidateXSRFToken).Post("/sign-up/complete", auth.SignUp().Complete())
 		r.Get("/methods", auth.Methods(&session.MethodList{
-			Methods:        []session.AdvertisedMethod{{Name: "password", Label: "Password", Path: "/login"}},
-			ChangePassword: "/password",
-			SignUp:         session.SignUpRoutes{Start: "/sign-up", Open: "/sign-up/open", Complete: "/sign-up/complete"},
+			Methods:          []session.AdvertisedMethod{{Name: "password", Label: "Password", Path: "/login"}},
+			ChangePassword:   "/password",
+			PasswordStrength: "/password/strength",
+			SignUp:           session.SignUpRoutes{Start: "/sign-up", Open: "/sign-up/open", Complete: "/sign-up/complete"},
 		}))
 	})
 	server := httptest.NewTLSServer(r)
@@ -95,9 +96,9 @@ func lastSignUpToken(t *testing.T, recorder *mail.Recorder) string {
 	if len(messages) == 0 {
 		t.Fatal("mailed messages = 0, want a sign-up link")
 	}
-	m := regexp.MustCompile(`https://app\.example/login\?signUp=([A-Za-z0-9_-]+)`).FindStringSubmatch(messages[len(messages)-1].Text)
+	m := regexp.MustCompile(`https://app\.example/login#signUp=([A-Za-z0-9_-]+)`).FindStringSubmatch(messages[len(messages)-1].Text)
 	if m == nil {
-		t.Fatalf("no sign-up link in the message:\n%s", messages[len(messages)-1].Text)
+		t.Fatalf("no sign-up link in the message %q: a message's text holds its link and is not printed", messages[len(messages)-1].Subject)
 	}
 
 	return m[1]

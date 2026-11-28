@@ -7,6 +7,7 @@ import (
 	"path"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/go-playground/errors/v5"
@@ -50,6 +51,9 @@ func (m *Method) Command() string {
 	}
 	if m.Spec.UsernameIsEmail {
 		cmd += " --username-is-email"
+	}
+	if m.Spec.Label != "" {
+		cmd += " --label " + strconv.Quote(m.Spec.Label)
 	}
 
 	return cmd
@@ -212,7 +216,7 @@ func (m *Method) writeCast(a *app.App, pkg *app.AuthPackage, pkgSpec *authpkg.Sp
 	}
 	ch.didf("%s/%s and %s/%s: the cast of the persona sign-in, empty, and the file that embeds it, reads it (Cast) and seeds its accounts (SeedCast)", pkg.Dir, cast.CastFile, pkg.Dir, authpkg.CastGoFile)
 	ch.skipf("%s/%s: name the personas (login, name, email, roles from roles.json); impulse check and bedrock check refuse an empty cast (persona-cast), since a persona sign-in with nobody to sign in as deploys nothing useful", pkg.Dir, cast.CastFile)
-	ch.skipf("cmd/deployment/migrate: seed the cast where the seed runs (-seed), after SeedAdministrators: data.%s().SeedCast(ctx), so the environments that take the seed hold the personas' accounts for the sign-in to link", names.Pascal(m.Auth))
+	ch.skipf("cmd/deployment/migrate: seed the cast under -seed, once the data level is open and before InviteAdministrators: data.%s().SeedCast(ctx, out), so the environments that take the seed hold the personas' accounts for the sign-in to link, and one whose cast gives a persona the Super Administrator role invites no first administrator and needs no mailbox. A persona seeded earlier is given the roles its entry names that it does not hold, each said on out, and nothing is taken: a role that left the cast stays on the account", names.Pascal(m.Auth))
 	ch.skipf("placement.json: name the persona provider under persona ({\"issuer\": the provider's URL, \"clientId\": the application's client ID root, both from the provider's registration of the application}), so bedrock sets %s in the first environment and its pull requests, derives %s and %s, and registers each deployment with the provider after traffic; without it the method is registered nowhere", methodVariables(m.Auth, &pkgSpec.Methods[0])[0], methodVariables(m.Auth, &pkgSpec.Methods[0])[1], methodVariables(m.Auth, &pkgSpec.Methods[0])[2])
 
 	return nil
@@ -313,9 +317,13 @@ func (m *Method) editAuth(a *app.App, auth *app.Auth, spec *authpkg.Method, ch *
 		edited = append(edited[:here[3]:here[3]], append([]byte(", "+spec.Name), edited[here[3]:]...)...)
 		listed = ", and the package doc lists it"
 	}
+	if retold, ok := retellPopulation(edited, spec); ok {
+		edited = retold
+		listed += fmt.Sprintf(", and its first sentence says the auth's people also sign in %s", signInHow(spec))
+	}
 	loc := returnAuthRE.FindIndex(edited)
 	if loc == nil {
-		ch.skipf("%s: New does not end in `return &Auth{db: db, access: accessClient, handlers: handlers, identity: identityClient}, nil` as the skeleton's does (db: db where the auth carries a foothold, identity where the application generates the auth's management), so the %s method is not registered; call register%s in New and set handlers.%s", rel, spec.Name, spec.Pascal(), field)
+		ch.skipf("%s: New does not end in `return &Auth{access: accessClient, handlers: handlers, identity: identityClient}, nil` as the skeleton's does (identity where the application generates the auth's management), so the %s method is not registered; call register%s in New and set handlers.%s", rel, spec.Name, spec.Pascal(), field)
 	} else {
 		edited = append(edited[:loc[0]:loc[0]], append([]byte(registration), edited[loc[0]:]...)...)
 	}
@@ -328,14 +336,117 @@ func (m *Method) editAuth(a *app.App, auth *app.Auth, spec *authpkg.Method, ch *
 }
 
 // returnAuthRE matches the Auth file's final statement, before which a method's
-// registration goes: the rendered auth packages' return, with the database client where
-// the auth carries a foothold and the identity client where the application generates
-// the auth's management.
-var returnAuthRE = regexp.MustCompile(`(?m)^\n?\treturn &Auth\{(?:db: db, )?access: accessClient, handlers: handlers(?:, identity: identityClient)?\}, nil`)
+// registration goes: the rendered auth packages' return, with the identity client where
+// the application generates the auth's management.
+var returnAuthRE = regexp.MustCompile(`(?m)^\n?\treturn &Auth\{access: accessClient, handlers: handlers(?:, identity: identityClient)?\}, nil`)
 
 // hereRE matches the package doc's list of the methods registered on the Auth, which a
 // method added joins.
 var hereRE = regexp.MustCompile(`methods registered on it \(here ([^)]*)\)`)
+
+// signInHow is how the people of an auth sign in through a method, as the package doc's
+// first sentence says it after "the people who sign in to the console": the base's
+// sentence says "with a password", and each method added joins it.
+func signInHow(m *authpkg.Method) string {
+	switch m.Kind {
+	case app.MethodPassword:
+		return "with a password"
+	case app.MethodOIDC:
+		return "through the organization's own identity provider"
+	case app.MethodPersona:
+		return "as a persona of the test environments"
+	case app.MethodGoogle:
+		switch m.Slot {
+		case authpkg.SlotListed:
+			return "with an account of a named Google Workspace"
+		case authpkg.SlotAnyWorkspace:
+			return "with any Google Workspace account"
+		case authpkg.SlotAny:
+			return "with any Google account"
+		case authpkg.SlotMixed:
+			return "with an account of the organization's Google Workspace or any Google account"
+		default:
+			return "with an account of the organization's Google Workspace"
+		}
+	default:
+		switch m.Slot {
+		case authpkg.SlotListed:
+			return "with an account of a named Microsoft Entra tenant"
+		case authpkg.SlotAny:
+			return "with a work or school account of any Microsoft Entra tenant"
+		case authpkg.SlotPersonal:
+			return "with a Microsoft personal account"
+		case authpkg.SlotOnePersonal:
+			return "with an account of the organization's Microsoft Entra tenant or a Microsoft personal account"
+		case authpkg.SlotAnyPersonal:
+			return "with any Microsoft account"
+		default:
+			return "with an account of the organization's Microsoft Entra tenant"
+		}
+	}
+}
+
+// populationRE reads the package doc's first paragraph of an auth file where it is the
+// rendered sentence: who the auth's people are, then where they hold their roles.
+var populationRE = regexp.MustCompile(`^Package (\w+) is the (\w+) auth: (.+), who hold their roles in the (.+)$`)
+
+// docWidth is the column the retold paragraph is wrapped at, and commentMark what
+// opens each of its lines.
+const (
+	docWidth    = 90
+	commentMark = "//"
+)
+
+// retellPopulation adds the way a new method's people sign in to the package doc's first
+// sentence, where that sentence says how they sign in: the base's says "with a
+// password", which stopped being the whole of it the moment a second method was added.
+// A sentence that names no way (an auth's generic one, or the application's own words)
+// is left as it is, and so is one that says the way already. The paragraph is wrapped
+// again, since the sentence grew.
+func retellPopulation(src []byte, spec *authpkg.Method) ([]byte, bool) {
+	text := string(src)
+	if !strings.HasPrefix(text, "// Package ") {
+		return src, false
+	}
+	// The first paragraph ends at the comment's first empty line, and is looked for in
+	// the comment that opens the file alone: a comment that is one paragraph has none,
+	// and an empty comment line further down the file is some other comment's.
+	doc := 0
+	for line := range strings.Lines(text) {
+		if !strings.HasPrefix(line, commentMark) {
+			break
+		}
+		doc += len(line)
+	}
+	end := strings.Index(text[:doc], "\n"+commentMark+"\n")
+	if end < 0 {
+		return src, false
+	}
+	var words []string
+	for line := range strings.Lines(text[:end+1]) {
+		words = append(words, strings.Fields(strings.TrimPrefix(line, commentMark))...)
+	}
+	// The whole match and its four parts: the package, the auth, who its people are, and
+	// where they hold their roles.
+	m := populationRE.FindStringSubmatch(strings.Join(words, " "))
+	how := signInHow(spec)
+	if len(m) != 5 || !strings.Contains(m[3], " with a password") || strings.Contains(m[3], how) {
+		return src, false
+	}
+	sentence := fmt.Sprintf("Package %s is the %s auth: %s, or %s, who hold their roles in the %s", m[1], m[2], m[3], how, m[4])
+	var b strings.Builder
+	line := commentMark
+	for _, word := range strings.Fields(sentence) {
+		if len(line)+1+len(word) > docWidth && line != commentMark {
+			b.WriteString(line + "\n")
+			line = commentMark
+		}
+		line += " " + word
+	}
+	b.WriteString(line)
+
+	return []byte(b.String() + text[end:]), true
+}
 
 func settingsNote(spec *authpkg.Method) string {
 	if !spec.Directory() {
@@ -529,8 +640,23 @@ func (m *Method) declare(a *app.App, pkg *app.AuthPackage, spec *authpkg.Method,
 		return nil
 	}
 	ch.didf("%s: %s declared on %d outlet Auth option(s) bound to the %s auth, so the generated router mounts user/%s/login%s and the methods route offers it%s", strings.Join(files, ", "), declaration, edited, m.Auth, spec.Name, callbackNote(spec), configuredNote(spec))
+	if spec.Kind == app.MethodOIDC {
+		ch.didf("%s", wordsLine(strings.Join(files, ", "), spec))
+	}
 
 	return nil
+}
+
+// wordsLine says what people read for an organization's identity provider and names the
+// file that holds the words: the generator program, on the method's declaration. The
+// registration name is the key in routes, variables and stored links, and is never what
+// a person should have to read.
+func wordsLine(files string, spec *authpkg.Method) string {
+	if spec.Label != "" {
+		return fmt.Sprintf("%s: people read the %s method as %q, on the login page's button (Sign in with %s) and in the lists of a person's ways to sign in; the words are the declaration's .Labeled(%q), so change them there and run go generate ./...", files, spec.Name, spec.Label, spec.Label, spec.Label)
+	}
+
+	return fmt.Sprintf("%s: people read the %s method as %q, words made from its registration name, on the login page's button (Sign in with %s) and in the lists of a person's ways to sign in; to show the provider's own name, chain .Labeled(\"<words>\") on the declaration (generation.OIDCMethod(%q).Labeled(\"Lakeside ID\")) and run go generate ./...", files, spec.Name, spec.DefaultWords(), spec.DefaultWords(), spec.Name)
 }
 
 func callbackNote(spec *authpkg.Method) string {
@@ -584,7 +710,7 @@ func (m *Method) Meaning() string {
 	case spec.Persona():
 		items = append(items,
 			fmt.Sprintf("Name the cast in `pkg/auth/%s/cast.json`: each persona's login, name, email and roles (roles the role file defines; a global role is held in the global partition, a domain role in every tenant domain). The deploy registers the cast with the provider, the picker shows it, and the migrate command seeds its accounts.", m.Auth),
-			fmt.Sprintf("Seed the cast where the seed runs: in `cmd/deployment/migrate`, after `SeedAdministrators`, call `data.%s().SeedCast(ctx)` under `-seed`, so the environments that take the seed hold the personas' accounts for the sign-in to link.", names.Pascal(m.Auth)),
+			fmt.Sprintf("Seed the cast in `cmd/deployment/migrate`: under `-seed`, once the data level is open and before `InviteAdministrators`, call `data.%s().SeedCast(ctx, out)`, so the environments that take the seed hold the personas' accounts for the sign-in to link. The first administrator is invited while nobody of the auth holds the Super Administrator role, so an environment whose cast gives a persona that role invites nobody and needs no mailbox; one whose cast gives it to nobody invites, and needs the address and the mailbox. A persona seeded earlier is given the roles its entry names that it does not hold, each said on `out`, and nothing is taken: a role that left the cast stays on the account. `impulse check` refuses a cast seeded after the invitation (`first-administrator`).", names.Pascal(m.Auth)),
 			"Name the provider in `placement.json`: a `persona` block with `issuer` (the provider's URL) and `clientId` (the application's client ID root), both from the provider's registration of the application. bedrock sets the issuer in the first environment and its pull requests and derives the deployment's client ID and the callback; the method is registered nowhere without the block, and `bedrock check` says so.",
 			fmt.Sprintf("Prove it under `-tags skipAuth` as the reference's `test/integration/portal_login_skipauth_test.go` does, setting `APP_%s_USERNAME` to a persona's login and following `user/%s/login` to the callback; in a pull-request environment, open the login page, sign in through the provider as a persona, and read the persona's roles on the user page.", strings.ToUpper(strings.ReplaceAll(spec.Name, "-", "_")), spec.Name),
 		)
@@ -595,6 +721,9 @@ func (m *Method) Meaning() string {
 		)
 		if spec.Authority == AuthorityDirectory {
 			items = append(items, "Seed no roles for people who sign in this way; define the roles in the role file and assign them in the directory. The declaration chains `.SyncsRoles()` (the method file's `RoleSync`), so the generated management shows these people's roles as the directory's and never writes them.")
+		}
+		if spec.Kind == app.MethodOIDC {
+			items = append(items, wordsItem(spec))
 		}
 		if spec.Kind == app.MethodOIDC && spec.Authority == AuthorityDirectory {
 			items = append(items, "Have the provider send the roles. The method reads a person's roles from the ID token's `roles` claim, a list of role names at the top level of the token, and nowhere else: set the provider up to add that claim for this client (a custom claim on Okta, a mapper on Keycloak), with the names the role file defines. A sign-in whose token names no role the file defines is refused.")
@@ -619,19 +748,31 @@ func (m *Method) Meaning() string {
 	return b.String()
 }
 
+// wordsItem is the brief's item for what people read for an organization's identity
+// provider: the words the method was added with, or, when none were given, the words
+// made from its registration name and where the provider's own name goes. The file is
+// named by the change's own line (wordsLine), written where an outlet declares the auth.
+func wordsItem(spec *authpkg.Method) string {
+	if spec.Label != "" {
+		return fmt.Sprintf("Read the method's name where people do. The login page's button says \"Sign in with %[1]s\", and the lists of a person's ways to sign in name the method the same way. The words are the declaration's `.Labeled(%[2]q)` in the generator program (the change's lines above name the file, where an outlet declares the auth): change them there and run `go generate ./...`. The registration name (`%[3]s`) stays the key in the routes, the variables and the stored links, whatever the words are.", spec.Label, spec.Label, spec.Name)
+	}
+
+	return fmt.Sprintf("Give the method the name its people know. Nothing said what to call the provider, so the login page's button says \"Sign in with %[1]s\", words made from the registration name, and the lists of a person's ways to sign in say the same. Chain `.Labeled(\"<words>\")` on the method's declaration in the generator program (`generation.OIDCMethod(%[2]q).Labeled(\"Lakeside ID\")`; the change's lines above name the file, where an outlet declares the auth) and run `go generate ./...`; adding the method with `--label \"<words>\"` writes the same. The registration name (`%[2]s`) stays the key in the routes, the variables and the stored links, whatever the words are.", spec.DefaultWords(), spec.Name)
+}
+
 // signUpItem is the brief's item for an auth whose roles the application assigns: every
 // method starts invite only, and who may open one to sign-up is a grant in the role
 // file, on the methods the generator emits for the choice.
 func signUpItem(auth string) string {
 	pascal := names.Pascal(auth)
 
-	return fmt.Sprintf("Decide who may open a sign-in method to sign-up. Every method of the %[1]s auth starts invite only: a person with no account signs in once they follow an invitation, or once a user exists under the name they sign in with, and the generated management of the %[1]s auth makes both (the `Invite%[2]sUser` and `Create%[2]sUser` methods), so grant Execute on them to the role that invites in the role file. In an application whose tenants have directories, a user created with no password is linked at a first sign-in only through the directory of the one tenant they belong to: anyone else (a person in two tenants, one who holds a role in every tenant or outside them) is sent an invitation, whose link the sign-in then carries, or is created with a temporary password. Whether a method admits a person with no invitation is chosen in the running application, for each method, on the application's Sign-in page: `Open%[2]sSignUp` opens one, after a warning that says who that admits for a method this wide, and `Make%[2]sInviteOnly` closes it again. Grant List on `%[2]sSignInMethods` to the roles that may see the choice, and Execute on the two methods to the role that may make it; a role without the grant sees no action. Without tenants a person who signs up gets the default role the method was opened with, picked from `%[2]sSignUpRoles` (grant List on it beside the method); with tenants they hold no role and create a tenant of their own through the generated create-your-tenant route, which refuses while no method is open. The password method's sign-up routes (`user/sign-up`, `/open`, `/complete`) are served whenever the auth has the method, and answer 404 while it is invite only.", auth, pascal)
+	return fmt.Sprintf("Decide who may open a sign-in method to sign-up. Every method of the %[1]s auth starts invite only: a person with no account signs in once they follow an invitation, and the generated management of the %[1]s auth sends it (the `Invite%[2]sUser` method), so grant Execute on it to the role that invites in the role file, with List on `%[2]sGivableRoles` and the fields its dialog filters by (`method`, and in an application with tenants `domain` and `everyDomain`), the roles its dialog offers that role to give. Whether a method admits a person with no invitation is chosen in the running application, for each method, on the application's Sign-in page: `Open%[2]sSignUp` opens one, after a warning that says who that admits for a method this wide, and `Make%[2]sInviteOnly` closes it again. Grant List on `%[2]sSignInMethods` to the roles that may see the choice, and Execute on the two methods to the role that may make it; a role without the grant sees no action. Without tenants a person who signs up gets the default role the method was opened with, picked from `%[2]sSignUpRoles` (grant List on it beside the method); with tenants they hold no role and create a tenant of their own through the generated create-your-tenant route, which refuses while no method is open. The password method's sign-up routes (`user/sign-up`, `/open`, `/complete`) are served whenever the auth has the method, and answer 404 while it is invite only.", auth, pascal)
 }
 
 // mailItem is the brief's item for the mail an auth sends: the sender it shares with the
 // other auths and the login page its links open.
 func mailItem(auth, outlet string) string {
-	return fmt.Sprintf("Mail. The %[1]s auth mails its invitations and address verifications through the application's sender, which the data level hands every auth (`Settings.Mail`: the log in development, where nothing is sent and a developer follows the link from the log, and the Google Workspace relay where the deployment names a mailbox, `APP_MAIL_MAILBOX`, its app password `APP_MAIL_APP_PASSWORD` and, where the mail is from an alias of that account rather than the account itself, `APP_MAIL_FROM`), and every link opens the login page `Settings.MailLoginURL` names: set it to the %[2]s outlet's login page, the application's public address (`APP_PUBLIC_URL`) and the outlet's login path, and grant the roles that invite Create on `%[3]sInvitations` in the role file (List, Read and Delete to see and revoke what stands).", auth, outlet, names.Pascal(auth))
+	return fmt.Sprintf("Mail. The %[1]s auth mails its invitations and address verifications through the application's sender, which the data level hands every auth (`Settings.Mail`: the log in development, where nothing is sent and a developer follows the link from the log, and the Google Workspace relay where the deployment names a mailbox, `APP_MAIL_MAILBOX`, its app password `APP_MAIL_APP_PASSWORD` and, where the mail is from an alias of that account rather than the account itself, `APP_MAIL_FROM`), and every link opens the login page `Settings.MailLoginURL` names: the command sets it to the %[2]s outlet's login page, the application's public address (`APP_PUBLIC_URL`) and the outlet's login path, where the outlet serves a browser application, and where it serves none the first skipped line says to set it before the next release; grant the roles that invite Create on `%[3]sInvitations` in the role file (List, Read and Delete to see and revoke what stands).", auth, outlet, names.Pascal(auth))
 }
 
 func passwordFormNote(spec *authpkg.Method) string {

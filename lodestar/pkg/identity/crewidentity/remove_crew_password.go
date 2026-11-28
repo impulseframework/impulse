@@ -19,11 +19,16 @@ import (
 // goes with the password. The request names the person and carries nothing else, so no
 // record of the call holds a value.
 //
+// A row offers it only to a caller whose session enters every sector the person
+// administers (@callerEnters); the method refuses anyone else.
+//
 // @rpc
+// @callerEnters
 // @outlet(default)
 // @answers(204)
+// @class(credential)
 type RemoveCrewPassword struct {
-	// @target(CrewSessionUser)
+	// @target(CrewListedUser)
 	UserID impulse.UUID
 }
 

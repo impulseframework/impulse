@@ -13,14 +13,17 @@ type (
 	// the table's Resource column, named apart from the method every declaration
 	// carries. The grants of the release's role file are no rows: the permission engine
 	// holds them. The role file and the deployment's migration write the rows; nothing
-	// here changes one.
+	// here changes one. No route lists the table: CrewListedRoleGrant is the list of
+	// its rows, which says of each whether its role holds it.
 	//
 	// @resource
+	// @suppress(listHandler)
 	// @suppress(readHandler)
 	// @suppress(patchHandler)
 	// @outlet(default)
 	// @order(Role asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(role grant)
 	CrewRoleGrant struct {
 		Kind         string    `spanner:"Kind"`
 		Axis         string    `spanner:"Axis"`

@@ -259,7 +259,7 @@ type Operand interface {
 }
 
 // Literal is a literal operand: a string, a number, or a boolean. Strings and
-// numbers are typed by context — MigrateRoles knows each binding's type from
+// numbers are typed by context — access.ValidateRoles knows each binding's type from
 // the Collection, so a timestamp is a quoted RFC 3339 string against a
 // timestamp attribute, not a dedicated syntax.
 type Literal interface {

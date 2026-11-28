@@ -5,9 +5,11 @@ import (
 	"encoding/base64"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/go-playground/validator/v10"
+	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/solo/app"
@@ -115,10 +117,6 @@ func (c *testConfigurer) Staff() *staff.Auth { return nil }
 // one list it is asked through (how a person signs in) is asked about nobody.
 type noSessionAPI struct{}
 
-func (noSessionAPI) HashPassword(string) (string, error) {
-	return "", errors.New("the authorization matrix serves no session manager")
-}
-
 func (noSessionAPI) PrepareInvitation(context.Context, *session.InvitationRequest) (session.PreparedInvitation, error) {
 	return nil, errors.New("the authorization matrix serves no session manager")
 }
@@ -135,6 +133,43 @@ func (noSessionAPI) SignsInThrough(sessioninfo.AuthMethod, string) []string {
 // DirectoryName names no directory: the matrix registers no sign-in method.
 func (noSessionAPI) DirectoryName(sessioninfo.AuthMethod, string) (name, label string) {
 	return "", ""
+}
+
+// TenantName names no tenant: the matrix gives the session library no tenant names.
+func (noSessionAPI) TenantName(accesstypes.Domain) string {
+	return ""
+}
+
+// SessionTimeout answers ten minutes, the session library's own default: this suite
+// sets none.
+func (noSessionAPI) SessionTimeout() time.Duration {
+	return 10 * time.Minute
+}
+
+// SignInFailureLimit answers five failed sign-ins, the session library's own default:
+// this suite sets none.
+func (noSessionAPI) SignInFailureLimit() int {
+	return 5
+}
+
+// RequestAddressChange and SendPasswordReset mail nobody: there is no session manager
+// here to mail through, and each says so.
+func (noSessionAPI) RequestAddressChange(context.Context, impulse.UUID, string, session.AskedBy) error {
+	return errors.New("the authorization matrix serves no session manager")
+}
+
+func (noSessionAPI) SendPasswordReset(context.Context, impulse.UUID, session.AskedBy) error {
+	return errors.New("the authorization matrix serves no session manager")
+}
+
+// EndPasswordResetLinks withdraws nothing, and the two notices tell nobody: no link was
+// mailed here and no mail is sent.
+func (noSessionAPI) EndPasswordResetLinks(context.Context, impulse.UUID) error {
+	return nil
+}
+
+func (noSessionAPI) NoticeFactorReset(context.Context, impulse.UUID) error {
+	return nil
 }
 
 // StaffIdentity is the staff auth's identity client over the scripted engine: the matrix
@@ -160,6 +195,11 @@ func (c *testConfigurer) LogExporter() logger.Exporter {
 // AppVersion is dev: the matrix drives the bare test router, which checks no version.
 func (c *testConfigurer) AppVersion() string {
 	return "dev"
+}
+
+// Environment is none: the suites run as production does, which names no environment.
+func (c *testConfigurer) Environment() string {
+	return ""
 }
 
 func (c *testConfigurer) ConsoleDist() string { return "" }

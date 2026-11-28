@@ -43,6 +43,10 @@ func (a *App) HailShip() http.HandlerFunc {
 		// write or a read against the caller (Enforce) evaluates the same checker,
 		// scope, and decision instant.
 		ctx = resource.WithCaller(ctx, gate.Caller())
+		// The method's name rides the context too: who made a change
+		// (eventsource.UserEvent) reads it there, so every change record the body writes
+		// names the method.
+		ctx = resource.WithRPC(ctx, "HailShip")
 
 		p := (*rpc.HailShip)(params)
 
@@ -79,10 +83,16 @@ func (a *App) HailShip() http.HandlerFunc {
 				SetID(p.ShipID).
 				Read(ctx, txn)
 			if err != nil {
+				if httpio.HasNotFound(err) {
+					// No row has the key. Every row the method cannot reach is
+					// answered alike, so the words never say a row is there.
+					return resource.TargetNotFound("Ship", p.ShipID)
+				}
+
 				return errors.Wrap(err, "resources.ShipQuery.Read()")
 			}
 			if row == nil {
-				return httpio.NewNotFoundMessagef("Ship %s does not exist", p.ShipID)
+				return resource.TargetNotFound("Ship", p.ShipID)
 			}
 			// The root's tenant key lives across its @domain join path: the
 			// gate verifies the located row resolves to the request's domain
@@ -110,7 +120,7 @@ func (a *App) HailShip() http.HandlerFunc {
 				return httpio.NewEncoder(w).Ok(nil)
 			}
 
-			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "spanner.Client.ReadWriteTransaction()"))
+			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "resource.Client.ExecuteFunc()"))
 		}
 
 		live.Publish(ctx, w, a.LiveService(), liveDerivations, domain, touched)

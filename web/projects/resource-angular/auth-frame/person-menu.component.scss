@@ -3,7 +3,7 @@
   flex: none;
 }
 
-.person {
+.impulse-person-menu-button {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -24,7 +24,7 @@
   }
 }
 
-.initial {
+.impulse-person-menu-initial {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -37,22 +37,32 @@
   font-size: 13px;
   font-weight: 500;
 
-  &.large {
+  // Two initials share the circle one has: a little smaller, so two wide letters fit
+  // inside it. The circle keeps its size.
+  &.impulse-person-menu-two {
+    font-size: 11px;
+  }
+
+  &.impulse-person-menu-large {
     width: 36px;
     height: 36px;
     font-size: 16px;
+
+    &.impulse-person-menu-two {
+      font-size: 14px;
+    }
   }
 }
 
 // A name is as long as the person made it: the bar gives it so much room and no more.
-.name {
+.impulse-person-menu-name {
   max-width: 24ch;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.chevron {
+.impulse-person-menu-chevron {
   width: 18px;
   height: 18px;
   font-size: 18px;
@@ -60,28 +70,28 @@
 }
 
 @media (max-width: 599.98px) {
-  .name,
-  .chevron {
+  .impulse-person-menu-name,
+  .impulse-person-menu-chevron {
     display: none;
   }
 }
 
 // The person's name over their menu, inside the menu's panel.
-.who {
+.impulse-person-menu-who {
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 8px 10px 10px;
 }
 
-.lines {
+.impulse-person-menu-lines {
   display: flex;
   flex-direction: column;
   gap: 4px;
   min-width: 0;
 }
 
-.who-name {
+.impulse-person-menu-who-name {
   font-size: 14px;
   font-weight: 500;
   overflow: hidden;
@@ -89,8 +99,8 @@
   white-space: nowrap;
 }
 
-.who-login,
-.who-email {
+.impulse-person-menu-who-login,
+.impulse-person-menu-who-email {
   font-size: 12px;
   color: var(--mat-sys-on-surface-variant);
   overflow: hidden;
@@ -98,7 +108,7 @@
   white-space: nowrap;
 }
 
-.line {
+.impulse-person-menu-line {
   height: 1px;
   margin: 0 6px 4px;
   background: var(--mat-sys-outline-variant);

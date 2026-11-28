@@ -21,11 +21,27 @@ import (
 // sort (QuerySet.TakeSort) orders its own query instead, and a plain ORDER BY
 // there produces the same placement. An unsupported dbType is an error.
 func SortRows[T any](rows []*T, order []SortField, dbType DBType) error {
+	return sortRowsBlanking(rows, order, dbType, nil)
+}
+
+// sortRowsBlanking is SortRows, where a row's field for which blank reports true
+// sorts as the field's NULL: Collect's sort of a computed list, where the caller
+// holds a field of the declared order under a condition a row does not meet. A
+// nil blank sorts every row by its real values.
+func sortRowsBlanking[T any](rows []*T, order []SortField, dbType DBType, blank func(row *T, field string) bool) error {
 	if !slices.Contains(dbTypes(), dbType) {
 		return errors.Newf("resource.SortRows: unsupported dbType %q", dbType)
 	}
 	if len(order) == 0 {
 		return nil
+	}
+	cell := func(row *T, value reflect.Value, field string) reflect.Value {
+		cell := fieldValue(value, field)
+		if cell.IsValid() && blank != nil && blank(row, field) {
+			return reflect.Zero(reflect.PointerTo(cell.Type()))
+		}
+
+		return cell
 	}
 	var sortErr error
 	slices.SortStableFunc(rows, func(a, b *T) int {
@@ -34,7 +50,7 @@ func SortRows[T any](rows []*T, order []SortField, dbType DBType) error {
 		}
 		va, vb := reflect.ValueOf(a).Elem(), reflect.ValueOf(b).Elem()
 		for _, sf := range order {
-			fa, fb := fieldValue(va, sf.Field), fieldValue(vb, sf.Field)
+			fa, fb := cell(a, va, sf.Field), cell(b, vb, sf.Field)
 			if !fa.IsValid() {
 				sortErr = errors.Newf("resource.SortRows: %s is not a field of %s", sf.Field, va.Type())
 
@@ -159,10 +175,25 @@ func compareNumbers[N int64 | uint64 | float64](a, b N) int {
 	}
 }
 
+// Unordered is implemented by the type of a field whose value is not the value its
+// column holds, which therefore cannot be ordered by: the database orders a list by the
+// column, and a page's cursor is built from the field, so the two would disagree and a
+// page would skip or repeat rows. A mask read as words (accesstypes.NullMaskWords) is
+// one. A sort on such a field is refused, and an order declared on one is refused where
+// the list is built.
+type Unordered interface {
+	// Unordered marks the type. It is never called.
+	Unordered()
+}
+
 // sortableType reports whether a field's type can be ordered by: text, numbers,
 // booleans, timestamps, dates, decimals, UUIDs, and pointers or Null* wrappers
-// of them. A slice, a map, or a plain struct (a nested computed field) cannot.
+// of them. A slice, a map, a plain struct (a nested computed field) or a type whose
+// value is not its column's (Unordered) cannot.
 func sortableType(t reflect.Type) bool {
+	if t.Implements(reflect.TypeFor[Unordered]()) {
+		return false
+	}
 	t = nullableBaseType(t)
 	if t == reflect.TypeFor[time.Time]() || t == reflect.TypeFor[civil.Date]() || t == reflect.TypeFor[decimal.Decimal]() {
 		return true

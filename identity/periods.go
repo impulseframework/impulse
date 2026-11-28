@@ -10,6 +10,8 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/resource"
@@ -35,30 +37,39 @@ import (
 //     nothing runs on a schedule;
 //   - nobody lengthens their own holding: the caller's own role, their own place in a
 //     group and a role of a group they are in are given a longer period by someone else
-//     who may (refuseLongerForOneself).
+//     who may (refuseLongerForOneself). A role taken for a set time is the one exception
+//     (TakeRole): taking it again gives it the new time, and nothing is refused.
+//
+// A person's role carries the reason it was given for beside its period, one line of
+// plain text (access.ValidateReason). The two are given together and replaced together:
+// a role given again carries the reason of the new request, none where the request gave
+// none, and nothing edits a reason by itself (reasons.go).
 //
 // The rules that refuse read the present from the wall clock. The removal of what has
 // ended reads it from the database's clock, the one the lists and the sign-in rule read:
 // a row is removed only once the database says its period is over (EndedAssignments).
 
-// EndedByItself is the source a removal carries when nobody made it: the assignment's
-// period ended, and the row is removed at the person's next sign-in. A change record of
-// the row, where the application keeps one, says so in place of a person's act.
-const EndedByItself = "the assignment ended by itself"
+// EndedByItself is the name of the process a removal is made under when nobody made it:
+// the assignment's period ended, and the row is removed at the person's next sign-in. A
+// store hands each such removal eventsource.ProcessEvent(EndedByItself) in place of a
+// person's act.
+const EndedByItself = "PeriodEnd"
 
 // PeriodStore is what the rules of an assignment's period need of one auth's tables,
 // which the generated package of the auth implements over its own typed queries and
 // patches. An implementation holds no rule: it reads and writes the two instants.
 type PeriodStore interface {
-	// SetMembershipPeriod buffers the period on a membership row, committed or written
-	// earlier in this transaction.
-	SetMembershipPeriod(ctx context.Context, txn resource.ReadWriteTransaction, key *access.MembershipKey, period accesstypes.Period) error
+	// SetMembershipPeriod buffers the period and the reason on a membership row,
+	// committed or written earlier in this transaction: both columns of the period and
+	// the reason are written, an empty reason as none.
+	SetMembershipPeriod(ctx context.Context, txn resource.ReadWriteTransaction, key *access.MembershipKey, period accesstypes.Period, reason string) error
 	// SetGroupMemberPeriod buffers the period on the row of a person's place in a group.
 	SetGroupMemberPeriod(ctx context.Context, txn resource.ReadWriteTransaction, key *access.GroupMemberKey, period accesstypes.Period) error
 	// SetGroupRolePeriod buffers the period on the row of a group's role.
 	SetGroupRolePeriod(ctx context.Context, txn resource.ReadWriteTransaction, key *access.GroupRoleKey, period accesstypes.Period) error
 	// UserPeriods reads every assignment of a person's own, each with its period: their
-	// memberships, wherever each is held, and their places in groups. It reads through
+	// memberships, wherever each is held, each with its reason too, and their places in
+	// groups. It reads through
 	// any transaction, a read of its own among them, so a sign-in with nothing to clear
 	// opens no transaction.
 	UserPeriods(ctx context.Context, txn resource.ReadOnlyTransaction, userID impulse.UUID) (*UserPeriods, error)
@@ -72,15 +83,17 @@ type PeriodStore interface {
 	// opens no transaction.
 	EndedAssignments(ctx context.Context, txn resource.ReadOnlyTransaction, userID impulse.UUID) (memberships []access.MembershipKey, places []access.GroupMemberKey, err error)
 	// RemoveEnded buffers the removal of memberships and places whose period ended,
-	// each under the source EndedByItself in place of a person's act.
+	// each under the process EndedByItself names, in place of a person's act.
 	RemoveEnded(ctx context.Context, txn resource.ReadWriteTransaction, memberships []access.MembershipKey, places []access.GroupMemberKey) error
 }
 
 // UserPeriods is the periods of a person's own assignments: an assignment with no
-// period is there with the zero Period.
+// period is there with the zero Period. Reasons holds the reason of each membership
+// given with one; a membership with none is absent from it.
 type UserPeriods struct {
 	Memberships map[access.MembershipKey]accesstypes.Period
 	Places      map[access.GroupMemberKey]accesstypes.Period
+	Reasons     map[access.MembershipKey]string
 }
 
 // sortEnded puts the assignments a removal names in a stable order of writes.
@@ -105,7 +118,7 @@ type GroupPeriods struct {
 func RequestPeriod(startsAt, endsAt *time.Time) (accesstypes.Period, error) {
 	period, err := accesstypes.NewPeriod(startsAt, endsAt)
 	if err != nil {
-		return accesstypes.Period{}, httpio.NewBadRequestMessage(err.Error())
+		return accesstypes.Period{}, httpio.NewBadRequestMessageWithError(err, access.PeriodNeverCountsMessage)
 	}
 
 	return period, nil
@@ -115,16 +128,19 @@ func RequestPeriod(startsAt, endsAt *time.Time) (accesstypes.Period, error) {
 // count for nothing from the start. what names the assignment in the refusal.
 func refuseEnded(period accesstypes.Period, what string) error {
 	if period.Ended(time.Now()) {
-		return httpio.NewBadRequestMessagef("the period ended at %s, which is past, so %s would count for nothing: give a later end, or take it away to end it now",
-			period.End.Format(time.RFC3339), what)
+		return httpio.NewBadRequestMessageWithErrorf(
+			errors.Newf("the period ended at %s, which is past, so %s would count for nothing: give a later end, or take it away to end it now",
+				period.End.Format(time.RFC3339), what),
+			"The period has already ended, so %s would count for nothing. Give a later end, or take it away to end it now.", what,
+		)
 	}
 
 	return nil
 }
 
-// AssignRoleFor is Tenant.AssignRole with the period the role is held for (see
-// Manager.AssignRoleFor).
-func (t *Tenant) AssignRoleFor(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, role accesstypes.Role, period accesstypes.Period) error {
+// AssignRoleFor is Tenant.AssignRole with the period the role is held for and the reason
+// it is given for (see Manager.AssignRoleFor).
+func (t *Tenant) AssignRoleFor(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, role accesstypes.Role, period accesstypes.Period, reason string) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -132,7 +148,7 @@ func (t *Tenant) AssignRoleFor(ctx context.Context, txn resource.ReadWriteTransa
 		return err
 	}
 
-	return t.manager.AssignRoleFor(ctx, txn, t.scope(), userID, role, period)
+	return t.manager.AssignRoleFor(ctx, txn, t.scope(), userID, role, period, reason)
 }
 
 // AddGroupMemberFor buffers a person's place in a group of the tenant, for the period
@@ -144,7 +160,7 @@ func (t *Tenant) AssignRoleFor(ctx context.Context, txn resource.ReadWriteTransa
 // whole application's method: a tenant's group holds any account, and a tenant's
 // administrator puts in the ones the tenant has.
 func (t *Tenant) AddGroupMemberFor(ctx context.Context, txn resource.ReadWriteTransaction, groupID, userID impulse.UUID, period accesstypes.Period) error {
-	if err := t.requireTenantGroup(ctx, txn, groupID); err != nil {
+	if _, err := t.requireTenantGroup(ctx, txn, groupID); err != nil {
 		return err
 	}
 	if err := t.requireTenantPerson(ctx, txn, userID); err != nil {
@@ -157,19 +173,20 @@ func (t *Tenant) AddGroupMemberFor(ctx context.Context, txn resource.ReadWriteTr
 // GiveGroupRoleFor is Tenant.GiveGroupRole with the period the group holds the role for
 // (see Manager.GiveGroupRoleFor).
 func (t *Tenant) GiveGroupRoleFor(ctx context.Context, txn resource.ReadWriteTransaction, groupID impulse.UUID, role accesstypes.Role, period accesstypes.Period) error {
-	if err := t.requireTenantGroup(ctx, txn, groupID); err != nil {
+	if _, err := t.requireTenantGroup(ctx, txn, groupID); err != nil {
 		return err
 	}
 
 	return t.manager.GiveGroupRoleFor(ctx, txn, groupID, t.scope(), role, period)
 }
 
-// AssignRole is AssignRoleFor with no period: the membership stands until it is removed,
-// and one the person held for a period loses the period.
+// AssignRole is AssignRoleFor with no period and no reason: the membership stands until
+// it is removed, and one the person held for a period loses the period and the reason it
+// was given for.
 func (m *Manager) AssignRole(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, role accesstypes.Role) error {
 	var none accesstypes.Period
 
-	return m.AssignRoleFor(ctx, txn, scope, userID, role, none)
+	return m.AssignRoleFor(ctx, txn, scope, userID, role, none, "")
 }
 
 // AddGroupMember is AddGroupMemberFor with no period: the person is in the group until
@@ -188,29 +205,49 @@ func (m *Manager) GiveGroupRole(ctx context.Context, txn resource.ReadWriteTrans
 	return m.GiveGroupRoleFor(ctx, txn, groupID, scope, role, none)
 }
 
-// settleMembershipPeriod gives a membership the period: the row was written by the
-// caller (inserted) or is there already, with the period it had. It reports whether the
-// period changed. A membership given again with the period it has is left exactly as it
-// is. own says the membership is the request's caller's own, who gives it no longer a
-// period than it has (refuseLongerForOneself).
+// cutsShort reports whether a period given to a holding is one the rule on a tenant's
+// last administrator judges: the holding is the request's caller's own (own), it counts
+// now, and the period takes it away from now on or from an instant sooner than the one
+// it had (shortens). An application that names no administrator roles
+// (WithAdministratorRoles) has no administrator for the rule to keep, and a person
+// there gives their own holding a sooner end as they always could.
+func (m *Manager) cutsShort(own bool, had, next accesstypes.Period) bool {
+	return own && m.administrators != nil && shortens(had, next, time.Now())
+}
+
+// settleMembershipPeriod gives a membership the period and the reason: the row was
+// written by the caller (inserted) or is there already, with the period and the reason
+// it had. It reports whether either changed. A membership given again with the period
+// and the reason it has is left exactly as it is. own says the membership is the
+// request's caller's own, who gives it no longer a period than it has unless they take
+// the role (refuseLongerForOneself), and who does not cut short the role that makes
+// them the last administrator of the tenant scope names: a period that takes the role
+// away from now on, or from an instant sooner than the one it had, is held to what the
+// role's removal is held to, and refused in its words (refuseLastAdministrator).
 func (m *Manager) settleMembershipPeriod(
-	ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, key *access.MembershipKey, period accesstypes.Period, inserted, own bool,
+	ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, key *access.MembershipKey, given *given, inserted, own bool,
 ) (bool, error) {
 	var had accesstypes.Period
+	var why string
 	if !inserted {
 		periods, err := m.store.UserPeriods(ctx, txn, userID)
 		if err != nil {
 			return false, errors.Wrap(err, "identity.Store.UserPeriods()")
 		}
-		had = periods.Memberships[*key]
-		if err := refuseLongerForOneself(own, had, period, "your own role"); err != nil {
+		had, why = periods.Memberships[*key], periods.Reasons[*key]
+		if err := refuseLongerForOneself(own && !given.lengthens, had, given.period, "your own role"); err != nil {
 			return false, err
 		}
+		if m.cutsShort(own, had, given.period) {
+			if err := m.refuseLastAdministrator(ctx, txn, scope, ownRoleGone(key)); err != nil {
+				return false, err
+			}
+		}
 	}
-	if had.Equal(period) {
+	if had.Equal(given.period) && why == given.reason {
 		return false, nil
 	}
-	if err := m.store.SetMembershipPeriod(ctx, txn, key, period); err != nil {
+	if err := m.store.SetMembershipPeriod(ctx, txn, key, given.period, given.reason); err != nil {
 		return false, errors.Wrap(err, "identity.Store.SetMembershipPeriod()")
 	}
 
@@ -219,9 +256,11 @@ func (m *Manager) settleMembershipPeriod(
 
 // settlePlacePeriod gives a person's place in a group the period, as
 // settleMembershipPeriod gives a membership its own. own says the place is the request's
-// caller's own.
+// caller's own: they give it no longer a period than it has, and a period that cuts it
+// short is held to what leaving the group is held to, for each role the group gives
+// them (refuseLeavingAsLastAdministrator).
 func (m *Manager) settlePlacePeriod(
-	ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, key *access.GroupMemberKey, period accesstypes.Period, inserted, own bool,
+	ctx context.Context, txn resource.ReadWriteTransaction, groupID, userID impulse.UUID, key *access.GroupMemberKey, period accesstypes.Period, inserted, own bool,
 ) (bool, error) {
 	var had accesstypes.Period
 	if !inserted {
@@ -232,6 +271,11 @@ func (m *Manager) settlePlacePeriod(
 		had = periods.Places[*key]
 		if err := refuseLongerForOneself(own, had, period, "your own place in a group"); err != nil {
 			return false, err
+		}
+		if m.cutsShort(own, had, period) {
+			if err := m.refuseShorterPlace(ctx, txn, groupID, key.User); err != nil {
+				return false, err
+			}
 		}
 	}
 	if had.Equal(period) {
@@ -245,10 +289,13 @@ func (m *Manager) settlePlacePeriod(
 }
 
 // settleGroupRolePeriod gives a group's role the period, as settleMembershipPeriod gives
-// a membership its own. own says the request's caller is in the group, so the role is
-// one of the caller's own holdings.
+// a membership its own. gone is the role as the request's caller loses it with the
+// group, nil where the caller is not in the group: the role is then one of the caller's
+// own holdings, which they give no longer a period than it has, and a period that cuts
+// it short is held to what taking the role from the group is held to
+// (refuseLastAdministrator).
 func (m *Manager) settleGroupRolePeriod(
-	ctx context.Context, txn resource.ReadWriteTransaction, groupID impulse.UUID, key *access.GroupRoleKey, period accesstypes.Period, inserted, own bool,
+	ctx context.Context, txn resource.ReadWriteTransaction, groupID impulse.UUID, key *access.GroupRoleKey, period accesstypes.Period, inserted bool, gone *removal,
 ) (bool, error) {
 	var had accesstypes.Period
 	if !inserted {
@@ -257,8 +304,17 @@ func (m *Manager) settleGroupRolePeriod(
 			return false, errors.Wrap(err, "identity.Store.GroupPeriods()")
 		}
 		had = periods.Roles[*key]
-		if err := refuseLongerForOneself(own, had, period, "a role of a group you are in"); err != nil {
+		if err := refuseLongerForOneself(gone != nil, had, period, "a role of a group you are in"); err != nil {
 			return false, err
+		}
+		if m.cutsShort(gone != nil, had, period) {
+			scope, err := key.Scope()
+			if err != nil {
+				return false, errors.Wrap(err, "access.GroupRoleKey.Scope()")
+			}
+			if err := m.refuseLastAdministrator(ctx, txn, scope, gone); err != nil {
+				return false, err
+			}
 		}
 	}
 	if had.Equal(period) {
@@ -271,38 +327,22 @@ func (m *Manager) settleGroupRolePeriod(
 	return true, nil
 }
 
-// standing answers what a person holds that has not ended: the memberships of their
-// own and the groups they are in, less the ones whose period is over. An assignment
-// whose period has not begun stands.
-func (m *Manager) standing(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]access.MembershipKey, []GroupPlace, error) {
-	own, err := m.store.Memberships(ctx, txn, userID)
-	if err != nil {
-		return nil, nil, errors.Wrap(err, "identity.Store.Memberships()")
-	}
-	places, err := m.store.UserGroups(ctx, txn, userID)
-	if err != nil {
-		return nil, nil, errors.Wrap(err, "identity.Store.UserGroups()")
-	}
-	periods, err := m.store.UserPeriods(ctx, txn, userID)
-	if err != nil {
-		return nil, nil, errors.Wrap(err, "identity.Store.UserPeriods()")
-	}
-	now := time.Now()
-	own = slices.DeleteFunc(own, func(key access.MembershipKey) bool { return periods.Memberships[key].Ended(now) })
-	places = slices.DeleteFunc(places, func(place GroupPlace) bool {
-		return periods.Places[access.GroupMemberKey{Group: GroupID(place.ID), User: User(userID)}].Ended(now)
-	})
-
-	return own, places, nil
+// heldRows is everything a person's account holds as the tables hold it, whatever the
+// periods: the memberships of their own, the groups they are in, and the periods of
+// both, with the roles they hold on records that have not ended (records). A rule that
+// judges the person several ways in one request reads it once (readHeld) and asks it
+// what stands (standingAt).
+type heldRows struct {
+	userID  impulse.UUID
+	own     []access.MembershipKey
+	places  []GroupPlace
+	periods *UserPeriods
+	records []access.RecordMembershipKey
 }
 
-// keeps answers everything that keeps a person's account: every membership of their
-// own and a key for each group they are in, as the tables hold them, whatever their
-// periods. The rule on an account nothing admits reads it: an assignment that has ended
-// counts for nothing and still keeps its account, which goes when nothing at all is left
-// of what was given to it, by an act of somebody's and never by a period ending.
-func (m *Manager) keeps(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]access.MembershipKey, error) {
-	kept, err := m.store.Memberships(ctx, txn, userID)
+// readHeld reads everything the person's account holds, as committed (heldRows).
+func (m *Manager) readHeld(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) (*heldRows, error) {
+	own, err := m.store.Memberships(ctx, txn, userID)
 	if err != nil {
 		return nil, errors.Wrap(err, "identity.Store.Memberships()")
 	}
@@ -310,17 +350,65 @@ func (m *Manager) keeps(ctx context.Context, txn resource.ReadWriteTransaction, 
 	if err != nil {
 		return nil, errors.Wrap(err, "identity.Store.UserGroups()")
 	}
-	for _, place := range places {
-		kept = append(kept, access.MembershipKey{Kind: place.Kind, Axis: place.Axis, Domain: place.Domain, Role: "", User: User(userID)})
+	periods, err := m.store.UserPeriods(ctx, txn, userID)
+	if err != nil {
+		return nil, errors.Wrap(err, "identity.Store.UserPeriods()")
+	}
+	records, err := m.store.RecordMemberships(ctx, txn, userID)
+	if err != nil {
+		return nil, errors.Wrap(err, "identity.Store.RecordMemberships()")
 	}
 
-	return kept, nil
+	return &heldRows{userID: userID, own: own, places: places, periods: periods, records: records}, nil
+}
+
+// standingAt answers what of the rows has not ended at now: the memberships of the
+// person's own and the groups they are in, less the ones whose period is over. An
+// assignment whose period has not begun stands. The rows themselves are left whole.
+func (h *heldRows) standingAt(now time.Time) ([]access.MembershipKey, []GroupPlace) {
+	own := slices.DeleteFunc(slices.Clone(h.own), func(key access.MembershipKey) bool { return h.periods.Memberships[key].Ended(now) })
+	places := slices.DeleteFunc(slices.Clone(h.places), func(place GroupPlace) bool {
+		return h.periods.Places[access.GroupMemberKey{Group: GroupID(place.ID), User: User(h.userID)}].Ended(now)
+	})
+
+	return own, places
+}
+
+// placingAt answers what of the rows places the person at now, as holds spells it: the
+// memberships of their own that stand, a key for each group they are in that stands,
+// spelled as a membership held where the group is kept with no role named, and one for
+// each role they hold on a record, spelled as a membership held in the record's tenant
+// with no role named (recordPlacing).
+func (h *heldRows) placingAt(now time.Time) []access.MembershipKey {
+	held, places := h.standingAt(now)
+	for _, place := range places {
+		held = append(held, access.MembershipKey{Kind: place.Kind, Axis: place.Axis, Domain: place.Domain, Role: "", User: User(h.userID)})
+	}
+	for i := range h.records {
+		held = append(held, recordPlacing(&h.records[i]))
+	}
+
+	return held
+}
+
+// standing answers what a person holds that has not ended: the memberships of their
+// own and the groups they are in, less the ones whose period is over. An assignment
+// whose period has not begun stands.
+func (m *Manager) standing(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]access.MembershipKey, []GroupPlace, error) {
+	held, err := m.readHeld(ctx, txn, userID)
+	if err != nil {
+		return nil, nil, err
+	}
+	own, places := held.standingAt(time.Now())
+
+	return own, places, nil
 }
 
 // countingHolders lists who holds the role where the key says it is held and counts as
 // its holder now: the holders the store lists, less the ones whose membership is outside
-// its period. The rule on a tenant's last administrator reads it: an administrator whose
-// role has ended, or has not begun, administers nothing.
+// its period and the ones whose account cannot sign in. The rule on a tenant's last
+// administrator reads it: an administrator whose role has ended, or has not begun,
+// administers nothing, and neither does one whose account is disabled (signsIn).
 func (m *Manager) countingHolders(ctx context.Context, txn resource.ReadWriteTransaction, key *access.RoleKey) ([]accesstypes.User, error) {
 	holders, err := m.store.RoleHolders(ctx, txn, key)
 	if err != nil {
@@ -340,7 +428,14 @@ func (m *Manager) countingHolders(ctx context.Context, txn resource.ReadWriteTra
 			return nil, errors.Wrap(err, "identity.Store.UserPeriods()")
 		}
 		held := access.MembershipKey{Kind: key.Kind, Axis: key.Axis, Domain: key.Domain, Role: key.Role, User: holder}
-		if periods.Memberships[held].Contains(now) {
+		if !periods.Memberships[held].Contains(now) {
+			continue
+		}
+		signsIn, err := m.signsIn(ctx, txn, id)
+		if err != nil {
+			return nil, err
+		}
+		if signsIn {
 			counting = append(counting, holder)
 		}
 	}
@@ -361,9 +456,9 @@ func (m *Manager) countingHolders(ctx context.Context, txn resource.ReadWriteTra
 // It is nobody's act, so the rules of a removal do not judge it. It removes the ended
 // rows and nothing else: the account stays, also when the ended assignment was the last
 // thing the person held; the rule on a tenant's last administrator is not asked, since
-// an ended role administers nothing; each row goes under the source EndedByItself; and
-// the permission engine is told nothing, since an ended assignment already counts for
-// nothing and no instance has anything to reload.
+// an ended role administers nothing; each row goes under the process EndedByItself
+// names; and the permission engine is told nothing, since an ended assignment already
+// counts for nothing and no instance has anything to reload.
 func (m *Manager) ClearEnded(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) (int, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -376,8 +471,20 @@ func (m *Manager) ClearEnded(ctx context.Context, txn resource.ReadWriteTransact
 		return 0, nil
 	}
 	sortEnded(memberships, places)
+	// Each row is the end of its period's act, whoever's request found it, and what it
+	// names is read before anything is buffered.
+	ended, err := m.endedRecords(ctx, txn, userID, memberships, places)
+	if err != nil {
+		return 0, err
+	}
 	if err := m.store.RemoveEnded(ctx, txn, memberships, places); err != nil {
 		return 0, errors.Wrap(err, "identity.Store.RemoveEnded()")
+	}
+	byPeriod := actingAs(ctx, eventsource.ProcessEvent(auditlog.ProcessPeriodEnd), "")
+	for _, r := range ended {
+		if err := m.record(byPeriod, txn, r); err != nil {
+			return 0, err
+		}
 	}
 	for _, key := range memberships {
 		logger.FromCtx(ctx).Infof("identity: the role %s of %s, held in %s, ended by itself and its row is removed", key.Role, key.User, heldWhere(key.Kind, key.Domain))
@@ -387,6 +494,35 @@ func (m *Manager) ClearEnded(ctx context.Context, txn resource.ReadWriteTransact
 	}
 
 	return len(memberships) + len(places), nil
+}
+
+// endedRecords answers the rows of the assignments ClearEnded removes: a roleEnded for
+// each membership, the role where it was held, and a groupPlaceEnded for each place, the
+// group by its name, the id where the store answers none, in the tenant it is kept in.
+func (m *Manager) endedRecords(
+	ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, memberships []access.MembershipKey, places []access.GroupMemberKey,
+) ([]*auditlog.Record, error) {
+	person, err := m.accountSubject(ctx, txn, userID)
+	if err != nil {
+		return nil, err
+	}
+	records := make([]*auditlog.Record, 0, len(memberships)+len(places))
+	for i := range memberships {
+		ended := *person
+		ended.Act, ended.RoleNames = auditlog.ActRoleEnded, []string{string(memberships[i].Role)}
+		ended.RoleScope, ended.TenantID = rowScope(memberships[i].Kind, memberships[i].Axis, memberships[i].Domain)
+		records = append(records, &ended)
+	}
+	for i := range places {
+		ended := *person
+		ended.Act, ended.GroupID = auditlog.ActGroupPlaceEnded, string(places[i].Group)
+		if ended.GroupName, ended.TenantID, err = m.groupWhere(ctx, txn, places[i].Group); err != nil {
+			return nil, err
+		}
+		records = append(records, &ended)
+	}
+
+	return records, nil
 }
 
 // heldWhere says where a row is held, for a log line.
@@ -408,27 +544,45 @@ func heldWhere(kind, domain string) string {
 // opens no transaction. A person whose every assignment has ended is refused at the
 // sign-in as one who holds nothing, so nothing is cleared for them: the rows do nothing
 // and go with the account.
+//
+// Where the manager was handed a function to announce through (AnnounceWith), the hook
+// then announces the sign-in on every return, a failed removal's included: the session
+// and the account by their ids, the identities and the memberships whole.
 func (m *Manager) SignedIn(auth string, client resource.Client) session.SignedInHook {
 	return func(ctx context.Context, signedIn *session.SignedIn) error {
-		memberships, places, err := m.store.EndedAssignments(ctx, client, signedIn.UserID)
-		if err != nil {
-			return errors.Wrapf(err, "%s: reading the assignments of %q that have ended", auth, signedIn.Username)
-		}
-		if len(memberships)+len(places) == 0 {
-			return nil
-		}
-		var cleared int
-		err = client.ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-			var err error
-			cleared, err = m.ClearEnded(ctx, txn, signedIn.UserID)
+		ctx, announcement := m.announcing(ctx)
+		err := m.clearEndedAtSignIn(ctx, auth, client, signedIn)
+		announcement.
+			row(m.tables.Sessions, signedIn.SessionID).
+			row(m.tables.Users, signedIn.UserID).
+			whole(m.tables.Identities, m.tables.Memberships).
+			announce(ctx)
 
-			return err
-		})
-		if err != nil {
-			return errors.Wrapf(err, "%s: removing the assignments of %q that have ended", auth, signedIn.Username)
-		}
-		logger.FromCtx(ctx).Infof("%s: %d assignment(s) of %q had ended and went at their sign-in", auth, cleared, signedIn.Username)
+		return err
+	}
+}
 
+// clearEndedAtSignIn removes the signed-in person's assignments whose period has ended,
+// in a transaction of its own on client, which it opens only when the read finds one.
+func (m *Manager) clearEndedAtSignIn(ctx context.Context, auth string, client resource.Client, signedIn *session.SignedIn) error {
+	memberships, places, err := m.store.EndedAssignments(ctx, client, signedIn.UserID)
+	if err != nil {
+		return errors.Wrapf(err, "%s: reading the assignments of %q that have ended", auth, signedIn.Username)
+	}
+	if len(memberships)+len(places) == 0 {
 		return nil
 	}
+	var cleared int
+	err = client.ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		var err error
+		cleared, err = m.ClearEnded(ctx, txn, signedIn.UserID)
+
+		return err
+	})
+	if err != nil {
+		return errors.Wrapf(err, "%s: removing the assignments of %q that have ended", auth, signedIn.Username)
+	}
+	logger.FromCtx(ctx).Infof("%s: %d assignment(s) of %q had ended and went at their sign-in", auth, cleared, signedIn.Username)
+
+	return nil
 }

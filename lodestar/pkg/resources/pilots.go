@@ -2,6 +2,7 @@ package resources
 
 import (
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/resource"
 	"github.com/shopspring/decimal"
 )
 
@@ -17,8 +18,18 @@ type (
 	// account from the crew's accounts by its username (@enumerate), since nobody types an
 	// id.
 	//
+	// A pilot keeps a change history (Config): who raised a clearance or a fee limit, and
+	// who moved a pilot onto another account, is what an audit of the registry reads. A
+	// pilot's record keeps the username of the account beside its id, as it was when the
+	// change was made, read from the crew auth's accounts, so the history still names an
+	// account that has since been renamed or deleted
+	// (test/integration/change_history_test.go).
+	//
 	// The roster declares a default page but no maximum, so limit=all is legal on it and
 	// the client's all() has a home.
+	//
+	// DisplayName is indexed (PilotsByDisplayName), so a list that shows a pilot by name
+	// is filtered by that name alone.
 	//
 	// Demonstrates: @subjectValue, @subjectValue.two-per-anchor, paging.limit-all.
 	//
@@ -30,9 +41,17 @@ type (
 		// @subjectValue(clearance, value: Clearance)
 		// @subjectValue(feeLimit, value: FeeLimit)
 		// @enumerate(CrewSessionUsers)
-		UserID      string          `spanner:"UserId"`
+		UserID string `spanner:"UserId"`
+		// @name
 		DisplayName string          `spanner:"DisplayName"`
 		Clearance   int64           `spanner:"Clearance"`
 		FeeLimit    decimal.Decimal `spanner:"FeeLimit"`
 	}
 )
+
+// Config enables change tracking: Pilot mutations write DataChangeEvents rows in the
+// same transaction, and a change of a pilot's account keeps the username of each
+// account.
+func (Pilot) Config() resource.Config {
+	return defaultConfig().SetTrackChanges(true)
+}

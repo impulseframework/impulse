@@ -59,7 +59,7 @@ func (c *client) runSpanner(ctx context.Context, emulatorVersion string, migrati
 	}
 	defer releaseSpannerContainer(ctx, spannerContainer)
 
-	tableMap, err := createTableMapUsingQuery(ctx, db.Client)
+	tableMap, err := createTableMapUsingQuery(ctx, db)
 	if err != nil {
 		return errors.Wrap(err, "newTableMap()")
 	}
@@ -83,9 +83,14 @@ func (c *client) runSpanner(ctx context.Context, emulatorVersion string, migrati
 	return nil
 }
 
-func createTableMapUsingQuery(ctx context.Context, db *spanner.Client) (map[string]*tableMetadata, error) {
+// createTableMapUsingQuery reads the database's schema into the table map: every
+// table's columns, indexes and foreign keys from the information schema. A schema with a
+// foreign key the read pairs otherwise than the schema declares it is refused
+// (refuseCrossedForeignKeys), so no map holds a crossed link.
+func createTableMapUsingQuery(ctx context.Context, database *initiator.SpannerDB) (map[string]*tableMetadata, error) {
 	log.Println("Creating spanner table lookup...")
 
+	db := database.Client
 	results, err := queryInformationSchema(ctx, db)
 	if err != nil {
 		return nil, err
@@ -122,9 +127,31 @@ func createTableMapUsingQuery(ctx context.Context, db *spanner.Client) (map[stri
 		table.addIndexResult(&indexResults[i])
 	}
 
+	foreignKeyResults, err := queryForeignKeySchema(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range foreignKeyResults {
+		table, ok := schemaMetadata[foreignKeyResults[i].TableName]
+		if !ok {
+			continue
+		}
+		table.addForeignKeyResult(&foreignKeyResults[i])
+	}
+
 	for _, table := range schemaMetadata {
 		table.deriveIndexFlags()
 	}
+
+	ddl, err := database.DDL(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "initiator.SpannerDB.DDL()")
+	}
+	if err := refuseCrossedForeignKeys(schemaMetadata, declaredForeignKeys(ddl)); err != nil {
+		return nil, err
+	}
+	deriveColumnReferences(schemaMetadata)
 
 	return schemaMetadata, nil
 }
@@ -151,6 +178,22 @@ func valueOrEmpty(s *string) string {
 	return *s
 }
 
+// tableMapQuery reads every column of every table with what it is in a key: whether it
+// is part of the primary key or of a foreign key, and the table and column it
+// references. A foreign key column is paired with the column it references by its
+// POSITION_IN_UNIQUE_CONSTRAINT, which the information schema defines as the column's
+// position within the constraint the foreign key references, so the pairing does not
+// depend on the order the foreign key lists its own columns in. The emulator answers
+// that position otherwise, and a foreign key it would so pair crossed is refused
+// (refuseCrossedForeignKeys). Where the referenced column is itself part of a foreign
+// key, the read goes one step on, to what that column references, paired by that
+// column's position in the same way. A column in two or more foreign keys, or in one to a
+// column in two or more, reads here the largest table and the largest column among all
+// they lead to, each on its own; the read then sets every foreign key column's reference
+// from its own foreign key, the one with the fewest columns, following a column carried
+// along in keys of several columns on to its own key (deriveColumnReferences), so a tenant
+// column in a key of its own and in keys of two columns, or carried into a table by keys
+// of two columns alone, still references the tenant.
 const tableMapQuery string = `WITH DEPENDENCIES AS (
 		SELECT
 			kcu1.TABLE_NAME, 
@@ -175,20 +218,18 @@ const tableMapQuery string = `WITH DEPENDENCIES AS (
 			WHEN 1 THEN MAX(kcu4.COLUMN_NAME)
 			WHEN 2 THEN MAX(kcu2.COLUMN_NAME)
 			ELSE NULL
-			END) AS REFERENCED_COLUMN,
-			-- The delete rule of the column's foreign key, NULL on a key column with none; a
-			-- column in two foreign keys reads CASCADE when either cascades (MIN sorts it first).
-			MIN(rc.DELETE_RULE) AS DELETE_RULE
+			END) AS REFERENCED_COLUMN
 		FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu1 -- All columns that are Primary Key or Foreign Key
 		JOIN INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc ON tc.CONSTRAINT_NAME = kcu1.CONSTRAINT_NAME -- Identify whether column is Primary Key or Foreign Key
 		-- All unique constraints (e.g. PK_Persons) referenced by foreign key constraints (e.g. FK_PersonPhones_PersonId)
 		LEFT JOIN INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS rc ON rc.CONSTRAINT_NAME = kcu1.CONSTRAINT_NAME 
+		-- A foreign key column pairs with the column at its POSITION_IN_UNIQUE_CONSTRAINT of the constraint it references, not at its own position in the foreign key
 		LEFT JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu2 ON kcu2.CONSTRAINT_NAME = rc.UNIQUE_CONSTRAINT_NAME -- Table & Column belonging to referenced unique constraint
-			AND kcu2.ORDINAL_POSITION = kcu1.ORDINAL_POSITION
+			AND kcu2.ORDINAL_POSITION = kcu1.POSITION_IN_UNIQUE_CONSTRAINT
 		LEFT JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu3 ON kcu3.TABLE_NAME = kcu2.TABLE_NAME AND kcu3.COLUMN_NAME = kcu2.COLUMN_NAME
 		LEFT JOIN INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS rc2 ON rc2.CONSTRAINT_NAME = kcu3.CONSTRAINT_NAME
 		LEFT JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu4 ON kcu4.CONSTRAINT_NAME = rc2.UNIQUE_CONSTRAINT_NAME -- Table & Column belonging to 1-jump referenced unique constraint
-			AND kcu4.ORDINAL_POSITION = kcu1.ORDINAL_POSITION
+			AND kcu4.ORDINAL_POSITION = kcu3.POSITION_IN_UNIQUE_CONSTRAINT -- by the referenced column's place in its own foreign key
 		WHERE
 			kcu1.CONSTRAINT_SCHEMA != 'INFORMATION_SCHEMA'
 			AND tc.CONSTRAINT_TYPE IN ('PRIMARY KEY', 'FOREIGN KEY')
@@ -203,11 +244,11 @@ const tableMapQuery string = `WITH DEPENDENCIES AS (
 		(d.IS_FOREIGN_KEY > 0 and d.IS_FOREIGN_KEY IS NOT NULL) as IS_FOREIGN_KEY,
 		d.REFERENCED_TABLE,
 		d.REFERENCED_COLUMN,
-		d.DELETE_RULE,
 		c.GENERATION_EXPRESSION,
 		c.ORDINAL_POSITION,
 		COALESCE(d.KEY_ORDINAL_POSITION, 1) AS KEY_ORDINAL_POSITION,
 		c.COLUMN_DEFAULT IS NOT NULL AS HAS_DEFAULT,
+		c.COLUMN_DEFAULT,
 		t.PARENT_TABLE_NAME IS NOT NULL AS IS_INTERLEAVED,
 		t.PARENT_TABLE_NAME,
 		t.ON_DELETE_ACTION,
@@ -243,6 +284,44 @@ const indexMapQuery string = `SELECT
 	WHERE
 		i.TABLE_SCHEMA != 'INFORMATION_SCHEMA'
 	ORDER BY i.TABLE_NAME, i.INDEX_NAME, ic.ORDINAL_POSITION`
+
+// foreignKeyMapQuery reads every foreign key whole: one row per column of the
+// constraint, in constraint order, beside the column it references. The referenced
+// columns are those of the unique constraint the foreign key is held by: the referenced
+// table's primary key, or the unique index the database keeps on the columns of a
+// foreign key to columns that are not the key, which the information schema lists as a
+// constraint of its own. So a foreign key reads with its table and columns either way.
+// That index is one for every foreign key to the same columns, and the information
+// schema lists its columns once for each of them, so the referenced columns are read
+// distinct: a foreign key's column is beside the column it references once.
+const foreignKeyMapQuery string = `SELECT
+		kcu.TABLE_NAME,
+		rc.CONSTRAINT_NAME,
+		kcu.COLUMN_NAME,
+		ref.TABLE_NAME AS REFERENCED_TABLE,
+		ref.COLUMN_NAME AS REFERENCED_COLUMN,
+		rc.DELETE_RULE
+	FROM INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS rc
+		JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu ON kcu.CONSTRAINT_NAME = rc.CONSTRAINT_NAME
+		LEFT JOIN (
+			SELECT DISTINCT CONSTRAINT_NAME, TABLE_NAME, COLUMN_NAME, ORDINAL_POSITION
+			FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+		) ref ON ref.CONSTRAINT_NAME = rc.UNIQUE_CONSTRAINT_NAME
+			AND ref.ORDINAL_POSITION = kcu.POSITION_IN_UNIQUE_CONSTRAINT
+	WHERE
+		rc.CONSTRAINT_SCHEMA != 'INFORMATION_SCHEMA'
+	ORDER BY kcu.TABLE_NAME, rc.CONSTRAINT_NAME, kcu.ORDINAL_POSITION`
+
+func queryForeignKeySchema(ctx context.Context, db *spanner.Client) ([]foreignKeySchemaResult, error) {
+	stmt := spanner.Statement{SQL: foreignKeyMapQuery}
+
+	var result []foreignKeySchemaResult
+	if err := spxscan.Select(ctx, db.Single(), &result, stmt); err != nil {
+		return nil, errors.Wrap(err, "spxscan.Select()")
+	}
+
+	return result, nil
+}
 
 func queryInformationSchema(ctx context.Context, db *spanner.Client) ([]informationSchemaResult, error) {
 	stmt := spanner.Statement{SQL: tableMapQuery}

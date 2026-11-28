@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 )
 
@@ -29,10 +30,10 @@ import (
 // so the transaction's own record of the rows its patches wrote is asked first: a row a
 // patch of this transaction wrote is there, and one it deleted is not.
 //
-// One limit is the update path's own. On a resource that keeps change records, and under
-// a grant with a row condition or inside a tenant, an update reads the stored row, so an
-// OrCreate for a row this same transaction created is refused as not found, as a plain
-// update of that row is. An OrSkip for such a row skips.
+// One limit is the update path's own. Under a grant with a row condition, or inside a
+// tenant, an update's check reads the stored row, so an OrCreate for a row this same
+// transaction created is refused as not found, as a plain update of that row is. An
+// OrSkip for such a row skips.
 
 // Outcome is what buffering an OrCreate or an OrSkip patch did with its row.
 type Outcome string
@@ -123,7 +124,7 @@ func (p *PatchSet[Resource]) Outcome() Outcome {
 }
 
 // applyFork runs an OrCreate or OrSkip patch in a new read-write transaction.
-func (p *PatchSet[Resource]) applyFork(ctx context.Context, c Client, eventSource ...string) error {
+func (p *PatchSet[Resource]) applyFork(ctx context.Context, c Client, eventSource ...eventsource.EventSource) error {
 	if err := c.ExecuteFunc(ctx, func(ctx context.Context, txn ReadWriteTransaction) error {
 		return p.bufferFork(ctx, txn, eventSource...)
 	}); err != nil {
@@ -137,7 +138,7 @@ func (p *PatchSet[Resource]) applyFork(ctx context.Context, c Client, eventSourc
 // that aborts runs its function again, and the row may be there on the second attempt
 // where it was not on the first, so what the last attempt's path put on the patch is
 // taken back first: a default the create filled must not ride an update.
-func (p *PatchSet[Resource]) bufferFork(ctx context.Context, txn ReadWriteTransaction, eventSource ...string) error {
+func (p *PatchSet[Resource]) bufferFork(ctx context.Context, txn ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	p.undoFork()
 	if err := p.validateTouch(); err != nil {
 		return err

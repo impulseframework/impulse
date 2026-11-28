@@ -11,6 +11,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -22,15 +23,41 @@ func (TenantDirectory) DefaultConfig() resource.Config {
 	return defaultConfig()
 }
 
+// TenantBinding is the row's way to its tenant: the library writes the tenant on every
+// change record of the row, whoever writes the row.
+func (TenantDirectory) TenantBinding() resource.TenantBinding {
+	return resource.TenantBinding{Field: "TenantID"}
+}
+
+// NameFields names the resource's name fields: beside each id that points to a row with
+// a name, the name of that row, which a list shows, sorts by and filters by. A name is
+// looked up in the pointed-to table by the id; it is no column of this resource.
+func (TenantDirectory) NameFields() []resource.NameField {
+	return []resource.NameField{
+		{Field: "TenantName", Key: "TenantID", Resource: "Tenants", Tag: "name", Table: "Tenants", KeyColumn: "Id", NameColumn: "Name", TenantColumn: ""},
+	}
+}
+
+// RecordedNames names the rows a change record of the resource keeps the name of:
+// for each field that points at a row with a name, where the name is read. A
+// tracked write that changes such a field reads the name in its own transaction,
+// and the change record keeps it beside the id.
+func (TenantDirectory) RecordedNames() []resource.NameField {
+	return []resource.NameField{
+		{Field: "", Key: "TenantID", Resource: "Tenants", Tag: "name", Table: "Tenants", KeyColumn: "Id", NameColumn: "Name", TenantColumn: ""},
+	}
+}
+
 // tenantDirectoryRead mirrors the wire shape the resource routes list
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; tenantDirectoryReadSets holds one Set per read operation.
 type tenantDirectoryRead struct {
-	ID          impulse.UUID `json:"id"          perm:"-"`
-	TenantID    impulse.UUID `json:"tenantId"`
-	Method      string       `json:"method"`
-	Connection  string       `json:"connection"`
-	DefaultSeat *string      `json:"defaultSeat"`
+	ID               impulse.UUID `json:"id"               perm:"-"`
+	TenantID         impulse.UUID `json:"tenantId"`
+	Method           string       `json:"method"`
+	Connection       string       `json:"connection"`
+	DefaultSeat      *string      `json:"defaultSeat"`
+	AsksSecondFactor bool         `json:"asksSecondFactor"`
 }
 
 var tenantDirectoryReadSets resource.SetCache[TenantDirectory, tenantDirectoryRead]
@@ -39,11 +66,12 @@ var tenantDirectoryReadSets resource.SetCache[TenantDirectory, tenantDirectoryRe
 // accept on a mutation, so a patch armed with Enforce meets the field permissions the
 // routes enforce; tenantDirectoryWriteSets holds one Set per mutation.
 type tenantDirectoryWrite struct {
-	ID          impulse.UUID `json:"-"`
-	TenantID    impulse.UUID `json:"-"`
-	Method      string       `json:"-"`
-	Connection  string       `json:"-"`
-	DefaultSeat *string      `json:"-"`
+	ID               impulse.UUID `json:"-"`
+	TenantID         impulse.UUID `json:"-"`
+	Method           string       `json:"-"`
+	Connection       string       `json:"-"`
+	DefaultSeat      *string      `json:"-"`
+	AsksSecondFactor bool         `json:"-"`
 }
 
 var tenantDirectoryWriteSets resource.SetCache[TenantDirectory, tenantDirectoryWrite]
@@ -169,6 +197,7 @@ func (c *TenantDirectoryColumns) All() *TenantDirectoryColumns {
 		"Method",
 		"Connection",
 		"DefaultSeat",
+		"AsksSecondFactor",
 	}
 
 	return c
@@ -200,6 +229,12 @@ func (c *TenantDirectoryColumns) Connection() *TenantDirectoryColumns {
 
 func (c *TenantDirectoryColumns) DefaultSeat() *TenantDirectoryColumns {
 	c.fields = append(c.fields, "DefaultSeat")
+
+	return c
+}
+
+func (c *TenantDirectoryColumns) AsksSecondFactor() *TenantDirectoryColumns {
+	c.fields = append(c.fields, "AsksSecondFactor")
 
 	return c
 }
@@ -314,6 +349,10 @@ func (c *tenantDirectorySort) DefaultSeat() *TenantDirectorySort {
 	return c.addField("DefaultSeat")
 }
 
+func (c *tenantDirectorySort) AsksSecondFactor() *TenantDirectorySort {
+	return c.addField("AsksSecondFactor")
+}
+
 type TenantDirectorySort struct {
 	*tenantDirectorySort
 }
@@ -372,11 +411,11 @@ func (p *TenantDirectoryCreatePatch) ToStruct() *TenantDirectory {
 	return p.patchSet.ToStruct()
 }
 
-func (p *TenantDirectoryCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *TenantDirectoryCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *TenantDirectoryCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *TenantDirectoryCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -469,6 +508,22 @@ func (p *TenantDirectoryCreatePatch) DefaultSeatIsSet() bool {
 	return p.patchSet.IsSet("DefaultSeat")
 }
 
+func (p *TenantDirectoryCreatePatch) SetAsksSecondFactor(v bool) *TenantDirectoryCreatePatch {
+	p.patchSet.Set("AsksSecondFactor", v)
+
+	return p
+}
+
+func (p *TenantDirectoryCreatePatch) AsksSecondFactor() bool {
+	v, _ := p.patchSet.Get("AsksSecondFactor").(bool)
+
+	return v
+}
+
+func (p *TenantDirectoryCreatePatch) AsksSecondFactorIsSet() bool {
+	return p.patchSet.IsSet("AsksSecondFactor")
+}
+
 // Diff is intended for unit testing, and reports the differences between two values using github.com/google/go-cmp/cmp
 func (p *TenantDirectoryCreatePatch) Diff(got *TenantDirectoryCreatePatch, opts ...cmp.Option) string {
 	return resource.PatchSetDiff(opts...)(p.patchSet, got.patchSet)
@@ -508,11 +563,11 @@ func (p *TenantDirectoryUpdatePatch) ToStruct() *TenantDirectory {
 	return p.patchSet.ToStruct()
 }
 
-func (p *TenantDirectoryUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *TenantDirectoryUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *TenantDirectoryUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *TenantDirectoryUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -629,6 +684,22 @@ func (p *TenantDirectoryUpdatePatch) DefaultSeatIsSet() bool {
 	return p.patchSet.IsSet("DefaultSeat")
 }
 
+func (p *TenantDirectoryUpdatePatch) SetAsksSecondFactor(v bool) *TenantDirectoryUpdatePatch {
+	p.patchSet.Set("AsksSecondFactor", v)
+
+	return p
+}
+
+func (p *TenantDirectoryUpdatePatch) AsksSecondFactor() bool {
+	v, _ := p.patchSet.Get("AsksSecondFactor").(bool)
+
+	return v
+}
+
+func (p *TenantDirectoryUpdatePatch) AsksSecondFactorIsSet() bool {
+	return p.patchSet.IsSet("AsksSecondFactor")
+}
+
 // Diff is intended for unit testing, and reports the differences between two values using github.com/google/go-cmp/cmp
 func (p *TenantDirectoryUpdatePatch) Diff(got *TenantDirectoryUpdatePatch, opts ...cmp.Option) string {
 	return resource.PatchSetDiff(opts...)(p.patchSet, got.patchSet)
@@ -654,11 +725,11 @@ func NewTenantDirectoryDeletePatch(id impulse.UUID) *TenantDirectoryDeletePatch 
 	return &TenantDirectoryDeletePatch{patchSet: patchSet}
 }
 
-func (p *TenantDirectoryDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *TenantDirectoryDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *TenantDirectoryDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *TenantDirectoryDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

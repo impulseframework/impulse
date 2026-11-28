@@ -30,10 +30,28 @@ build_and_publish() {
   (cd "$WEB/dist/resource-firestore" && yalc publish --push)
 }
 
+PACKAGES=(@impulseframework/resource @impulseframework/resource-angular @impulseframework/resource-firestore)
+
+# yalc add rewrites the dependencies alone. Every other spec package.json holds for the three
+# packages takes the same file:.yalc spec, the overrides entry first of all: bun installs what
+# an override names in place of what the dependencies name, so an override left at the
+# published version brings in the registry's client in place of the attached one, and the build
+# fails on every export that release lacks.
+attach_pins() {
+  local name
+  for name in "${PACKAGES[@]}"; do
+    sed "s|\"$name\"\([[:space:]]*:[[:space:]]*\)\"[^\"]*\"|\"$name\"\1\"file:.yalc/$name\"|g" package.json > package.json.attaching
+    mv package.json.attaching package.json
+  done
+}
+
 case "${1:-}" in
   local)
     build_and_publish
-    (cd "$GUI_DIR" && yalc add @impulseframework/resource @impulseframework/resource-angular @impulseframework/resource-firestore && bun install)
+    cd "$GUI_DIR"
+    yalc add "${PACKAGES[@]}"
+    attach_pins
+    bun install
     ;;
   push)
     build_and_publish
@@ -46,8 +64,17 @@ case "${1:-}" in
     cd "$GUI_DIR"
     yalc remove --all
     rm -rf .yalc yalc.lock
-    git checkout -- package.json bun.lock
-    bun install --frozen-lockfile
+    git checkout -- package.json
+    if git ls-files --error-unmatch bun.lock > /dev/null 2>&1; then
+      git checkout -- bun.lock
+      bun install --frozen-lockfile
+    else
+      # No lockfile is committed here (an application made with --dev-root starts without one),
+      # so the bun.lock in this directory was written while attached and records the yalc copies:
+      # it goes, and the install writes one from the registry pins.
+      rm -f bun.lock
+      bun install
+    fi
     ;;
   *)
     echo "usage: weblib.sh <local|push|restore>" >&2

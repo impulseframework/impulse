@@ -6,6 +6,11 @@ import { Look } from '@impulseframework/resource';
  */
 export interface SessionInfo {
   authenticated: boolean;
+  /**
+   * The id of the session this browser is signed in with: a list of sessions marks the row
+   * that carries it as the reader's own.
+   */
+  sessionId?: string;
   username: string;
   /**
    * The person's name as people read it ("Gale Reyes"), when they hold one: what a page
@@ -15,17 +20,17 @@ export interface SessionInfo {
    */
   name?: string | null;
   /**
-   * The look the person chose, light or dark and one of the palettes the application
-   * offers, when their account holds one: what their pages are drawn in on every browser
-   * they sign in from. The frame applies it once the session is checked and writes the
-   * person's next change back (`api.auth.changeLook`).
+   * The look the person chose, light, dark or as their device is set, and one of the
+   * palettes the application offers, when their account holds one: what their pages are
+   * drawn in on every browser they sign in from. The frame applies it once the session is
+   * checked and writes the person's next change back (`api.auth.changeLook`).
    */
   look?: Look | null;
   /**
-   * An operator set this user's password: the server serves nothing but the password
-   * change, this read and the logout until the person sets a password of their own,
-   * refusing everything else with the code `password_change_required`. The login page
-   * renders the change form while it is set.
+   * An administrator required a new password of this user: the server serves nothing but
+   * the password change, this read and the logout until the person chooses one, refusing
+   * everything else with the code `password_change_required`. The login page renders the
+   * change form while it is set. Nobody but the person ever sets their password.
    */
   passwordChangeRequired?: boolean;
   /**
@@ -57,6 +62,13 @@ export interface SessionInfo {
    */
   directory?: SessionDirectory;
   /**
+   * The tenant an invitation the person has just accepted seated them in: where the
+   * application opens for them, whatever else they hold. The server names it on the first
+   * session read after the acceptance and on no later one, and never on an impersonated
+   * session; the AuthService keeps it until the person has landed (`invitedTenant`).
+   */
+  invitedTenant?: string;
+  /**
    * The session acts for someone else: the record the server reports of an impersonated
    * session, absent on a person's own. What is the person's alone to change (their name)
    * is not offered in such a session, which the server refuses.
@@ -84,8 +96,41 @@ export interface SessionImpersonation {
   /** What the session acts as: a user or a role, and which. */
   principalKind: string;
   principal: string;
-  /** What the session is limited to; absent on an unrestricted one. */
+  /**
+   * The permission kinds the session keeps. Absent on a session that keeps every kind, and
+   * on one that keeps none: maskWords tells the two apart ("nothing" for the second).
+   */
   mask?: string[];
+  /** The classes of action the session is refused inside the kinds it keeps; absent when it is refused none. */
+  refusedClasses?: string[];
+  /** The permissions the session is refused on a named action or record; absent when it is refused none. */
+  refused?: SessionMaskRefusal[];
+  /**
+   * What the session keeps out of the classes it is refused: each entry is one permission on one
+   * named action, record or field that a refused class would otherwise take. Absent when no
+   * refused class carries an exception. The permission digest already holds what these keep, so
+   * a page offers it without reading this list.
+   */
+  excepted?: SessionMaskException[];
+  /**
+   * The whole mask as a person would say it: "everything", "reading only", "everything
+   * except credential actions". The session endpoint sends it for every impersonated
+   * session, and a banner shows it as it is.
+   */
+  maskWords?: string;
   reason?: string;
   expiresAt: string;
+}
+
+/** One permission an impersonated session is refused on one named action or record. */
+export interface SessionMaskRefusal {
+  permission: string;
+  resource: string;
+}
+
+/** One permission on one named action, record or field that an impersonated session keeps out of a class it is refused. */
+export interface SessionMaskException {
+  class: string;
+  permission: string;
+  resource: string;
 }

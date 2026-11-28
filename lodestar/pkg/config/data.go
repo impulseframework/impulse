@@ -185,7 +185,7 @@ func NewDataConfiguration(ctx context.Context) (*DataConfiguration, error) {
 	// to, at the application's public address.
 	//
 	// Demonstrates: auth.invitation.
-	sender, err := openMailSender(env)
+	sender, err := openMailSender(env, core.Environment())
 	if err != nil {
 		return nil, err
 	}
@@ -419,18 +419,29 @@ func openMembersAuth(ctx context.Context, db *database.Driver, env *dataConfig, 
 	return membersAuth, nil
 }
 
+// developmentEnvironment is the name the development template gives the environment
+// (APP_ENVIRONMENT=development): the one environment whose mail the log may take.
+const developmentEnvironment = "development"
+
+// errNoMailbox refuses to open the data level outside development with no mailbox to
+// send as.
+var errNoMailbox = errors.New("the application has no mailbox to send as, so it does not start: APP_MAIL_MAILBOX and APP_MAIL_APP_PASSWORD are not both set, and mail is written to the log in development alone (APP_ENVIRONMENT=development), since the links and codes it carries are secrets. Give this environment its mailbox and the mailbox's app password, then start it again")
+
 // openMailSender opens the mail driver the auths send through: the Google Workspace
 // SMTP relay as the configured mailbox with its app password (APP_MAIL_MAILBOX,
-// APP_MAIL_APP_PASSWORD), or, with no mailbox configured, the session library's
-// logging stand-in, which writes each message to the log, link included, and sends
-// nothing: development follows the link from the log. A deployed environment configures
-// the mailbox, since the links are secrets. A mailbox configured without its app password
-// is the first environment before an operator adds the secret's version (the stack's
-// secret_versions, where no entry means not yet): the log stands in there too, so the
-// environment runs and its migrations seed, and the relay takes over once the version
-// is pinned; a release to any other environment is refused until it is.
-func openMailSender(env *dataConfig) (mail.Sender, error) {
+// APP_MAIL_APP_PASSWORD). In development, and nowhere else, the session library's
+// logging stand-in takes its place where the two are not both set: it writes each
+// message to the log, link included, and sends nothing, so development follows the link
+// from the log. Development is the environment the process is told it runs in
+// (APP_ENVIRONMENT=development, as the development template sets it). Anywhere else an
+// application with no mailbox, or with a mailbox and no app password yet, does not
+// start: the links and codes it mails are secrets, and a log is no place for them.
+func openMailSender(env *dataConfig, environment string) (mail.Sender, error) {
 	if env.MailMailbox == "" || env.MailAppPassword == "" {
+		if environment != developmentEnvironment {
+			return nil, errNoMailbox
+		}
+
 		return mail.Log{}, nil
 	}
 	sender, err := workspace.New(&workspace.Settings{Mailbox: env.MailMailbox, From: env.MailFrom, AppPassword: env.MailAppPassword, Name: crew.Application})
@@ -544,11 +555,12 @@ type dataConfig struct {
 	// link the auths mail leads to a login page under it. Required, since a mailed link
 	// is absolute.
 	PublicURL string `env:"APP_PUBLIC_URL,required"`
-	// The mail driver: the Google Workspace mailbox the application sends as, through
-	// the Workspace SMTP relay, the address the mail is from when it is not the mailbox
-	// (an alias of its account), and the mailbox's app password, a secret the deployment
-	// reads from its store. Unset, the session library's logging stand-in writes each
-	// message to the log instead of sending it, for development alone.
+	// The mail driver: the Google Workspace mailbox the application sends as, through the
+	// Workspace SMTP relay, the address the mail is from when it is not the mailbox (an
+	// alias of its account), and the mailbox's app password, a secret the deployment reads
+	// from its store. Unset in development (APP_ENVIRONMENT=development), the session
+	// library's logging stand-in writes each message to the log instead of sending it;
+	// unset anywhere else, the application does not start.
 	MailMailbox     string `env:"APP_MAIL_MAILBOX"`
 	MailFrom        string `env:"APP_MAIL_FROM"`
 	MailAppPassword string `env:"APP_MAIL_APP_PASSWORD" secret:"true"`

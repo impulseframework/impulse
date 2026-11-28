@@ -219,7 +219,7 @@ func TestSessionStorageDriver_UpdateCustomUserData(t *testing.T) {
 			userID:     impulse.Must(impulse.UUIDFromString("99999999-9999-9999-9999-999999999999")),
 			mutate:     func(any) error { return nil },
 			wantErr:    true,
-			wantErrMsg: `user id "99999999-9999-9999-9999-999999999999" does not exist`,
+			wantErrMsg: dbtype.AccountNotFoundMessage,
 			postAssertions: []string{
 				`SELECT COUNT(*) = 1 FROM UserCustomData`,
 			},
@@ -279,7 +279,7 @@ func TestSessionStorageDriver_DeleteUser_CustomUserDataCascade(t *testing.T) {
 	c.SetCustomUserData(userDataConfig())
 
 	runAssertions(ctx, t, conn.Client, []string{`SELECT COUNT(*) = 1 FROM UserCustomData`})
-	if err := c.DeleteUser(ctx, dataUserID); err != nil {
+	if err := c.DeleteUser(ctx, dataUserID, nil); err != nil {
 		t.Fatalf("SessionStorageDriver.DeleteUser() error = %v", err)
 	}
 	runAssertions(ctx, t, conn.Client, []string{`SELECT COUNT(*) = 0 FROM UserCustomData`})
@@ -296,12 +296,12 @@ func TestSessionStorageDriver_UpdateCustomSessionData_SessionGate(t *testing.T) 
 		{
 			name:       "unknown session aborts with not found",
 			sessionID:  impulse.Must(impulse.UUIDFromString("99999999-9999-9999-9999-999999999999")),
-			wantErrMsg: `session "99999999-9999-9999-9999-999999999999" not found`,
+			wantErrMsg: dbtype.SessionNotFoundMessage,
 		},
 		{
 			name:       "expired session is rejected",
 			sessionID:  impulse.Must(impulse.UUIDFromString("22222222-2222-2222-2222-222222222222")),
-			wantErrMsg: "cannot update custom session data for an expired session",
+			wantErrMsg: dbtype.SessionDataOnExpiredSessionMessage,
 		},
 	}
 	for _, tt := range tests {

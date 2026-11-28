@@ -13,8 +13,9 @@ package integration
 // against it. The Sector Marshal's grants say what a sector may do:
 //
 //   - an act on the account (disable, enable, delete, rename, the address, the sessions,
-//     the second factor) only on a person the sector holds alone
-//     (heldElsewhere = false AND heldGlobally = false);
+//     the second factor) only on a person whose account the sector manages
+//     (managedHere = true): none of these people signs in through a sector's directory,
+//     so the sector manages a person it holds alone;
 //   - a role given, at a create or to a person already there, in every role but the
 //     Marshal's own (new.role != 'SectorMarshal');
 //   - a role taken away where the sector itself gave it, the Marshal's own excepted
@@ -26,10 +27,10 @@ package integration
 // application.
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -41,7 +42,6 @@ import (
 	"github.com/impulseframework/impulse/accesstypes"
 	initiator "github.com/impulseframework/impulse/db"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/crew"
-	"github.com/impulseframework/impulse/lodestar/pkg/identity/crewidentity"
 	"github.com/impulseframework/impulse/resource"
 	"google.golang.org/grpc/codes"
 )
@@ -82,7 +82,7 @@ func crewMemberships(t *testing.T, db *initiator.SpannerDB, stmt spanner.Stateme
 	if err := iter.Do(func(row *spanner.Row) error {
 		var kind, domain, role string
 		if err := row.Columns(&kind, &domain, &role); err != nil {
-			return err
+			return fmt.Errorf("spanner.Row.Columns(): %w", err)
 		}
 		held = append(held, kind+"/"+domain+" "+role)
 
@@ -125,49 +125,36 @@ func executeAnswer(t *testing.T, h http.Handler, user accesstypes.User, sector, 
 	return methods
 }
 
-// TestGeneratedIdentitySectorAccountMethods holds the methods a sector acts on an
-// account through: each goes through for a person the sector holds alone, is refused for
-// one who holds a role outside it, and does not find a person of another sector; the
-// row's Execute answer says the same before anything is asked; and the rules of the
-// whole application's methods stand here too.
+// TestGeneratedIdentitySectorAccountMethods holds the methods a sector acts on an account
+// through: each goes through for a person the sector manages (here, one it holds alone),
+// is refused for one it does not manage (here, one who holds a role outside it), and does
+// not find a person of another sector; the row's Execute answer says the same before
+// anything is asked; and the rules of the whole application's methods stand here too.
 func TestGeneratedIdentitySectorAccountMethods(t *testing.T) {
 	t.Parallel()
 	w := newTenantListsWorld(t)
 	ctx := t.Context()
 
 	// The Execute grants this suite proves, pinned to the roles file (conditions-proven).
-	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "DisableCrewSectorUser", "heldElsewhere = false AND heldGlobally = false")
-	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "EnableCrewSectorUser", "heldElsewhere = false AND heldGlobally = false")
-	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "DeleteCrewSectorUser", "heldElsewhere = false AND heldGlobally = false")
-	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "RenameCrewSectorUser", "heldElsewhere = false AND heldGlobally = false")
-	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "SetCrewSectorUserEmail", "heldElsewhere = false AND heldGlobally = false")
-	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "SetCrewSectorUserName", "heldElsewhere = false AND heldGlobally = false")
-	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "RequireCrewSectorPasswordChange", "heldElsewhere = false AND heldGlobally = false")
-	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "RevokeCrewSectorUserTrustedDevices", "heldElsewhere = false AND heldGlobally = false")
-	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "EndCrewSectorUserSessions", "heldElsewhere = false AND heldGlobally = false")
+	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "DisableCrewSectorUser", "managedHere = true")
+	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "EnableCrewSectorUser", "managedHere = true")
+	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "DeleteCrewSectorUser", "managedHere = true")
+	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "RenameCrewSectorUser", "managedHere = true")
+	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "SetCrewSectorUserEmail", "managedHere = true")
+	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "SetCrewSectorUserName", "managedHere = true")
+	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "RequireCrewSectorPasswordChange", "managedHere = true")
+	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "RevokeCrewSectorUserTrustedDevices", "managedHere = true")
+	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "EndCrewSectorUserSessions", "managedHere = true")
 
 	// mara is a Marshal of Anvil with an account, for the rule on a person's own account.
-	anvilSector := anvil
-	if err := w.inTransaction(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-		created, err := (&crewidentity.CreateCrewUser{Username: "mara", Roles: []string{"SectorMarshal"}, Domain: &anvilSector}).Execute(ctx, txn, w.app.CrewIdentity())
-		if err != nil {
-			return fmt.Errorf("CreateCrewUser(mara): %w", err)
-		}
-		w.ids["mara"] = created.ID.String()
-		knownAs(t, "mara", created.ID)
-
-		return nil
-	}); err != nil {
-		t.Fatalf("seating mara: %v", err)
-	}
+	w.seat(ctx, t, "mara", "SectorMarshal", anvil)
 
 	accountMethods := []string{
 		"DeleteCrewSectorUser", "DisableCrewSectorUser", "EnableCrewSectorUser", "EndCrewSectorUserSessions", "RenameCrewSectorUser",
-		"RequireCrewSectorPasswordChange", "RevokeCrewSectorUserTrustedDevices", "SetCrewSectorTemporaryPassword", "SetCrewSectorUserEmail",
-		"SetCrewSectorUserName",
+		"RequireCrewSectorPasswordChange", "RevokeCrewSectorUserTrustedDevices", "SetCrewSectorUserEmail", "SetCrewSectorUserName",
 	}
-	// The row's Execute answer: the account methods on a person the sector holds alone,
-	// none of them on a person who holds a role outside it, and the method that gives a
+	// The row's Execute answer: the account methods on a person whose account the sector
+	// manages, none of them on a person it does not manage, and the method that gives a
 	// role on both, since its grant reads the request and not the row.
 	for name, alone := range map[string]bool{"ada": true, "bo": false, "cy": false, "eve": false, "fay": false} {
 		t.Run("the row's Execute answer for "+name, func(t *testing.T) {
@@ -240,21 +227,28 @@ func TestGeneratedIdentitySectorAccountMethods(t *testing.T) {
 			t.Error("ada is still disabled after the call")
 		}
 	})
-	t.Run("the address is set by hand, unverified, and taken off", func(t *testing.T) {
-		status, body := post("marshal", anvil, "set-crew-sector-user-email", fmt.Sprintf(`{"userId":%q,"email":"Ada <ada.new@example.com>"}`, w.ids["ada"]))
-		assertStatus(t, status, http.StatusNoContent, body)
-		if got := readColumn[spanner.NullString](ctx, t, w.db, "CrewSessionUsers", spanner.Key{w.ids["ada"]}, "Email"); got.StringVal != "ada.new@example.com" {
-			t.Errorf("ada's address = %v, want it written bare", got)
+	t.Run("a new address is asked for and changes nothing until its mailbox confirms", func(t *testing.T) {
+		address := func() spanner.NullString {
+			return readColumn[spanner.NullString](ctx, t, w.db, "CrewSessionUsers", spanner.Key{w.ids["ada"]}, "Email")
 		}
-		if got := readColumn[spanner.NullTime](ctx, t, w.db, "CrewSessionUsers", spanner.Key{w.ids["ada"]}, "EmailVerifiedAt"); got.Valid {
-			t.Errorf("ada's address is verified at %v; an address entered by hand is not", got)
+		before := address()
+		// The method answers how the mailing went. This suite serves no session manager,
+		// so no link is mailed and the answer says so; the link, from the request to the
+		// address it confirms, is held on the served stack (TestAccountMail).
+		status, body := post("marshal", anvil, "set-crew-sector-user-email", fmt.Sprintf(`{"userId":%q,"email":"Ada <ada.new@example.com>"}`, w.ids["ada"]))
+		if sent, reason := mailingAnswer(t, status, body); sent || reason == "" {
+			t.Errorf("the answer = %s, want no link sent and the reason said", body)
+		}
+		if got := address(); got != before {
+			t.Errorf("ada's address = %v after the request, want %v kept: an address changes when its mailbox confirms", got, before)
 		}
 		status, body = post("marshal", anvil, "set-crew-sector-user-email", fmt.Sprintf(`{"userId":%q,"email":"ada at example"}`, w.ids["ada"]))
 		assertStatus(t, status, http.StatusBadRequest, body)
+		// An account always keeps an address: a request that names none is refused.
 		status, body = post("marshal", anvil, "set-crew-sector-user-email", userBody("ada"))
-		assertStatus(t, status, http.StatusNoContent, body)
-		if got := readColumn[spanner.NullString](ctx, t, w.db, "CrewSessionUsers", spanner.Key{w.ids["ada"]}, "Email"); got.Valid {
-			t.Errorf("ada's address = %v, want none", got)
+		assertStatus(t, status, http.StatusBadRequest, body)
+		if got := address(); got != before {
+			t.Errorf("ada's address = %v after the refused requests, want %v kept", got, before)
 		}
 	})
 	t.Run("the name is written without the space around it, refused when too long, and taken off", func(t *testing.T) {
@@ -345,10 +339,10 @@ func TestGeneratedIdentitySectorAccountMethods(t *testing.T) {
 }
 
 // TestGeneratedIdentitySectorRoleMethods holds the methods a sector gives and takes
-// roles through, and the one it creates a person with: a role is held in the request's
-// sector and no other, the Marshal hands out and takes away every role but the Marshal's
-// own, a role held in every sector is not the sector's to take, and the last role a
-// person holds anywhere takes the account with it.
+// roles through: a role is held in the request's sector and no other, the Marshal hands
+// out and takes away every role but the Marshal's own, a role held in every sector is
+// not the sector's to take, and the last role a person holds anywhere leaves the account
+// standing, holding nothing.
 func TestGeneratedIdentitySectorRoleMethods(t *testing.T) {
 	t.Parallel()
 	w := newTenantListsWorld(t)
@@ -356,22 +350,11 @@ func TestGeneratedIdentitySectorRoleMethods(t *testing.T) {
 
 	// The Execute grants this suite proves, pinned to the roles file (conditions-proven).
 	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "AssignCrewSectorRole", "new.role != 'SectorMarshal'")
-	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "CreateCrewSectorUser", "new.role != 'SectorMarshal'")
 	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "RemoveCrewSectorRole", "role != 'SectorMarshal' AND everyDomain = false")
 
-	anvilSector := anvil
-	if err := w.inTransaction(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-		created, err := (&crewidentity.CreateCrewUser{Username: "mara", Roles: []string{"SectorMarshal"}, Domain: &anvilSector}).Execute(ctx, txn, w.app.CrewIdentity())
-		if err != nil {
-			return fmt.Errorf("CreateCrewUser(mara): %w", err)
-		}
-		w.ids["mara"] = created.ID.String()
-		knownAs(t, "mara", created.ID)
-
-		return nil
-	}); err != nil {
-		t.Fatalf("seating mara: %v", err)
-	}
+	// mara is a Marshal of Anvil with an account, whose role the Marshal neither gives
+	// nor takes.
+	w.seat(ctx, t, "mara", "SectorMarshal", anvil)
 
 	post := func(user accesstypes.User, sector, method, body string) (int, []byte) {
 		return doRequestAs(t, w.h, user, http.MethodPost, sectorPath(sector, method), body)
@@ -401,16 +384,17 @@ func TestGeneratedIdentitySectorRoleMethods(t *testing.T) {
 		}
 	})
 	t.Run("the Marshal hands out every role but the Marshal's own", func(t *testing.T) {
-		// The method names a row, so the grant's holder hears that the method may not run
-		// against it; a caller with no grant is refused before any row is looked for.
+		// The method names a row, so the grant's holder hears that it may not be done to
+		// that person, in a person's words; a caller with no grant is refused before any
+		// row is looked for.
 		status, body := assign("marshal", anvil, "ada", "SectorMarshal")
 		assertStatus(t, status, http.StatusForbidden, body)
-		if !strings.Contains(string(body), "AssignCrewSectorRole may not run against CrewSectorUser "+w.ids["ada"]) {
-			t.Errorf("the Marshal's refusal = %s", body)
+		if got, want := refusalMessage(t, body), "You may not do this to this crew sector user."; got != want {
+			t.Errorf("the Marshal's refusal = %q, want %q", got, want)
 		}
 		status, body = assign("cadet", anvil, "ada", "Pilot")
 		assertStatus(t, status, http.StatusForbidden, body)
-		if !strings.Contains(string(body), "does not have Execute on [AssignCrewSectorRole]") {
+		if !strings.Contains(string(body), "You may not do this here.") {
 			t.Errorf("the cadet's refusal = %s", body)
 		}
 		if got, want := crewHolds(t, w.db, "ada"), []string{"domain/" + anvil + " Cadet", "domain/" + anvil + " Pilot"}; !slices.Equal(got, want) {
@@ -433,6 +417,7 @@ func TestGeneratedIdentitySectorRoleMethods(t *testing.T) {
 	})
 
 	t.Run("the row's Execute answer says which roles the Marshal takes away", func(t *testing.T) {
+		answers := heldRoleAnswers(t, w.h, "marshal", anvil)
 		for _, tt := range []struct {
 			name, role string
 			want       bool
@@ -442,7 +427,14 @@ func TestGeneratedIdentitySectorRoleMethods(t *testing.T) {
 			{name: "cy", role: "Archivist", want: false},
 			{name: "mara", role: "SectorMarshal", want: false},
 		} {
-			methods := executeAnswer(t, w.h, "marshal", anvil, sectorRolesPath, w.ids[tt.name]+"/"+tt.role)
+			// The removal names a row of the sector's one list of roles, read as a list:
+			// the row of the person's own role is the one whose group is empty.
+			methods, listed := answers[w.ids[tt.name]+"/"+tt.role+"/"]
+			if !listed {
+				t.Errorf("%s's %s is no row of the sector's one list of roles", tt.name, tt.role)
+
+				continue
+			}
 			if got := slices.Contains(methods, "RemoveCrewSectorRole"); got != tt.want {
 				t.Errorf("%s's %s: the answer %v lists RemoveCrewSectorRole = %v, want %v", tt.name, tt.role, methods, got, tt.want)
 			}
@@ -482,78 +474,39 @@ func TestGeneratedIdentitySectorRoleMethods(t *testing.T) {
 		status, body = remove("marshal", anvil, "eve", "Pilot")
 		assertStatus(t, status, http.StatusForbidden, body)
 	})
-	t.Run("the last role a person holds anywhere takes the account with it", func(t *testing.T) {
+	t.Run("the last role a person holds anywhere leaves the account standing, holding nothing", func(t *testing.T) {
 		status, body := remove("marshal", anvil, "ada", "Cadet")
 		assertStatus(t, status, http.StatusNoContent, body)
-		if crewAccountExists(t, w.db, w.ids["ada"]) {
-			t.Error("ada's account stands with no role anywhere")
+		if !crewAccountExists(t, w.db, w.ids["ada"]) {
+			t.Error("ada's account is gone with her last role, want it kept")
 		}
-		// fay holds a role for the whole application too, so the account stays.
+		if got := crewHeldBy(t, w.db, w.ids["ada"]); len(got) != 0 {
+			t.Errorf("ada holds %v after her last role went, want nothing", got)
+		}
+		// fay holds a role for the whole application too, and the account stays.
 		status, body = remove("marshal", anvil, "fay", "Cadet")
 		assertStatus(t, status, http.StatusNoContent, body)
 		if !crewAccountExists(t, w.db, w.ids["fay"]) {
 			t.Error("fay's account is gone though fay holds a role for the whole application")
 		}
 	})
-
-	t.Run("a person is created holding a role in the request's sector", func(t *testing.T) {
-		status, body := post("marshal", anvil, "create-crew-sector-user", `{"username":"gus","email":"Gus <gus@example.com>","roles":["Cadet","Pilot"]}`)
-		assertStatus(t, status, http.StatusOK, body)
-		id := cell[string](t, decodeRow(t, body), "id")
-		if got, want := crewHolds(t, w.db, "gus"), []string{"domain/" + anvil + " Cadet", "domain/" + anvil + " Pilot"}; !slices.Equal(got, want) {
-			t.Errorf("gus holds %v, want %v", got, want)
-		}
-		if got := readColumn[spanner.NullString](ctx, t, w.db, "CrewSessionUsers", spanner.Key{id}, "Email"); got.StringVal != "gus@example.com" {
-			t.Errorf("gus's address = %v, want it written bare", got)
-		}
-		// The new person is a row of Anvil's list and of no other sector's.
-		if rows := sectorList(t, w.h, "marshal", anvil, sectorPeoplePath); rows[id] == nil {
-			t.Errorf("gus is missing from Anvil's people: %v", rows)
-		}
-		if rows := sectorList(t, w.h, "governor", bastion, sectorPeoplePath); rows[id] != nil {
-			t.Errorf("gus is among Bastion's people: %v", rows[id])
-		}
-	})
-	t.Run("a create is held to the roles the Marshal hands out", func(t *testing.T) {
-		for name, tt := range map[string]struct {
-			body string
-			want int
-		}{
-			"with the Marshal's own role":                {body: `{"username":"hal","roles":["SectorMarshal"]}`, want: http.StatusForbidden},
-			"with the Marshal's role among others":       {body: `{"username":"hal","roles":["Cadet","SectorMarshal"]}`, want: http.StatusForbidden},
-			"with no role":                               {body: `{"username":"hal"}`, want: http.StatusForbidden},
-			"with an empty list of roles":                {body: `{"username":"hal","roles":[]}`, want: http.StatusForbidden},
-			"with a role of the whole application":       {body: `{"username":"hal","roles":["CrewCommon"]}`, want: http.StatusNotFound},
-			"under a name another sector's person holds": {body: `{"username":"di","roles":["Cadet"]}`, want: http.StatusConflict},
-		} {
-			status, body := post("marshal", anvil, "create-crew-sector-user", tt.body)
-			if status != tt.want {
-				t.Errorf("a create %s: status %d, want %d: %s", name, status, tt.want, body)
-			}
-		}
-		if got := crewHolds(t, w.db, "hal"); len(got) != 0 {
-			t.Errorf("a refused create left hal holding %v", got)
-		}
-		status, body := post("cadet", anvil, "create-crew-sector-user", `{"username":"hal","roles":["Cadet"]}`)
-		assertStatus(t, status, http.StatusForbidden, body)
-	})
 }
 
 // TestGeneratedIdentitySectorIdentities holds the identities of a sector's people, the
-// fourth of a sector's lists, and the method that unlinks one: each sector lists the
-// identity links of its own people, a person of two sectors' in each; the link's
-// subject and address are the Marshal's to see only where the sector holds the person
-// alone (heldElsewhere = false); and the Marshal unlinks an identity of a person the
-// sector holds alone, never the last way in of a person with no password.
+// fourth of a sector's lists, and the method that unlinks one: a sector lists every
+// field of the identity links of the people whose account it manages
+// (managedHere = true), and no link of a person another party manages, one of two
+// sectors or of the whole application; and the Marshal unlinks an identity of a person
+// the sector manages, never the last way in of a person with no password.
 func TestGeneratedIdentitySectorIdentities(t *testing.T) {
 	t.Parallel()
 	w := newTenantListsWorld(t)
 	ctx := t.Context()
 
 	// The grants this suite proves, pinned to the roles file (conditions-proven).
-	provesGrant(t, crew.Roles(), "SectorMarshal", "List", "CrewSectorIdentities", "heldElsewhere = false")
-	provesGrant(t, crew.Roles(), "SectorMarshal", "Read", "CrewSectorIdentities", "heldElsewhere = false")
-	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "UnlinkCrewSectorSessionIdentity", "heldElsewhere = false AND heldGlobally = false")
+	provesGrant(t, crew.Roles(), "SectorMarshal", "List", "CrewSectorIdentities", "managedHere = true")
+	provesGrant(t, crew.Roles(), "SectorMarshal", "Read", "CrewSectorIdentities", "managedHere = true")
+	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "UnlinkCrewSectorSessionIdentity", "managedHere = true")
 
 	const identitiesPath = "crew-sector-identities"
 	// The links, written as the session library writes one: ada signs in two ways and
@@ -596,8 +549,8 @@ func TestGeneratedIdentitySectorIdentities(t *testing.T) {
 		sector string
 		want   []string
 	}{
-		{name: "Anvil's people's identities", user: "marshal", sector: anvil, want: []string{"ada-fleet", "ada-yard", "bo-fleet", "fay-fleet"}},
-		{name: "Bastion's: the person of both sectors is linked there too", user: "governor", sector: bastion, want: []string{"bo-fleet", "di-fleet"}},
+		{name: "Anvil's: the identities of the person it manages", user: "marshal", sector: anvil, want: []string{"ada-fleet", "ada-yard"}},
+		{name: "Bastion's: none, for the person of both sectors and the one of the whole application are not Bastion's to manage", user: "governor", sector: bastion},
 		{name: "Cinder's people have none", user: "governor", sector: cinder},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -620,35 +573,43 @@ func TestGeneratedIdentitySectorIdentities(t *testing.T) {
 		})
 	}
 
-	// The subject and the address the directory vouched for are one grant of the
-	// Marshal's with a condition on the fact: answered for the people the sector holds
-	// alone or with the whole application, and left out for a person of another sector,
-	// in the list and in the keyed read.
-	for name, want := range map[string]bool{"ada-fleet": true, "fay-fleet": true, "bo-fleet": false} {
-		t.Run("the Marshal sees the subject of "+name+" only where no other sector holds the person", func(t *testing.T) {
-			check := func(where string, row map[string]any) {
-				for _, field := range []string{"subject", "emailAtLink"} {
-					if _, got := row[field]; got != want {
-						t.Errorf("%s: %s in the %s = %v, want %v: %v", name, field, where, got, want, row)
-					}
-				}
-				if _, ok := row["method"]; !ok {
-					t.Errorf("%s: the %s leaves out the method, which the grant carries with no condition: %v", name, where, row)
+	// Every field of a link is one grant of the Marshal's under managedHere = true:
+	// answered for a person the sector manages, in the list and in the keyed read, and a
+	// link of a person it does not manage (fay holds a role for the whole application,
+	// bo one at Bastion too) is neither listed nor read.
+	t.Run("the Marshal sees every field of a link of a person the sector manages", func(t *testing.T) {
+		check := func(where string, row map[string]any) {
+			for _, field := range []string{"method", "connection", "subject", "emailAtLink", "createdAt", "lastUsedAt", "managedHere", "managedByAnotherDirectory"} {
+				if _, ok := row[field]; !ok {
+					t.Errorf("ada-fleet: the %s leaves out %s: %v", where, field, row)
 				}
 			}
-			check("list", sectorList(t, w.h, "marshal", anvil, identitiesPath)[ids[name]])
+			if row["managedHere"] != true || row["managedByAnotherDirectory"] != false {
+				t.Errorf("ada-fleet: the %s says managedHere = %v, managedByAnotherDirectory = %v, want true and false", where, row["managedHere"], row["managedByAnotherDirectory"])
+			}
+		}
+		check("list", sectorList(t, w.h, "marshal", anvil, identitiesPath)[ids["ada-fleet"]])
+		status, body := doRequestAs(t, w.h, "marshal", http.MethodGet, sectorPath(anvil, identitiesPath+"/"+ids["ada-fleet"]), "")
+		assertStatus(t, status, http.StatusOK, body)
+		check("read", decodeRow(t, body))
+	})
+	for _, name := range []string{"fay-fleet", "bo-fleet"} {
+		t.Run("a link of "+name+" is neither listed nor read where the sector does not manage the person", func(t *testing.T) {
+			if row, ok := sectorList(t, w.h, "marshal", anvil, identitiesPath)[ids[name]]; ok {
+				t.Errorf("the list holds %s: %v", name, row)
+			}
 			status, body := doRequestAs(t, w.h, "marshal", http.MethodGet, sectorPath(anvil, identitiesPath+"/"+ids[name]), "")
-			assertStatus(t, status, http.StatusOK, body)
-			check("read", decodeRow(t, body))
+			assertStatus(t, status, http.StatusNotFound, body)
 		})
 	}
-	t.Run("a link is read within the sectors of its person, and a person's links are filtered by the account", func(t *testing.T) {
+	t.Run("a link is read only within a sector that manages its person, and a person's links are filtered by the account", func(t *testing.T) {
 		for _, tt := range []struct {
 			sector, link string
 			want         int
 		}{
-			{sector: anvil, link: "bo-fleet", want: http.StatusOK},
-			{sector: bastion, link: "bo-fleet", want: http.StatusOK},
+			{sector: anvil, link: "ada-fleet", want: http.StatusOK},
+			{sector: anvil, link: "bo-fleet", want: http.StatusNotFound},
+			{sector: bastion, link: "bo-fleet", want: http.StatusNotFound},
 			{sector: bastion, link: "ada-fleet", want: http.StatusNotFound},
 			{sector: anvil, link: "di-fleet", want: http.StatusNotFound},
 		} {
@@ -669,15 +630,13 @@ func TestGeneratedIdentitySectorIdentities(t *testing.T) {
 	unlink := func(user accesstypes.User, sector, name string) (int, []byte) {
 		return doRequestAs(t, w.h, user, http.MethodPost, sectorPath(sector, "unlink-crew-sector-session-identity"), fmt.Sprintf(`{"identityId":%q}`, ids[name]))
 	}
-	t.Run("the row's Execute answer says whose identity the Marshal unlinks", func(t *testing.T) {
-		for name, want := range map[string]bool{"ada-fleet": true, "bo-fleet": false, "fay-fleet": false} {
-			methods := executeAnswer(t, w.h, "marshal", anvil, identitiesPath, ids[name])
-			if got := slices.Contains(methods, "UnlinkCrewSectorSessionIdentity"); got != want {
-				t.Errorf("%s: the answer %v lists UnlinkCrewSectorSessionIdentity = %v, want %v", name, methods, got, want)
-			}
+	t.Run("the row's Execute answer says the Marshal unlinks an identity of a person the sector manages", func(t *testing.T) {
+		methods := executeAnswer(t, w.h, "marshal", anvil, identitiesPath, ids["ada-fleet"])
+		if !slices.Contains(methods, "UnlinkCrewSectorSessionIdentity") {
+			t.Errorf("ada-fleet: the answer %v leaves out UnlinkCrewSectorSessionIdentity", methods)
 		}
 	})
-	t.Run("an identity is unlinked for a person the sector holds alone", func(t *testing.T) {
+	t.Run("an identity is unlinked for a person the sector manages", func(t *testing.T) {
 		for _, name := range []string{"bo-fleet", "fay-fleet"} {
 			status, body := unlink("marshal", anvil, name)
 			assertStatus(t, status, http.StatusForbidden, body)
@@ -697,7 +656,7 @@ func TestGeneratedIdentitySectorIdentities(t *testing.T) {
 		// in, so the first stays while the second is all that would remain.
 		status, body = unlink("marshal", anvil, "ada-fleet")
 		assertStatus(t, status, http.StatusConflict, body)
-		if !strings.Contains(string(body), "none of the other identities linked to the user can sign them in any more") {
+		if !strings.Contains(string(body), "None of the other sign-in identities linked to the account can sign in any more, so this one is its only way to sign in. Link a directory sign-in the login page offers first, or give the account a password.") {
 			t.Errorf("the refusal = %s, want it to say her other identity signs nobody in", body)
 		}
 		if !linked("ada-fleet") {
@@ -725,7 +684,9 @@ func TestGeneratedIdentitySectorIdentities(t *testing.T) {
 // custom role held in every sector; it lists no role of the whole application and no
 // custom role of another sector. The list is the sector's own: its Marshal reads it
 // there, at another sector's address the sector is not found, and a person without the
-// grant is refused.
+// grant is refused. It is asked as a dialog asks it, for the method that gives a person
+// a role (TestGeneratedIdentitySectorRolesAreEachMethodsOwn holds one method's list
+// apart from another's).
 func TestGeneratedIdentitySectorRoles(t *testing.T) {
 	t.Parallel()
 	w := newTenantListsWorld(t)
@@ -734,7 +695,13 @@ func TestGeneratedIdentitySectorRoles(t *testing.T) {
 	// The List grant this suite proves, pinned to the roles file (conditions-proven).
 	provesGrant(t, crew.Roles(), "SectorMarshal", "List", "CrewSectorRoles", "name != 'SectorMarshal'")
 
+	// The Marshal's grant on the list carries a condition, and a computed list filters
+	// only by a field granted with no condition: the role file grants the field the
+	// list is asked by beside it, as a grant of the field alone.
+	provesFieldGrant(t, crew.Roles(), "SectorMarshal", "List", "CrewSectorRoles.method")
+
 	const rolesPath = "crew-sector-roles"
+	const byMethod = "filter=method:eq:AssignCrewSectorRole"
 	roles := w.engine.UserManager()
 	if err := roles.AddRole(ctx, accesstypes.DomainPolicyScope(anvil), "Wrench", "Keeps Anvil's tools"); err != nil {
 		t.Fatalf("adding Anvil's custom role: %v", err)
@@ -745,7 +712,7 @@ func TestGeneratedIdentitySectorRoles(t *testing.T) {
 
 	list := func(t *testing.T, user accesstypes.User, sector string) (names []string, byName map[string]map[string]any) {
 		t.Helper()
-		status, body := doRequestAs(t, w.h, user, http.MethodGet, sectorPath(sector, rolesPath+"?limit=all"), "")
+		status, body := doRequestAs(t, w.h, user, http.MethodGet, sectorPath(sector, rolesPath+"?limit=all&"+byMethod), "")
 		assertStatus(t, status, http.StatusOK, body)
 		rows := decodeRows(t, body)
 		for _, row := range rows {
@@ -756,6 +723,12 @@ func TestGeneratedIdentitySectorRoles(t *testing.T) {
 		return names, rowsByID(t, rows, "name")
 	}
 
+	// The cases run side by side, in no order. The roles of each sector are added above,
+	// before any of them, and no case changes that list. One case writes: the last gives
+	// ada Wrench. The refused request names ada too, and the server looks her up among
+	// Anvil's people before it refuses. Its answer is the same on either side of the
+	// write: ada is one of Anvil's people from the seed on, and the refusal is by the role
+	// the request names.
 	for _, tt := range []struct {
 		name    string
 		user    accesstypes.User
@@ -779,6 +752,8 @@ func TestGeneratedIdentitySectorRoles(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			names, byName := list(t, tt.user, tt.sector)
 			if !slices.IsSorted(names) {
 				t.Errorf("the roles are not listed by name: %v", names)
@@ -797,6 +772,8 @@ func TestGeneratedIdentitySectorRoles(t *testing.T) {
 	}
 
 	t.Run("each role carries its description: the role file's and a custom role's", func(t *testing.T) {
+		t.Parallel()
+
 		_, byName := list(t, "marshal", anvil)
 		if got, _ := byName["Wrench"]["description"].(string); got != "Keeps Anvil's tools" {
 			t.Errorf("Wrench's description = %q, want the one it was added with", got)
@@ -824,6 +801,8 @@ func TestGeneratedIdentitySectorRoles(t *testing.T) {
 	// one of them but that. A request for the name alone is trimmed too, and so is
 	// the count.
 	t.Run("the role the grant's condition leaves out is a role of the sector, left out of the list, the key-only list and the count", func(t *testing.T) {
+		t.Parallel()
+
 		all, err := roles.Roles(ctx, accesstypes.DomainPolicyScope(anvil))
 		if err != nil {
 			t.Fatalf("UserManager.Roles() error = %v", err)
@@ -841,15 +820,18 @@ func TestGeneratedIdentitySectorRoles(t *testing.T) {
 			t.Errorf("the Marshal's list = %v, want every role of the sector but SectorMarshal: %v", listed, want)
 		}
 
-		status, body := doRequestAs(t, w.h, "marshal", http.MethodGet, sectorPath(anvil, rolesPath+"?columns=name&limit=all"), "")
+		status, body := doRequestAs(t, w.h, "marshal", http.MethodGet, sectorPath(anvil, rolesPath+"?columns=name&limit=all&"+byMethod), "")
 		assertStatus(t, status, http.StatusOK, body)
+		if len(decodeRows(t, body)) != len(want) {
+			t.Errorf("the list of names alone holds %d roles, want the %d the grant admits: %s", len(decodeRows(t, body)), len(want), body)
+		}
 		for _, row := range decodeRows(t, body) {
 			if row["name"] == "SectorMarshal" {
 				t.Errorf("the list of names alone holds SectorMarshal: %s", body)
 			}
 		}
 
-		rec := doRequestRecordedAs(t, w.h, "marshal", http.MethodGet, sectorPath(anvil, rolesPath+"?limit=1&count=true"), "")
+		rec := doRequestRecordedAs(t, w.h, "marshal", http.MethodGet, sectorPath(anvil, rolesPath+"?limit=1&count=true&"+byMethod), "")
 		assertStatus(t, rec.Code, http.StatusOK, rec.Body.Bytes())
 		if got, want := rec.Header().Get(resource.TotalCountHeader), strconv.Itoa(len(want)); got != want {
 			t.Errorf("Total-Count = %q, want %s: the roles the grant admits", got, want)
@@ -859,18 +841,24 @@ func TestGeneratedIdentitySectorRoles(t *testing.T) {
 	// The method's own grant carries the same limit, so a request that names the
 	// role the list left out is refused.
 	t.Run("the role the list leaves out is refused when it is given anyway", func(t *testing.T) {
+		t.Parallel()
+
 		status, body := doRequestAs(t, w.h, "marshal", http.MethodPost, sectorPath(anvil, "assign-crew-sector-role"), fmt.Sprintf(`{"userId":%q,"role":"SectorMarshal"}`, w.ids["ada"]))
 		assertStatus(t, status, http.StatusForbidden, body)
 	})
 
 	t.Run("the list is the sector's own", func(t *testing.T) {
-		status, body := doRequestAs(t, w.h, "marshal", http.MethodGet, sectorPath(bastion, rolesPath+"?limit=all"), "")
+		t.Parallel()
+
+		status, body := doRequestAs(t, w.h, "marshal", http.MethodGet, sectorPath(bastion, rolesPath+"?limit=all&"+byMethod), "")
 		assertStatus(t, status, http.StatusNotFound, body)
-		status, body = doRequestAs(t, w.h, "cadet", http.MethodGet, sectorPath(anvil, rolesPath+"?limit=all"), "")
+		status, body = doRequestAs(t, w.h, "cadet", http.MethodGet, sectorPath(anvil, rolesPath+"?limit=all&"+byMethod), "")
 		assertStatus(t, status, http.StatusForbidden, body)
 	})
 
 	t.Run("a role picked from the list is given", func(t *testing.T) {
+		t.Parallel()
+
 		status, body := doRequestAs(t, w.h, "marshal", http.MethodPost, sectorPath(anvil, "assign-crew-sector-role"), fmt.Sprintf(`{"userId":%q,"role":"Wrench"}`, w.ids["ada"]))
 		assertStatus(t, status, http.StatusNoContent, body)
 		if held := crewHolds(t, w.db, "ada"); !slices.Contains(held, "domain/"+anvil+" Wrench") {
@@ -883,11 +871,12 @@ func TestGeneratedIdentitySectorRoles(t *testing.T) {
 // picked from offers the roles the caller could give, by the grants of the methods that
 // give one and by nothing the list's own grant says. The world runs over the crew's
 // role file with the condition taken off the Marshal's List grant on the list, so
-// nothing but the methods' grants keeps the Marshal's own role out (each of the four
+// nothing but the methods' grants keeps the Marshal's own role out (each of the three
 // carries new.role != 'SectorMarshal'): the list leaves it out still, the list of names
 // alone and the count with it, holds every other role of the sector, and the method
-// refuses the role the list left out. A page offers what the caller may do, and the
-// role file says the limit once.
+// refuses the role the list left out, whichever of the three methods the list is asked
+// for. A page offers what the caller may do, and the role file says the limit once for
+// each method.
 func TestGeneratedIdentitySectorRolesFollowTheMethods(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -895,7 +884,6 @@ func TestGeneratedIdentitySectorRolesFollowTheMethods(t *testing.T) {
 	// The grants this suite proves: what each method that picks from the list says of
 	// the role, pinned to the roles file (conditions-proven).
 	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "AssignCrewSectorRole", "new.role != 'SectorMarshal'")
-	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "CreateCrewSectorUser", "new.role != 'SectorMarshal'")
 	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "InviteCrewSectorUser", "new.role != 'SectorMarshal'")
 	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "GiveCrewSectorGroupRole", "new.role != 'SectorMarshal'")
 	w := buildIdentityWorldOver(t, false, withoutCondition(t, crew.Roles(), "SectorMarshal", "List", "CrewSectorRoles"))
@@ -917,32 +905,141 @@ func TestGeneratedIdentitySectorRolesFollowTheMethods(t *testing.T) {
 	}
 
 	for _, user := range []accesstypes.User{"marshal", "governor"} {
-		rec := doRequestRecordedAs(t, w.h, user, http.MethodGet, sectorPath(anvil, rolesPath+"?limit=all&count=true"), "")
-		assertStatus(t, rec.Code, http.StatusOK, rec.Body.Bytes())
-		var listed []string
-		for _, row := range decodeRows(t, rec.Body.Bytes()) {
-			name, _ := row["name"].(string)
-			listed = append(listed, name)
-		}
-		if !slices.Equal(listed, want) {
-			t.Errorf("%s is listed %v, want every role of the sector but SectorMarshal, which no method takes from them: %v", user, listed, want)
-		}
-		if got, want := rec.Header().Get(resource.TotalCountHeader), strconv.Itoa(len(want)); got != want {
-			t.Errorf("%s: Total-Count = %q, want %s: the roles the caller could give", user, got, want)
-		}
+		for _, method := range []string{"AssignCrewSectorRole", "InviteCrewSectorUser", "GiveCrewSectorGroupRole"} {
+			byMethod := "filter=method:eq:" + method
+			rec := doRequestRecordedAs(t, w.h, user, http.MethodGet, sectorPath(anvil, rolesPath+"?limit=all&count=true&"+byMethod), "")
+			assertStatus(t, rec.Code, http.StatusOK, rec.Body.Bytes())
+			var listed []string
+			for _, row := range decodeRows(t, rec.Body.Bytes()) {
+				name, _ := row["name"].(string)
+				listed = append(listed, name)
+			}
+			if !slices.Equal(listed, want) {
+				t.Errorf("%s is listed %v for %s, want every role of the sector but SectorMarshal, which the method does not take from them: %v", user, listed, method, want)
+			}
+			if got, want := rec.Header().Get(resource.TotalCountHeader), strconv.Itoa(len(want)); got != want {
+				t.Errorf("%s, %s: Total-Count = %q, want %s: the roles the caller could give", user, method, got, want)
+			}
 
-		status, body := doRequestAs(t, w.h, user, http.MethodGet, sectorPath(anvil, rolesPath+"?columns=name&limit=all"), "")
-		assertStatus(t, status, http.StatusOK, body)
-		for _, row := range decodeRows(t, body) {
-			if row["name"] == "SectorMarshal" {
-				t.Errorf("%s: the list of names alone holds SectorMarshal: %s", user, body)
+			status, body := doRequestAs(t, w.h, user, http.MethodGet, sectorPath(anvil, rolesPath+"?columns=name&limit=all&"+byMethod), "")
+			assertStatus(t, status, http.StatusOK, body)
+			if len(decodeRows(t, body)) != len(want) {
+				t.Errorf("%s, %s: the list of names alone holds %d roles, want %d: %s", user, method, len(decodeRows(t, body)), len(want), body)
+			}
+			for _, row := range decodeRows(t, body) {
+				if row["name"] == "SectorMarshal" {
+					t.Errorf("%s, %s: the list of names alone holds SectorMarshal: %s", user, method, body)
+				}
 			}
 		}
 	}
 
 	// The cadet holds no grant on the list, which the methods' grants do not change.
-	status, body := doRequestAs(t, w.h, "cadet", http.MethodGet, sectorPath(anvil, rolesPath+"?limit=all"), "")
+	status, body := doRequestAs(t, w.h, "cadet", http.MethodGet, sectorPath(anvil, rolesPath+"?limit=all&filter=method:eq:AssignCrewSectorRole"), "")
 	assertStatus(t, status, http.StatusForbidden, body)
+}
+
+// TestGeneratedIdentitySectorRolesAreEachMethodsOwn pins that the list a sector's role
+// is picked from answers for one method at a time. The world runs over the crew's role
+// file with the condition taken off the Marshal's List grant on the list, and off the
+// Marshal's grant of the invitation: the invitation alone then takes the Marshal's own
+// role from a Marshal. The role is in the invitation's list and in no other method's,
+// each row says the method it is listed for, a request that names no method is listed
+// no role, and one that names a method any other way, or a method of the whole
+// application, is refused with the names to send. The invitation holds what its list
+// said: the request passes its check with the role and reaches the step that makes the
+// link, which this suite's stand-in for the session manager keeps and fails.
+func TestGeneratedIdentitySectorRolesAreEachMethodsOwn(t *testing.T) {
+	t.Parallel()
+
+	const assign, invite, giveGroup = "AssignCrewSectorRole", "InviteCrewSectorUser", "GiveCrewSectorGroupRole"
+	roles := withoutCondition(t, crew.Roles(), "SectorMarshal", "List", "CrewSectorRoles")
+	roles = withoutCondition(t, roles, "SectorMarshal", "Execute", invite)
+	w := buildIdentityWorldOver(t, false, roles)
+
+	const rolesPath = "crew-sector-roles?limit=all"
+	list := func(t *testing.T, method string) []string {
+		t.Helper()
+		status, body := doRequestAs(t, w.h, "marshal", http.MethodGet, sectorPath(anvil, rolesPath+"&filter=method:eq:"+method), "")
+		assertStatus(t, status, http.StatusOK, body)
+		var listed []string
+		for _, row := range decodeRows(t, body) {
+			name, _ := row["name"].(string)
+			if listedFor, _ := row["method"].(string); listedFor != method {
+				t.Errorf("%s is listed for the method %q, want %s, the one the request names: %v", name, listedFor, method, row)
+			}
+			listed = append(listed, name)
+		}
+
+		return listed
+	}
+
+	if listed := list(t, invite); !slices.Contains(listed, "SectorMarshal") || !slices.Contains(listed, "Cadet") {
+		t.Errorf("the invitation's list = %v, want SectorMarshal, which its grant takes from the Marshal, and Cadet among them", listed)
+	}
+	for _, method := range []string{assign, giveGroup} {
+		listed := list(t, method)
+		if slices.Contains(listed, "SectorMarshal") {
+			t.Errorf("the list of %s = %v, want no SectorMarshal: its own grant refuses the role, whatever the invitation's takes", method, listed)
+		}
+		if !slices.Contains(listed, "Cadet") {
+			t.Errorf("the list of %s = %v, want Cadet among them", method, listed)
+		}
+	}
+
+	status, body := doRequestAs(t, w.h, "marshal", http.MethodGet, sectorPath(anvil, rolesPath), "")
+	assertStatus(t, status, http.StatusOK, body)
+	if rows := decodeRows(t, body); len(rows) != 0 {
+		t.Errorf("a request that names no method is listed %d roles, want none: %s", len(rows), body)
+	}
+
+	const methods = "AssignCrewSectorRole, InviteCrewSectorUser, GiveCrewSectorGroupRole"
+	for _, filter := range []string{
+		"method:eq:AssignCrewRole",
+		"method:ne:" + assign,
+		"method:in:(" + assign + "," + invite + ")",
+	} {
+		status, body := doRequestAs(t, w.h, "marshal", http.MethodGet, sectorPath(anvil, rolesPath+"&filter="+url.QueryEscape(filter)), "")
+		if status != http.StatusBadRequest || !strings.Contains(string(body), methods) || !strings.Contains(string(body), "method:eq:") {
+			t.Errorf("filter %q: status %d, want 400 naming the methods (%s) and the filter to send: %s", filter, status, methods, body)
+		}
+	}
+
+	invited := "marshal-" + identitySuffix() + "@anvil.example"
+	status, body = doRequestAs(t, w.h, "marshal", http.MethodPost, sectorPath(anvil, "invite-crew-sector-user"), fmt.Sprintf(`{"email":%q,"roles":["SectorMarshal"]}`, invited))
+	assertStatus(t, status, http.StatusInternalServerError, body)
+	prepared := preparedInvitations.take(invited)
+	if len(prepared) != 1 || prepared[0].TenantID != anvil || !slices.Equal(prepared[0].RoleNames, []string{"SectorMarshal"}) {
+		t.Errorf("the session manager's stand-in was handed %+v, want one invitation into Anvil with SectorMarshal: the role the invitation's list offered passes the invitation's check", prepared)
+	}
+}
+
+// provesFieldGrant holds the role file to a grant of one field alone, with no
+// condition: the role holds the permission on the dotted field resource by a grant that
+// names nothing else.
+func provesFieldGrant(t *testing.T, roles access.RoleFile, role, permission, field string) {
+	t.Helper()
+
+	var file looseRoleFile
+	if err := json.Unmarshal(roles, &file); err != nil {
+		t.Fatalf("reading the role file: %v", err)
+	}
+	for _, set := range file.Roles {
+		for _, entry := range set {
+			if entry["name"] != role {
+				continue
+			}
+			permissions, _ := entry["permissions"].(map[string]any)
+			grants, _ := permissions[permission].([]any)
+			for _, g := range grants {
+				grant, ok := g.(map[string]any)
+				if ok && grant["resource"] == field && len(grant) == 1 {
+					return
+				}
+			}
+		}
+	}
+	t.Fatalf("the %s role holds no %s grant of %s alone, with no condition", role, permission, field)
 }
 
 // withoutCondition is the role file with the condition taken off the grant the role
@@ -952,12 +1049,12 @@ func TestGeneratedIdentitySectorRolesFollowTheMethods(t *testing.T) {
 func withoutCondition(t *testing.T, roles access.RoleFile, role, permission, res string) access.RoleFile {
 	t.Helper()
 
-	var file map[string]map[string][]map[string]any
+	var file looseRoleFile
 	if err := json.Unmarshal(roles, &file); err != nil {
 		t.Fatalf("reading the role file: %v", err)
 	}
 	taken := false
-	for _, set := range file["roles"] {
+	for _, set := range file.Roles {
 		for _, entry := range set {
 			if entry["name"] != role {
 				continue

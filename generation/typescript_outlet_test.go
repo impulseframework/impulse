@@ -54,8 +54,8 @@ func Test_typescriptGenerator_excludeFromOutlet(t *testing.T) {
 }
 
 // Test_typescriptGenerator_validateOutletMemberReferences pins the fail-loud rule for
-// cross-outlet references: a member whose transition root or declared enumeration
-// names an excluded resource fails generation — on a method's field, a resource's
+// cross-outlet references: a member whose transition root, row it names (@target), rows it
+// is offered on, or declared enumeration names an excluded resource fails generation — on a method's field, a resource's
 // field, or a computed resource's field — because the emitted metadata would
 // reference a Resources constant the filtered constants file no longer declares. A
 // key's inferred enumeration is no declaration and passes here (it degrades instead).
@@ -91,6 +91,33 @@ func Test_typescriptGenerator_validateOutletMemberReferences(t *testing.T) {
 			method:       &rpcMethodInfo{Struct: structs["DoSomething"], Transition: &rpcTransition{rpcTarget: rpcTarget{RootResource: "Gadgets"}}},
 			excluded:     []accesstypes.Resource{"Gadgets"},
 			wantContains: "declares a transition on Gadgets, which is not on the outlet",
+		},
+		{
+			name:         "a method that names a row of a resource on another outlet fails",
+			method:       &rpcMethodInfo{Struct: structs["DoSomething"], Target: &rpcTarget{RootStruct: "Gadget", RootResource: "Gadgets"}},
+			excluded:     []accesstypes.Resource{"Gadgets"},
+			wantContains: `outlet "portal": RPC method DoSomething names a row of Gadgets (@target), which is not on the outlet: the method's metadata names the resource, and this client does not emit it. Attach Gadgets to the outlet via @outlet, or move the method off it`,
+		},
+		{
+			name:     "a method that names a row of a resource on the outlet passes",
+			method:   &rpcMethodInfo{Struct: structs["DoSomething"], Target: &rpcTarget{RootStruct: "Widget", RootResource: "Widgets"}},
+			excluded: []accesstypes.Resource{"Gadgets"},
+		},
+		{
+			name: "a method offered on the rows of a resource on another outlet fails",
+			method: &rpcMethodInfo{Struct: structs["DoSomething"], OfferedOn: []rpcOfferingRow{
+				{RootStruct: "Widget", RootResource: "Widgets"},
+				{RootStruct: "Gadget", RootResource: "Gadgets"},
+			}},
+			excluded:     []accesstypes.Resource{"Gadgets"},
+			wantContains: `outlet "portal": RPC method DoSomething is offered on the rows of Gadgets (@callerEnters), which is not on the outlet: the method's metadata names the resource, and this client does not emit it. Attach Gadgets to the outlet via @outlet, or move the method off it`,
+		},
+		{
+			name: "a method offered on the rows of resources on the outlet passes",
+			method: &rpcMethodInfo{Struct: structs["DoSomething"], OfferedOn: []rpcOfferingRow{
+				{RootStruct: "Widget", RootResource: "Widgets"},
+			}},
+			excluded: []accesstypes.Resource{"Gadgets"},
 		},
 		{
 			name: "an enumerated method field referencing another outlet fails",
@@ -450,4 +477,46 @@ func Test_typescriptGenerator_excludeManualRegistrations(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Test_typescriptGenerator_resolveParsedEnumerations pins that a target resolves a
+// field-scope @enumerate against the resources it parsed itself, not against what the
+// target before it left on the client the two share: the earlier target narrowed the
+// client's set to its own outlet's members, and a field of this outlet that names a
+// resource of this outlet alone must still find it.
+func Test_typescriptGenerator_resolveParsedEnumerations(t *testing.T) {
+	t.Parallel()
+
+	structs := fixtureStructs(loadCollectionFixture(t))
+	gadgets := genlang.Arg("Gadgets")
+	widget := fixtureResource(t, structs, "Widget", func(res *resourceInfo) {
+		res.OutletNames = []string{"portal"}
+		res.Fields[1].enumerateArg = &gadgets
+	})
+	gadget := fixtureResource(t, structs, "Gadget", func(res *resourceInfo) { res.OutletNames = []string{"portal"} })
+	parsed := []*resourceInfo{gadget, widget}
+
+	// The client as the target before this one left it: the default outlet's members,
+	// neither of the two above.
+	g := &typescriptGenerator{outletName: "portal", client: &client{resources: nil}}
+
+	if err := g.resolveParsedEnumerations(parsed, nil); err != nil {
+		t.Fatalf("resolveParsedEnumerations() error = %v, want the declaration resolved against this target's own resources", err)
+	}
+	if got := widget.Fields[1]; !got.IsEnumerated || got.EnumeratedResource() != "Gadgets" {
+		t.Errorf("IsEnumerated = %v, EnumeratedResource() = %q, want the field to list Gadgets", got.IsEnumerated, got.EnumeratedResource())
+	}
+	if diff := cmp.Diff([]string{"Gadget", "Widget"}, resourceNames(g.resources)); diff != "" {
+		t.Errorf("the client's resources after resolving mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// resourceNames is the name of each resource, in order.
+func resourceNames(resources []*resourceInfo) []string {
+	names := make([]string, 0, len(resources))
+	for _, res := range resources {
+		names = append(names, res.Name())
+	}
+
+	return names
 }

@@ -41,6 +41,20 @@ func (m *MockController) EXPECT() *MockControllerMockRecorder {
 	return m.recorder
 }
 
+// Auth mocks base method.
+func (m *MockController) Auth() string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Auth")
+	ret0, _ := ret[0].(string)
+	return ret0
+}
+
+// Auth indicates an expected call of Auth.
+func (mr *MockControllerMockRecorder) Auth() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Auth", reflect.TypeOf((*MockController)(nil).Auth))
+}
+
 // CheckRole mocks base method.
 func (m *MockController) CheckRole(ctx context.Context, env accesstypes.Environment, role accesstypes.Role, scope accesstypes.Scope, perm accesstypes.Permission) (accesstypes.Decision, error) {
 	m.ctrl.T.Helper()
@@ -506,18 +520,46 @@ func (mr *MockUserManagerMockRecorder) AssignGroupUser(ctx, group, user, period 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AssignGroupUser", reflect.TypeOf((*MockUserManager)(nil).AssignGroupUser), ctx, group, user, period)
 }
 
-// AssignUserRole mocks base method.
-func (m *MockUserManager) AssignUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period) error {
+// AssignRecordGroupRole mocks base method.
+func (m *MockUserManager) AssignRecordGroupRole(ctx context.Context, group accesstypes.Group, at accesstypes.RecordScope, role accesstypes.Role, period accesstypes.Period) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "AssignUserRole", ctx, scope, user, role, period)
+	ret := m.ctrl.Call(m, "AssignRecordGroupRole", ctx, group, at, role, period)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// AssignRecordGroupRole indicates an expected call of AssignRecordGroupRole.
+func (mr *MockUserManagerMockRecorder) AssignRecordGroupRole(ctx, group, at, role, period any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AssignRecordGroupRole", reflect.TypeOf((*MockUserManager)(nil).AssignRecordGroupRole), ctx, group, at, role, period)
+}
+
+// AssignRecordUserRole mocks base method.
+func (m *MockUserManager) AssignRecordUserRole(ctx context.Context, at accesstypes.RecordScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AssignRecordUserRole", ctx, at, user, role, period)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// AssignRecordUserRole indicates an expected call of AssignRecordUserRole.
+func (mr *MockUserManagerMockRecorder) AssignRecordUserRole(ctx, at, user, role, period any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AssignRecordUserRole", reflect.TypeOf((*MockUserManager)(nil).AssignRecordUserRole), ctx, at, user, role, period)
+}
+
+// AssignUserRole mocks base method.
+func (m *MockUserManager) AssignUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AssignUserRole", ctx, scope, user, role, period, reason)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // AssignUserRole indicates an expected call of AssignUserRole.
-func (mr *MockUserManagerMockRecorder) AssignUserRole(ctx, scope, user, role, period any) *gomock.Call {
+func (mr *MockUserManagerMockRecorder) AssignUserRole(ctx, scope, user, role, period, reason any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AssignUserRole", reflect.TypeOf((*MockUserManager)(nil).AssignUserRole), ctx, scope, user, role, period)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AssignUserRole", reflect.TypeOf((*MockUserManager)(nil).AssignUserRole), ctx, scope, user, role, period, reason)
 }
 
 // ChangeRoleGrants mocks base method.
@@ -598,6 +640,58 @@ func (mr *MockUserManagerMockRecorder) DeleteGroupUsers(ctx, group any, users ..
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]any{ctx, group}, users...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteGroupUsers", reflect.TypeOf((*MockUserManager)(nil).DeleteGroupUsers), varargs...)
+}
+
+// DeleteRecordGroupRoles mocks base method.
+func (m *MockUserManager) DeleteRecordGroupRoles(ctx context.Context, group accesstypes.Group, at accesstypes.RecordScope, roles ...accesstypes.Role) error {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, group, at}
+	for _, a := range roles {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "DeleteRecordGroupRoles", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteRecordGroupRoles indicates an expected call of DeleteRecordGroupRoles.
+func (mr *MockUserManagerMockRecorder) DeleteRecordGroupRoles(ctx, group, at any, roles ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, group, at}, roles...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteRecordGroupRoles", reflect.TypeOf((*MockUserManager)(nil).DeleteRecordGroupRoles), varargs...)
+}
+
+// DeleteRecordRoles mocks base method.
+func (m *MockUserManager) DeleteRecordRoles(ctx context.Context, at accesstypes.RecordScope) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteRecordRoles", ctx, at)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteRecordRoles indicates an expected call of DeleteRecordRoles.
+func (mr *MockUserManagerMockRecorder) DeleteRecordRoles(ctx, at any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteRecordRoles", reflect.TypeOf((*MockUserManager)(nil).DeleteRecordRoles), ctx, at)
+}
+
+// DeleteRecordUserRoles mocks base method.
+func (m *MockUserManager) DeleteRecordUserRoles(ctx context.Context, at accesstypes.RecordScope, user accesstypes.User, roles ...accesstypes.Role) error {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, at, user}
+	for _, a := range roles {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "DeleteRecordUserRoles", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteRecordUserRoles indicates an expected call of DeleteRecordUserRoles.
+func (mr *MockUserManagerMockRecorder) DeleteRecordUserRoles(ctx, at, user any, roles ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, at, user}, roles...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteRecordUserRoles", reflect.TypeOf((*MockUserManager)(nil).DeleteRecordUserRoles), varargs...)
 }
 
 // DeleteRole mocks base method.
@@ -714,6 +808,21 @@ func (mr *MockUserManagerMockRecorder) DescribeGroup(ctx, group, description any
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DescribeGroup", reflect.TypeOf((*MockUserManager)(nil).DescribeGroup), ctx, group, description)
 }
 
+// GroupContents mocks base method.
+func (m *MockUserManager) GroupContents(ctx context.Context, scope accesstypes.PolicyScope) ([]GroupContent, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GroupContents", ctx, scope)
+	ret0, _ := ret[0].([]GroupContent)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GroupContents indicates an expected call of GroupContents.
+func (mr *MockUserManagerMockRecorder) GroupContents(ctx, scope any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GroupContents", reflect.TypeOf((*MockUserManager)(nil).GroupContents), ctx, scope)
+}
+
 // GroupRole mocks base method.
 func (m *MockUserManager) GroupRole(ctx context.Context, group accesstypes.Group, kept, scope accesstypes.PolicyScope, role accesstypes.Role, held RoleReader) (GroupRoleKey, error) {
 	m.ctrl.T.Helper()
@@ -727,6 +836,21 @@ func (m *MockUserManager) GroupRole(ctx context.Context, group accesstypes.Group
 func (mr *MockUserManagerMockRecorder) GroupRole(ctx, group, kept, scope, role, held any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GroupRole", reflect.TypeOf((*MockUserManager)(nil).GroupRole), ctx, group, kept, scope, role, held)
+}
+
+// GroupRoleLosers mocks base method.
+func (m *MockUserManager) GroupRoleLosers(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role) ([]accesstypes.User, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GroupRoleLosers", ctx, group, scope, role)
+	ret0, _ := ret[0].([]accesstypes.User)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GroupRoleLosers indicates an expected call of GroupRoleLosers.
+func (mr *MockUserManagerMockRecorder) GroupRoleLosers(ctx, group, scope, role any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GroupRoleLosers", reflect.TypeOf((*MockUserManager)(nil).GroupRoleLosers), ctx, group, scope, role)
 }
 
 // GroupRoles mocks base method.
@@ -789,6 +913,51 @@ func (mr *MockUserManagerMockRecorder) Membership(ctx, scope, user, role, held a
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Membership", reflect.TypeOf((*MockUserManager)(nil).Membership), ctx, scope, user, role, held)
 }
 
+// RecordGroupRole mocks base method.
+func (m *MockUserManager) RecordGroupRole(ctx context.Context, group accesstypes.Group, kept accesstypes.PolicyScope, at accesstypes.RecordScope, role accesstypes.Role) (RecordGroupRoleKey, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RecordGroupRole", ctx, group, kept, at, role)
+	ret0, _ := ret[0].(RecordGroupRoleKey)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RecordGroupRole indicates an expected call of RecordGroupRole.
+func (mr *MockUserManagerMockRecorder) RecordGroupRole(ctx, group, kept, at, role any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecordGroupRole", reflect.TypeOf((*MockUserManager)(nil).RecordGroupRole), ctx, group, kept, at, role)
+}
+
+// RecordHolders mocks base method.
+func (m *MockUserManager) RecordHolders(ctx context.Context, at accesstypes.RecordScope) ([]RecordHolder, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RecordHolders", ctx, at)
+	ret0, _ := ret[0].([]RecordHolder)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RecordHolders indicates an expected call of RecordHolders.
+func (mr *MockUserManagerMockRecorder) RecordHolders(ctx, at any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecordHolders", reflect.TypeOf((*MockUserManager)(nil).RecordHolders), ctx, at)
+}
+
+// RecordMembership mocks base method.
+func (m *MockUserManager) RecordMembership(ctx context.Context, at accesstypes.RecordScope, user accesstypes.User, role accesstypes.Role) (RecordMembershipKey, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RecordMembership", ctx, at, user, role)
+	ret0, _ := ret[0].(RecordMembershipKey)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RecordMembership indicates an expected call of RecordMembership.
+func (mr *MockUserManagerMockRecorder) RecordMembership(ctx, at, user, role any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecordMembership", reflect.TypeOf((*MockUserManager)(nil).RecordMembership), ctx, at, user, role)
+}
+
 // ResolveRole mocks base method.
 func (m *MockUserManager) ResolveRole(ctx context.Context, scope accesstypes.PolicyScope, name string) (accesstypes.Role, bool, error) {
 	m.ctrl.T.Helper()
@@ -806,10 +975,10 @@ func (mr *MockUserManagerMockRecorder) ResolveRole(ctx, scope, name any) *gomock
 }
 
 // RoleGrants mocks base method.
-func (m *MockUserManager) RoleGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (map[accesstypes.Permission]map[accesstypes.Resource][]string, error) {
+func (m *MockUserManager) RoleGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (map[accesstypes.Permission]map[accesstypes.Resource][]RoleGrant, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "RoleGrants", ctx, scope, role)
-	ret0, _ := ret[0].(map[accesstypes.Permission]map[accesstypes.Resource][]string)
+	ret0, _ := ret[0].(map[accesstypes.Permission]map[accesstypes.Resource][]RoleGrant)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -880,6 +1049,35 @@ func (mr *MockUserManagerMockRecorder) Roles(ctx, scope any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Roles", reflect.TypeOf((*MockUserManager)(nil).Roles), ctx, scope)
 }
 
+// RolesHeldOn mocks base method.
+func (m *MockUserManager) RolesHeldOn(record accesstypes.Resource) []RoleInfo {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RolesHeldOn", record)
+	ret0, _ := ret[0].([]RoleInfo)
+	return ret0
+}
+
+// RolesHeldOn indicates an expected call of RolesHeldOn.
+func (mr *MockUserManagerMockRecorder) RolesHeldOn(record any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RolesHeldOn", reflect.TypeOf((*MockUserManager)(nil).RolesHeldOn), record)
+}
+
+// SkippedStoredGrants mocks base method.
+func (m *MockUserManager) SkippedStoredGrants(grants []StoredGrant) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SkippedStoredGrants", grants)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SkippedStoredGrants indicates an expected call of SkippedStoredGrants.
+func (mr *MockUserManagerMockRecorder) SkippedStoredGrants(grants any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SkippedStoredGrants", reflect.TypeOf((*MockUserManager)(nil).SkippedStoredGrants), grants)
+}
+
 // TenantsAdministered mocks base method.
 func (m *MockUserManager) TenantsAdministered(ctx context.Context, user accesstypes.User) ([]accesstypes.Domain, error) {
 	m.ctrl.T.Helper()
@@ -948,4 +1146,19 @@ func (mr *MockUserManagerMockRecorder) UserRoles(ctx, user any, scopes ...any) *
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]any{ctx, user}, scopes...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserRoles", reflect.TypeOf((*MockUserManager)(nil).UserRoles), varargs...)
+}
+
+// UserRolesHeld mocks base method.
+func (m *MockUserManager) UserRolesHeld(ctx context.Context, user accesstypes.User) ([]HeldRole, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UserRolesHeld", ctx, user)
+	ret0, _ := ret[0].([]HeldRole)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UserRolesHeld indicates an expected call of UserRolesHeld.
+func (mr *MockUserManagerMockRecorder) UserRolesHeld(ctx, user any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserRolesHeld", reflect.TypeOf((*MockUserManager)(nil).UserRolesHeld), ctx, user)
 }

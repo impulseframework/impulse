@@ -3,6 +3,7 @@ import { AbstractControl } from '@angular/forms';
 import { provideNoopAnimations } from '@angular/platform-browser/animations';
 import { ApiDescriptor, createClient, Resource, TransportRequest, TransportResponse } from '@impulseframework/resource';
 import { scriptedTransport, ScriptedTransport } from '@impulseframework/resource/testing';
+import { FormStateService } from '@impulseframework/resource-angular/resource-services';
 import { provideResourceTesting } from '@impulseframework/resource-angular/testing';
 import {
   AlertType,
@@ -12,12 +13,18 @@ import {
   RecordData,
   RESOURCE_META,
   ResourceMeta,
+  RowWords,
   viewConfig,
 } from '@impulseframework/resource-angular/types';
 
+import {
+  DeleteConfirmation,
+  deleteQuestion,
+  DeleteResourceConfirmationModalComponent,
+} from '../delete-resource-confirmation-modal/delete-resource-confirmation-modal.component';
 import { resourceValidators } from '../gui-constants';
 import { ResourceStore } from '../resource-store.service';
-import { ResourceViewComponent } from './resource-view.component';
+import { RECORD_NOT_LOADED, RECORD_NOT_PERMITTED, ResourceViewComponent } from './resource-view.component';
 
 describe('ResourceViewComponent', () => {
   let component: ResourceViewComponent;
@@ -129,7 +136,9 @@ describe('ResourceViewComponent over a write-only field, a masked cell, and the 
 
   /** The value of every patch operation sent so far. */
   const patches = (): unknown[] =>
-    transport.requests.filter((request) => request.method === 'PATCH').map((request) => (request.body as { value: unknown }[])[0].value);
+    transport.requests
+      .filter((request) => request.method === 'PATCH')
+      .map((request) => (request.body as { value: unknown }[])[0].value);
 
   /** The visible input of the form field labeled so; null where the label draws no form field (the shapes) or nothing at all. */
   const inputLabeled = (label: string): HTMLInputElement | null => {
@@ -143,10 +152,16 @@ describe('ResourceViewComponent over a write-only field, a masked cell, and the 
     await TestBed.configureTestingModule({
       imports: [ResourceViewComponent],
       providers: [
-        provideResourceTesting({ transport, client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }) }),
+        provideResourceTesting({
+          transport,
+          client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }),
+        }),
         provideNoopAnimations(),
         ResourceStore,
-        { provide: RESOURCE_META, useValue: (resource: Resource): ResourceMeta | undefined => (resource === calls ? meta : undefined) },
+        {
+          provide: RESOURCE_META,
+          useValue: (resource: Resource): ResourceMeta | undefined => (resource === calls ? meta : undefined),
+        },
       ],
     }).compileComponents();
 
@@ -171,12 +186,16 @@ describe('ResourceViewComponent over a write-only field, a masked cell, and the 
     await settle(() => component.store.rowPresent());
   });
 
-  it('draws nothing for the write-only field, the object as JSON, and the array as chips', () => {
+  it('draws nothing for the write-only field, the position in words, and the array as chips', () => {
     const element: HTMLElement = fixture.nativeElement;
     expect(inputLabeled('Summary')?.value).toBe('Beacon lost');
     expect(inputLabeled('Transcript')).toBeNull();
-    expect(element.querySelector('impulse-object-field pre')?.textContent).toBe(JSON.stringify(row.position, null, 2));
-    expect(Array.from(element.querySelectorAll('impulse-array-field mat-chip')).map((chip) => chip.textContent?.trim())).toEqual(['a', 'b']);
+    // The row's position is a GeoJSON point, longitude first: a person reads the latitude first, and never the JSON.
+    expect(element.querySelector('impulse-object-field .object-place')?.textContent).toBe('2° N, 1° E');
+    expect(element.querySelector('impulse-object-field pre')).toBeNull();
+    expect(
+      Array.from(element.querySelectorAll('impulse-array-field mat-chip')).map((chip) => chip.textContent?.trim()),
+    ).toEqual(['a', 'b']);
   });
 
   it('in edit mode the write-only field is a blank input and the two shapes stay read-only', () => {
@@ -188,7 +207,9 @@ describe('ResourceViewComponent over a write-only field, a masked cell, and the 
     expect(transcript?.readOnly).toBe(false);
     expect(inputLabeled('Position')).toBeNull();
     expect(inputLabeled('Tags')).toBeNull();
-    expect((fixture.nativeElement as HTMLElement).querySelector('impulse-object-field pre')).not.toBeNull();
+    const element: HTMLElement = fixture.nativeElement;
+    expect(element.querySelector('impulse-object-field .object-place')?.textContent).toBe('2° N, 1° E');
+    expect(element.querySelector('impulse-object-field input:not([type=hidden])')).toBeNull();
   });
 
   it('a save with nothing typed sends nothing, and a typed transcript is the whole patch', async () => {
@@ -326,7 +347,10 @@ describe('ResourceViewComponent over a row with untouched fields this build cann
     await TestBed.configureTestingModule({
       imports: [ResourceViewComponent],
       providers: [
-        provideResourceTesting({ transport, client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }) }),
+        provideResourceTesting({
+          transport,
+          client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }),
+        }),
         provideNoopAnimations(),
         ResourceStore,
         {
@@ -412,5 +436,575 @@ describe('ResourceViewComponent over a row with untouched fields this build cann
     expect(component.form().valid).toBe(false);
     expect(component.displayFormInvalidMessage()).toBe(true);
     expect(invalidMessage()).toBeNull();
+  });
+});
+
+// What a row view says in place of its form where its record cannot be read, against the
+// server's answers as the server words them: a sentence of the page's own for a read the
+// person is not permitted, another for a read that failed, and nothing of what the server
+// said on the screen. That is written to the console, once, for whoever looks into it.
+describe('ResourceViewComponent over a record that cannot be read', () => {
+  const clients = 'Clients' as Resource;
+  const descriptor: ApiDescriptor = {
+    permissionDigestRoute: 'permission-digest',
+    userDomainsRoute: 'user-domains',
+    features: { route: 'features' },
+    methods: {},
+    resources: {
+      [clients]: {
+        resource: clients,
+        property: 'clients',
+        route: 'clients',
+        scope: 'global',
+        consolidated: false,
+        keys: ['id'],
+        operations: ['list', 'read'],
+      },
+    },
+  };
+  const meta: ResourceMeta = {
+    route: 'clients',
+    fields: [
+      { fieldName: 'id', displayType: 'uuid', required: false, isIndex: false, primaryKey: { ordinalPosition: 0 } },
+      { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
+    ] as FieldMeta[],
+  };
+  // What the server says of a read it refuses, as it says it: the scope, the person's id,
+  // the permission and the resource. And of one that failed: the database's own complaint.
+  const refusal = 'scope (global), user (3f2a9c1e-7b64-4d1a-9e0c-5a8d2b7f6c13) does not have (Read) on [Clients]';
+  const failure = 'spanner: code = "Unavailable", desc = "the session pool is closed"';
+  const serverWords = /scope \(|user \(|3f2a9c1e|does not have|\(Read\)|\[Clients\]|spanner|Unavailable|session pool/;
+
+  let fixture: ComponentFixture<ResourceViewComponent>;
+  let transport: ScriptedTransport;
+  let consoleError: ReturnType<typeof vi.spyOn>;
+
+  /**
+   * What was written to the console, as a console prints it: each line's words with the
+   * resource's name where the words keep its place (%s), and the server's own message of
+   * the error written after them.
+   */
+  const written = (): string[] =>
+    consoleError.mock.calls.map(([words, ...values]: unknown[]) => {
+      const error = values.pop();
+      const line = values.reduce<string>((text, value) => text.replace('%s', () => String(value)), String(words));
+      return `${line} ${error instanceof Error ? error.message : ''}`;
+    });
+
+  /** Draws the view of the client c-1 against a server that answers its read so, in a panel of its own or as the row of a page. */
+  const draw = async (answer: TransportResponse, rowOfPage: boolean): Promise<HTMLElement> => {
+    transport = scriptedTransport((request: TransportRequest): TransportResponse => {
+      const path = request.url.split('?')[0];
+      return request.method === 'GET' && path === '/api/clients/c-1'
+        ? answer
+        : { status: 404, body: { message: `unscripted ${request.method} ${request.url}` } };
+    });
+    await TestBed.configureTestingModule({
+      imports: [ResourceViewComponent],
+      providers: [
+        provideResourceTesting({
+          transport,
+          client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }),
+        }),
+        provideNoopAnimations(),
+        ResourceStore,
+        {
+          provide: RESOURCE_META,
+          useValue: (resource: Resource): ResourceMeta | undefined => (resource === clients ? meta : undefined),
+        },
+      ],
+    }).compileComponents();
+    fixture = TestBed.createComponent(ResourceViewComponent);
+    fixture.componentRef.setInput('uuid', 'c-1');
+    fixture.componentRef.setInput('compoundResourceView', rowOfPage);
+    fixture.componentRef.setInput(
+      'config',
+      viewConfig({
+        primaryResource: clients,
+        title: 'Client',
+        showBackButton: false,
+        // A view that does not fold away: in a panel where it is on its own, and not as the row of a page.
+        collapsible: false,
+        elements: [field({ name: 'name' as FieldName, label: 'Name' })],
+      }),
+    );
+    fixture.detectChanges();
+    expect(fixture.componentInstance.useExpansionPanel()).toBe(!rowOfPage);
+    for (let i = 0; i < 30 && fixture.componentInstance.store.viewError() === undefined; i++) {
+      TestBed.tick();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    fixture.detectChanges();
+    return fixture.nativeElement as HTMLElement;
+  };
+  const said = (element: HTMLElement): (string | undefined)[] =>
+    Array.from(element.querySelectorAll('.refusal.message')).map((words) => words.textContent?.trim());
+
+  beforeEach(() => {
+    consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    consoleError.mockRestore();
+  });
+
+  for (const rowOfPage of [false, true]) {
+    const where = rowOfPage ? 'as the row of a page' : 'in a panel of its own';
+
+    it(`says in its own words that the person may not see the record, where the server refuses the read, ${where}`, async () => {
+      const element = await draw({ status: 403, body: { message: refusal } }, rowOfPage);
+
+      expect(said(element)).toEqual([RECORD_NOT_PERMITTED]);
+      expect(RECORD_NOT_PERMITTED).toBe('You do not have permission to see this record.');
+      // Nothing the server said is on the screen; it is in the console, once, for whoever looks into it.
+      expect(element.textContent).not.toMatch(serverWords);
+      expect(written()).toEqual([`Clients: the record could not be loaded: ${refusal}`]);
+    });
+
+    it(`says in other words that the record could not be loaded, where the read failed, ${where}`, async () => {
+      const element = await draw({ status: 500, body: { message: failure } }, rowOfPage);
+
+      expect(said(element)).toEqual([RECORD_NOT_LOADED]);
+      expect(RECORD_NOT_LOADED).toBe('This record could not be loaded.');
+      expect(element.textContent).not.toMatch(serverWords);
+      expect(written()).toEqual([`Clients: the record could not be loaded: ${failure}`]);
+    });
+  }
+
+  it('writes what the server said once, however often the page is drawn again', async () => {
+    await draw({ status: 403, body: { message: refusal } }, false);
+    fixture.componentRef.setInput('pageTitle', 'Client');
+    fixture.detectChanges();
+    TestBed.tick();
+    fixture.detectChanges();
+
+    expect(written()).toEqual([`Clients: the record could not be loaded: ${refusal}`]);
+  });
+});
+
+// The leave-page question counts the unsaved forms, and a row's method buttons wait while
+// there is one. A row's edit form is one of them exactly while it holds a change that is
+// not saved: the count goes up once however the change was made, comes down once when the
+// change is saved or dropped, never goes below what it was, and goes up again for the
+// next change.
+describe('ResourceViewComponent as one of the unsaved forms the leave-page question counts', () => {
+  const beacons = 'Beacons' as Resource;
+  const descriptor: ApiDescriptor = {
+    permissionDigestRoute: 'permission-digest',
+    userDomainsRoute: 'user-domains',
+    features: { route: 'features' },
+    methods: {},
+    resources: {
+      [beacons]: {
+        resource: beacons,
+        property: 'beacons',
+        route: 'beacons',
+        scope: 'global',
+        consolidated: false,
+        keys: ['id'],
+        operations: ['list', 'read', 'patch'],
+        patchable: ['name', 'keeper'],
+      },
+    },
+  };
+  const fieldMeta = (fieldName: string, extra: Partial<FieldMeta> = {}): FieldMeta =>
+    ({ fieldName, displayType: 'string', required: false, isIndex: false, ...extra }) as FieldMeta;
+  const meta: ResourceMeta = {
+    route: 'beacons',
+    fields: [
+      fieldMeta('id', { primaryKey: { ordinalPosition: 0 }, displayType: 'uuid' }),
+      fieldMeta('name'),
+      fieldMeta('keeper'),
+    ],
+  };
+
+  let fixture: ComponentFixture<ResourceViewComponent>;
+  let component: ResourceViewComponent;
+  let transport: ScriptedTransport;
+  let unsaved: FormStateService;
+  /** The row as the server holds it: a save writes into it, and every read answers a copy. */
+  let row: RecordData;
+
+  const server = (request: TransportRequest): TransportResponse => {
+    const path = request.url.split('?')[0];
+    if (request.method === 'GET' && path === '/api/beacons/b-1') {
+      return { status: 200, body: { ...row } };
+    }
+    if (request.method === 'PATCH') {
+      row = { ...row, ...(request.body as { value: RecordData }[])[0].value };
+      return { status: 200, body: {} };
+    }
+    return { status: 404, body: { message: `unscripted ${request.method} ${request.url}` } };
+  };
+
+  /** Runs change detection and lets pending microtasks land until `done` answers true, or a few rounds pass. */
+  const settle = async (done: () => boolean): Promise<void> => {
+    for (let i = 0; i < 30 && !done(); i++) {
+      TestBed.tick();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    fixture.detectChanges();
+  };
+
+  /** How many times the row was asked for and how many saves were sent. */
+  const sent = (method: string): number => transport.requests.filter((request) => request.method === method).length;
+
+  /** A typed input marks its control and then writes the value. */
+  const type = (name: string, value: string): void => {
+    const control = component.form().get(name) as AbstractControl<unknown>;
+    control.markAsDirty();
+    control.setValue(value);
+  };
+
+  /** A picker writes the value and marks its control afterwards. */
+  const pick = (name: string, value: string): void => {
+    const control = component.form().get(name) as AbstractControl<unknown>;
+    control.setValue(value);
+    control.markAsDirty();
+  };
+
+  /** Saves the form and waits until the row was read again and the form built from it. */
+  const save = async (): Promise<void> => {
+    const form = component.form();
+    const reads = sent('GET');
+    component.saveForm();
+    await settle(() => sent('GET') > reads && component.form() !== form);
+  };
+
+  beforeEach(async () => {
+    row = { id: 'b-1', name: 'Outer reef', keeper: 'p-1' };
+    transport = scriptedTransport(server);
+    await TestBed.configureTestingModule({
+      imports: [ResourceViewComponent],
+      providers: [
+        provideResourceTesting({
+          transport,
+          client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }),
+        }),
+        provideNoopAnimations(),
+        ResourceStore,
+        {
+          provide: RESOURCE_META,
+          useValue: (resource: Resource): ResourceMeta | undefined => (resource === beacons ? meta : undefined),
+        },
+      ],
+    }).compileComponents();
+
+    unsaved = TestBed.inject(FormStateService);
+    fixture = TestBed.createComponent(ResourceViewComponent);
+    component = fixture.componentInstance;
+    fixture.componentRef.setInput('uuid', 'b-1');
+    fixture.componentRef.setInput(
+      'config',
+      viewConfig({
+        primaryResource: beacons,
+        showBackButton: false,
+        elements: [
+          field({ name: 'name' as FieldName, label: 'Name' }),
+          field({ name: 'keeper' as FieldName, label: 'Keeper' }),
+        ],
+      }),
+    );
+    fixture.detectChanges();
+    await settle(() => component.store.rowPresent());
+    component.setEditMode('edit');
+    fixture.detectChanges();
+  });
+
+  it('counts as none while nothing is changed, and as one once a field is, typed or picked', () => {
+    expect(unsaved.dirtyForms()).toBe(0);
+
+    pick('keeper', 'p-2');
+    expect(unsaved.dirtyForms()).toBe(1);
+    expect(unsaved.isDirty()).toBe(true);
+
+    // More changes to the same form are the same one unsaved form.
+    type('name', 'Inner reef');
+    pick('keeper', 'p-3');
+    expect(unsaved.dirtyForms()).toBe(1);
+  });
+
+  it('counts as none once a picked change is saved, and never takes the count below what it was', async () => {
+    pick('keeper', 'p-2');
+    await save();
+    expect(sent('PATCH')).toBe(1);
+    expect(row['keeper']).toBe('p-2');
+    expect(unsaved.dirtyForms()).toBe(0);
+    expect(unsaved.isDirty()).toBe(false);
+  });
+
+  it('counts the change made after a save, on the form built from the row read again', async () => {
+    type('name', 'Inner reef');
+    expect(unsaved.dirtyForms()).toBe(1);
+    await save();
+    expect(unsaved.dirtyForms()).toBe(0);
+
+    component.setEditMode('edit');
+    fixture.detectChanges();
+    type('name', 'Far reef');
+    expect(unsaved.dirtyForms()).toBe(1);
+    await save();
+    expect(sent('PATCH')).toBe(2);
+    expect(row['name']).toBe('Far reef');
+    expect(unsaved.dirtyForms()).toBe(0);
+  });
+
+  it('counts as none once the change is dropped by a reset, and counts the next change again', () => {
+    type('name', 'Inner reef');
+    expect(unsaved.dirtyForms()).toBe(1);
+    component.resetForm();
+    expect(component.form().get('name')?.value).toBe('Outer reef');
+    expect(component.editMode()).toBe('view');
+    expect(unsaved.dirtyForms()).toBe(0);
+
+    // A reset of a form with nothing changed takes nothing off the count.
+    component.resetForm();
+    expect(unsaved.dirtyForms()).toBe(0);
+
+    type('name', 'Far reef');
+    expect(unsaved.dirtyForms()).toBe(1);
+  });
+
+  it('counts as none once the row is read again under a change: the form is built again from the row', async () => {
+    type('name', 'Inner reef');
+    expect(unsaved.dirtyForms()).toBe(1);
+
+    // Another person changed the row, and the page reads it again.
+    const form = component.form();
+    row = { ...row, name: 'Outer reef, north' };
+    component.store.reloadViewData();
+    await settle(() => component.form() !== form);
+    expect(component.form().get('name')?.value).toBe('Outer reef, north');
+    expect(component.form().dirty).toBe(false);
+    expect(unsaved.dirtyForms()).toBe(0);
+
+    type('name', 'Inner reef');
+    expect(unsaved.dirtyForms()).toBe(1);
+  });
+});
+
+describe('ResourceViewComponent asks before its row is deleted', () => {
+  const beacons = 'Beacons' as Resource;
+  const descriptor: ApiDescriptor = {
+    permissionDigestRoute: 'permission-digest',
+    userDomainsRoute: 'user-domains',
+    features: { route: 'features' },
+    methods: {},
+    resources: {
+      [beacons]: {
+        resource: beacons,
+        property: 'beacons',
+        route: 'beacons',
+        scope: 'global',
+        consolidated: false,
+        keys: ['id'],
+        operations: ['list', 'read', 'remove'],
+      },
+    },
+  };
+  const meta: ResourceMeta = {
+    route: 'beacons',
+    fields: [
+      {
+        fieldName: 'id',
+        displayType: 'uuid',
+        required: false,
+        isIndex: false,
+        primaryKey: { ordinalPosition: 0 },
+      } as FieldMeta,
+      { fieldName: 'name', displayType: 'string', required: false, isIndex: false } as FieldMeta,
+    ],
+  };
+  const server = (request: TransportRequest): TransportResponse => {
+    if (request.method === 'GET' && request.url.split('?')[0] === '/api/beacons/b-1') {
+      return { status: 200, body: { id: 'b-1', name: 'Outer reef' } };
+    }
+    return { status: 404, body: { message: `unscripted ${request.method} ${request.url}` } };
+  };
+
+  let fixture: ComponentFixture<ResourceViewComponent>;
+
+  /** Draws the row's page under the config's own words and the resource's word for a row, and waits until the row is read. */
+  const drawn = async (
+    words: { rowTitle?: (row: RecordData) => string; deleteTyped?: (row: RecordData) => string },
+    rowWords?: RowWords,
+  ): Promise<ResourceViewComponent> => {
+    await TestBed.configureTestingModule({
+      imports: [ResourceViewComponent],
+      providers: [
+        provideResourceTesting({
+          transport: scriptedTransport(server),
+          client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }),
+        }),
+        provideNoopAnimations(),
+        ResourceStore,
+        {
+          provide: RESOURCE_META,
+          useValue: (resource: Resource): ResourceMeta | undefined =>
+            resource === beacons ? { ...meta, rowWords } : undefined,
+        },
+      ],
+    }).compileComponents();
+    fixture = TestBed.createComponent(ResourceViewComponent);
+    fixture.componentRef.setInput('uuid', 'b-1');
+    fixture.componentRef.setInput(
+      'config',
+      viewConfig({
+        primaryResource: beacons,
+        title: 'Beacons',
+        showBackButton: false,
+        elements: [field({ name: 'name' as FieldName, label: 'Name' })],
+        ...words,
+      }),
+    );
+    fixture.detectChanges();
+    for (let i = 0; i < 30 && !fixture.componentInstance.store.rowPresent(); i++) {
+      TestBed.tick();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    fixture.detectChanges();
+
+    return fixture.componentInstance;
+  };
+
+  /**
+   * Opens the confirmation with the dialog answering as told, and says what was asked and
+   * how often the row was deleted. The dialog is handed the delete and runs it from its
+   * Delete button alone, so the stand-in runs it when the answer is true.
+   */
+  const ask = (
+    component: ResourceViewComponent,
+    answer: boolean | undefined,
+  ): { question: string; deleted: number } => {
+    const opened: { component: unknown; data: DeleteConfirmation }[] = [];
+    component.dialog.open = ((opening: unknown, config: { data: DeleteConfirmation }) => {
+      opened.push({ component: opening, data: config.data });
+      if (answer === true) {
+        void config.data.delete?.();
+      }
+
+      return {};
+    }) as unknown as typeof component.dialog.open;
+    let deleted = 0;
+    component.deleteResource = (): Promise<undefined> => {
+      deleted++;
+
+      return Promise.resolve(undefined);
+    };
+
+    component.confirmDeleteResource();
+
+    expect(opened.map((o) => o.component)).toEqual([DeleteResourceConfirmationModalComponent]);
+    expect(opened[0].data.delete, 'the dialog is not handed the delete').toBeTypeOf('function');
+
+    return { question: deleteQuestion(opened[0].data), deleted };
+  };
+
+  it('by the list the row is in, and deletes it once the person says so', async () => {
+    const asked = ask(await drawn({}), true);
+
+    expect(asked.question).toBe('Delete this record from Beacons?');
+    expect(asked.deleted).toBe(1);
+  });
+
+  it("by the row's own name where the page reads one off the row", async () => {
+    const asked = ask(await drawn({ rowTitle: (row) => String(row['name']) }), true);
+
+    expect(asked.question).toBe('Delete Outer reef from Beacons?');
+  });
+
+  it("by the word the resource's rows go by where its metadata carries one", async () => {
+    const asked = ask(await drawn({}, { one: 'beacon', many: 'beacons' }), true);
+
+    expect(asked.question).toBe('Delete this beacon?');
+  });
+
+  it('and says the row is deleted in a sentence that opens with its word', async () => {
+    const component = await drawn({}, { one: 'beacon', many: 'beacons' });
+    const said: string[] = [];
+    component.store.apply = ((_: unknown, message: string) => {
+      said.push(message);
+
+      return Promise.resolve({});
+    }) as unknown as typeof component.store.apply;
+
+    component.deleteResource();
+
+    expect(said).toEqual(['Beacon deleted.']);
+  });
+
+  it('and deletes nothing when the person cancels or closes the dialog', async () => {
+    const component = await drawn({});
+
+    expect(ask(component, false).deleted).toBe(0);
+    expect(ask(component, undefined).deleted).toBe(0);
+  });
+
+  it('and says the delete takes everything under the row once the dialog says so', async () => {
+    const component = await drawn({});
+    let handed: DeleteConfirmation | undefined;
+    component.dialog.open = ((_: unknown, config: { data: DeleteConfirmation }) => {
+      handed = config.data;
+
+      return {};
+    }) as unknown as typeof component.dialog.open;
+    const sent: unknown[] = [];
+    component.store.apply = ((operations: unknown[]) => {
+      sent.push(...(JSON.parse(JSON.stringify(operations)) as unknown[]));
+
+      return Promise.reject(new Error('the row stays for the next press'));
+    }) as unknown as typeof component.store.apply;
+
+    component.confirmDeleteResource();
+    await expect(handed?.delete?.()).rejects.toThrow('the row stays');
+    await expect(handed?.delete?.({ everythingUnder: true })).rejects.toThrow('the row stays');
+
+    expect(sent).toEqual([
+      { op: 'remove', path: '/b-1' },
+      { op: 'remove', path: '/b-1', value: { everythingUnder: true } },
+    ]);
+  });
+
+  /** Opens the confirmation and says what the dialog was handed. */
+  const handedFor = (component: ResourceViewComponent): DeleteConfirmation | undefined => {
+    let handed: DeleteConfirmation | undefined;
+    component.dialog.open = ((_: unknown, config: { data: DeleteConfirmation }) => {
+      handed = config.data;
+
+      return {};
+    }) as unknown as typeof component.dialog.open;
+
+    component.confirmDeleteResource();
+
+    return handed;
+  };
+
+  it('and hands the dialog the text to type that the config answers for the row read', async () => {
+    const handed = handedFor(await drawn({ deleteTyped: (row) => String(row['name']) }));
+
+    expect(handed?.typed).toBe('Outer reef');
+  });
+
+  it('and hands the dialog no text to type where the config sets none', async () => {
+    const handed = handedFor(await drawn({}));
+
+    expect(handed).toBeDefined();
+    expect(handed?.typed).toBeUndefined();
+  });
+
+  it('and opens no second question while one is open', async () => {
+    const component = await drawn({});
+    let opened = 0;
+    component.dialog.open = (() => {
+      opened++;
+
+      return {};
+    }) as unknown as typeof component.dialog.open;
+    const open = { componentInstance: Object.create(DeleteResourceConfirmationModalComponent.prototype) as unknown };
+    Object.defineProperty(component.dialog, 'openDialogs', { get: () => [open] });
+
+    component.confirmDeleteResource();
+
+    expect(opened).toBe(0);
   });
 });

@@ -12,6 +12,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -21,6 +22,34 @@ func (CrewSessionTrustedDevice) Resource() accesstypes.Resource {
 
 func (CrewSessionTrustedDevice) DefaultConfig() resource.Config {
 	return defaultConfig()
+}
+
+// NamedRows names the columns that name a row of another resource the application lists
+// (UserID): a create or an update sets one only to a row its caller can list, so the
+// library answers any other as a row that is not there.
+func (CrewSessionTrustedDevice) NamedRows() []resource.NamedRow {
+	return []resource.NamedRow{
+		{Field: "UserID", Resource: "CrewSessionUsers", Table: "CrewSessionUsers", KeyColumn: "Id"},
+	}
+}
+
+// NameFields names the resource's name fields: beside each id that points to a row with
+// a name, the name of that row, which a list shows, sorts by and filters by. A name is
+// looked up in the pointed-to table by the id; it is no column of this resource.
+func (CrewSessionTrustedDevice) NameFields() []resource.NameField {
+	return []resource.NameField{
+		{Field: "UserName", Key: "UserID", Resource: "CrewSessionUsers", Tag: "username", Table: "CrewSessionUsers", KeyColumn: "Id", NameColumn: "Username", TenantColumn: ""},
+	}
+}
+
+// RecordedNames names the rows a change record of the resource keeps the name of:
+// for each field that points at a row with a name, where the name is read. A
+// tracked write that changes such a field reads the name in its own transaction,
+// and the change record keeps it beside the id.
+func (CrewSessionTrustedDevice) RecordedNames() []resource.NameField {
+	return []resource.NameField{
+		{Field: "", Key: "UserID", Resource: "CrewSessionUsers", Tag: "username", Table: "CrewSessionUsers", KeyColumn: "Id", NameColumn: "Username", TenantColumn: ""},
+	}
 }
 
 // crewSessionTrustedDeviceRead mirrors the wire shape the resource routes list
@@ -370,11 +399,11 @@ func (p *CrewSessionTrustedDeviceCreatePatch) ToStruct() *CrewSessionTrustedDevi
 	return p.patchSet.ToStruct()
 }
 
-func (p *CrewSessionTrustedDeviceCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *CrewSessionTrustedDeviceCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *CrewSessionTrustedDeviceCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *CrewSessionTrustedDeviceCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -526,11 +555,11 @@ func (p *CrewSessionTrustedDeviceUpdatePatch) ToStruct() *CrewSessionTrustedDevi
 	return p.patchSet.ToStruct()
 }
 
-func (p *CrewSessionTrustedDeviceUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *CrewSessionTrustedDeviceUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *CrewSessionTrustedDeviceUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *CrewSessionTrustedDeviceUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -692,11 +721,11 @@ func NewCrewSessionTrustedDeviceDeletePatch(id impulse.UUID) *CrewSessionTrusted
 	return &CrewSessionTrustedDeviceDeletePatch{patchSet: patchSet}
 }
 
-func (p *CrewSessionTrustedDeviceDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *CrewSessionTrustedDeviceDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *CrewSessionTrustedDeviceDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *CrewSessionTrustedDeviceDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

@@ -23,6 +23,9 @@ import (
 const (
 	notSessionOutletMsg    = SubscribeHeader + " is not served on this outlet: it serves no browser sessions"
 	malformedTabMessageFmt = "invalid " + SubscribeHeader + " value: a tab id is 1 to 64 characters of [A-Za-z0-9_-]"
+	otherGroupAuthFmt      = "this request is bound to the %s auth, and the routes it reached were mounted for the %s auth's sessions " +
+		"(live.Subscribing, which an outlet's generated routes run under). A request comes through one auth, the one its outlet's group binds: " +
+		"mount these routes under the %s auth's own group, or give the group's resource.BindAuth and its routes one auth's name"
 )
 
 // Tab reads the subscribe header: the tab id when the request subscribes, the empty
@@ -43,11 +46,15 @@ func Tab(r *http.Request) (string, error) {
 // auth is the name of the auth whose sessions the outlet serves (the auth package's
 // Name); every request has it bound (resource.WithAuth), so the live layer keys the
 // session principal by it (PrincipalID) and the rules that keep a person from acting on
-// themselves tell the caller from a person of another auth. A request carrying the subscribe header has the tab noted on its
-// request log line and is refused when the tab is malformed; a request without the
-// header passes on with nothing else done. An auth name that is empty, or that carries
-// AuthSeparator or a "/", panics as the routes are registered, so a server never
-// starts with a name that cannot begin a principal id.
+// themselves tell the caller from a person of another auth. A request its outlet's
+// group bound already (resource.BindAuth) keeps the group's auth: where that is this
+// auth, as it is wherever the generated router mounts both, the request passes on, and
+// where it is another auth the request is refused with a server error whose cause names
+// both. A request carrying the subscribe header has the tab noted on its request log
+// line and is refused when the tab is malformed; a request without the header passes on
+// with nothing else done. An auth name that is empty, or that carries AuthSeparator or
+// a "/", panics as the routes are registered, so a server never starts with a name that
+// cannot begin a principal id.
 func Subscribing(auth string) func(http.Handler) http.Handler {
 	if err := checkAuthName(auth); err != nil {
 		panic(err.Error())
@@ -55,6 +62,9 @@ func Subscribing(auth string) func(http.Handler) http.Handler {
 
 	return func(next http.Handler) http.Handler {
 		return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
+			if err := groupAuthRefusal(r.Context(), auth); err != nil {
+				return httpio.NewEncoder(w).ClientMessage(r.Context(), err)
+			}
 			r = r.WithContext(resource.WithAuth(r.Context(), auth))
 			if r.Header.Get(SubscribeHeader) == "" {
 				next.ServeHTTP(w, r)
@@ -71,6 +81,16 @@ func Subscribing(auth string) func(http.Handler) http.Handler {
 			return nil
 		})
 	}
+}
+
+// groupAuthRefusal refuses a request its outlet's group bound (resource.BindAuth) to an
+// auth that is not the one the routes under it were mounted for; nil otherwise.
+func groupAuthRefusal(ctx context.Context, auth string) error {
+	if bound := resource.BoundAuth(ctx); bound != "" && bound != auth {
+		return errors.Newf(otherGroupAuthFmt, bound, auth, auth)
+	}
+
+	return nil
 }
 
 // checkAuthName refuses an auth name that cannot begin a principal id: an empty one, one
@@ -115,19 +135,40 @@ type Gate interface {
 	Permitted(ctx context.Context) (bool, error)
 }
 
+// Query is a decoded list or row request as Subscribe reads it: its gate, and the
+// lists the names it shows are read from (resource.QuerySet.NameSources), which the
+// request registers with its own subscription. A decoded QuerySet is one.
+type Query interface {
+	Gate
+	NameSources(ctx context.Context) ([]resource.NameSource, error)
+}
+
+// nameSourcer answers the lists a decoded request's names are read from: for each name
+// the request brings into play whose grant the person holds, the pointed-to resource's
+// list in the tenant the names are read in (resource.QuerySet.NameSources).
+type nameSourcer interface {
+	NameSources(ctx context.Context) ([]resource.NameSource, error)
+}
+
 // Subscribe registers the request's subscription when the request carries the
 // subscribe header and its gate admits it, before the handler runs the query: a commit
-// that lands during the query then finds the subscription. A refused request registers
-// nothing. A record that fails to take the subscription is logged and the request is
-// still answered: the live layer is best effort end to end, and a data request never
-// fails over it.
-func Subscribe(ctx context.Context, r *http.Request, svc Service, gate Gate, sub *Subscription) {
+// that lands during the query then finds the subscription. With it, in the same write
+// to the record, it registers the list of each resource the names the request shows
+// are read from, in the tenant they are read in, so a write to one of those resources
+// tells the page as it tells the list's own page; the answer names them (NamesHeader on
+// w, which the handler has not written yet), so the tab renews them with the request's
+// own. A refused request registers nothing. Reading the lists is best effort: where it
+// fails, the request's own subscription is registered alone and the failure is logged.
+// A record that fails to take the subscriptions is logged and the request is still
+// answered, with no header: the live layer is best effort end to end, and a data
+// request never fails over it.
+func Subscribe(ctx context.Context, w http.ResponseWriter, r *http.Request, svc Service, query Query, sub *Subscription) {
 	tab, err := Tab(r)
 	if err != nil || tab == "" {
 		// A malformed tab was refused by the outlet's middleware before the handler ran.
 		return
 	}
-	permitted, err := gate.Permitted(ctx)
+	permitted, err := query.Permitted(ctx)
 	if err != nil {
 		logger.FromCtx(ctx).Errorf("live: the gate check for the %s subscription of tab %s failed; the subscription is not registered: %v", sub.Resource, tab, err)
 
@@ -143,23 +184,141 @@ func Subscribe(ctx context.Context, r *http.Request, svc Service, gate Gate, sub
 		return
 	}
 	registered := sub.Normalized()
-	registered.Principal = principal
-	registered.Tab = tab
-	registered.Expiry = time.Now().Add(SubscriptionTTL)
+	stamp(&registered, principal, tab, time.Now().Add(SubscriptionTTL))
+	names := namedLists(ctx, query, &registered, tab)
 	ctx, cancel := context.WithTimeout(ctx, RecordTimeout)
 	defer cancel()
-	if err := svc.Register(ctx, []Subscription{registered}); err != nil {
+	if err := svc.Register(ctx, withNamed(&registered, names)); err != nil {
 		logger.FromCtx(ctx).Errorf("live: registering the %s subscription of tab %s failed; the page is served without it: %v", sub.Resource, tab, err)
+
+		return
 	}
+	setNamesHeader(ctx, w, &registered, names)
+}
+
+// stamp sets on the subscription what one request registers it with: the principal
+// and the tab, and the expiry every subscription the request registers takes.
+func stamp(sub *Subscription, principal, tab string, expiry time.Time) {
+	sub.Principal = principal
+	sub.Tab = tab
+	sub.Expiry = expiry
+}
+
+// namedLists returns the subscriptions a request registers beside its own (own, as the
+// record keeps it, stamped): one list subscription for each list the request's names
+// are read from, stamped as own is, each once and none that is own itself (a list of
+// crew that shows each one's lead, who is crew). Each keeps the name field the renewal
+// re-checks it by. A failure to read the lists is logged, and nothing is registered
+// beside own.
+func namedLists(ctx context.Context, query nameSourcer, own *Subscription, tab string) []namedList {
+	sources, err := query.NameSources(ctx)
+	if err != nil {
+		logger.FromCtx(ctx).Errorf("live: reading the lists the names of the %s request of tab %s are read from failed; the request's own subscription is registered without them: %v", own.Resource, tab, err)
+
+		return nil
+	}
+	seen := []string{own.ID()}
+	var names []namedList
+	for _, source := range sources {
+		list := ListSubscription(source.Resource, source.Domain).Normalized()
+		stamp(&list, own.Principal, own.Tab, own.Expiry)
+		if id := list.ID(); !slices.Contains(seen, id) {
+			seen = append(seen, id)
+			names = append(names, namedList{sub: list, field: source.Field})
+		}
+	}
+
+	return names
+}
+
+// namedList is a list a request registers because it shows names read from it: the
+// subscription, and the pointed-to resource's name field as the grants name it (empty
+// where the name is the resource's key).
+type namedList struct {
+	sub   Subscription
+	field accesstypes.Tag
+}
+
+// withNamed is what one write to the record takes for a request: its own subscription,
+// then the lists its names are read from.
+func withNamed(own *Subscription, names []namedList) []Subscription {
+	subs := make([]Subscription, 0, 1+len(names))
+	subs = append(subs, *own)
+	for i := range names {
+		subs = append(subs, names[i].sub)
+	}
+
+	return subs
+}
+
+// Names is what NamesHeader carries: the request's own subscription as the record keeps
+// it (Of), and the lists registered beside it because the request shows names read
+// from them (Names), each with its name field (NameField), which the renewal re-checks
+// it by. Of is a list by its resource and domain, a row by its resource and key and no
+// domain, and a list across tenants by its resource, AcrossTenants and, where the page
+// narrowed it, Domains.
+type Names struct {
+	Of    SubscriptionRequest   `json:"of"`
+	Names []SubscriptionRequest `json:"names"`
+}
+
+// header renders the names as NamesHeader carries them: their JSON, percent-encoded.
+func (n *Names) header() (string, error) {
+	encoded, err := json.Marshal(n)
+	if err != nil {
+		return "", errors.Wrap(err, "json.Marshal()")
+	}
+
+	return url.PathEscape(string(encoded)), nil
+}
+
+// setNamesHeader names on the answer the lists the request registered beside its own
+// subscription. A request that registered none sets nothing.
+func setNamesHeader(ctx context.Context, w http.ResponseWriter, own *Subscription, names []namedList) {
+	if len(names) == 0 {
+		return
+	}
+	header := Names{Of: requestOf(own), Names: make([]SubscriptionRequest, 0, len(names))}
+	for i := range names {
+		named := requestOf(&names[i].sub)
+		named.NameField = string(names[i].field)
+		header.Names = append(header.Names, named)
+	}
+	value, err := header.header()
+	if err != nil {
+		logger.FromCtx(ctx).Errorf("live: naming the lists the names of the %s request of tab %s are read from failed; the answer is sent without them: %v", own.Resource, own.Tab, err)
+
+		return
+	}
+	w.Header().Set(NamesHeader, value)
+}
+
+// requestOf is a subscription, as the record keeps it, as the renew route carries it.
+func requestOf(sub *Subscription) SubscriptionRequest {
+	req := SubscriptionRequest{Resource: string(sub.Resource), Key: sub.Key, Domain: string(sub.Domain)}
+	if sub.Across != nil {
+		req.AcrossTenants = true
+		if sub.Across.Narrowed != nil {
+			narrowed := make([]string, 0, len(sub.Across.Narrowed))
+			for _, domain := range sub.Across.Narrowed {
+				narrowed = append(narrowed, string(domain))
+			}
+			req.Domains = strings.Join(narrowed, ",")
+		}
+	}
+
+	return req
 }
 
 // AcrossTenantsList is a decoded list across tenants as the live layer reads it: its
-// resource, and the set of tenants a subscription to it is held over with the page's
-// filter on the tenant (nil for every tenant). A QuerySet decoded for a list across
-// tenants is one (resource.QuerySet.TenantsListed).
+// resource, the set of tenants a subscription to it is held over with the page's
+// filter on the tenant (nil for every tenant), and the lists the names it shows are
+// read from. A QuerySet decoded for a list across tenants is one
+// (resource.QuerySet.TenantsListed, resource.QuerySet.NameSources).
 type AcrossTenantsList interface {
 	Resource() accesstypes.Resource
 	TenantsListed(ctx context.Context) (set, narrowed []accesstypes.Domain, err error)
+	NameSources(ctx context.Context) ([]resource.NameSource, error)
 }
 
 // AcrossTenantsLiveness is what SubscribeAcrossTenants answers of a list across tenants:
@@ -195,9 +354,11 @@ func (l AcrossTenantsLiveness) SetCacheControl(w http.ResponseWriter, r *http.Re
 // registers nothing; neither does a list that reads no tenant, which nothing can change.
 // A set larger than MaxSubscriptionTenants registers nothing either, and the answer says
 // the list is served plain: that is the ceiling's decision and no failure, so nothing is
-// logged for it. As with Subscribe, a set that cannot be worked out or a record that
-// fails to take the subscription is logged and the request is still answered.
-func SubscribeAcrossTenants(ctx context.Context, r *http.Request, svc Service, list AcrossTenantsList) AcrossTenantsLiveness {
+// logged for it. A list that is registered registers with it, as Subscribe does, the
+// lists the names it shows are read from, and its answer names them. As with Subscribe,
+// a set that cannot be worked out or a record that fails to take the subscription is
+// logged and the request is still answered.
+func SubscribeAcrossTenants(ctx context.Context, w http.ResponseWriter, r *http.Request, svc Service, list AcrossTenantsList) AcrossTenantsLiveness {
 	tab, err := Tab(r)
 	if err != nil || tab == "" {
 		// A malformed tab was refused by the outlet's middleware before the handler ran.
@@ -223,14 +384,16 @@ func SubscribeAcrossTenants(ctx context.Context, r *http.Request, svc Service, l
 		return AcrossTenantsLiveness{}
 	}
 	registered := AcrossTenantsSubscription(res, set, narrowed).Normalized()
-	registered.Principal = principal
-	registered.Tab = tab
-	registered.Expiry = time.Now().Add(SubscriptionTTL)
+	stamp(&registered, principal, tab, time.Now().Add(SubscriptionTTL))
+	names := namedLists(ctx, list, &registered, tab)
 	ctx, cancel := context.WithTimeout(ctx, RecordTimeout)
 	defer cancel()
-	if err := svc.Register(ctx, []Subscription{registered}); err != nil {
+	if err := svc.Register(ctx, withNamed(&registered, names)); err != nil {
 		logger.FromCtx(ctx).Errorf("live: registering the %s subscription across tenants of tab %s failed; the page is served without it: %v", res, tab, err)
+
+		return AcrossTenantsLiveness{}
 	}
+	setNamesHeader(ctx, w, &registered, names)
 
 	return AcrossTenantsLiveness{}
 }
@@ -266,19 +429,60 @@ func SetCacheControl(w http.ResponseWriter, r *http.Request) {
 // any of whose publishes failed: a publish that failed may have written some of its
 // documents, and a tab told the write's id would take those for changes it had fetched
 // for; told nothing, it fetches for every document that got through as for anyone's.
+//
+// The tables the request touched whole (resource.TouchedRows.TouchTable) go into the
+// publish of the route domain, which is made though no row was written in it.
 func Publish(ctx context.Context, w http.ResponseWriter, svc Service, derivations *Derivations, domain accesstypes.Domain, touched *resource.TouchedRows) {
 	if touched.Empty() {
 		return
 	}
 	write := rand.Text()
 	caller := callerID(ctx)
-	own := make(Changes)
-	failed := false
 	ctx, cancel := context.WithTimeout(ctx, PublishTimeout)
 	defer cancel()
-	byDomain := touched.Rows(domain)
+	own, failed := publishTouched(ctx, svc, derivations, domain, touched, write, caller)
+	if failed {
+		return
+	}
+	if err := setChangesHeader(w, Answer{Write: write, Changes: own}); err != nil {
+		logger.FromCtx(ctx).Errorf("live: naming the write's changes on its answer failed; the page fetches when its change set reports them: %v", err)
+	}
+}
+
+// Announce publishes changes that are no request's own write: what a sign-in, a hook or a
+// job committed outside a generated handler. It is Publish without the answer: the
+// documents name no write, so every tab that holds a target refetches it. Rows written
+// with no domain are published under the zero domain, with the tables touched whole. It
+// is bounded by PublishTimeout, a failure is logged and the other domains are still
+// published, and nothing happens when the collector is empty or svc is nil.
+func Announce(ctx context.Context, svc Service, derivations *Derivations, touched *resource.TouchedRows) {
+	if svc == nil || touched.Empty() {
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, PublishTimeout)
+	defer cancel()
+	publishTouched(ctx, svc, derivations, "", touched, "", "")
+}
+
+// publishTouched makes a collector's publishes: one per domain its rows were written in,
+// the rows without a domain under fallback, and the tables touched whole in fallback's,
+// which is made even when no row was written in it. Every document carries write. It
+// answers the documents that went into caller's own change set, and whether any publish
+// failed; a failure is logged and the other domains are still published.
+func publishTouched(ctx context.Context, svc Service, derivations *Derivations, fallback accesstypes.Domain, touched *resource.TouchedRows, write, caller string) ([]ChangeDocument, bool) {
+	own := make(Changes)
+	failed := false
+	byDomain := touched.Rows(fallback)
+	tables := touched.Tables()
+	if _, ok := byDomain[fallback]; !ok && len(tables) > 0 {
+		byDomain[fallback] = nil
+	}
 	for _, changeDomain := range slices.Sorted(maps.Keys(byDomain)) {
-		writes := derivations.Expand(byDomain[changeDomain])
+		var whole []accesstypes.Resource
+		if changeDomain == fallback {
+			whole = tables
+		}
+		writes := derivations.Expand(byDomain[changeDomain], whole...)
 		writes.ID = write
 		changes, err := svc.Publish(ctx, changeDomain, writes)
 		if err != nil {
@@ -291,12 +495,8 @@ func Publish(ctx context.Context, w http.ResponseWriter, svc Service, derivation
 			own.add(caller, doc)
 		}
 	}
-	if failed {
-		return
-	}
-	if err := setChangesHeader(w, Answer{Write: write, Changes: own[caller]}); err != nil {
-		logger.FromCtx(ctx).Errorf("live: naming the write's changes on its answer failed; the page fetches when its change set reports them: %v", err)
-	}
+
+	return own[caller], failed
 }
 
 // Answer is what a write's answer tells the tab that wrote, in ChangesHeader: the
@@ -360,12 +560,13 @@ func callerID(ctx context.Context) string {
 
 // PrincipalID is the session principal's id as the subscription record, the change set
 // and the browser's identity carry it: the name of the auth the request came through
-// (bound by Subscribing), AuthSeparator, and the person for a user principal (an
-// ordinary session, or an impersonated user), named as the permission store names them,
-// by the id of their account, or the role prefixed with "role:" for a session
-// established as a role. A user of the crew auth is crew|0b5e…, the account's id, and a
-// session established as the Auditor role through the crew auth is crew|role:Auditor.
-// A person renamed keeps their id, and so their subscriptions.
+// (bound by the outlet's group, resource.BindAuth, or by Subscribing where no group
+// binds), AuthSeparator, and the person for a user principal (an ordinary session, or
+// an impersonated user), named as the permission store names them, by the id of their
+// account, or the role prefixed with "role:" for a session established as a role. A
+// user of the crew auth is crew|0b5e…, the account's id, and a session established as
+// the Auditor role through the crew auth is crew|role:Auditor. A person renamed keeps
+// their id, and so their subscriptions.
 //
 // Nothing is truncated or hashed. An id longer than MaxPrincipalIDLength, Firebase's
 // uid limit, fails with a 403 client message whose cause names the id, its length and
@@ -381,7 +582,7 @@ func PrincipalID(ctx context.Context) (string, error) {
 	if len(id) > MaxPrincipalIDLength {
 		cause := errors.Newf("live.PrincipalID(): the principal id %q is %d bytes, over Firebase's uid limit of %d", id, len(id), MaxPrincipalIDLength)
 
-		return "", httpio.NewForbiddenMessageWithErrorf(cause, "live pages are not served to this sign-in: its principal id is %d bytes, over the limit of %d", len(id), MaxPrincipalIDLength)
+		return "", httpio.NewForbiddenMessageWithError(cause, "Pages do not update on their own for your sign-in. Reload a page to see what has changed.")
 	}
 
 	return id, nil

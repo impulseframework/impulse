@@ -4,10 +4,10 @@
 // Package router serves the application. The middleware in front of every route,
 // outermost first, one line per group, each chain followed by what it stands in front of:
 //
-//	every request: tracing, hooks.Outermost, request logging, SecurityHeaders, httpio.WithParams
+//	every request: tracing, hooks.Outermost, request logging, SecurityHeaders, httpio.WithParams, NameEnvironment
 //	default (/api), sessions (password):
-//	  NoCaching, CompressionMiddleware, ReleaseHeader, StartSession, SetXSRFToken: GET /api/user/methods, GET /api/user/session, DELETE /api/user/session, GET /api/user/pending, GET /api/user/sign-in-means
-//	  + ValidateXSRFToken: POST /api/user/password/login, POST /api/user/password/change, POST /api/user/password/remove, POST /api/user/pending/confirm, POST /api/user/pending/cancel, POST /api/user/pending/code, POST /api/user/pending/code/verify, POST /api/user/pending/email, POST /api/user/browser/forget, POST /api/user/name, POST /api/user/look, POST /api/user/invitation, POST /api/user/invitation/sign-up, POST /api/user/sign-up, POST /api/user/sign-up/open, POST /api/user/sign-up/complete
+//	  NoCaching, CompressionMiddleware, ReleaseHeader, StartSession, SetXSRFToken: GET /api/user/methods, GET /api/user/session, DELETE /api/user/session, GET /api/user/pending, GET /api/user/sign-in-means, GET /api/user/sessions, GET /api/user/tenants
+//	  + ValidateXSRFToken: POST /api/user/password/login, POST /api/user/password/change, POST /api/user/password/remove, POST /api/user/password/strength, POST /api/user/pending/confirm, POST /api/user/pending/cancel, POST /api/user/pending/code, POST /api/user/pending/code/verify, POST /api/user/pending/email, POST /api/user/browser/forget, POST /api/user/name, POST /api/user/look, POST /api/user/username, POST /api/user/username/free, POST /api/user/sessions/end, POST /api/user/sessions/end-others, POST /api/user/browser/forget-all, POST /api/user/tenants/leave, POST /api/user/invitation, POST /api/user/invitation/sign-up, POST /api/user/email/confirm, POST /api/user/sign-up, POST /api/user/sign-up/open, POST /api/user/sign-up/complete, POST /api/user/password-reset, POST /api/user/password-reset/open, POST /api/user/password-reset/complete
 //	  + ValidateSession, ValidateXSRFToken, EnforceReadOnlyMask: POST /api/user/invitation/accept, POST /api/user/email, POST /api/user/email/verify, POST /api/user/first-password/code, POST /api/user/first-password
 //	  + ValidateSession, ValidateXSRFToken, CheckAPIVersion (oldest answered 0.0.1): hooks.Default
 //	  + ValidateSession, ValidateXSRFToken, CheckAPIVersion (oldest answered 0.0.1), hooks.Default, EnforceReadOnlyMask: generatedRoutes
@@ -40,6 +40,11 @@ type Handlers interface {
 	// (resource.CheckAPIVersion). A value that is not a release, dev for one, is named
 	// as it is and checks nothing.
 	ServerVersion() string
+	// ServerEnvironment is the name of the environment this server runs in, the
+	// configuration's APP_ENVIRONMENT: what every answer names (resource.NameEnvironment)
+	// and the About pop-up of a browser application shows. Production is told no name
+	// and reports none, so its answers name no environment.
+	ServerEnvironment() string
 
 	// Every request: where the request log goes; the router builds the request logger from it.
 	LogExporter() logger.Exporter
@@ -99,6 +104,32 @@ type DefaultSession interface {
 	// ChangeLook keeps the look the signed-in person chose, so it follows them to
 	// every browser (session.Auth.ChangeLook); it validates the session itself.
 	ChangeLook() http.HandlerFunc
+	// ChangeUsername writes the signed-in person's own username, from their account
+	// page (session.Auth.ChangeUsername); it validates the session itself.
+	ChangeUsername() http.HandlerFunc
+	// UsernameFree answers whether a username the signed-in person types is free, to
+	// their account page (session.Auth.UsernameFree); it validates the session itself.
+	UsernameFree() http.HandlerFunc
+	// OwnSessions answers where the signed-in person is signed in, to their account
+	// page (session.Auth.OwnSessions); it validates the session itself.
+	OwnSessions() http.HandlerFunc
+	// EndOwnSession signs the signed-in person out of one other browser of theirs, from
+	// their account page (session.Auth.EndOwnSession); it validates the session itself.
+	EndOwnSession() http.HandlerFunc
+	// EndOtherSessions signs the signed-in person out of every browser but this one,
+	// from their account page (session.Auth.EndOtherSessions); it validates the session
+	// itself.
+	EndOtherSessions() http.HandlerFunc
+	// ForgetBrowsers forgets every browser the second factor remembered for the
+	// signed-in person, from their account page (session.Auth.ForgetBrowsers); it
+	// validates the session itself.
+	ForgetBrowsers() http.HandlerFunc
+	// OwnTenants answers the signed-in person's tenants, with the roles held in each, to
+	// their account page (session.Auth.OwnTenants); it validates the session itself.
+	OwnTenants() http.HandlerFunc
+	// LeaveTenant takes the signed-in person out of one of their tenants, from their
+	// account page (session.Auth.LeaveTenant); it validates the session itself.
+	LeaveTenant() http.HandlerFunc
 	// The invitation the login page was sent to, opened (session.InvitationHandlers.Open): the sign-in that follows carries it.
 	InvitationOpen() http.HandlerFunc
 	// The invitation accepted by a person already signed in (session.InvitationHandlers.Accept).
@@ -109,6 +140,8 @@ type DefaultSession interface {
 	EmailAdd() http.HandlerFunc
 	// The address verified from the mailed link (session.EmailHandlers.Verify).
 	EmailVerify() http.HandlerFunc
+	// An address an administrator set for a person, confirmed from the link mailed to it (session.EmailHandlers.Confirm).
+	EmailConfirm() http.HandlerFunc
 	// The code of a first password, mailed to the confirmed address of a signed-in person who has no password (session.FirstPasswordHandlers.SendCode).
 	FirstPasswordSendCode() http.HandlerFunc
 	// The first password of a signed-in person who has none, set with the mailed code (session.FirstPasswordHandlers.Set).
@@ -119,10 +152,17 @@ type DefaultSession interface {
 	SignUpOpen() http.HandlerFunc
 	// The sign-up completed with a password: the account created and signed in (session.SignUpHandlers.Complete).
 	SignUpComplete() http.HandlerFunc
-	// The password method's login, password change and password removal (session.PasswordMethod); the change and the removal validate the session themselves, outside ValidateSession.
+	// A person's own request for a password reset link, served while an administrator allows it (session.PasswordResetHandlers.Request).
+	PasswordResetRequest() http.HandlerFunc
+	// The password reset link opened (session.PasswordResetHandlers.Open).
+	PasswordResetOpen() http.HandlerFunc
+	// The password reset completed with a new password: every session of the person ends (session.PasswordResetHandlers.Complete).
+	PasswordResetComplete() http.HandlerFunc
+	// The password method's login, password change, password removal and password strength (session.PasswordMethod); the change and the removal validate the session themselves, outside ValidateSession, and the strength question needs none.
 	PasswordLogin() http.HandlerFunc
 	PasswordChange() http.HandlerFunc
 	PasswordRemove() http.HandlerFunc
+	PasswordStrength() http.HandlerFunc
 }
 
 // Hooks are the application's additions to the generated router. They compose inward
@@ -161,6 +201,9 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 	r.Use(logger.NewRequestLogger(h.LogExporter()))
 	r.Use(h.SecurityHeaders)
 	r.Use(httpio.WithParams)
+	// The environment this server runs in, named on every answer (X-Environment) where the
+	// application reports one: production reports none.
+	r.Use(resource.NameEnvironment(h.ServerEnvironment()))
 
 	// The application's routes outside every outlet.
 	if hooks.Root != nil {
@@ -194,24 +237,34 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 				Status: "/api/user/pending", Confirm: "/api/user/pending/confirm", Cancel: "/api/user/pending/cancel",
 				SendCode: "/api/user/pending/code", VerifyCode: "/api/user/pending/code/verify", EnrollEmail: "/api/user/pending/email",
 			},
-			ChangePassword: "/api/user/password/change",
-			RemovePassword: "/api/user/password/remove",
-			FirstPassword:  session.FirstPasswordRoutes{SendCode: "/api/user/first-password/code", Set: "/api/user/first-password"},
-			ForgetBrowser:  "/api/user/browser/forget",
-			ChangeName:     "/api/user/name",
-			SignInMeans:    "/api/user/sign-in-means",
-			ChangeLook:     "/api/user/look",
-			Invitation:     session.InvitationRoutes{Open: "/api/user/invitation", Accept: "/api/user/invitation/accept", SignUp: "/api/user/invitation/sign-up"},
-			Email:          session.EmailRoutes{Add: "/api/user/email", Verify: "/api/user/email/verify"},
-			SignUp:         session.SignUpRoutes{Start: "/api/user/sign-up", Open: "/api/user/sign-up/open", Complete: "/api/user/sign-up/complete"},
+			ChangePassword:   "/api/user/password/change",
+			RemovePassword:   "/api/user/password/remove",
+			PasswordStrength: "/api/user/password/strength",
+			FirstPassword:    session.FirstPasswordRoutes{SendCode: "/api/user/first-password/code", Set: "/api/user/first-password"},
+			ForgetBrowser:    "/api/user/browser/forget",
+			ChangeName:       "/api/user/name",
+			SignInMeans:      "/api/user/sign-in-means",
+			ChangeLook:       "/api/user/look",
+			ChangeUsername:   "/api/user/username",
+			UsernameFree:     "/api/user/username/free",
+			OwnSessions:      session.OwnSessionsRoutes{List: "/api/user/sessions", End: "/api/user/sessions/end", EndOthers: "/api/user/sessions/end-others"},
+			ForgetBrowsers:   "/api/user/browser/forget-all",
+			OwnTenants:       session.OwnTenantsRoutes{List: "/api/user/tenants", Leave: "/api/user/tenants/leave"},
+			Invitation:       session.InvitationRoutes{Open: "/api/user/invitation", Accept: "/api/user/invitation/accept", SignUp: "/api/user/invitation/sign-up"},
+			Email:            session.EmailRoutes{Add: "/api/user/email", Verify: "/api/user/email/verify", Confirm: "/api/user/email/confirm"},
+			SignUp:           session.SignUpRoutes{Start: "/api/user/sign-up", Open: "/api/user/sign-up/open", Complete: "/api/user/sign-up/complete"},
+			PasswordReset:    session.PasswordResetRoutes{Request: "/api/user/password-reset", Open: "/api/user/password-reset/open", Complete: "/api/user/password-reset/complete"},
 		}))
 		bounded.Get("/api/user/session", h.Authenticated())
 		bounded.Delete("/api/user/session", h.Logout())
 		bounded.Get("/api/user/pending", h.PendingStatus())
 		bounded.Get("/api/user/sign-in-means", h.SignInMeans())
+		bounded.Get("/api/user/sessions", h.OwnSessions())
+		bounded.Get("/api/user/tenants", h.OwnTenants())
 		guarded.Post("/api/user/password/login", h.PasswordLogin())
 		guarded.Post("/api/user/password/change", h.PasswordChange())
 		guarded.Post("/api/user/password/remove", h.PasswordRemove())
+		guarded.Post("/api/user/password/strength", h.PasswordStrength())
 		guarded.Post("/api/user/pending/confirm", h.PendingConfirmWithPassword())
 		guarded.Post("/api/user/pending/cancel", h.PendingCancel())
 		guarded.Post("/api/user/pending/code", h.PendingSendCode())
@@ -220,11 +273,21 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 		guarded.Post("/api/user/browser/forget", h.ForgetBrowser())
 		guarded.Post("/api/user/name", h.ChangeName())
 		guarded.Post("/api/user/look", h.ChangeLook())
+		guarded.Post("/api/user/username", h.ChangeUsername())
+		guarded.Post("/api/user/username/free", h.UsernameFree())
+		guarded.Post("/api/user/sessions/end", h.EndOwnSession())
+		guarded.Post("/api/user/sessions/end-others", h.EndOtherSessions())
+		guarded.Post("/api/user/browser/forget-all", h.ForgetBrowsers())
+		guarded.Post("/api/user/tenants/leave", h.LeaveTenant())
 		guarded.Post("/api/user/invitation", h.InvitationOpen())
 		guarded.Post("/api/user/invitation/sign-up", h.InvitationSignUp())
+		guarded.Post("/api/user/email/confirm", h.EmailConfirm())
 		guarded.Post("/api/user/sign-up", h.SignUpStart())
 		guarded.Post("/api/user/sign-up/open", h.SignUpOpen())
 		guarded.Post("/api/user/sign-up/complete", h.SignUpComplete())
+		guarded.Post("/api/user/password-reset", h.PasswordResetRequest())
+		guarded.Post("/api/user/password-reset/open", h.PasswordResetOpen())
+		guarded.Post("/api/user/password-reset/complete", h.PasswordResetComplete())
 
 		r.Group(func(r chi.Router) {
 			r.Use(h.ValidateSession)

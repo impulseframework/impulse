@@ -49,20 +49,18 @@ func (h *SignUpHandlers) Open() http.HandlerFunc { return h.open }
 // address verified and the method's default role, and signs the person in, answering as
 // the password login does ({"mfaIsRequired"}). username is the address when the
 // password method declares the username as the email address, and chosen otherwise. A
-// taken username or address is 409, a password under eight characters 400, a token
-// whose link is no longer live 404, and a sign-up through a method that was closed
-// since the link was mailed 404: the link is spent, the account made and the role
-// given in one transaction that reads the method's row, or none of it is. Route it
-// beside the password login, behind ValidateXSRFToken.
+// taken username or address is 409, a password the judgment refuses 400, a chosen
+// username with an @ in it that is not the account's address 400, a token whose link
+// is no longer live 404, and a sign-up through a method that was closed since the link
+// was mailed 404: the link is spent, the account made and the role given in one
+// transaction that reads the method's row, or none of it is. Route it beside the
+// password login, behind ValidateXSRFToken.
 func (h *SignUpHandlers) Complete() http.HandlerFunc { return h.complete }
 
-// SignUp returns the sign-up handlers. It panics on an Auth without mail, as a wiring
-// mistake. Every application with the password method and mail routes them: whether
-// sign-up is offered is an administrator's choice in the running application, read as
-// each request arrives.
+// SignUp returns the sign-up handlers. Every application with the password method
+// routes them: whether sign-up is offered is an administrator's choice in the running
+// application, read as each request arrives.
 func (a *Auth[S, U, Tx]) SignUp() *SignUpHandlers {
-	a.requireMail("SignUp()")
-
 	return &SignUpHandlers{
 		start:    a.serving(a.signUpStart()),
 		open:     a.serving(a.signUpOpen()),
@@ -139,10 +137,7 @@ func (a *Auth[S, U, Tx]) signUpStart() http.HandlerFunc {
 // startSignUp mails email its sign-up link, or the notice that an account already
 // holds it.
 func (a *Auth[S, U, Tx]) startSignUp(ctx context.Context, email string) error {
-	m, err := a.mailOf()
-	if err != nil {
-		return err
-	}
+	m := a.settings.mail
 	bare, err := address(email)
 	if err != nil {
 		return err
@@ -161,7 +156,7 @@ func (a *Auth[S, U, Tx]) startSignUp(ctx context.Context, email string) error {
 	}
 	lifetime := m.settings.LinkTimeout
 	link := &sessionstorage.MailLink{TokenHash: hash, Kind: sessionstorage.MailLinkSignUp, Email: bare, ExpiresAt: time.Now().Add(lifetime)}
-	if err := a.storage.InsertMailLink(ctx, link); err != nil {
+	if err := a.storage.InsertMailLink(ctx, link, nil); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.InsertMailLink()")
 	}
 

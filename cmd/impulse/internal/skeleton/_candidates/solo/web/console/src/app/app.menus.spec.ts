@@ -5,7 +5,7 @@ import { routes } from './app.routes';
 
 /** The menu file as the frame reads it: called once, in an injection context. */
 function menus(): Menu[] {
-  return TestBed.runInInjectionContext(() => appMenus({ featureFlags: () => undefined }));
+  return TestBed.runInInjectionContext(() => appMenus());
 }
 
 describe('the menu file', () => {
@@ -21,7 +21,10 @@ describe('the menu file', () => {
       'Mailed links',
       'Sessions',
       'Failed sign-ins',
+      'Audit log',
       'Sign-in',
+      'Break glass',
+      'Feature flags',
     ]);
   });
 });

@@ -1,7 +1,7 @@
 import { apiDescriptor } from '@app/service/zz_gen_api';
-import { Permissions, Resources } from '@app/service/zz_gen_constants';
 import { resourceMeta } from '@app/service/zz_gen_resources';
-import { FrameActions, Menu } from '@impulseframework/resource-angular/auth-frame';
+import { Menu } from '@impulseframework/resource-angular/auth-frame';
+import { featureFlagsPage } from '@impulseframework/resource-angular/feature-flags';
 import { identityMenuPages } from '@impulseframework/resource-angular/identity-pages';
 
 /**
@@ -14,28 +14,25 @@ import { identityMenuPages } from '@impulseframework/resource-angular/identity-p
  * Sign out). A page added to the routes and forgotten here fails app.menus.spec.ts, naming
  * the page.
  *
- * The frame calls the function once, in an injection context, handing it what the frame
- * does: here the feature flags dialog.
+ * The frame calls the function once, in an injection context, so an entry of the
+ * application's own may use a service it injects.
  */
-export function appMenus(actions: FrameActions): Menu[] {
+export function appMenus(): Menu[] {
   return [
     {
       label: 'System',
       groups: [
         {
           entries: [
-            // The staff's accounts, their mailed links, sessions and failed sign-ins.
+            // The staff's accounts, their mailed links, sessions, failed sign-ins and audit log.
             ...identityMenuPages(apiDescriptor, resourceMeta, { auth: 'Staff', scope: 'global' }),
           ],
         },
         {
           entries: [
-            {
-              label: 'Feature flags…',
-              icon: 'flag',
-              run: () => actions.featureFlags(),
-              permission: { resource: Resources.FeatureFlags, permission: Permissions.List },
-            },
+            // The feature flags the application declares, each with who last turned it on or
+            // off: the library's page, shown under List on the flags.
+            featureFlagsPage(resourceMeta),
           ],
         },
       ],

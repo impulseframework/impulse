@@ -12,6 +12,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/sites/apps/console/pkg/resources"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/logger"
@@ -22,17 +23,19 @@ import (
 )
 
 // tenantDeclaration names where the Tenant record keeps its declaration of who
-// may enter a tenant (@directoryOnly on the record, the TenantDirectory record's columns): what
+// may enter a tenant (@directoryOnly and @tenantDisabled on the record, the TenantDirectory record's columns): what
 // the roster reads beside the keys and the sign-in's readers read in its own
 // transaction.
 var tenantDeclaration = resource.TenantDeclarationColumns{
 	DirectoryOnly:        "DirectoryOnly",
+	Disabled:             "Disabled",
 	DirectoriesTable:     "TenantDirectories",
 	TenantColumn:         "TenantId",
 	MethodColumn:         "Method",
 	ConnectionColumn:     "Connection",
 	DirectoriesKeyColumn: "Id",
 	DefaultSeatColumn:    "DefaultSeat",
+	SecondFactorColumn:   "AsksSecondFactor",
 }
 
 // NewTenantRoster builds the application's tenant roster over the Tenant record
@@ -67,9 +70,12 @@ func NewTenantDeclarationReader() signin.DeclarationReader[*spanner.ReadWriteTra
 // NewTenantDirectoryReader builds the sign-in's reader of every tenant's declaration of
 // one directory (session.Auth.SetDirectoryAdmission, through signin.DirectoryReader):
 // the TenantDirectory rows naming the directory's method and connection, each as its tenant
-// with the default seat the row carries (TenantDirectory.DefaultSeat: the role a stranger the
-// directory vouches for is seated with at their first sign-in, none for a NULL, and the
-// tenant admits them by invitation only),
+// with the default seat the row carries (TenantDirectory.DefaultSeat: the role a person the
+// directory vouches for is seated with when they sign in through it and hold nothing in
+// the tenant, at every sign-in, none for a NULL, and the tenant admits them by
+// invitation only),
+// and with whether the tenant says the directory asks its people for a second
+// factor of its own (TenantDirectory.AsksSecondFactor),
 // read in the sign-in's own transaction. The application hands it to the auth whose
 // people enter tenants, beside the hook that gives the default role (the
 // auth's generated identity client's DirectorySeated).
@@ -81,9 +87,14 @@ func NewTenantDirectoryReader() signin.DirectoryReader[*spanner.ReadWriteTransac
 // (resource.TenantDirectoryRules) over the Tenant record's table and its declaration's
 // columns: a tenant has one directory, a directory is one tenant's, a personal account
 // is no directory, and the directory of a tenant that is directory only is not removed.
-// Every write of the TenantDirectory record is held to them. The generated TenantDirectory
-// write paths ask them: the create stamps the directory the caller is signed in
-// through, which no request types, and the delete asks before it removes.
+// Every write of the TenantDirectory record a request asks for is held to them. The tenant's
+// own method that takes a directory (TakeTenantDirectory) asks them for the directory the
+// caller is signed in through, which no request types, the record's own create being
+// refused, and the delete asks before it removes. The one
+// removal they are not asked is the delete of the tenant itself, which takes its
+// directory with it like every other row under the tenant (Tenant.DeleteTree): the
+// rule keeps a tenant that stays from being left with no way in, and that tenant
+// does not stay.
 func NewTenantDirectoryRules() *resource.TenantDirectoryRules {
 	return resource.NewTenantDirectoryRules("Tenants", "Id", &tenantDeclaration, "tenant")
 }
@@ -99,7 +110,7 @@ func NewTenantDirectoryRules() *resource.TenantDirectoryRules {
 // has. Then the TenantDirectory row is buffered through the record's create patch, so its
 // change event is written with it. The caller reloads the roster and signals the
 // tenants kind once the transaction has committed, as the record's write paths do.
-func SetTenantDirectory(ctx context.Context, txn resource.ReadWriteTransaction, tenant impulse.UUID, directory signin.Directory, eventSource ...string) error {
+func SetTenantDirectory(ctx context.Context, txn resource.ReadWriteTransaction, tenant impulse.UUID, directory signin.Directory, eventSource ...eventsource.EventSource) error {
 	if err := NewTenantDirectoryRules().Set(ctx, txn, accesstypes.Domain(tenant.String()), directory); err != nil {
 		return errors.Wrap(err, "resource.TenantDirectoryRules.Set()")
 	}
@@ -187,6 +198,11 @@ func (m *tenantMaker) Make(ctx context.Context, txn resource.ReadWriteTransactio
 	if tenant.Caller != nil {
 		patch.Enforce(tenant.Caller)
 	}
+	// What the tenant is called, which the rows of its making name it by: the roster
+	// learns of it only after the commit.
+	if patch.NameIsSet() {
+		tenant.Name = string(patch.Name())
+	}
 	if err := patch.Buffer(ctx, txn, tenant.Source); err != nil {
 		return "", errors.Wrap(err, "resources.TenantCreatePatch.Buffer()")
 	}
@@ -253,5 +269,12 @@ func (m *tenantMaker) SeatsDefaultRole() bool {
 // DeclaresDirectoryOnly reports whether the Tenant record declares the
 // directory-only switch (Tenant.DirectoryOnly).
 func (m *tenantMaker) DeclaresDirectoryOnly() bool {
+	return true
+}
+
+// TakesDirectory reports whether a tenant keeps a directory: the
+// TenantDirectory record holds it, so one made through an organization's directory takes it
+// as its own.
+func (m *tenantMaker) TakesDirectory() bool {
 	return true
 }

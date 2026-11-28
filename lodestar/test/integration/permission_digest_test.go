@@ -29,14 +29,15 @@ func TestPermissionDigest(t *testing.T) {
 		wantEmpty   bool
 	}{
 		{
-			name:   "the cadet's Anvil digest carries the tri-state per grant",
+			// A field held under its resource's one condition reads conditional with it.
+			name:   "the cadet's Anvil digest carries a state per grant",
 			user:   "cadet",
 			target: "/console/api/permission-digest?domain=" + anvil,
 			wantEntries: accesstypes.PermissionDigest{
 				"Missions":              {"List": accesstypes.DigestConditional, "Read": accesstypes.DigestConditional},
-				"Missions.hazard":       {"List": accesstypes.DigestConditional, "Read": accesstypes.DigestConditional},
+				"Missions.hazard":       {"List": accesstypes.DigestConditionalWithResource, "Read": accesstypes.DigestConditionalWithResource},
 				"DistressCalls":         {"Create": accesstypes.DigestGranted, "List": accesstypes.DigestConditional, "Read": accesstypes.DigestConditional},
-				"DistressCalls.summary": {"Create": accesstypes.DigestGranted, "List": accesstypes.DigestConditional, "Read": accesstypes.DigestConditional},
+				"DistressCalls.summary": {"Create": accesstypes.DigestGranted, "List": accesstypes.DigestConditionalWithResource, "Read": accesstypes.DigestConditionalWithResource},
 				"ClaimMission":          {"Execute": accesstypes.DigestConditional},
 				"Wings":                 {"List": accesstypes.DigestGranted, "Read": accesstypes.DigestGranted},
 			},
@@ -49,16 +50,16 @@ func TestPermissionDigest(t *testing.T) {
 			user:   "dispatcher",
 			target: "/console/api/permission-digest?domain=" + anvil,
 			wantEntries: accesstypes.PermissionDigest{
-				"Missions.assignedSquadronId": {"List": accesstypes.DigestConditional, "Read": accesstypes.DigestConditional, "Update": accesstypes.DigestConditional},
-				"Missions.notes":              {"List": accesstypes.DigestConditional, "Read": accesstypes.DigestConditional, "Update": accesstypes.DigestConditional},
+				"Missions.assignedSquadronId": {"List": accesstypes.DigestConditionalWithResource, "Read": accesstypes.DigestConditionalWithResource, "Update": accesstypes.DigestConditional},
+				"Missions.notes":              {"List": accesstypes.DigestConditionalWithResource, "Read": accesstypes.DigestConditionalWithResource, "Update": accesstypes.DigestConditional},
 			},
 		},
 		{
-			name:   "the dockmaster's windowed grant reads conditional, with a clock",
+			name:   "the dockmaster's windowed grant reads conditional on time: the window reads the clock alone",
 			user:   "dock",
 			target: "/console/api/permission-digest?domain=" + anvil,
 			wantEntries: accesstypes.PermissionDigest{
-				"Refits": {"List": accesstypes.DigestConditional, "Read": accesstypes.DigestConditional},
+				"Refits": {"List": accesstypes.DigestConditionalOnTime, "Read": accesstypes.DigestConditionalOnTime},
 			},
 		},
 		{
@@ -67,7 +68,7 @@ func TestPermissionDigest(t *testing.T) {
 			target: "/console/api/permission-digest",
 			wantEntries: accesstypes.PermissionDigest{
 				"Sectors":       {"List": accesstypes.DigestGranted, "Read": accesstypes.DigestGranted},
-				"IssueBulletin": {"Execute": accesstypes.DigestConditional},
+				"IssueBulletin": {"Execute": accesstypes.DigestConditionalOnTime},
 				"ViewAsUser":    {"Execute": accesstypes.DigestGranted},
 				"AssumeRole":    {"Execute": accesstypes.DigestGranted},
 				"Clients":       {"List": accesstypes.DigestConditional},
@@ -117,4 +118,48 @@ func TestPermissionDigest(t *testing.T) {
 			}
 		})
 	}
+
+	// One state alone, each read against the role file. The hazard analyst holds the
+	// hazard board under an expiry and nothing else, a condition that reads the time of
+	// the request alone: the board and its ship read conditional on time. The Flight
+	// Lead holds the manifests on the rows of the missions their squadrons fly
+	// (assignedSquadron IN subject.squadrons), and the title under that one condition: the
+	// title reads conditional with the list.
+	t.Run("the hazard analyst's expiring grant reads conditional on time", func(t *testing.T) {
+		t.Parallel()
+
+		digest := digestAs(t, h, "hazards", "/console/api/permission-digest?domain="+anvil)
+		if got := digest["SectorHazardBoards"]["List"]; got != accesstypes.DigestConditionalOnTime {
+			t.Errorf("digest[SectorHazardBoards][List] = %q, want conditionalOnTime (now < '2099-01-01T00:00:00Z')", got)
+		}
+		if got := digest["SectorHazardBoards.shipName"]["List"]; got != accesstypes.DigestConditionalOnTime {
+			t.Errorf("digest[SectorHazardBoards.shipName][List] = %q, want conditionalOnTime (now < '2099-01-01T00:00:00Z')", got)
+		}
+	})
+
+	t.Run("the Flight Lead's grant on the manifests reads conditional with the list", func(t *testing.T) {
+		t.Parallel()
+
+		digest := digestAs(t, h, "lead", "/console/api/permission-digest?domain="+anvil)
+		if got := digest["ExpenseManifests"]["List"]; got != accesstypes.DigestConditional {
+			t.Errorf("digest[ExpenseManifests][List] = %q, want conditional (assignedSquadron IN subject.squadrons)", got)
+		}
+		if got := digest["ExpenseManifests.title"]["List"]; got != accesstypes.DigestConditionalWithResource {
+			t.Errorf("digest[ExpenseManifests.title][List] = %q, want conditionalWithResource (the list's own condition)", got)
+		}
+	})
+}
+
+// digestAs fetches the permission digest at target as user.
+func digestAs(t *testing.T, h http.Handler, user accesstypes.User, target string) accesstypes.PermissionDigest {
+	t.Helper()
+
+	status, body := doRequestAs(t, h, user, http.MethodGet, target, "")
+	assertStatus(t, status, http.StatusOK, body)
+	var digest accesstypes.PermissionDigest
+	if err := json.Unmarshal(body, &digest); err != nil {
+		t.Fatalf("decoding digest %s: %v", body, err)
+	}
+
+	return digest
 }

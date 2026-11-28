@@ -1,3 +1,8 @@
+// What the method does, in the page's one line, above whatever the dialog asks.
+.says {
+  margin: 0 0 12px;
+}
+
 .question {
   margin: 0;
 }
@@ -27,6 +32,22 @@
   background-color: var(--impulse-alert-warn-bg);
 }
 
+// A method that warns with no word to type: the server's words are the dialog's question,
+// read as the page's own question is (.question), with no warning colors and no icon; the
+// names and notes keep their layout under it. A question the page gives too stands above
+// it, a line apart.
+.warning.asks {
+  display: block;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background-color: transparent;
+}
+
+.question + .warning.asks {
+  margin-top: 12px;
+}
+
 .warning-icon {
   flex: none;
   color: var(--impulse-alert-warn-border);
@@ -48,6 +69,13 @@
   margin: 8px 0 0;
   padding-left: 20px;
   overflow-y: auto;
+}
+
+// A further note the warning carries, under the first sentence and its list: a sentence
+// of its own, followed by the names it speaks of in a list of their own.
+.warning-note {
+  margin: 12px 0 0;
+  white-space: pre-line;
 }
 
 .typed-word {

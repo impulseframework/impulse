@@ -32,11 +32,17 @@ func periodText(period accesstypes.Period) string {
 	return instant(period.Start) + ".." + instant(period.End)
 }
 
-func (f *fakeStore) SetMembershipPeriod(_ context.Context, _ resource.ReadWriteTransaction, key *access.MembershipKey, period accesstypes.Period) error {
+// SetMembershipPeriod logs the period the membership is given, and the reason after it
+// where one is given: a write with no reason leaves the membership with none.
+func (f *fakeStore) SetMembershipPeriod(_ context.Context, _ resource.ReadWriteTransaction, key *access.MembershipKey, period accesstypes.Period, reason string) error {
 	if err := f.fail("SetMembershipPeriod"); err != nil {
 		return err
 	}
-	f.writes = append(f.writes, "period of membership "+membershipText(key)+": "+periodText(period))
+	write := "period of membership " + membershipText(key) + ": " + periodText(period)
+	if reason != "" {
+		write += " because " + reason
+	}
+	f.writes = append(f.writes, write)
 
 	return nil
 }
@@ -63,10 +69,17 @@ func (f *fakeStore) UserPeriods(_ context.Context, _ resource.ReadOnlyTransactio
 	if err := f.fail("UserPeriods"); err != nil {
 		return nil, err
 	}
-	periods := &UserPeriods{Memberships: map[access.MembershipKey]accesstypes.Period{}, Places: map[access.GroupMemberKey]accesstypes.Period{}}
+	periods := &UserPeriods{
+		Memberships: map[access.MembershipKey]accesstypes.Period{},
+		Places:      map[access.GroupMemberKey]accesstypes.Period{},
+		Reasons:     map[access.MembershipKey]string{},
+	}
 	for key, held := range f.memberships {
 		if held && key.User == User(userID) {
 			periods.Memberships[key] = f.membershipPeriods[key]
+			if reason := f.membershipReasons[key]; reason != "" {
+				periods.Reasons[key] = reason
+			}
 		}
 	}
 	for key, in := range f.groupMembers {
@@ -192,8 +205,8 @@ func TestManager_AssignRoleFor(t *testing.T) {
 			period: accesstypes.Period{Start: current.End, End: current.Start}, wantErr: "not after its start",
 		},
 		{name: "a period that is over already", role: "Reader", scope: alphaScope, period: ended, wantErr: "take it away to end it now"},
-		{name: "an end on the Super Administrator role", role: accesstypes.SuperAdministrator, scope: globalScope, period: accesstypes.Period{End: current.End}, wantErr: "takes no end"},
-		{name: "a start on the Super Administrator role", role: accesstypes.SuperAdministrator, scope: globalScope, period: accesstypes.Period{Start: upcoming.Start}, wantErr: "takes no end"},
+		{name: "an end on the Super Administrator role", role: accesstypes.SuperAdministrator, scope: globalScope, period: accesstypes.Period{End: current.End}, wantErr: "The Super administrator role takes no start and no end, because there is always a super administrator and a period could leave none. Give the role with no period, and remove it when it is no longer wanted."},
+		{name: "a start on the Super Administrator role", role: accesstypes.SuperAdministrator, scope: globalScope, period: accesstypes.Period{Start: upcoming.Start}, wantErr: "The Super administrator role takes no start and no end, because there is always a super administrator and a period could leave none. Give the role with no period, and remove it when it is no longer wanted."},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -206,7 +219,7 @@ func TestManager_AssignRoleFor(t *testing.T) {
 			m, engine := newManager(t, store, engineRoles)
 
 			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-				return m.AssignRoleFor(ctx, txn, tt.scope, userID, tt.role, tt.period)
+				return m.AssignRoleFor(ctx, txn, tt.scope, userID, tt.role, tt.period, "")
 			})
 			if tt.wantErr != "" {
 				if err == nil || !httpio.HasBadRequest(err) || !strings.Contains(err.Error(), tt.wantErr) {
@@ -227,8 +240,11 @@ func TestManager_AssignRoleFor(t *testing.T) {
 
 // TestManager_groupPeriods pins the period of a place in a group and of a group's role
 // as the rules give them, each replaced by giving again, and the deletion of a group
-// against the periods: a member or a role that has ended does not stand in the way and
-// goes with the group, and one that has not begun does.
+// against the periods: a member and a role that have ended are taken with the group as
+// any are, by the group's own delete, and nothing their removal asks is asked of them,
+// so dana, acting as someone else, deletes a group whose place of hers has ended and is
+// refused one whose place of hers counts or has not begun. A role that has not begun is
+// asked what taking it from the group asks, as one that counts is.
 func TestManager_groupPeriods(t *testing.T) {
 	t.Parallel()
 
@@ -317,15 +333,34 @@ func TestManager_groupPeriods(t *testing.T) {
 		}
 	})
 
+	// Each delete is asked as dana acting as someone else, or as erin, who may take
+	// Reader from nobody.
+	asDana := func(ctx context.Context) context.Context {
+		return viewedBy(asErin(ctx, managedAuth, false), userID)
+	}
+	asErinTakingNoReader := func(ctx context.Context) context.Context {
+		return asCallerThrough(ctx, managedAuth, erin)
+	}
 	deletes := []struct {
-		name        string
-		place, role accesstypes.Period
-		wantErr     bool
+		name     string
+		place    accesstypes.Period
+		role     accesstypes.Period
+		caller   func(context.Context) context.Context
+		wantSays string
 	}{
-		{name: "a member and a role that have ended go with the group", place: ended, role: ended},
-		{name: "a member who has not begun stands in the way", place: upcoming, role: ended, wantErr: true},
-		{name: "a role that has not begun stands in the way", place: ended, role: upcoming, wantErr: true},
-		{name: "a member with no period stands in the way", role: ended, wantErr: true},
+		{name: "a member and a role that have ended go with the group, and are not asked about", place: ended, role: ended, caller: asDana},
+		{
+			name: "a member whose place counts is asked what removing them asks", role: ended, caller: asDana,
+			wantSays: actingAsSomeoneElse + "take yourself out of a group.",
+		},
+		{
+			name: "a member whose place has not begun is asked what removing them asks", place: upcoming, role: ended, caller: asDana,
+			wantSays: actingAsSomeoneElse + "take yourself out of a group.",
+		},
+		{
+			name: "a role whose period has not begun is asked what taking it from the group asks", role: upcoming, caller: asErinTakingNoReader,
+			wantSays: "Taking a role from the group Night shift takes away from everyone in it the role Reader, which you may not take from them.",
+		},
 	}
 	for _, tt := range deletes {
 		t.Run(tt.name, func(t *testing.T) {
@@ -334,19 +369,21 @@ func TestManager_groupPeriods(t *testing.T) {
 			store.groupMembers[place], store.groupRoles[role] = true, true
 			store.placePeriods = map[access.GroupMemberKey]accesstypes.Period{place: tt.place}
 			store.rolePeriods = map[access.GroupRoleKey]accesstypes.Period{role: tt.role}
-			m, _ := newManager(t, store, engineRoles)
+			m, _ := newManager(t, store, engineRoles, WithRoleGrants(&fakeGrants{noTake: []accesstypes.Role{"Reader"}}))
 
 			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-				return m.DeleteGroup(ctx, txn, nightID)
+				_, err := m.DeleteGroup(tt.caller(ctx), txn, nightID, true)
+
+				return err
 			})
-			if tt.wantErr {
-				if err == nil || !httpio.HasConflict(err) || len(store.writes) != 0 {
-					t.Fatalf("DeleteGroup() = %v with writes %v, want a conflict and nothing written", err, store.writes)
+			if tt.wantSays != "" {
+				if err == nil || !httpio.HasForbidden(err) || !strings.Contains(httpio.Message(err), tt.wantSays) || len(store.writes) != 0 {
+					t.Fatalf("DeleteGroup() = %v with writes %v, want the refusal %q and nothing written", err, store.writes, tt.wantSays)
 				}
 
 				return
 			}
-			want := []string{"delete group member " + placeText, "delete group role " + groupRoleText(&role), "delete group " + nightID.String()}
+			want := []string{"delete group " + nightID.String() + " with everything under it"}
 			if diff := cmp.Diff(want, store.writes); err != nil || diff != "" {
 				t.Errorf("DeleteGroup() error = %v, buffered writes (-want +got):\n%s", err, diff)
 			}
@@ -396,8 +433,8 @@ func TestManager_ClearEnded(t *testing.T) {
 			t.Fatalf("ClearEnded() = (%d, %v), want two rows cleared", cleared, err)
 		}
 		want := []string{
-			"remove membership " + membershipText(&gone) + " (the assignment ended by itself)",
-			"remove group member " + string(place.Group) + " " + string(place.User) + " (the assignment ended by itself)",
+			"remove membership " + membershipText(&gone) + " (PeriodEnd)",
+			"remove group member " + string(place.Group) + " " + string(place.User) + " (PeriodEnd)",
 		}
 		if diff := cmp.Diff(want, store.writes); diff != "" {
 			t.Errorf("buffered writes (-want +got):\n%s", diff)
@@ -427,7 +464,7 @@ func TestManager_ClearEnded(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ClearEnded() error = %v", err)
 		}
-		want := []string{"remove membership " + membershipText(&last) + " (the assignment ended by itself)"}
+		want := []string{"remove membership " + membershipText(&last) + " (PeriodEnd)"}
 		if diff := cmp.Diff(want, store.writes); diff != "" {
 			t.Errorf("buffered writes (-want +got): the one row goes, and no session ends and no account is deleted\n%s", diff)
 		}
@@ -581,9 +618,8 @@ func TestManager_SignedIn(t *testing.T) {
 // TestManager_endedAssignmentsInTheRules pins what an ended assignment is to the rules
 // that read what a person holds: it places nobody in a tenant, so a person whose role in
 // one tenant has ended is given a role in another where a person belongs to one; it
-// makes nobody a tenant's administrator, so the last one whose role counts keeps it; and
-// it still keeps its account, which goes only when nothing at all is left of what was
-// given to it.
+// makes nobody a tenant's administrator, so the last one whose role counts keeps it. The
+// removal of the last role that counts takes the membership alone: the account stays.
 func TestManager_endedAssignmentsInTheRules(t *testing.T) {
 	t.Parallel()
 
@@ -641,7 +677,7 @@ func TestManager_endedAssignmentsInTheRules(t *testing.T) {
 		})
 	}
 
-	t.Run("an ended row keeps its account when the last role that counts is removed", func(t *testing.T) {
+	t.Run("the last role that counts is removed, and the account stays", func(t *testing.T) {
 		t.Parallel()
 		store := groupStore()
 		store.memberships[inAlpha], store.memberships[inBeta] = true, true

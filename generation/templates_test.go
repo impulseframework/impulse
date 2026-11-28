@@ -34,6 +34,7 @@ func fileTemplates() map[string]string {
 		"domainGuardTemplate":             domainGuardTemplate,
 		"liveTemplate":                    liveTemplate,
 		"decodersTemplate":                decodersTemplate,
+		"namedRowSourcesTemplate":         namedRowSourcesTemplate,
 		"appContractTemplate":             appContractTemplate,
 		"handlerTestsMainTemplate":        handlerTestsMainTemplate,
 		"authzTestTemplate":               authzTestTemplate,
@@ -96,6 +97,24 @@ func Test_decodersTemplate_gating(t *testing.T) {
 				"resource.MustNewComputedFileDecoder[Resource, Request](router.Collection(), segment).WithSubjectFacts(a.ResourceClient())",
 			},
 			wantNotContains: []string{"NewQueryDecoder", "NewDecoder[", "NewRPCDecoder"},
+		},
+		{
+			// A name read from a view is read from the view's query, which the decoder
+			// holds: the application's handlers hand theirs the merged name views, an
+			// auth's their package's, or nil.
+			name: "a query decoder is handed the home's name views",
+			data: decodersFileData{
+				Package:         "app",
+				ApplicationName: "App",
+				ReceiverName:    "a",
+				RouterPackage:   "router",
+				HasQueryDecoder: true,
+				NameViews:       "nameViews",
+			},
+			wantContains: []string{
+				"resource.MustNewQueryDecoder[Resource, Request](router.Collection(), permissions...).WithCursorKey(a.CursorKey()).WithFeatures(a.FeatureSet()).WithNameViews(nameViews)",
+				"so a field\n// gated behind a flag that is off is unknown to the request, and to the name views its\n// lists may point into (the application's; in an auth's handlers, the auth's own) so a\n// name that points into a view is read from the view's query.",
+			},
 		},
 		{
 			name: "query-only emits no computed, patch, or RPC constructor",
@@ -983,7 +1002,7 @@ func Test_handlerTemplates_live(t *testing.T) {
 			name:     "list",
 			template: listTemplate,
 			want: []string{
-				"live.Subscribe(ctx, r, {{ .ReceiverName }}.LiveService(), querySet, live.ListSubscription(querySet.Resource(),",
+				"live.Subscribe(ctx, w, r, {{ .ReceiverName }}.LiveService(), querySet, live.ListSubscription(querySet.Resource(),",
 				"live.SetCacheControl(w, r)",
 			},
 		},
@@ -991,7 +1010,7 @@ func Test_handlerTemplates_live(t *testing.T) {
 			name:     "read",
 			template: readTemplate,
 			want: []string{
-				"live.Subscribe(ctx, r, {{ .ReceiverName }}.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey({{ .Resource.KeyParamList }})))",
+				"live.Subscribe(ctx, w, r, {{ .ReceiverName }}.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey({{ .Resource.KeyParamList }})))",
 				"live.SetCacheControl(w, r)",
 			},
 		},
@@ -999,8 +1018,8 @@ func Test_handlerTemplates_live(t *testing.T) {
 			name:     "computed",
 			template: computedResourceHandlerTemplate,
 			want: []string{
-				"live.ListSubscription(querySet.Resource(),",
-				"live.RowSubscription(querySet.Resource(), resource.RowKey({{ .Resource.KeyParamList }}))",
+				"live.Subscribe(ctx, w, r, {{ .ReceiverName }}.LiveService(), querySet, live.ListSubscription(querySet.Resource(),",
+				"live.Subscribe(ctx, w, r, {{ .ReceiverName }}.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey({{ .Resource.KeyParamList }})))",
 				"live.SetCacheControl(w, r)",
 			},
 		},

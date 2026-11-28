@@ -55,9 +55,35 @@ type fileKeyer interface {
 	FileKeys() []FileKey
 }
 
-// virtualQuerier is an interface for types that can provide a subquery with params.
-type virtualQuerier interface {
-	Subquery() (string, map[string]any)
+// deleteTreer is the generated description of what a delete of a record takes with it
+// and what refuses it (DeleteTree). The generator writes it from the schema and the
+// record's @deleteCascade; the patch machinery reads it when the record is deleted.
+type deleteTreer interface {
+	DeleteTree() *DeleteTree
+}
+
+// View is a view (a @virtual resource): a query of the application's, not a database
+// object, with the parameters the query binds. Every statement over the view reads the
+// query in a table's place, and so does every name read from it (NameField.View),
+// unless the view gives its names through a query of their own (NameSubqueryer).
+type View interface {
+	Subquery() (query string, params map[string]any)
+}
+
+// NameSubqueryer is a view that gives the names of its rows through a query of their
+// own, lighter than the one its rows are read from. The query gives the view's key
+// column, its name column and, where the view belongs to a tenant, its tenant column,
+// under the view's own column names, one row for each row of the view, with the
+// parameters it binds. A statement that reads a name from the view reads it from this
+// query, except where the person holds the name's grant under a condition: the
+// condition reads the view's own fields, so the statement reads the view's whole query
+// (Subquery). A statement writes the query once to read the name and once more for
+// each condition of its filter on the name, and Spanner refuses a statement of more
+// than twenty joins: a view whose own query holds many gives its names through one
+// that holds few.
+type NameSubqueryer interface {
+	View
+	NameSubquery() (query string, params map[string]any)
 }
 
 // Set holds metadata about a resource, including its permissions and field-to-tag mappings.
@@ -166,6 +192,18 @@ func newUnenforcedSet[Resource Resourcer, Request any]() (*Set[Resource], error)
 	}, nil
 }
 
+// newDeleteSet builds the Set a delete is armed with where no request is decoded (a
+// generated delete patch's Enforce): Delete on the resource and nothing of any field,
+// since a delete carries none.
+func newDeleteSet[Resource Resourcer]() *Set[Resource] {
+	return &Set[Resource]{
+		permissions:     []accesstypes.Permission{accesstypes.Delete},
+		requiredTagPerm: make(accesstypes.TagPermissions),
+		fieldToTag:      make(map[accesstypes.Field]accesstypes.Tag),
+		rMeta:           NewMetadata[Resource](),
+	}
+}
+
 // BaseResource returns the base name of the resource (without any tags).
 func (r *Set[Resource]) BaseResource() accesstypes.Resource {
 	var res Resource
@@ -269,6 +307,11 @@ func permissionsFromTags(t reflect.Type, perms []accesstypes.Permission, secret 
 
 	fields := make([]FieldTags, 0, t.NumField())
 	for field := range t.Fields() {
+		// A name field takes no grant of its own: the id beside it and the pointed-to
+		// resource's name field carry the grants a name is read under.
+		if isNameField(field.Tag) {
+			continue
+		}
 		fields = append(fields, FieldTagsFromStructTag(accesstypes.Field(field.Name), field.Tag))
 	}
 
@@ -431,14 +474,25 @@ func permissionsFromFieldTags(fields []FieldTags, perms []accesstypes.Permission
 
 // Metadata contains cached metadata about a resource, such as its database schema mapping and configuration.
 type Metadata[Resource Resourcer] struct {
-	dbMap               map[DBType]map[accesstypes.Field]dbFieldMetadata
-	dbFields            map[DBType][]accesstypes.Field
-	changeTrackingTable string
-	trackChanges        bool
+	dbMap        map[DBType]map[accesstypes.Field]dbFieldMetadata
+	dbFields     map[DBType][]accesstypes.Field
+	trackChanges bool
 	// fileKeys are the fields holding a stored file's key (the generated FileKeys):
 	// the patch machinery reads their old values on a delete and on a write that sets
 	// one, and records the released objects on the transaction.
 	fileKeys []FileKey
+	// groupColumns are the columns that name a group of people of an auth (the
+	// generated GroupColumns): the patch machinery holds each group a write names to
+	// the row's own tenant.
+	groupColumns []GroupColumn
+	// namedRows are the columns that name a row of another resource the application lists
+	// (the generated NamedRows): the patch machinery holds each row a write names to the
+	// rows its caller can list.
+	namedRows []NamedRow
+	// tenantBinding is the resource's way to its tenant (the generated TenantBinding),
+	// nil for a resource that belongs to no tenant: the patch machinery writes the
+	// tenant on each change record of the row.
+	tenantBinding *TenantBinding
 	// searchBranches are the resource's @searchAlso declarations (the generated
 	// SearchBranches): the child text its search box also searches.
 	searchBranches []SearchBranch
@@ -450,6 +504,10 @@ type Metadata[Resource Resourcer] struct {
 	// SecretContext): the primary key's fields in key order. Empty for a resource struct
 	// written by hand, whose secrets are bound to the key as it is given.
 	secretContext []accesstypes.Field
+	// deleteTree is what a delete of the record takes with it and what refuses it (the
+	// generated DeleteTree), nil for a record with no description: a delete of the
+	// record is held to it before the commit (delete_refusal.go).
+	deleteTree *DeleteTree
 }
 
 // secret reports whether the resource struct declares the field a secret.
@@ -466,14 +524,17 @@ func NewMetadata[Resource Resourcer]() *Metadata[Resource] {
 	c := resMetadataCache.get(res)
 
 	return &Metadata[Resource]{
-		dbMap:               c.dbMap,
-		dbFields:            c.dbFields,
-		changeTrackingTable: c.cfg.ChangeTrackingTable,
-		trackChanges:        c.cfg.TrackChanges,
-		fileKeys:            c.fileKeys,
-		searchBranches:      c.searchBranches,
-		secrets:             c.secrets,
-		secretContext:       c.secretContext,
+		dbMap:          c.dbMap,
+		dbFields:       c.dbFields,
+		trackChanges:   c.cfg.TrackChanges,
+		fileKeys:       c.fileKeys,
+		groupColumns:   c.groupColumns,
+		namedRows:      c.namedRows,
+		tenantBinding:  c.tenantBinding,
+		searchBranches: c.searchBranches,
+		secrets:        c.secrets,
+		secretContext:  c.secretContext,
+		deleteTree:     c.deleteTree,
 	}
 }
 
@@ -503,9 +564,13 @@ type resourceMetadataCacheEntry struct {
 	dbFields       map[DBType][]accesstypes.Field
 	cfg            Config
 	fileKeys       []FileKey
+	groupColumns   []GroupColumn
+	namedRows      []NamedRow
+	tenantBinding  *TenantBinding
 	searchBranches []SearchBranch
 	secrets        map[accesstypes.Field]struct{}
 	secretContext  []accesstypes.Field
+	deleteTree     *DeleteTree
 }
 
 type resourceMetadataCache struct {
@@ -552,6 +617,22 @@ func (c *resourceMetadataCache) get(res Resourcer) *resourceMetadataCacheEntry {
 		fileKeys = f.FileKeys()
 	}
 
+	var groupColumns []GroupColumn
+	if g, ok := res.(groupColumner); ok {
+		groupColumns = g.GroupColumns()
+	}
+
+	var namedRows []NamedRow
+	if n, ok := res.(namedRower); ok {
+		namedRows = n.NamedRows()
+	}
+
+	var tenantBinding *TenantBinding
+	if b, ok := res.(tenantBinder); ok {
+		binding := b.TenantBinding()
+		tenantBinding = &binding
+	}
+
 	var searchBranches []SearchBranch
 	if b, ok := res.(searchBrancher); ok {
 		searchBranches = b.SearchBranches()
@@ -560,6 +641,11 @@ func (c *resourceMetadataCache) get(res Resourcer) *resourceMetadataCacheEntry {
 	var secretContext []accesstypes.Field
 	if s, ok := res.(secretContexter); ok {
 		secretContext = s.SecretContext()
+	}
+
+	var deleteTree *DeleteTree
+	if d, ok := res.(deleteTreer); ok {
+		deleteTree = d.DeleteTree()
 	}
 
 	dbMap := make(map[DBType]map[accesstypes.Field]dbFieldMetadata)
@@ -575,9 +661,13 @@ func (c *resourceMetadataCache) get(res Resourcer) *resourceMetadataCacheEntry {
 		dbFields:       dbFields,
 		cfg:            cfg,
 		fileKeys:       fileKeys,
+		groupColumns:   groupColumns,
+		namedRows:      namedRows,
+		tenantBinding:  tenantBinding,
 		searchBranches: searchBranches,
 		secrets:        secretFields(t),
 		secretContext:  secretContext,
+		deleteTree:     deleteTree,
 	}
 
 	return c.cache[t]

@@ -78,3 +78,44 @@ func TestKeptName(t *testing.T) {
 		})
 	}
 }
+
+func TestUsernameRefusal(t *testing.T) {
+	t.Parallel()
+
+	const (
+		notOneLine = "A username is text on one line, with no tab or other control character."
+		tooLong    = "A username is at most 200 characters."
+	)
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "an ordinary name is kept", in: "gale.reyes"},
+		{name: "a name in any script is kept", in: "吉田さくら"},
+		{name: "the longest name is kept, counted in characters", in: strings.Repeat("é", MaxUsernameLength)},
+		{name: "one character more is refused", in: strings.Repeat("é", MaxUsernameLength+1), want: tooLong},
+		{name: "a NUL is refused: PostgreSQL keeps none in text", in: "gale\x00reyes", want: notOneLine},
+		{name: "a line break is refused", in: "gale\nreyes", want: notOneLine},
+		{name: "a tab is refused", in: "gale\treyes", want: notOneLine},
+		{name: "bytes that are no text are refused", in: "gale\xffreyes", want: notOneLine},
+		{name: "a name that is both too long and not one line is told the first", in: strings.Repeat("a", MaxUsernameLength) + "\n", want: notOneLine},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := UsernameRefusal(tt.in)
+			if tt.want == "" {
+				if err != nil {
+					t.Errorf("UsernameRefusal() = %v, want nil", err)
+				}
+
+				return
+			}
+			if !httpio.HasBadRequest(err) || httpio.Message(err) != tt.want {
+				t.Errorf("UsernameRefusal() = %v, want a bad request saying %q", err, tt.want)
+			}
+		})
+	}
+}

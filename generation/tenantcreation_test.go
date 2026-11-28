@@ -2,11 +2,14 @@ package generation
 
 import (
 	"go/format"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/resource"
 )
 
 // tenantCreationFixtureGenerator builds a generator around one tenantfixture record,
@@ -49,10 +52,11 @@ func generatedIdentityOf(importPaths ...string) []*identityInstance {
 	return instances
 }
 
-// Test_tenantClears pins what the tenant record's delete clears a tenant through: the
-// application's accessor of every generated identity client, in declaration order, and
-// nothing for any other resource or for a program that generates no auth's management.
-func Test_tenantClears(t *testing.T) {
+// Test_tenantKindSources pins the identity clients whose kinds the tenant record's delete
+// is handed: the application's accessor of every generated identity client, in
+// declaration order, and nothing for any other resource or for a program that generates
+// no auth's management.
+func Test_tenantKindSources(t *testing.T) {
 	t.Parallel()
 
 	two := generatedIdentityOf("example.com/app/pkg/auth/staff", "example.com/app/pkg/auth/members")
@@ -73,8 +77,143 @@ func Test_tenantClears(t *testing.T) {
 
 			r := &resourceGenerator{client: &client{}}
 			r.identity = tt.identity
-			if diff := cmp.Diff(tt.want, r.tenantClears(&resourceInfo{IsTenant: tt.tenant})); diff != "" {
-				t.Errorf("tenantClears() mismatch (-want +got):\n%s", diff)
+			if diff := cmp.Diff(tt.want, r.tenantKindSources(&resourceInfo{IsTenant: tt.tenant})); diff != "" {
+				t.Errorf("tenantKindSources() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// Test_recordKindsHanding pins what the delete of a record a role can be held on is
+// handed: the accessor of every auth's generated identity client whose role file holds a
+// role on the record, in declaration order, the record's resource as the role file names
+// it, and its key's text; nothing for a marked record no auth holds a role on, or for a
+// record that is not marked.
+func Test_recordKindsHanding(t *testing.T) {
+	t.Parallel()
+
+	_, byName, err := recordRolesResources(t, recordRolesTables())
+	if err != nil {
+		t.Fatalf("structsToResources() error = %v", err)
+	}
+	crew, members := sharingInstance("Crew", "Realm", "Project", true), sharingInstance("Members", "Realm", "Project", false)
+	none := sharingInstance("Guests", "Realm", "Project", false)
+	none.heldRecords = nil
+	elsewhere := sharingInstance("Visitors", "Realm", "Client", false)
+
+	tests := []struct {
+		name     string
+		identity []*identityInstance
+		record   string
+		want     *recordKindsHanding
+	}{
+		{
+			name: "a marked record, through the client of every auth that holds a role on it", identity: []*identityInstance{crew, none, members, elsewhere}, record: "Project",
+			want: &recordKindsHanding{Sources: []string{"CrewIdentity", "MembersIdentity"}, Resource: "Projects", KeyText: "id.String()"},
+		},
+		{name: "a marked record no auth holds a role on", identity: []*identityInstance{none, elsewhere}, record: "Project"},
+		{name: "a record that is not marked", identity: []*identityInstance{crew, elsewhere}, record: "Client"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			r := &resourceGenerator{client: &client{}}
+			r.identity = tt.identity
+			if diff := cmp.Diff(tt.want, r.recordKindsHanding(byName[tt.record])); diff != "" {
+				t.Errorf("recordKindsHanding() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// Test_recordKeyText pins the text a role held on a record names the record's key by,
+// spelled from the Go value of the key field's type: the string itself, an id's text, and
+// any other value's fmt spelling.
+func Test_recordKeyText(t *testing.T) {
+	t.Parallel()
+
+	for keyType, want := range map[string]string{stringGoType: "id", impulseUUIDGoType: "id.String()", "int64": "fmt.Sprint(id)"} {
+		if got := recordKeyText(keyType, "id"); got != want {
+			t.Errorf("recordKeyText(%s) = %q, want %q", keyType, got, want)
+		}
+	}
+}
+
+// Test_patchHandler_recordKinds pins the delete of a record a role can be held on, in its
+// own handler and in the consolidated one: the delete takes rows, so its patch is kept,
+// handed the roles each auth holds on the record, under the request's tenant, before it is
+// buffered, and kept to say what it deleted. The delete of a record that is not marked is
+// handed none of it.
+func Test_patchHandler_recordKinds(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name   string
+		record string
+		marked bool
+	}{
+		{name: "a marked record", record: "Project", marked: true},
+		{name: "a record that is not marked", record: "Task"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			c, byName, err := recordRolesResources(t, recordRolesTables())
+			if err != nil {
+				t.Fatalf("structsToResources() error = %v", err)
+			}
+			c.resources = slices.Collect(maps.Values(byName))
+			c.identity = []*identityInstance{sharingInstance("Crew", "Realm", "Project", true)}
+			r := &resourceGenerator{client: c, routePrefix: "api", applicationName: "App", receiverName: "a", domainRouteSegment: defaultDomainRouteSegment, domainRouteParam: defaultDomainRouteParam}
+			r.resource = "testdata/recordrolesfixture"
+			res := byName[tt.record]
+
+			standalone, err := r.handlerContent(PatchHandler, res)
+			if err != nil {
+				t.Fatalf("handlerContent() error = %v", err)
+			}
+			if _, err := format.Source(append([]byte("package app\n\n"), standalone...)); err != nil {
+				t.Fatalf("the rendered handler does not parse: %v\n%s", err, standalone)
+			}
+			segment := consolidatedCaseData{resourceInfo: res, ResourcePackage: "resources", ReceiverName: "a", RecordKinds: r.recordKindsHanding(res)}
+			data := consolidatedPatchData{
+				Resources:           []*resourceInfo{res},
+				HasTenant:           true,
+				DomainRouteSegment:  "realms",
+				TakesRowsUnder:      res.TakesRowsUnder(),
+				DomainPatternPrefix: "/realms/{realmID}",
+				LocalPackageImports: `"example.com/app/pkg/resources"` + "\n\t" + `"example.com/app/pkg/router"`,
+				Package:             "app",
+				ResourcePackage:     "resources",
+				ApplicationName:     "App",
+				ReceiverName:        "a",
+				HandlerName:         "PatchResources",
+			}
+			segment.DomainPatternPrefix = data.DomainPatternPrefix
+			data.DomainCases = []consolidatedCaseData{segment}
+			consolidated, err := (&client{}).generateTemplateOutput("consolidatedPatchTemplate", consolidatedPatchTemplate, data)
+			if err != nil {
+				t.Fatalf("generateTemplateOutput() error = %v", err)
+			}
+			if _, err := format.Source(consolidated); err != nil {
+				t.Fatalf("the rendered consolidated handler does not parse: %v\n%s", err, consolidated)
+			}
+
+			const handed = `patch.DeleteAlso(a.CrewIdentity().RecordKinds(accesstypes.NewRecordScope(domain, "Projects", id.String()))...)`
+			packageOf := map[string]string{"the record's own handler": "recordrolesfixture", "the consolidated handler": "resources"}
+			for name, out := range map[string]string{"the record's own handler": string(standalone), "the consolidated handler": string(consolidated)} {
+				if !tt.marked {
+					assertContains(t, name, out, nil, []string{"RecordKinds", "DeleteAlso"})
+
+					continue
+				}
+				assertInOrder(t, out,
+					"patch := "+packageOf[name]+".New"+tt.record+"DeletePatchFromPatchSet(id, patchSet)",
+					handed,
+					"if err := patch.Buffer(ctx, txn, eventSource); err != nil {",
+					"if taken := patch.Left(); taken != nil {",
+				)
 			}
 		})
 	}
@@ -87,9 +226,10 @@ func openAuth(importPath string) *outletAuth {
 	return &outletAuth{importPath: importPath, methods: []AuthMethod{PasswordMethod(), GoogleMethod("sign-up")}}
 }
 
-// syncedAuth is an outlet auth whose one registration's directory writes the roles.
-func syncedAuth(importPath string) *outletAuth {
-	return &outletAuth{importPath: importPath, methods: []AuthMethod{AzureMethod("directory").SyncsRoles()}}
+// syncedAuth is the staff's outlet auth with one registration, whose directory writes
+// the roles.
+func syncedAuth() *outletAuth {
+	return &outletAuth{importPath: "example.com/app/pkg/auth/staff", methods: []AuthMethod{AzureMethod("directory").SyncsRoles()}}
 }
 
 // Test_validateTenantCreation pins where the invitation that makes a tenant and the
@@ -135,7 +275,7 @@ func Test_validateTenantCreation(t *testing.T) {
 		{
 			name:   "a record whose auth's roles a directory writes has neither: the directory decides who holds a role",
 			record: "Station",
-			mutate: func(r *resourceGenerator) { r.defaultOutlet.auth = syncedAuth("example.com/app/pkg/auth/staff") },
+			mutate: func(r *resourceGenerator) { r.defaultOutlet.auth = syncedAuth() },
 		},
 		{
 			name:   "a record served by outlets bound to different auths is refused: one auth's people are invited and seated",
@@ -304,6 +444,18 @@ func Test_tenantCreationFields(t *testing.T) {
 	if diff := cmp.Diff([]string{"Name", "Motto", "Opened"}, setters); diff != "" {
 		t.Errorf("tenantCreationFields() setters mismatch (-want +got):\n%s", diff)
 	}
+
+	// A new tenant is made enabled, by the column's default: the request does not take
+	// whether it is disabled.
+	haven := tenantCreationFixtureGenerator(t, "Haven", nil)
+	_, fields, setters = tenantCreationFields(haven.resources[0])
+	wantFields = []*tenantCreationField{{Name: "Name", Type: "string", Wire: "name", Tags: `json:"name" validate:"required"`}}
+	if diff := cmp.Diff(wantFields, fields); diff != "" {
+		t.Errorf("tenantCreationFields() of a record that marks the column saying a tenant is disabled, fields mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff([]string{"Name"}, setters); diff != "" {
+		t.Errorf("tenantCreationFields() of a record that marks the column saying a tenant is disabled, setters mismatch (-want +got):\n%s", diff)
+	}
 }
 
 // Test_tenantCreationData_typeImports pins the payload's import scope: the packages the
@@ -334,19 +486,97 @@ func Test_tenantCreationData_typeImports(t *testing.T) {
 	if data.RoutePath != "/api/create-station" || data.Auth != "Staff" || data.IdentityAccessor != "StaffIdentity" || data.RolesAccessor != "StationAdministratorRoles" {
 		t.Errorf("tenantCreationData() = route %q, auth %q, identity %q, roles %q", data.RoutePath, data.Auth, data.IdentityAccessor, data.RolesAccessor)
 	}
+	if data.Action != "CreateStation" || data.Act != "create a station" {
+		t.Errorf("tenantCreationData() = action %q, act %q; want the handler's name as the action a mask refuses, and what the route does in the words of its refusal", data.Action, data.Act)
+	}
+}
+
+// Test_collectTenantCreationRegistration pins the route's action in the permission
+// collection: Execute on the handler's name, in the application's scope, with the class
+// access, wherever the route is generated, so a permission mask that refuses the class
+// refuses the creation, and with the mark of an action no role is given, so nothing a
+// role file may grant names it; nothing where no route is generated; and a manual
+// registration under the name refused, naming the record.
+func Test_collectTenantCreationRegistration(t *testing.T) {
+	t.Parallel()
+
+	served := func(r *resourceGenerator) {
+		r.genRoutes = true
+		r.defaultOutlet.auth = openAuth("example.com/app/pkg/auth/staff")
+	}
+
+	t.Run("a record whose route is generated", func(t *testing.T) {
+		t.Parallel()
+
+		r := tenantCreationFixtureGenerator(t, "Station", served)
+		b := resource.NewCollectionBuilder()
+		if err := r.collectTenantCreationRegistration(b); err != nil {
+			t.Fatalf("collectTenantCreationRegistration() error = %v", err)
+		}
+		want := []resource.CollectionResource{{
+			Name: "CreateStation", Scope: accesstypes.GlobalPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Execute},
+			Classes: []accesstypes.ActionClass{accesstypes.ClassAccess}, NoRole: true,
+		}}
+		if diff := cmp.Diff(want, b.Data().Resources); diff != "" {
+			t.Errorf("the collection's registrations mismatch (-want +got):\n%s", diff)
+		}
+		// What the mark does where the collection is read: nothing a role file may
+		// grant names the action, and the masked check still finds its class.
+		collection, err := b.GeneratedCollection()
+		if err != nil {
+			t.Fatalf("GeneratedCollection() error = %v", err)
+		}
+		if got := collection.List()[accesstypes.Execute]; len(got) != 0 {
+			t.Errorf("the collection lists %v under Execute, want nothing a role file may grant", got)
+		}
+		if got := collection.ActionClasses(accesstypes.GlobalPermissionScope, "CreateStation"); !slices.Equal(got, []accesstypes.ActionClass{accesstypes.ClassAccess}) {
+			t.Errorf("ActionClasses(CreateStation) = %v, want the class access, which a mask refuses", got)
+		}
+	})
+
+	t.Run("a record whose auth's roles a directory writes has no route and no action", func(t *testing.T) {
+		t.Parallel()
+
+		r := tenantCreationFixtureGenerator(t, "Station", func(r *resourceGenerator) {
+			r.genRoutes = true
+			r.defaultOutlet.auth = syncedAuth()
+		})
+		b := resource.NewCollectionBuilder()
+		if err := r.collectTenantCreationRegistration(b); err != nil {
+			t.Fatalf("collectTenantCreationRegistration() error = %v", err)
+		}
+		if got := b.Data().Resources; len(got) != 0 {
+			t.Errorf("the collection's registrations = %v, want none: no route is generated", got)
+		}
+	})
+
+	t.Run("a manual registration under the action's name", func(t *testing.T) {
+		t.Parallel()
+
+		r := tenantCreationFixtureGenerator(t, "Station", func(r *resourceGenerator) {
+			served(r)
+			r.manualRegistrations = []ManualRegistration{{Resource: "CreateStation", Permission: accesstypes.Execute}}
+		})
+		err := r.collectTenantCreationRegistration(resource.NewCollectionBuilder())
+		want := "CreateStation is the action of the Station record's create-your-station route, which the generator writes; a manual registration cannot take the name"
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("collectTenantCreationRegistration() error = %v, want %q", err, want)
+		}
+	})
 }
 
 // Test_tenantCreationTemplate pins the generated handler: the contract it asserts on
-// the application, the gate on a session holding a tenant, a request that carries no
-// key, the row written under an id the create generates with the administrator's
-// membership in the same transaction, the roster, the wait and the signal after the
-// commit, and the answer that carries the generated id.
+// the application, the refusal of the real person behind a session that acts as someone
+// else, asked before anything is read, the gate on a session holding a tenant, a
+// request that carries no key, the row written under an id the create generates with
+// the administrator's membership in the same transaction, the roster, the wait and the
+// signal after the commit, and the answer that carries the generated id.
 func Test_tenantCreationTemplate(t *testing.T) {
 	t.Parallel()
 
 	r := tenantCreationFixtureGenerator(t, "Station", nil)
 	key, fields, setters := tenantCreationFields(r.resources[0])
-	out, err := r.generateTemplateOutput("tenantCreationTemplate", tenantCreationTemplate, &tenantCreationData{
+	data := &tenantCreationData{
 		Source:              "resources",
 		Package:             "app",
 		LocalPackageImports: `"example.com/app/pkg/resources"` + "\n\t" + `"example.com/app/pkg/router"`,
@@ -359,6 +589,8 @@ func Test_tenantCreationTemplate(t *testing.T) {
 		HandlerFunc:         "CreateStation",
 		OfferedHandlerFunc:  "CreateStationOffered",
 		RoutePath:           "/api/create-station",
+		Action:              string(tenantCreationAction("Station")),
+		Act:                 tenantCreationAct("Station"),
 		Auth:                "Staff",
 		IdentityAccessor:    "StaffIdentity",
 		RolesAccessor:       "StationAdministratorRoles",
@@ -367,7 +599,10 @@ func Test_tenantCreationTemplate(t *testing.T) {
 		Setters:             setters,
 		Refusal:             tenantCreationRefusal("Station"),
 		ClosedRefusal:       tenantCreationClosedRefusal("Station"),
-	})
+		OwnCreation:         tenantCreationOwnCreation("Station"),
+		NameField:           "Name",
+	}
+	out, err := r.generateTemplateOutput("tenantCreationTemplate", tenantCreationTemplate, data)
 	if err != nil {
 		t.Fatalf("generateTemplateOutput() error = %v", err)
 	}
@@ -386,13 +621,29 @@ func Test_tenantCreationTemplate(t *testing.T) {
 		"ID impulse.UUID `json:\"id\"`",
 		"decoder := resource.MustNewBodyDecoder[request](a.Validator())",
 		"roles := a.StationAdministratorRoles()",
-		"identity := a.StaffIdentity()",
-		"held, err := userPermissions.Domains(ctx)",
-		`httpio.NewForbiddenMessage("the session already holds a station; a person creates one station and becomes its administrator")`,
-		// Whether sign-up is open is read in the transaction that writes the row, and a
-		// person is refused in plain words while no sign-in method is open.
-		"open, err := identity.AnySignInMethodOpen(ctx, txn)",
-		`return httpio.NewForbiddenMessage("sign-up is not open, so you cannot create a station of your own: ask an administrator of the application to create one for you, or to invite you to one")`,
+		"identityClient := a.StaffIdentity()",
+		// No grant admits the route, so the session's mask is asked about the route's
+		// action: a session that acts as someone under a mask that refuses it is refused
+		// in the route's own words, with the denial logged as the mask's.
+		"collection := router.Collection()",
+		"if err := resource.RefuseActionUnderMask(ctx, collection, \"CreateStation\", \"create a station\"); err != nil {\n\t\t\treturn httpio.NewEncoder(w).ClientMessage(ctx, err)\n\t\t}",
+		// The creator becomes the administrator, so the real person behind a session that
+		// acts as someone else is refused in the route's own words, by the one rule.
+		"if creator, ok := identity.UserID(userPermissions.User()); ok {\n\t\t\tif err := identity.RefuseImpersonatorAsSubject(ctx, creator, \"create a station of your own\"); err != nil {\n\t\t\t\treturn httpio.NewEncoder(w).ClientMessage(ctx, err)\n\t\t\t}\n\t\t}",
+		// One tenant per person is judged by every tenant the person holds, read around
+		// the session's mask, in the POST: the permissions answer it themselves, by the
+		// interface's method.
+		"held, err := userPermissions.HeldDomains(ctx)\n\t\tif err != nil {\n\t\t\treturn httpio.NewEncoder(w).ClientMessage(ctx, err)\n\t\t}\n\t\tif len(held) > 0 {\n\t\t\treturn httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewForbiddenMessage(",
+		`httpio.NewForbiddenMessage("You already hold a role in a station, so you cannot create a station of your own.")`,
+		// And it is judged again in the transaction that writes the row, from the auth's
+		// tables, in the same words: two creations by one person at once write one tenant.
+		"holds, err := identityClient.HoldsTenant(ctx, txn, userPermissions.User())\n\t\t\tif err != nil {\n\t\t\t\treturn errors.Wrap(err, \"StaffIdentity().HoldsTenant()\")\n\t\t\t}\n\t\t\tif holds {\n\t\t\t\treturn httpio.NewForbiddenMessage(\"You already hold a role in a station, so you cannot create a station of your own.\")\n\t\t\t}",
+		// Whether the session's own sign-in method is open is read in the transaction
+		// that writes the row, and a person is refused in plain words when it is not:
+		// that another method is open admits nobody.
+		"open, err := identityClient.SessionSignInMethodOpen(ctx, txn)",
+		`return errors.Wrap(err, "StaffIdentity().SessionSignInMethodOpen()")`,
+		`return httpio.NewForbiddenMessage("Sign-up is not open for the way you signed in, so you cannot create a station of your own. Ask an administrator of the application to create one for you, or to invite you to one.")`,
 		// The create generates the id, the id's text is the tenant's domain, and the
 		// membership is written under it.
 		"var id impulse.UUID",
@@ -403,27 +654,44 @@ func Test_tenantCreationTemplate(t *testing.T) {
 		"patch.SetName(req.Name)",
 		"patch.SetMotto(req.Motto)",
 		"patch.SetOpened(req.Opened)",
-		"if err := identity.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(domain), userPermissions.User(), role); err != nil {",
+		// The first administrator's role is the creator's act: its row names the
+		// person of the session, though no grant judges it.
+		"byCreator := identity.ActingInSession(ctx)",
+		// The rows of the station's making name it by the name it is made with, as its
+		// later rows do: the roster learns of it only after the commit.
+		"if patch.NameIsSet() {\n\t\t\t\tbyCreator = identity.MakingTenant(byCreator, domain, string(patch.Name()))\n\t\t\t}",
+		"if err := identityClient.AssignRole(byCreator, txn, accesstypes.DomainPolicyScope(domain), userPermissions.User(), role); err != nil {",
 		"if err := resource.AwaitFirstAdministrator(ctx, userPermissions, domain); err != nil {",
 		"if err := a.TenantRoster().Reload(ctx); err != nil {",
 		"a.LiveService().Signal(ctx, resource.KindTenants)",
 		// The answer carries the generated id.
 		"return httpio.NewEncoder(w).Ok(response{ID: id})",
-		// The route's GET answers whether the caller may create one now, by the two
+		// The route's GET answers whether the caller may create one now, by the four
 		// facts the POST refuses on, read as committed, and writes nothing.
 		"func (a *App) CreateStationOffered() http.HandlerFunc {",
 		"Offered bool `json:\"offered\"`",
-		"held, err := a.UserPermissions(r).Domains(ctx)",
-		"if len(held) > 0 {\n\t\t\treturn httpio.NewEncoder(w).Ok(offer{Offered: false})\n\t\t}",
-		"open, err := identity.AnySignInMethodOpen(ctx, a.ResourceClient())",
+		"if _, refused := resource.MaskRefusesAction(ctx, collection, \"CreateStation\"); refused {\n\t\t\treturn httpio.NewEncoder(w).Ok(offer{Offered: false})\n\t\t}",
+		"if creator, ok := identity.UserID(userPermissions.User()); ok && identity.ImpersonatorIs(ctx, creator) {\n\t\t\treturn httpio.NewEncoder(w).Ok(offer{Offered: false})\n\t\t}",
+		// And in the GET, which offers what the POST would serve.
+		"held, err := userPermissions.HeldDomains(ctx)\n\t\tif err != nil {\n\t\t\treturn httpio.NewEncoder(w).ClientMessage(ctx, err)\n\t\t}\n\t\tif len(held) > 0 {\n\t\t\treturn httpio.NewEncoder(w).Ok(offer{Offered: false})\n\t\t}",
+		"open, err := identityClient.SessionSignInMethodOpen(ctx, a.ResourceClient())",
 		"return httpio.NewEncoder(w).Ok(offer{Offered: open})",
 	}, []string{
 		"Derived", "SetID", "SetDerived", "sessioninfo", "EstablishedBy",
+		// A record that declares no directories takes none at creation: the GET answers
+		// no statement.
+		"TakeDirectoryWarning", "json:\"warning", "rules :=",
+		// Some other method being open admits nobody: neither handler asks it.
+		"AnySignInMethodOpen",
 		// Nothing is removed after the commit: the row and the administrator's
 		// membership are one transaction.
 		"DeletePatch", "SeatFirstAdministrator", "UserSurface",
 		// The person names no key: none is read off the request, and none is a string.
 		"req.ID", "NewStationCreatePatch(req", "ID string",
+		// Neither handler counts the person's tenants by the session's own list, which a
+		// mask shortens, and neither asks a function that could read that list for
+		// permissions it does not know.
+		"userPermissions.Domains(ctx)", "resource.HeldDomains(",
 	})
 
 	// The request carries the columns the wire may write and no key; the answer
@@ -436,28 +704,80 @@ func Test_tenantCreationTemplate(t *testing.T) {
 		t.Errorf("the response struct = %q; want the generated id alone", response)
 	}
 
-	// The gate before the body, whether sign-up is open asked inside the transaction
-	// before anything is made, the id generated before the row is buffered, the membership after the row and before the commit, the commit
-	// before the roster, the roster before the wait, the wait before the signal, the
-	// signal before the answer.
+	// The session's mask before everything, in the POST and in the GET, the rule on the
+	// person behind an impersonated session before the gate, in the POST
+	// and in the GET, the gate before the body, whether sign-up is open asked inside the
+	// transaction before anything is made, the id generated before the row is buffered,
+	// the membership after the row and before the commit, the commit before the roster,
+	// the roster before the wait, the wait before the signal, the signal before the
+	// answer.
+	masked := strings.Index(s, "resource.RefuseActionUnderMask(ctx, collection,")
+	permissions := strings.Index(s, "userPermissions := a.UserPermissions(r)")
+	subject := strings.Index(s, "identity.RefuseImpersonatorAsSubject(ctx, creator,")
 	gate := strings.Index(s, "if len(held) > 0 {")
 	decode := strings.Index(s, "req, err := decoder.Decode(r)")
 	begin := strings.Index(s, "ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {")
 	admitted := strings.Index(s, "if !open {")
+	counted := strings.Index(s, "identityClient.HoldsTenant(ctx, txn,")
 	created := strings.Index(s, "resources.NewStationCreatePatch()")
 	generated := strings.Index(s, "id = patch.ID()")
 	row := strings.Index(s, "patch.Buffer(ctx, txn, eventSource)")
 	commit := strings.Index(s, "}); err != nil {")
 	roster := strings.Index(s, "a.TenantRoster().Reload(ctx)")
-	given := strings.Index(s, "identity.AssignRole(ctx, txn,")
+	given := strings.Index(s, "identityClient.AssignRole(byCreator, txn,")
+	if setter, named := strings.Index(s, "patch.SetOpened(req.Opened)"), strings.Index(s, "identity.MakingTenant(byCreator, domain,"); setter < 0 || setter >= named || named >= given {
+		t.Errorf("order: the patch's last setter %d, the name carried %d, the membership %d; want ascending:\n%s", setter, named, given, out)
+	}
 	seat := strings.Index(s, "resource.AwaitFirstAdministrator(")
 	signal := strings.Index(s, "Signal(ctx, resource.KindTenants)")
 	answer := strings.Index(s, "return httpio.NewEncoder(w).Ok(")
 	if begin >= admitted || admitted >= created || created >= generated {
 		t.Errorf("order: transaction %d, the check that sign-up is open %d, the create patch %d, generated id %d; want ascending:\n%s", begin, admitted, created, generated, out)
 	}
+	if begin >= counted || counted >= admitted {
+		t.Errorf("order: transaction %d, the person's tenants read in it %d, the check that sign-up is open %d; want ascending, so the count is read inside the transaction before anything is made:\n%s", begin, counted, admitted, out)
+	}
+	if subject < 0 || subject >= gate {
+		t.Errorf("order: the rule on the person behind an impersonated session %d, gate %d; want the rule first:\n%s", subject, gate, out)
+	}
+	if masked < 0 || masked >= permissions || masked >= subject {
+		t.Errorf("order: the session's mask %d, the session's permissions %d, the rule on the person behind an impersonated session %d; want the mask first, before anything is read:\n%s", masked, permissions, subject, out)
+	}
+	offered := strings.Index(s, "func (a *App) CreateStationOffered() http.HandlerFunc {")
+	if maskAsked, asked := strings.Index(s[offered:], "resource.MaskRefusesAction(ctx, collection,"), strings.Index(s[offered:], "identity.ImpersonatorIs(ctx, creator)"); maskAsked < 0 || maskAsked >= asked {
+		t.Errorf("order in the GET: the session's mask %d, the question about the person behind an impersonated session %d; want the mask first:\n%s", maskAsked, asked, out)
+	}
+	if asked, gated := strings.Index(s[offered:], "identity.ImpersonatorIs(ctx, creator)"), strings.Index(s[offered:], "if len(held) > 0 {"); asked < 0 || asked >= gated {
+		t.Errorf("order in the GET: the question about the person behind an impersonated session %d, gate %d; want the question first:\n%s", asked, gated, out)
+	}
 	if gate >= decode || decode >= begin || begin >= generated || generated >= row || row >= given || given >= commit || commit >= roster || roster >= seat || seat >= signal || signal >= answer {
 		t.Errorf("order: gate %d, decode %d, transaction %d, generated id %d, row %d, membership %d, commit %d, roster %d, wait %d, signal %d, answer %d; want ascending:\n%s", gate, decode, begin, generated, row, given, commit, roster, seat, signal, answer, out)
+	}
+
+	// A name the record keeps in a nullable column is the one it points to; a record that
+	// marks no name carries none, and its rows name the station by its key.
+	for _, tt := range []struct {
+		name, field string
+		nullable    bool
+		want        string
+	}{
+		{name: "a nullable name", field: "Motto", nullable: true, want: "if patch.MottoIsSet() && patch.Motto() != nil {\n\t\t\t\tbyCreator = identity.MakingTenant(byCreator, domain, string(*patch.Motto()))\n\t\t\t}"},
+		{name: "no name"},
+	} {
+		named := *data
+		named.NameField, named.NameNullable = tt.field, tt.nullable
+		out, err := r.generateTemplateOutput("tenantCreationTemplate", tenantCreationTemplate, &named)
+		if err != nil {
+			t.Fatalf("%s: generateTemplateOutput() error = %v", tt.name, err)
+		}
+		if _, err := format.Source(out); err != nil {
+			t.Fatalf("%s: the rendered file does not parse: %v\n%s", tt.name, err, out)
+		}
+		if tt.want == "" {
+			assertContains(t, "tenantCreationTemplate", string(out), nil, []string{"MakingTenant"})
+		} else {
+			assertContains(t, "tenantCreationTemplate", string(out), []string{tt.want}, nil)
+		}
 	}
 }
 
@@ -493,7 +813,7 @@ func Test_accumulateTenantCreationRoute(t *testing.T) {
 		{
 			name:       "a record whose auth's roles a directory writes registers no route",
 			record:     "Station",
-			mutate:     func(r *resourceGenerator) { r.defaultOutlet.auth = syncedAuth("example.com/app/pkg/auth/staff") },
+			mutate:     func(r *resourceGenerator) { r.defaultOutlet.auth = syncedAuth() },
 			wantRoutes: map[string]*generatedRoute{},
 		},
 		{
@@ -608,7 +928,8 @@ func Test_authzTestTemplate_noGrant(t *testing.T) {
 // Test_apiClientData_tenantCreation pins the client's block: the route constant, the
 // request's interface, which carries no key since the route generates it, and the
 // answer's interface, which carries the generated id, on an outlet serving the route,
-// nothing elsewhere.
+// nothing elsewhere; and the route in the description, with the record's resource, the
+// answer's key and the body's fields, each with whether the route requires it.
 func Test_apiClientData_tenantCreation(t *testing.T) {
 	t.Parallel()
 
@@ -633,6 +954,7 @@ func Test_apiClientData_tenantCreation(t *testing.T) {
 				"export interface CreateColonyAnswer {\n  id: string;\n}",
 				// What the page reads before it offers the route.
 				"export interface CreateColonyOffered {\n  offered: boolean;\n}",
+				"  tenantCreation: { route: 'create-colony', resource: 'Colonies', key: 'id', fields: [{ name: 'name', required: true }] },",
 			},
 		},
 		{
@@ -644,20 +966,21 @@ func Test_apiClientData_tenantCreation(t *testing.T) {
 				"export interface CreateStation {\n  name: string;\n  motto?: string | null;\n  opened: string;\n}",
 				"export interface CreateStationAnswer {\n  id: string;\n}",
 				"export interface CreateStationOffered {\n  offered: boolean;\n}",
+				"  tenantCreation: { route: 'create-station', resource: 'Stations', key: 'id', fields: [{ name: 'name', required: true }, { name: 'motto', required: false }, { name: 'opened', required: true }] },",
 			},
 			wantNotContains: []string{"derived"},
 		},
 		{
 			name:            "a record no session auth serves has no block",
 			record:          "Sector",
-			wantNotContains: []string{"createSectorRoute", "CreateSector"},
+			wantNotContains: []string{"createSectorRoute", "CreateSector", "tenantCreation:"},
 		},
 		{
 			name:            "a client for an outlet the record is off has no block",
 			record:          "Station",
 			served:          true,
 			outlet:          "members",
-			wantNotContains: []string{"createStationRoute", "CreateStation"},
+			wantNotContains: []string{"createStationRoute", "CreateStation", "tenantCreation:"},
 		},
 	}
 	for _, tt := range tests {
@@ -692,5 +1015,88 @@ func Test_apiClientData_tenantCreation(t *testing.T) {
 			}
 			assertContains(t, "typescriptAPITemplate", string(out), tt.wantContains, tt.wantNotContains)
 		})
+	}
+}
+
+// Test_typescriptConstants_tenantCreationAction pins the route's action in the browser
+// constants: no outlet's constants name it, the outlet that serves the tenant record
+// included, since the collection marks it an action no role is given and nothing asks
+// a role for it; a method a role is given stays.
+func Test_typescriptConstants_tenantCreationAction(t *testing.T) {
+	t.Parallel()
+
+	for _, outlet := range []string{"", "members"} {
+		t.Run("outlet "+outlet, func(t *testing.T) {
+			t.Parallel()
+
+			r := tenantCreationFixtureGenerator(t, "Station", func(r *resourceGenerator) {
+				r.genRoutes = true
+				r.defaultOutlet.auth = openAuth("example.com/app/pkg/auth/staff")
+			})
+			b := resource.NewCollectionBuilder()
+			if err := r.collectTenantCreationRegistration(b); err != nil {
+				t.Fatalf("collectTenantCreationRegistration() error = %v", err)
+			}
+			if err := b.AddMethodResource(accesstypes.GlobalPermissionScope, accesstypes.Execute, "Launch"); err != nil {
+				t.Fatalf("AddMethodResource(Launch) error = %v", err)
+			}
+
+			collection, err := b.GeneratedCollection()
+			if err != nil {
+				t.Fatalf("GeneratedCollection() error = %v", err)
+			}
+			gen := &typescriptGenerator{client: r.client, rc: collection, outletName: outlet, tenantCreation: tenantCreationBoth}
+			if _, _, err := gen.applyOutletFilter(slices.Clone(gen.resources), nil); err != nil {
+				t.Fatalf("applyOutletFilter() error = %v", err)
+			}
+			data := gen.rc.TypescriptDataExcluding(gen.outletExcluded...)
+			out, err := gen.generateTemplateOutput("typescriptConstantsTemplate", typescriptConstantsTemplate, tsConstantsData{
+				File:          gen,
+				Data:          data,
+				ManualMethods: gen.manualMethods(data.Methods),
+			})
+			if err != nil {
+				t.Fatalf("generateTemplateOutput() error = %v", err)
+			}
+			assertContains(t, "typescriptConstantsTemplate", string(out), []string{"Launch: 'Launch' as Method"}, []string{"CreateStation"})
+		})
+	}
+}
+
+// Test_collectionTemplate_noRole pins the collection file's record of an action no
+// role is given: the route's action is written with the mark, which the application's
+// collection and impulse check read, and an action a role is given is written without.
+func Test_collectionTemplate_noRole(t *testing.T) {
+	t.Parallel()
+
+	r := tenantCreationFixtureGenerator(t, "Station", func(r *resourceGenerator) {
+		r.genRoutes = true
+		r.defaultOutlet.auth = openAuth("example.com/app/pkg/auth/staff")
+	})
+	b := resource.NewCollectionBuilder()
+	if err := r.collectTenantCreationRegistration(b); err != nil {
+		t.Fatalf("collectTenantCreationRegistration() error = %v", err)
+	}
+	if err := b.AddMethodResource(accesstypes.GlobalPermissionScope, accesstypes.Execute, "Launch"); err != nil {
+		t.Fatalf("AddMethodResource(Launch) error = %v", err)
+	}
+
+	output, err := r.generateTemplateOutput("collectionTemplate", collectionTemplate, &collectionFileData{Source: "pkg/resources", Package: "router", Data: b.Data()})
+	if err != nil {
+		t.Fatalf("generateTemplateOutput() error = %v", err)
+	}
+	formatted, err := format.Source(output)
+	if err != nil {
+		t.Fatalf("rendered collection file is not valid Go: %v\n%s", err, output)
+	}
+	// gofmt aligns the struct-literal fields, so collapse space runs.
+	collapsed := strings.Join(strings.Fields(string(formatted)), " ")
+	assertContains(t, "collectionTemplate", collapsed,
+		[]string{
+			`Name: "CreateStation", Scope: accesstypes.GlobalPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Execute}, Classes: []accesstypes.ActionClass{ClassAccess}, NoRole: true, },`,
+			`Name: "Launch", Scope: accesstypes.GlobalPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Execute}, },`,
+		}, nil)
+	if got := strings.Count(collapsed, "NoRole: true"); got != 1 {
+		t.Errorf("the collection file marks %d actions as given to no role, want CreateStation alone:\n%s", got, collapsed)
 	}
 }

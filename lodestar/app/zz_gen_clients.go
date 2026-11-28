@@ -11,6 +11,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/lodestar/pkg/resources"
 	"github.com/impulseframework/impulse/lodestar/pkg/router"
@@ -44,8 +45,9 @@ func (a *App) Clients() http.HandlerFunc {
 		}
 
 		// A live list registers before the query runs, so a commit that lands during
-		// the query is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, a.LiveService(), querySet, live.ListSubscription(querySet.Resource(), ""))
+		// the query is not missed; a refused request registers nothing. With it the
+		// request registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, a.LiveService(), querySet, live.ListSubscription(querySet.Resource(), ""))
 
 		res := resources.NewClientQueryFromQuerySet(querySet)
 
@@ -137,8 +139,9 @@ func (a *App) Client() http.HandlerFunc {
 		}
 
 		// A live row registers before the read runs, so a commit that lands during the
-		// read is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, a.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(id)))
+		// read is not missed; a refused request registers nothing. With it the request
+		// registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, a.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(id)))
 
 		res := resources.NewClientQueryFromQuerySet(querySet).SetID(id)
 
@@ -206,13 +209,28 @@ func (a *App) PatchClients() http.HandlerFunc {
 		defer span.End()
 
 		var resp response
-		eventSource := resource.UserEvent(ctx)
+		eventSource := eventsource.UserEvent(ctx)
+
+		// The rows deleted by each of the request's deletes that left rows under its record,
+		// summed: the answer is a 202 with it where one left any.
+		var left *resource.DeleteLeft
+
+		// A remove that does not bring the token its question gave asks first: the request
+		// is then run with no read-write transaction open, and one is opened only where
+		// there was nothing to ask. A request that holds nothing but removes that bring
+		// their tokens is a save of a delete, and its transaction is opened at repeatable
+		// read (resource.Executor.ExecuteDeleteFunc).
+		deleteRun, err := resource.DeleteRunOf(r)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
 
 		// The rows the transaction writes are collected for the live pages, published
 		// once the commit lands and before the answer.
 		ctx, touched := resource.CollectTouchedRows(ctx)
-		if err := a.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		if err := a.ResourceClient().ExecuteDeleteFunc(ctx, deleteRun, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 			resp = response{}
+			left = nil
 			r, err := resource.CloneRequest(r)
 			if err != nil {
 				return errors.Wrap(err, "resource.CloneRequest()")
@@ -245,8 +263,15 @@ func (a *App) PatchClients() http.HandlerFunc {
 					}
 				case resource.OperationDelete:
 					id := httpio.Param[impulse.UUID](op.Req, "id")
-					if err := resources.NewClientDeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
+					patch := resources.NewClientDeletePatchFromPatchSet(id, patchSet)
+					if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 						return errors.Wrap(err, "resources.ClientDeletePatch.Buffer()")
+					}
+					if taken := patch.Left(); taken != nil {
+						if left == nil {
+							left = &resource.DeleteLeft{}
+						}
+						left.Deleted += taken.Deleted
 					}
 				}
 			}
@@ -256,7 +281,47 @@ func (a *App) PatchClients() http.HandlerFunc {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		live.Publish(ctx, w, a.LiveService(), liveDerivations, "", touched)
+		if left != nil {
+			// A delete that took what fits one save answers the rows it deleted: the same
+			// request, sent again, goes on.
+			return httpio.NewEncoder(w).StatusCodeWithBody(http.StatusAccepted, left)
+		}
 
 		return httpio.NewEncoder(w).Ok(resp)
+	})
+}
+
+// ClientChangeHistory answers a page of one client's change records, newest first, to whoever may read the record, with the fields they may see on it. It answers 404 while the resource does not track its changes.
+func (a *App) ClientChangeHistory() http.HandlerFunc {
+	type response struct {
+		ID           impulse.UUID `json:"id"           index:"true" perm:"-"`
+		Name         string       `json:"name"         index:"true" search:"token=Name_Search;index=ClientsSearch;role=text;anchors=prefix,suffix;contains"`
+		ContactName  string       `json:"contactName"  pii:"true"   search:"token=ContactName_Search;index=ClientsSearch;role=text;contains"`
+		ContactEmail string       `json:"contactEmail" pii:"true"   search:"token=ContactEmail_Search;index=ClientsSearch;role=text;contains"`
+		Trusted      bool         `json:"trusted"`
+		Insured      *bool        `json:"insured"`
+	}
+
+	decoder := NewQueryDecoder[resources.Client, response](a, accesstypes.Read)
+
+	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := tracer.Start(r.Context())
+		defer span.End()
+
+		id := httpio.Param[impulse.UUID](r, router.ClientID)
+
+		history, err := decoder.DecodeChangeHistory(r, a.UserPermissions(r), accesstypes.GlobalScope())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		resources.NewClientQueryFromQuerySet(history.QuerySet()).SetID(id)
+
+		page, err := history.Read(ctx, a.ResourceClient())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok(page)
 	})
 }

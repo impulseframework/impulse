@@ -20,22 +20,35 @@ type (
 	// table's index by name leads with where a group is kept, so the list filters by the
 	// rest of that key (the axis, the domain, the name) beside the kind.
 	//
+	// The name is what a list that points to a group shows it by. It is the table's
+	// name (@name), so a field of another resource that holds a group's id, by a
+	// foreign key to this table or by @enumerate of this list, gets a name field read
+	// from it, and a change record of that field keeps the group's name.
+	//
 	// The id is read by a grant's condition (group), so a role file can hold a grant to
-	// the groups its holder is in (group IN subject.groups).
+	// the groups its holder is in (group IN subject.staffGroups).
+	//
+	// A group's delete takes its members and the roles it holds with it, after a
+	// question that counts them. It takes with them the application's rows that name the
+	// group in a column that says so (@deletedWith), and is refused while a row names it
+	// in a column that does not.
 	//
 	// @resource
 	// @suppress(patchHandler)
 	// @outlet(default)
 	// @order(Name asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(group)
+	// @deleteCascade(StaffGroupMember, StaffGroupRole)
 	StaffGroup struct {
 		// @attribute(group)
-		ID          impulse.UUID `spanner:"Id"`
-		Kind        string       `spanner:"Kind"`
-		Axis        string       `spanner:"Axis"        allow_filter:"true"`
-		DomainID    string       `spanner:"DomainId"    allow_filter:"true"`
-		Name        string       `spanner:"Name"        allow_filter:"true"`
-		Description string       `spanner:"Description"`
-		UpdatedAt   time.Time    `spanner:"UpdatedAt"`
+		ID       impulse.UUID `spanner:"Id"`
+		Kind     string       `spanner:"Kind"`
+		Axis     string       `spanner:"Axis"     allow_filter:"true"`
+		DomainID string       `spanner:"DomainId" allow_filter:"true"`
+		// @name
+		Name        string    `spanner:"Name"        allow_filter:"true"`
+		Description string    `spanner:"Description"`
+		UpdatedAt   time.Time `spanner:"UpdatedAt"`
 	}
 )

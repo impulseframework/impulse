@@ -242,3 +242,28 @@ func TestManager_EndUserSessions(t *testing.T) {
 		})
 	}
 }
+
+// TestMergeEndings pins what ending a person's sessions writes, from their sessions that
+// stand and the records they hold as actor: each of their sessions with its record where
+// it stands; a session that is their own and held by them as actor at once is one ending,
+// of the session and its record; a held record whose session has ended ends the record
+// alone; and a held record of another's session that stands ends both.
+func TestMergeEndings(t *testing.T) {
+	t.Parallel()
+
+	own, viewed, ended, other := mustUUID("0190c000-0000-7000-8000-000000000051"), mustUUID("0190c000-0000-7000-8000-000000000052"),
+		mustUUID("0190c000-0000-7000-8000-000000000053"), mustUUID("0190c000-0000-7000-8000-000000000054")
+	got := mergeEndings(
+		[]LiveSession{{ID: own}, {ID: viewed}},
+		[]HeldRecord{{SessionID: viewed, Session: true}, {SessionID: ended}, {SessionID: other, Session: true}},
+	)
+	want := []sessionEnding{
+		{id: own, session: true},
+		{id: viewed, session: true, record: true},
+		{id: ended, record: true},
+		{id: other, session: true, record: true},
+	}
+	if diff := cmp.Diff(want, got, cmp.AllowUnexported(sessionEnding{})); diff != "" {
+		t.Errorf("mergeEndings() (-want +got):\n%s", diff)
+	}
+}

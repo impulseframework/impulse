@@ -3,29 +3,28 @@ import { Component, computed, effect, inject, signal } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatDialog } from '@angular/material/dialog';
-import { CreateTenantOffered, createTenantRoute } from '@app/service/zz_gen_api';
+import { apiDescriptor, CreateTenantOffered, createTenantRoute } from '@app/service/zz_gen_api';
 import { Resources } from '@app/service/zz_gen_constants';
 import { ResourceScopes } from '@app/service/zz_gen_resources';
 import { PlaceService, TenantService } from '@impulseframework/resource-angular/auth-frame';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
+import { openCreateTenantDialog } from '@impulseframework/resource-angular/identity-pages';
+import {
+  PermissionsCardComponent,
+  PermissionsCardResource,
+} from '@impulseframework/resource-angular/ui-permissions-card';
 import { Permission, PermissionDigestState, Resource } from '@impulseframework/resource';
 import { environment } from '@env';
-import { openNewTenantDialog } from '../new-tenant/new-tenant-dialog.component';
-
-/** One row of the permissions card: a resource and the digest state of each permission on it. */
-interface PermissionRow {
-  resource: string;
-  scope: string;
-  states: Record<string, PermissionDigestState | undefined>;
-}
 
 /**
  * The dashboard is every place's first page: who is signed in and what the session holds
  * there, per generated resource, the digest state of each permission — in the tenant the
- * page is open in for tenant-scoped resources, globally for global ones. It lives outside
+ * page is open in for tenant-scoped resources, globally for global ones — drawn by the
+ * library's card for what a person may do, which lays itself out by its own width: a table
+ * where its columns fit, each resource as a block where they do not. It lives outside
  * the tenant segment and under it: Configuration's first page, and the tenant's. A session
  * holding no tenant is offered its own while the server would create it: a person who
- * signed up creates one through the new-tenant dialog. The page asks the server whether a
+ * signed up creates one through the library's dialog. The page asks the server whether a
  * tenant can be created now and shows the offer only where it says yes, so while every
  * sign-in method is invite only nobody is offered a dialog the server would refuse. The
  * person's email address and the look of the application are theirs, not a place's: the
@@ -33,7 +32,7 @@ interface PermissionRow {
  */
 @Component({
   selector: 'app-dashboard',
-  imports: [MatButtonModule, MatCardModule],
+  imports: [MatButtonModule, MatCardModule, PermissionsCardComponent],
   templateUrl: './dashboard.component.html',
   styleUrl: './dashboard.component.scss',
 })
@@ -50,7 +49,7 @@ export class DashboardComponent {
    * Whether the server would let the person create a tenant of their own now. The server
    * says so where it creates one (GET on the generated create-your-tenant route, the
    * `createTenantRoute` constant): yes for a person who holds no tenant while an
-   * administrator has a sign-in method open to sign-up, by the two facts the creation
+   * administrator has a sign-in method open to sign-up, by the facts the creation
    * itself refuses on. The route is no resource or method of the client, so the page asks
    * with the application's HttpClient. It is false until the server answers and where it
    * does not answer, so the card never shows on a guess.
@@ -64,20 +63,22 @@ export class DashboardComponent {
   readonly tenantName = computed(() => (this.tenants.current() ? this.places.current().label : ''));
   private dialog = inject(MatDialog);
 
+  /** The permissions the card answers for: reading and writing a resource, and running a method. */
   readonly permissionNames = ['List', 'Read', 'Create', 'Update', 'Delete', 'Execute'] as Permission[];
 
-  rows = computed<PermissionRow[]>(() => {
-    const rows: PermissionRow[] = [];
+  /** The card's rows: every generated resource the session holds something on, where the page is open. */
+  rows = computed<PermissionsCardResource[]>(() => {
+    const rows: PermissionsCardResource[] = [];
     for (const resource of Object.values(Resources)) {
-      const states: PermissionRow['states'] = {};
-      let held = false;
+      const held: Record<string, PermissionDigestState | undefined> = {};
+      let any = false;
       for (const permission of this.permissionNames) {
         const state = this.tenants.state(permission, resource);
-        states[permission] = state;
-        held ||= state !== undefined;
+        held[permission] = state;
+        any ||= state !== undefined;
       }
-      if (held) {
-        rows.push({ resource, scope: this.scopeOf(resource), states });
+      if (any) {
+        rows.push({ name: resource, scope: this.scopeOf(resource), held });
       }
     }
     return rows;
@@ -99,9 +100,12 @@ export class DashboardComponent {
     });
   }
 
-  /** Opens the new-tenant dialog: the person names their tenant and becomes its administrator. */
+  /**
+   * Opens the library's dialog a person creates their own tenant through: they name it and
+   * become its administrator, and the dialog opens the new tenant.
+   */
   createYourTenant(): void {
-    openNewTenantDialog(this.dialog);
+    openCreateTenantDialog(this.dialog, apiDescriptor);
   }
 
   private scopeOf(resource: Resource): string {

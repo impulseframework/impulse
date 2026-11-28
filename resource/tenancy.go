@@ -21,7 +21,9 @@ import (
 //   - an insert over a join-path binding proves its proposed foreign key lands
 //     in the partition: a correlated EXISTS over the proposed image joins the
 //     check-SELECT, and false is NotFound (the referenced parent is not in
-//     this partition's world);
+//     this partition's world); an update that sets that foreign key, moving
+//     its row to another parent, proves it the same way, after its row is
+//     located within the tenant predicate;
 //   - an insert-or-update on a partitioned resource fails closed: the target
 //     row may exist in another partition, and the design pins semantics for
 //     insert, update, and delete only.
@@ -29,29 +31,33 @@ type mutationTenancy struct {
 	domain  accesstypes.Domain
 	binding *DomainBindingData
 	insert  bool
+	// movesPath marks an update over a join-path binding that sets the
+	// foreign key the path leaves through.
+	movesPath bool
 }
 
 // locatesRow reports whether the mutation's target row must be located within
 // the tenant predicate (update and delete).
 func (t *mutationTenancy) locatesRow() bool { return t != nil && !t.insert }
 
-// insertPathTerm reports whether the mutation is an insert over a join-path
-// binding, whose proposed image joins the check-SELECT as a boolean term.
-func (t *mutationTenancy) insertPathTerm() bool {
-	return t != nil && t.insert && len(t.binding.Path) > 0
+// pathTerm reports whether the mutation proposes where a join-path binding
+// leads, an insert or an update that moves its row to another parent, whose
+// proposed image joins the check-SELECT as a boolean term.
+func (t *mutationTenancy) pathTerm() bool {
+	return t != nil && len(t.binding.Path) > 0 && (t.insert || t.movesPath)
 }
 
 // needsQuery reports whether the mutation's tenancy requires the check-SELECT
 // to run even with no conditional groups.
 func (t *mutationTenancy) needsQuery() bool {
-	return t.locatesRow() || t.insertPathTerm()
+	return t.locatesRow() || t.pathTerm()
 }
 
-// insertTenancyTerm renders a partitioned insert's tenancy proof over a
-// join-path binding: correlated EXISTS leaving through the proposed anchor's
+// pathTenancyTerm renders a partitioned insert's or move's tenancy proof over
+// a join-path binding: correlated EXISTS leaving through the proposed anchor's
 // foreign-key parameter, terminating at the tenant key compared to the
-// request partition.
-func insertTenancyTerm(t *mutationTenancy, lctx *loweringContext, gen *sqlGenerator, registry *paramRegistry) (string, error) {
+// request partition. A proposed NULL matches no row, so the proof is false.
+func pathTenancyTerm(t *mutationTenancy, lctx *loweringContext, gen *sqlGenerator, registry *paramRegistry) (string, error) {
 	param, touched := lctx.proposed.param(t.binding.Column, registry)
 	if !touched {
 		return "", errors.Newf("a partitioned create must set %s — the tenant path's anchor column", t.binding.Column)
@@ -63,7 +69,8 @@ func insertTenancyTerm(t *mutationTenancy, lctx *loweringContext, gen *sqlGenera
 	return gen.generateLowered(node, registry)
 }
 
-// hopTable names the join path's first table for the insert NotFound message.
+// hopTable names the join path's first table for the NotFound message of an
+// insert or a move.
 func (t *mutationTenancy) hopTable() string { return t.binding.Path[0].Table }
 
 // mutationTenancy resolves the patch's tenancy obligation. A global request
@@ -91,8 +98,26 @@ func (p *PatchSet[Resource]) mutationTenancy() (*mutationTenancy, error) {
 			return nil, err
 		}
 	}
+	if len(t.binding.Path) > 0 && p.patchType == UpdatePatchType {
+		t.movesPath = p.setsColumn(t.binding.Column)
+	}
 
 	return t, nil
+}
+
+// setsColumn reports whether the patch sets the field that holds the column. A
+// key column is never set by an update, so a path that leaves through the key
+// is never moved.
+func (p *PatchSet[Resource]) setsColumn(column string) bool {
+	q := p.querySet
+	fieldMap := q.rMeta.dbFieldMap(SpannerDBType)
+	for _, field := range q.rMeta.DBFields(SpannerDBType) {
+		if fieldMap[field].ColumnName == column {
+			return p.IsSet(field)
+		}
+	}
+
+	return false
 }
 
 // verifyTenantKey checks a proposed bare-column tenant value against the
@@ -265,4 +290,23 @@ func tenantKeyValue(t reflect.Type, domain accesstypes.Domain) (any, error) {
 	}
 
 	return nil, errors.Newf("type %s is neither string-kinded nor an encoding.TextUnmarshaler", t)
+}
+
+// tenantDomainOf is the domain a tenant column's value names, the inverse of
+// tenantKeyValue: a string-kinded value is its string, and anything else must implement
+// encoding.TextMarshaler (e.g. impulse.UUID), whose text it is.
+func tenantDomainOf(value any) (accesstypes.Domain, error) {
+	if v := reflect.ValueOf(value); v.Kind() == reflect.String {
+		return accesstypes.Domain(v.String()), nil
+	}
+	if m, ok := value.(encoding.TextMarshaler); ok {
+		text, err := m.MarshalText()
+		if err != nil {
+			return "", errors.Wrapf(err, "marshaling a tenant's key of type %T", value)
+		}
+
+		return accesstypes.Domain(text), nil
+	}
+
+	return "", errors.Newf("type %T is neither string-kinded nor an encoding.TextMarshaler", value)
 }

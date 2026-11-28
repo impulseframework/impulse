@@ -75,6 +75,46 @@ func TestPortalOutlet(t *testing.T) {
 	}
 }
 
+// TestPortalOutlet_anotherAuthsEngine pins that the library answers a portal request only
+// from the members' permission engine: with the App handed the crew's engine as the
+// members', a signed-in client's read through the portal outlet answers 500 and gives
+// nothing of the sector; with the members' own engine the same read answers as the portal
+// does.
+func TestPortalOutlet_anotherAuthsEngine(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		// crewEngineAsMembers hands the App the crew's engine as the members'.
+		crewEngineAsMembers bool
+		want                int
+	}{
+		{name: "the members' own engine answers the portal", want: http.StatusOK},
+		{name: "the crew's engine handed as the members' is refused", crewEngineAsMembers: true, want: http.StatusInternalServerError},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := t.Context()
+			s := newServedWith(ctx, t, servedOptions{crewEngineAsMembers: tt.crewEngineAsMembers})
+			b := newBrowser(t, s, portalAPI)
+			if status, location := b.loginPortal(ctx, clientUser, "ClientPortal"); status != http.StatusFound || location != portalPage {
+				t.Fatalf("portal login: status %d to %q, want %d to %q", status, location, http.StatusFound, portalPage)
+			}
+
+			target := portalPath(anvil, "missions?limit=200")
+			status, body := b.do(ctx, http.MethodGet, target, nil)
+			if status != tt.want {
+				t.Fatalf("GET %s: status %d, want %d: %s", target, status, tt.want, body)
+			}
+			if gives := strings.Contains(string(body), missionHaulerID); gives != (tt.want == http.StatusOK) {
+				t.Errorf("GET %s gives Halvard's mission %s: %v, want %v: %s", target, missionHaulerID, gives, tt.want == http.StatusOK, body)
+			}
+		})
+	}
+}
+
 // TestPortalLoginNeedsARole proves the directory's authority and the shape of a refusal: a
 // login whose groups name no role the members store knows is refused and returned to the
 // portal's login page, and the Location is the login page with a query of exactly

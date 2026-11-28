@@ -276,7 +276,7 @@ func TestDiscardUpload(t *testing.T) {
 	t.Parallel()
 
 	cause := httpio.NewForbiddenMessage("no")
-	unknown := errors.Wrap(&spanner.TransactionOutcomeUnknownError{}, "c.db.ReadWriteTransaction()")
+	unknown := errors.Wrap(&spanner.TransactionOutcomeUnknownError{}, "spannertxn.Serializable()")
 
 	tests := []struct {
 		name        string

@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
+	"github.com/impulseframework/impulse/session/internal/signinflow"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage/internal/drivertest"
 	"github.com/impulseframework/impulse/session/signin"
@@ -96,6 +97,62 @@ func TestSessionStorageDriver_LockUserIn(t *testing.T) {
 	}
 }
 
+// TestLinkConfirmed_waitsForTheLinkDecisionLock proves that a link confirmed with a
+// password takes the lock a link decision takes on the user: while another transaction
+// holds it, the confirmed link waits until its context ends, returns an error and
+// links nothing.
+func TestLinkConfirmed_waitsForTheLinkDecisionLock(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	db, err := prepareDatabase(ctx, t, authSources(drivertest.Auth)...)
+	if err != nil {
+		t.Fatalf("prepareDatabase() error = %v", err)
+	}
+	d := NewSessionStorageDriver(db.Pool)
+	d.EnableAuth()
+	user, err := d.CreateUser(ctx, &dbtype.InsertSessionUser{Username: "waiting@lakeside.edu"}, nil)
+	if err != nil {
+		t.Fatalf("CreateUser() error = %v", err)
+	}
+	identity := &sessioninfo.Identity{Method: sessioninfo.MethodWorkOS, Connection: "conn_lakeside", Subject: "idp_waiting", Email: "waiting@lakeside.edu"}
+
+	first, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatalf("Begin() error = %v", err)
+	}
+	defer func() { _ = first.Rollback(ctx) }()
+	if _, err := d.LockUserIn(ctx, first, user.ID); err != nil {
+		t.Fatalf("LockUserIn() in the first transaction error = %v", err)
+	}
+
+	linkCtx, cancel := context.WithTimeout(ctx, 300*time.Millisecond)
+	defer cancel()
+	err = signinflow.LinkConfirmed[pgx.Tx](linkCtx, d, user.ID, user.Username, identity, "", nil, nil, nil)
+	if err == nil {
+		t.Errorf("LinkConfirmed() while another link decision holds the user = nil, want it to wait and fail when its context ends")
+	}
+	if linkCtx.Err() == nil {
+		t.Errorf("LinkConfirmed() returned before its context ended, error = %v: it did not wait for the lock", err)
+	}
+	if err := first.Rollback(ctx); err != nil {
+		t.Fatalf("Rollback() error = %v", err)
+	}
+
+	read, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatalf("Begin() error = %v", err)
+	}
+	defer func() { _ = read.Rollback(ctx) }()
+	links, err := d.IdentitiesByUserIn(ctx, read, user.ID)
+	if err != nil {
+		t.Fatalf("IdentitiesByUserIn() error = %v", err)
+	}
+	if len(links) != 0 {
+		t.Errorf("IdentitiesByUserIn() = %+v, want no link: the confirmed link waited and was not made", links)
+	}
+}
+
 // TestSessionStorageDriver_LinkDecisionsDoNotDeadlockWithASharingResolver proves the
 // link lock is independent of the row: two sign-ins whose resolver shares the user row's
 // lock before the link decision takes its lock do not deadlock (a row-lock upgrade
@@ -111,6 +168,8 @@ func TestSessionStorageDriver_LinkDecisionsDoNotDeadlockWithASharingResolver(t *
 	}
 	d := NewSessionStorageDriver(db.Pool)
 	d.EnableAuth()
+	cfg := drivertest.AuthConfig{Auth: true}
+	drivertest.SeedSignInSettings(ctx, t, d, drivertest.AuthWithAppTables, &cfg)
 	user, err := d.CreateUser(ctx, &dbtype.InsertSessionUser{Username: "deadlock@lakeside.edu"}, nil)
 	if err != nil {
 		t.Fatalf("CreateUser() error = %v", err)
@@ -138,7 +197,8 @@ func TestSessionStorageDriver_LinkDecisionsDoNotDeadlockWithASharingResolver(t *
 
 		return signin.Link(user.ID, false), nil
 	}
-	signIn := drivertest.NewSignIn(d, drivertest.AuthConfig{Auth: true, Resolve: resolve}, func(txn pgx.Tx) drivertest.HookTx { return hookTx{txn} })
+	cfg.Resolve = resolve
+	signIn := drivertest.NewSignIn(d, &cfg, func(txn pgx.Tx) drivertest.HookTx { return hookTx{txn} })
 
 	identities := []*sessioninfo.Identity{
 		{Method: sessioninfo.MethodWorkOS, Connection: "conn_lakeside", Subject: "idp_deadlock", Email: "deadlock@lakeside.edu"},

@@ -11,10 +11,12 @@ import {
   UpdatePermission,
 } from './brands';
 import { AuthClient, loginMethodsRoute } from './auth';
+import { ChangeHistoryPage, ChangeHistoryQuery } from './changes';
 import { ApiDescriptor, MethodDescriptor, ResourceDescriptor, ResourceOperation } from './descriptor';
 import { Capability, PermissionDigestState, WithCapabilities, rowCapabilities } from './digest';
 import { FeatureFlag, FeatureState, featureFlagsResource, setFeatureMethod } from './features';
 import {
+  LiveNames,
   LiveOptions,
   LiveSession,
   LiveSubscription,
@@ -22,16 +24,19 @@ import {
   acrossTenantsSubscription,
   changesHeader,
   liveSubscription,
+  namesHeader,
   parseChangesHeader,
+  parseNamesHeader,
   subscribeHeader,
   versionParam,
   versionedUrl,
 } from './live';
-import { BatchResult, Operation, OperationRoute, operationRoute } from './operations';
+import { BatchResult, DeleteLeft, Operation, OperationRoute, operationRoute } from './operations';
 import { ClientResponse, PermissionStore, Requester, RequestOptions, ResponseRequester } from './permissions';
 import { Store } from './store';
 import { dryRunHeader, warningHeader } from './transport';
 import {
+  EveryQuery,
   LinkHeader,
   ListQuery,
   ListQueryBase,
@@ -51,6 +56,7 @@ import {
   Transport,
   TransportResponse,
   apiVersionHeader,
+  environmentHeader,
   fetchTransport,
   maintenanceHeader,
   maintenanceHeaderValue,
@@ -178,8 +184,9 @@ export interface ResourceHandleBase<Row, Key extends unknown[]> {
   /**
    * The fields this handle's digest says the session user may supply for the
    * permission — `Create` narrows a create form to the inputs worth rendering:
-   * sorted JSON field names whose dotted field target is granted or conditional
-   * (conditional renders; the server judges the write). Undefined when the digest
+   * sorted JSON field names whose dotted field target is granted, conditional,
+   * conditional on time or conditional with its resource (any conditional renders; the
+   * server judges the write). Undefined when the digest
    * carries no field-level entries for the permission — no field information (the
    * permission is denied outright, or the resource has no grant-bearing fields) —
    * so narrow only on a defined answer. Key fields never appear: they are
@@ -226,11 +233,10 @@ export interface Page<Row> {
 /**
  * The list operations of a handle. `Key` is the resource's key tuple: on the empty
  * tuple, a key-less resource served whole, the query type carries no `limit` and no
- * `cursor` (ListQuery), so a page asked of such a handle does not compile. There is no
- * operation that reads every row of a resource with a maximum page size: the maximum is
- * declared to keep the whole set out of memory, so such a resource is read one server
- * page at a time (`page`), and a resource with no maximum is read whole with
- * `list({ limit: 'all' })` (see readMode and wholeListQuery).
+ * `cursor` (ListQuery), so a page asked of such a handle does not compile. `list`
+ * answers one request and `page` one page with its neighbors; `every` is the one
+ * reader of every row, which asks for as many pages as the resource's declared
+ * maximum makes necessary (see readMode).
  */
 export interface Listable<Row, Key extends readonly unknown[] = readonly unknown[]> {
   /**
@@ -244,6 +250,19 @@ export interface Listable<Row, Key extends readonly unknown[] = readonly unknown
    * a key-less resource the one page is the whole list and has no neighbors.
    */
   page<Query extends ListQuery<Row, Key> | undefined = undefined>(query?: Query): Promise<Page<Returned<Row, Query>>>;
+  /**
+   * Every row the query admits, together, for a reader whose answer is wrong with a
+   * part of them (a board that counts, a picker that must offer each choice). A
+   * resource that declares no maximum page size is read in one request, as
+   * `list({ limit: 'all' })` reads it, and a key-less resource as it is always served.
+   * A resource that declares a maximum is read a page of that size at a time, by the
+   * server's own `next` relations, to the end. The rows come back once the last page is
+   * in, and a page that fails rejects the whole read: nothing is handed back in part.
+   * The query takes no `limit`, `cursor` or `count` (EveryQuery). The whole set is held
+   * in memory, which a declared maximum otherwise keeps from happening, so a list a
+   * person turns through is still read with `page`.
+   */
+  every<Query extends EveryQuery<Row> | undefined = undefined>(query?: Query): Promise<Returned<Row, Query>[]>;
 }
 
 /** The reserved property a row of a list across tenants carries: the tenant the row is in. */
@@ -315,6 +334,15 @@ export interface Readable<Row, Key extends unknown[]> {
     key: Key,
     options?: Options,
   ): Promise<Returned<Row, Options>>;
+  /**
+   * A page of the record's history: its change records, newest first, each with the
+   * fields it changed that the session user may see on the record. Pass the page's `next`
+   * back as `after` for the page of older records, and `field` for the records that
+   * changed that field alone. The server asks the record's own Read grant, and answers
+   * 404 (an `ApiError`) for a record it does not hold and for a resource that does not
+   * track its changes.
+   */
+  changes(key: Key, query?: ChangeHistoryQuery): Promise<ChangeHistoryPage>;
 }
 
 export interface Creatable<Create> {
@@ -329,8 +357,32 @@ export interface Patchable<Patch, Key extends unknown[]> {
   patch(key: Key, value: Patch): Promise<void>;
 }
 
+/** What a delete says of itself beyond the row it names. */
+export interface RemoveOptions {
+  /**
+   * Says the delete takes the records under the row with it. A row whose kind declares
+   * what goes with it is deleted with nothing said only while nothing is under it: with
+   * records under it the server deletes nothing and answers 428 (an `ApiError`) with the
+   * question to ask a person first, which names what will be deleted. The same delete
+   * with this set, and the question's `token`, deletes those records and the row.
+   */
+  everythingUnder?: boolean;
+  /**
+   * The token the server's question gave: the `token` of the 428's body (`ApiError.body`).
+   * The delete that takes the records under the row brings it back with `everythingUnder`,
+   * in every request until the row is gone. Without it, or with one the server no longer
+   * holds, the server asks again.
+   */
+  token?: string;
+}
+
 export interface Removable<Key extends unknown[]> {
-  remove(key: Key): Promise<void>;
+  /**
+   * Deletes the row. It resolves with nothing once the row is gone, and with the records
+   * this request deleted where the delete takes more records than one request holds
+   * (`DeleteLeft`, a 202): the row stands, and the same remove, sent again, goes on.
+   */
+  remove(key: Key, options?: RemoveOptions): Promise<DeleteLeft | undefined>;
 }
 
 /** Operation builders for the consolidated endpoint; pass their results to `client.batch`. */
@@ -338,7 +390,7 @@ export interface Batchable<Create, Patch, Key extends unknown[]> {
   readonly ops: {
     add(value: Create): Operation;
     patch(key: Key, value: Patch): Operation;
-    remove(key: Key): Operation;
+    remove(key: Key, options?: RemoveOptions): Operation;
   };
 }
 
@@ -469,6 +521,24 @@ export interface MethodWarning {
   names?: string[];
   /** The words on the button that runs the call, which say what it does. */
   confirm: string;
+  /**
+   * Further notes the person should read before they confirm, each a sentence with the
+   * names it speaks of: a dialog draws them under the consequence, in the order given.
+   * Absent where the method has nothing more to say.
+   */
+  also?: MethodWarningNote[];
+}
+
+/** One further note of a method's warning: a sentence of its own, with its own names. */
+export interface MethodWarningNote {
+  /** The note's sentence, read before the person confirms. */
+  says: string;
+  /**
+   * The people or things the sentence speaks of, where the method names them and the
+   * caller may be told: a dialog lists them under the sentence. Absent where it names
+   * none.
+   */
+  names?: string[];
 }
 
 /**
@@ -535,6 +605,14 @@ export interface ClientBase {
    */
   readonly serverRelease: Store<string | undefined>;
   /**
+   * The name of the environment the server said it runs in on its last answer
+   * (`X-Environment`, which every answer of a server told its environment carries),
+   * undefined until an answer named one, and for good on a server that names none, which
+   * is how production runs: what an About pop-up shows and a problem report says. Read
+   * with `get()` and watched with `subscribe()`.
+   */
+  readonly serverEnvironment: Store<string | undefined>;
+  /**
    * The client's warning hook (`ClientOptions.warn`, the console by default), each
    * distinct message delivered once: what the client announces the descriptor's gaps
    * through, and what a page layer announces its own through, so an application's
@@ -589,23 +667,30 @@ export function createClient<G, D, A = Record<never, never>>(
   const baseUrl = options.baseUrl.replace(/\/+$/, '');
   const transport = options.transport ?? fetchTransport();
   const serverRelease = new Store<string | undefined>(undefined);
+  const serverEnvironment = new Store<string | undefined>(undefined);
   // The live session is built over the requester, and the requester hands it each
   // write's answer: the session takes its place here below, before any request is made.
   const session: { live?: LiveSession } = {};
-  const requestResponse = createRequester(baseUrl, transport, {
+  const answered = createRequester(baseUrl, transport, {
     onError: options.onError,
     apiVersion: options.apiVersion,
     olderServerRetryDelays: options.olderServerRetryDelays,
     timeZone: options.timeZone,
     serverRelease,
+    serverEnvironment,
     wrote: (changes) => session.live?.wrote(changes),
+    named: (names) => session.live?.named(names),
   });
+  // The permission cache reads over the requester as it is: its two routes are under no
+  // domain, and the check below is made of its reads.
+  const permissions = new PermissionStore(
+    async <T>(method: HttpMethod, path: string, requestOptions?: RequestOptions): Promise<T> =>
+      (await answered<T>(method, path, requestOptions)).body,
+    { digest: descriptor.permissionDigestRoute, domains: descriptor.userDomainsRoute },
+  );
+  const requestResponse = checkingDomains(answered, baseUrl, descriptor, permissions);
   const request: Requester = async <T>(method: HttpMethod, path: string, requestOptions?: RequestOptions): Promise<T> =>
     (await requestResponse<T>(method, path, requestOptions)).body;
-  const permissions = new PermissionStore(request, {
-    digest: descriptor.permissionDigestRoute,
-    domains: descriptor.userDomainsRoute,
-  });
   const warn = warnOnce(options.warn);
   const live = new LiveSession({ ...options.live, request, baseUrl, routes: descriptor.live, warn });
   session.live = live;
@@ -613,6 +698,7 @@ export function createClient<G, D, A = Record<never, never>>(
     request,
     route: descriptor.features?.route,
     setFeature: descriptor.methods[setFeatureMethod],
+    flagsRoute: descriptor.resources[featureFlagsResource]?.route,
     permissions,
     flags: () => listFlags(base),
     warn,
@@ -628,6 +714,7 @@ export function createClient<G, D, A = Record<never, never>>(
     features,
     auth,
     serverRelease,
+    serverEnvironment,
     warn,
     request,
     requestResponse,
@@ -709,10 +796,10 @@ function attachHandles(
 }
 
 /**
- * Every row of the feature flags resource, by name: read whole where the resource
- * declares no maximum page size, else one server page at a time to the end (a few dozen
- * flags at most, so the walk is short). An API whose descriptor has no such resource
- * (one generated before flags existed, or written by hand) is refused naming it.
+ * Every row of the feature flags resource, by name, read as a handle's `every` reads
+ * any resource (a few dozen flags at most, so a walk is short where the resource
+ * declares a maximum page size). An API whose descriptor has no such resource (one
+ * generated before flags existed, or written by hand) is refused naming it.
  */
 async function listFlags(client: ClientBase): Promise<FeatureFlag[]> {
   const descriptor = client.descriptor.resources[featureFlagsResource];
@@ -720,24 +807,29 @@ async function listFlags(client: ClientBase): Promise<FeatureFlag[]> {
     throw new Error(`this API declares no ${featureFlagsResource} resource; feature flags cannot be listed from here`);
   }
   const handle = createResourceHandle<FeatureFlag, [string]>(client, descriptor, undefined);
-  const sort = { field: 'name' as const };
-  if (readMode(descriptor) === 'whole') {
-    return handle.list(wholeListQuery<FeatureFlag>(descriptor, { sort }));
-  }
-  const rows: FeatureFlag[] = [];
-  let page = await handle.page({ sort, limit: descriptor.page?.max });
-  rows.push(...page.rows);
-  while (page.next) {
-    page = await page.next();
-    rows.push(...page.rows);
-  }
-  return rows;
+  return handle.every({ sort: { field: 'name' as const } });
 }
 
 /** The digest's field-level enumeration for a scope, as sorted names — undefined when it holds none. */
 function definedFields(permissions: PermissionStore, scope: PermissionScope): readonly string[] | undefined {
   const fields = Object.keys(permissions.fieldStates(scope)).sort();
   return fields.length > 0 ? fields : undefined;
+}
+
+/**
+ * The environment's name an answer carries in the environment header, decoded; undefined
+ * for an answer that names none. A value that does not decode, which no server of this
+ * framework writes, is taken as it is.
+ */
+export function environmentName(header: string | undefined): string | undefined {
+  if (header === undefined || header === '') {
+    return undefined;
+  }
+  try {
+    return decodeURIComponent(header);
+  } catch {
+    return header;
+  }
 }
 
 /** What createRequester takes beside the transport: the error hook and the release header's settings. */
@@ -749,8 +841,15 @@ interface RequesterOptions {
   timeZone?: string;
   /** Where the release each answer names is kept, when the caller keeps it. */
   serverRelease?: Store<string | undefined>;
+  /** Where the environment each answer names is kept, when the caller keeps it. */
+  serverEnvironment?: Store<string | undefined>;
   /** Who takes what a write's answer says it changed (the changes header): the live session. */
   wrote?: (changes: WriteChanges) => void;
+  /**
+   * Who takes what a live request's answer says the server registered beside its
+   * subscription (the names header): the live session.
+   */
+  named?: (names: LiveNames) => void;
 }
 
 /**
@@ -762,13 +861,16 @@ interface RequesterOptions {
  * new instance); when the retries run out, or when this build is the older one, the
  * refusal is thrown as ApiVersionError, observed by the hook first. Every answer that names
  * the server's release in the version header, refusals included, is kept in `serverRelease`
- * before it is judged, and every answer that carries the changes header, a write's, is
+ * before it is judged, as the environment an answer names is in `serverEnvironment`, and every answer that carries the changes header, a write's, is
  * handed to `wrote` before the caller is answered, so the live pages the write changed
- * fetch at once. A 503 that carries the
+ * fetch at once. Every answer that carries the names header, a live request's, is handed
+ * to `named` the same way, so the session follows the lists the names the answer shows
+ * are read from. A 503 that carries the
  * maintenance marker is the server down for maintenance and is judged the same way, before
  * the caller's declared answers, and thrown as MaintenanceError with the server's
  * Retry-After; a 503 without the marker is an ordinary error. Every other 4xx or 5xx the
- * caller did not declare becomes ApiError.
+ * caller did not declare becomes ApiError. A quiet request (`RequestOptions.quiet`) throws
+ * each of the three the same, and hands none of them to the hook.
  */
 function createRequester(baseUrl: string, transport: Transport, requester: RequesterOptions): ResponseRequester {
   const { onError } = requester;
@@ -786,9 +888,17 @@ function createRequester(baseUrl: string, transport: Transport, requester: Reque
       if (named !== undefined && named !== '') {
         requester.serverRelease?.set(named);
       }
+      const environment = environmentName(response.headers?.[environmentHeader.toLowerCase()]);
+      if (environment !== undefined) {
+        requester.serverEnvironment?.set(environment);
+      }
       const changes = parseChangesHeader(response.headers?.[changesHeader.toLowerCase()]);
       if (changes) {
         requester.wrote?.(changes);
+      }
+      const names = parseNamesHeader(response.headers?.[namesHeader.toLowerCase()]);
+      if (names) {
+        requester.named?.(names);
       }
       const serverVersion = versionRefusal(response);
       if (serverVersion !== undefined) {
@@ -798,23 +908,117 @@ function createRequester(baseUrl: string, transport: Transport, requester: Reque
           continue;
         }
         const error = new ApiVersionError(method, url, response.body, serverVersion, version ?? '', serverOlder);
-        onError?.(error);
+        if (!options?.quiet) {
+          onError?.(error);
+        }
         throw error;
       }
       if (maintenanceAnswer(response)) {
         const retryAfter = retryAfterSeconds(response.headers?.[retryAfterHeader.toLowerCase()]);
         const error = new MaintenanceError(method, url, response.body, retryAfter);
-        onError?.(error);
+        if (!options?.quiet) {
+          onError?.(error);
+        }
         throw error;
       }
       if (response.status >= 400 && !options?.accept?.includes(response.status)) {
         const error = new ApiError(method, url, response.status, response.body);
-        onError?.(error);
+        if (!options?.quiet) {
+          onError?.(error);
+        }
         throw error;
       }
       return { status: response.status, body: response.body as T, headers: response.headers ?? {} };
     }
   };
+}
+
+/** The scheme and host a URL opens with, where it has them. */
+const originPattern = /^https?:\/\/[^/]+/i;
+
+/**
+ * Holds what the cache keeps of a domain to the server's answers under it. The server
+ * answers every request under a domain the session does not reach with 404, the answer it
+ * also gives for a record that is not there, and nothing in the answer tells the two apart.
+ * So where a request under a domain is answered 404 and the cache holds the domain's
+ * digest, the digest is read again before the caller hears of the answer. A domain the
+ * person has left is refused by that read: the cache forgets it and every `onUnread`
+ * listener hears of it, as for any refused read, so a page open in the domain is taken
+ * down and not left to draw the server's words. A domain the person is still in keeps its
+ * digest, and the 404 is the record's. The caller is answered as the server answered,
+ * whatever the read finds. A domain the cache holds nothing of is not read: nothing is
+ * drawn from it.
+ */
+function checkingDomains(
+  answered: ResponseRequester,
+  baseUrl: string,
+  descriptor: ApiDescriptor,
+  permissions: PermissionStore,
+): ResponseRequester {
+  const check = async (status: number, path: string, options: RequestOptions | undefined): Promise<void> => {
+    if (status !== 404) {
+      return;
+    }
+    const domain = requestDomain(descriptor, baseUrl, path, options?.absolute);
+    if (domain === undefined || !permissions.hasDigest(domain)) {
+      return;
+    }
+    // A read that fails has told its listeners; the caller's answer is the request's own.
+    await permissions.loadDigest(domain).catch(() => undefined);
+  };
+  return async <T>(method: HttpMethod, path: string, options?: RequestOptions): Promise<ClientResponse<T>> => {
+    let response: ClientResponse<T>;
+    try {
+      response = await answered<T>(method, path, options);
+    } catch (error) {
+      if (error instanceof ApiError) {
+        await check(error.status, path, options);
+      }
+      throw error;
+    }
+    await check(response.status, path, options);
+    return response;
+  };
+}
+
+/**
+ * The domain a request is made under: the one its path names after the domain route's
+ * segment. Undefined for a request under no domain, and where the API declares no domain
+ * route. A reference the server handed out (a Link relation) carries the API prefix, which
+ * is taken off first.
+ */
+function requestDomain(
+  descriptor: ApiDescriptor,
+  baseUrl: string,
+  path: string,
+  absolute: boolean | undefined,
+): Domain | undefined {
+  const segment = descriptor.domainRoute?.segment;
+  if (!segment) {
+    return undefined;
+  }
+  let under = path;
+  if (absolute) {
+    const prefix = `${baseUrl.replace(originPattern, '')}/`;
+    const reference = path.replace(originPattern, '');
+    if (!reference.startsWith(prefix)) {
+      return undefined;
+    }
+    under = reference.slice(prefix.length);
+  }
+  const lead = `${segment}/`;
+  if (!under.startsWith(lead)) {
+    return undefined;
+  }
+  const named = /^[^/?#]+(?=\/)/.exec(under.slice(lead.length))?.[0];
+  if (!named) {
+    return undefined;
+  }
+  try {
+    return decodeURIComponent(named) as Domain;
+  } catch {
+    return undefined;
+  }
 }
 
 /** The server's release when the response is its refusal of this build's release (a 412 carrying the version header), else undefined. */
@@ -847,6 +1051,16 @@ export function resolveAbsolute(baseUrl: string, reference: string): string {
   }
   const origin = /^https?:\/\/[^/]+/i.exec(baseUrl);
   return origin && reference.startsWith('/') ? origin[0] + reference : reference;
+}
+
+/** The records a delete's answer says it deleted (a 202's body); undefined for an answer that says nothing of it. */
+function deleteLeftOf(answer: unknown): DeleteLeft | undefined {
+  if (typeof answer !== 'object' || answer === null) {
+    return undefined;
+  }
+  const { deleted } = answer as Record<string, unknown>;
+
+  return typeof deleted === 'number' ? { deleted } : undefined;
 }
 
 async function batch(request: Requester, descriptor: ApiDescriptor, operations: Operation[]): Promise<BatchResult> {
@@ -884,6 +1098,12 @@ function scopedRoute(
   }
   return `${descriptor.domainRoute.segment}/${encodeURIComponent(domain)}/${route}`;
 }
+
+/**
+ * The segment a record's history is served under, after the record's read route, as the
+ * generated router registers it for every table-backed resource with a read route.
+ */
+const changeHistoryRoute = 'changes';
 
 function keySegments(key: readonly unknown[] | undefined): string {
   return key && key.length > 0 ? `/${key.map((part) => encodeURIComponent(String(part))).join('/')}` : '';
@@ -971,7 +1191,15 @@ function createResourceHandle<Row extends object, Key extends unknown[]>(
       return bound({ op: 'add', path: path(key), value: body });
     },
     patch: (key: Key, value: Record<string, unknown>): Operation => bound({ op: 'patch', path: path(key), value }),
-    remove: (key: Key): Operation => bound({ op: 'remove', path: path(key) }),
+    remove: (key: Key, options?: RemoveOptions): Operation => {
+      if (!options?.everythingUnder) {
+        return bound({ op: 'remove', path: path(key) });
+      }
+      // The question's token goes with everythingUnder where the options hold one.
+      const value = options.token ? { everythingUnder: true, token: options.token } : { everythingUnder: true };
+
+      return bound({ op: 'remove', path: path(key), value });
+    },
     patchOrAdd: (value: Record<string, unknown>): Operation => keyed('patch-or-add', value),
     addOrSkip: (value: Record<string, unknown>): Operation => keyed('add-or-skip', value),
   };
@@ -1050,6 +1278,26 @@ function createResourceHandle<Row extends object, Key extends unknown[]>(
         wanted,
       );
     }) as Listable<Row>['page'],
+    every: (async (query?: EveryQuery<Row>) => {
+      // The reader chooses the page and follows the cursors, and the rows come back
+      // with no total, so none of the three is sent, whatever a caller typed past the
+      // type; the rest of the query goes as given.
+      const rest: ListQuery<Row> = { ...query };
+      delete rest.limit;
+      delete rest.cursor;
+      delete rest.count;
+      if (readMode(descriptor) === 'whole') {
+        return handle.list(wholeListQuery<Row>(descriptor, rest));
+      }
+      const rows: Row[] = [];
+      let page = await handle.page({ ...rest, limit: descriptor.page?.max });
+      rows.push(...page.rows);
+      while (page.next) {
+        page = await page.next();
+        rows.push(...page.rows);
+      }
+      return rows;
+    }) as Listable<Row>['every'],
     read: (async (key: Key, options?: ReadOptions<Row>) => {
       const wanted = options?.live ? liveSubscription(descriptor, scopeDomain, key) : undefined;
       return client.request<Row>(
@@ -1058,6 +1306,18 @@ function createResourceHandle<Row extends object, Key extends unknown[]>(
         liveRequest(client.live, wanted, readSearchParams(options)),
       );
     }) as Readable<Row, Key>['read'],
+    changes: async (key, query) => {
+      const params = new URLSearchParams();
+      if (query?.after !== undefined) {
+        params.set('after', query.after);
+      }
+      if (query?.field !== undefined) {
+        params.set('field', query.field);
+      }
+      return client.request<ChangeHistoryPage>('GET', `${route}${keySegments(key)}/${changeHistoryRoute}`, {
+        query: params,
+      });
+    },
     create: async (value) => {
       const result = await mutate(ops.add(value));
       // A consolidated route keys the new keys by resource; a standalone route answers them
@@ -1067,9 +1327,7 @@ function createResourceHandle<Row extends object, Key extends unknown[]>(
     patch: async (key, value) => {
       await mutate(ops.patch(key, value));
     },
-    remove: async (key) => {
-      await mutate(ops.remove(key));
-    },
+    remove: async (key, options) => deleteLeftOf(await mutate(ops.remove(key, options))),
     ops,
   };
   return handle;
@@ -1288,12 +1546,21 @@ function createMethodHandle<Body, Result = void>(
     const answer = await client.request<Result | null | undefined>('POST', route, { body, headers });
     return (answer ?? undefined) as Result;
   };
+  // The method that flips a feature flag changes what the person's own pages may show: once
+  // the write succeeds the enabled set and the digests are read again before the call
+  // resolves, whichever page made it (FeatureState.flipped).
+  const flipsFlag = descriptor.method === setFeatureMethod;
+  const flip = async (body: Body): Promise<Result> => {
+    const answer = await post(body);
+    await client.features.flipped();
+    return answer;
+  };
   const handle: MethodHandle<Body, Result> = {
     method: descriptor.method,
     descriptor,
     domain: scope.domain,
     url: () => `${client.baseUrl}/${route}`,
-    execute: (body) => post(body),
+    execute: flipsFlag ? flip : (body) => post(body),
     dryRun: async (body) => {
       await client.request<unknown>('POST', route, { body, headers: { [dryRunHeader]: 'true' } });
     },

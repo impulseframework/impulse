@@ -14,8 +14,7 @@ import (
 // portal outlet, names the portal's members and none of the console-only resources, and
 // its descriptor bootstraps under the domain route the console shares. The manual
 // registrations without an @outlet stay on the default outlet and the portal filter drops
-// them; ClientStatements names @outlet(portal) and appears in the portal's constants
-// alone. Both targets carry the two application-typed columns the same way: the
+// them. Both targets carry the two application-typed columns the same way: the
 // resources file imports Point from geojson for DistressCalls.Position and declares
 // MissionDocuments.Provenance in the resource's namespace; and both type the BYTES column
 // MissionDocuments.Digest a string with display type bytes. The console alone carries
@@ -25,7 +24,7 @@ import (
 // first unknown a real application's clients build and lint against. Needs no emulator:
 // it reads the committed output.
 //
-// Demonstrates: typescript.second-target, @manualAddResource.outlet, workflow.ts-constant, outlet.isolation, typescript.imported-type, typescript.derived-object, typescript.byte-slice, typescript.array-column, decode.nullable-slice, typescript.raw-json.
+// Demonstrates: typescript.second-target, workflow.ts-constant, outlet.isolation, typescript.imported-type, typescript.derived-object, typescript.byte-slice, typescript.array-column, decode.nullable-slice, typescript.raw-json.
 func TestPortalTargetEmission(t *testing.T) {
 	t.Parallel()
 
@@ -56,14 +55,14 @@ func TestPortalTargetEmission(t *testing.T) {
 	columnTypes := []string{
 		"import { Point } from 'geojson';",
 		"  position?: Point;",
-		"{ fieldName: 'position', displayType: 'object', required: false, isIndex: false }",
+		"{ fieldName: 'position', displayType: 'object', required: false, isIndex: false, sortable: false }",
 		"  provenance?: MissionDocuments.Provenance;",
 		"export namespace MissionDocuments {\n  export interface Provenance {\n    system: string;\n    reference?: string;\n    receivedAt: Date;\n  }\n}",
-		"{ fieldName: 'provenance', displayType: 'object', required: false, isIndex: false }",
+		"{ fieldName: 'provenance', displayType: 'object', required: false, isIndex: false, sortable: false }",
 		"  digest?: string;",
-		"{ fieldName: 'digest', displayType: 'bytes', required: true, isIndex: false }",
+		"{ fieldName: 'digest', displayType: 'bytes', required: true, isIndex: false, sortable: false }",
 		"  layout?: unknown;",
-		"{ fieldName: 'layout', displayType: 'object', required: false, isIndex: false }",
+		"{ fieldName: 'layout', displayType: 'object', required: false, isIndex: false, sortable: false }",
 	}
 
 	tests := []struct {
@@ -75,8 +74,8 @@ func TestPortalTargetEmission(t *testing.T) {
 		{
 			name:   "the portal's Resources constant carries its members only",
 			source: portalConstants,
-			want:   []string{"ClientContacts: 'ClientContacts'", "DistressCalls: 'DistressCalls'", "Missions: 'Missions'", "ClientStatements: 'ClientStatements'"},
-			absent: []string{"Refits:", "Ships:", "Squadrons:", "Pilots:", "Sorties:", "Consignments:", "SectorHazardBoards:", "Wings:", "ShipsLogEntries:"},
+			want:   []string{"ClientContacts: 'ClientContacts'", "DistressCalls: 'DistressCalls'", "Missions: 'Missions'"},
+			absent: []string{"Refits:", "Ships:", "Squadrons:", "Pilots:", "Sorties:", "Consignments:", "SectorHazardBoards:", "Wings:"},
 		},
 		{
 			name:   "the portal's Methods constant carries Stand Down only; the default-outlet manual registrations drop",
@@ -91,10 +90,9 @@ func TestPortalTargetEmission(t *testing.T) {
 			absent: []string{"Refits", "Squadrons", "Pilots"},
 		},
 		{
-			name:   "the console target still names everything, and not the portal-only statement",
+			name:   "the console target still names everything",
 			source: consoleConstants,
-			want:   []string{"Refits: 'Refits'", "Ships: 'Ships'", "Squadrons: 'Squadrons'", "Pilots: 'Pilots'", "Missions: 'Missions'", "ShipsLogEntries: 'ShipsLogEntries'"},
-			absent: []string{"ClientStatements:"},
+			want:   []string{"Refits: 'Refits'", "Ships: 'Ships'", "Squadrons: 'Squadrons'", "Pilots: 'Pilots'", "Missions: 'Missions'"},
 		},
 		{
 			name:   "the console resources file imports the declared type and derives the struct",
@@ -107,7 +105,7 @@ func TestPortalTargetEmission(t *testing.T) {
 			source: consoleResources,
 			want: []string{
 				"  cargoBays?: number[];",
-				"{ fieldName: 'cargoBays', displayType: 'number[]', required: false, isIndex: false }",
+				"{ fieldName: 'cargoBays', displayType: 'number[]', required: false, isIndex: false, sortable: false }",
 			},
 		},
 		{
@@ -115,7 +113,7 @@ func TestPortalTargetEmission(t *testing.T) {
 			source: consoleResources,
 			want: []string{
 				"  callsigns?: string[];",
-				"{ fieldName: 'callsigns', displayType: 'string[]', required: false, isIndex: false, maxLength: 16 }",
+				"{ fieldName: 'callsigns', displayType: 'string[]', required: false, isIndex: false, sortable: false, maxLength: 16 }",
 			},
 		},
 		{
@@ -151,9 +149,13 @@ func TestPortalTargetEmission(t *testing.T) {
 	// The portal emits exactly its members' resource interfaces (the members with a
 	// struct, and with them the resources Mission's declared pickers name, which follow
 	// Mission onto every outlet it serves, the library's FeatureFlags, which every
-	// session outlet serves, and the members auth's own tables and the lists a sector
-	// keeps of the members, declared by the generated management of the auth and served
-	// on its outlet) and the console emits every one.
+	// session outlet serves, and the members auth's own tables, the one list of the
+	// roles its people hold, the list of its sign-in identities that says who manages
+	// each account, the list of its sessions that says which are live, the lists
+	// a sector keeps of the members, the lists of the auth's Sign-in page (its sign-in
+	// methods, what every sign-in asks for and the lengths a browser is remembered for)
+	// and its audit log, whole and a sector's, declared by the generated management of the
+	// auth and served on its outlet) and the console emits every one.
 	iface := regexp.MustCompile(`(?m)^export interface (\w+) \{`)
 	portalIfaces := iface.FindAllStringSubmatch(read("web/portal/src/app/core/service/zz_gen_resources.ts"), -1)
 	var names []string
@@ -165,7 +167,7 @@ func TestPortalTargetEmission(t *testing.T) {
 		}
 		names = append(names, m[1])
 	}
-	want := "ClientContacts,ClientRosters,DistressCalls,MembersRoles,MembersRoleGrants,MembersSectorIdentities,MembersSectorInvitations,MembersSectorUsers,MembersSectorUserRoles,MembersSessions,MembersSessionAuthEvents,MembersSessionIdentities,MembersSessionMailLinks,MembersSessionSignInAttempts,MembersSessionTrustedDevices,MembersSessionUsers,MembersUserRoles,Missions,MissionDocuments,BriefingTemplates,FeatureFlags"
+	want := "ClientContacts,ClientRosters,DistressCalls,MembersHeldRoles,MembersListedIdentities,MembersListedMailLinks,MembersListedSessions,MembersListedSignInAttempts,MembersListedUsers,MembersRoles,MembersSectorHeldRoles,MembersSectorIdentities,MembersSectorInvitations,MembersSectorUsers,MembersSectorUserRoles,MembersSessions,MembersSessionAuthEvents,MembersSessionIdentities,MembersSessionMailLinks,MembersSessionSignInAttempts,MembersSessionTrustedDevices,MembersSessionUsers,MembersUserRoles,Missions,MissionDocuments,BriefingTemplates,MembersListedAuditRecords,MembersListedRoleGrants,MembersRememberLengths,MembersSectorAuditRecords,MembersSignInMethods,MembersSignInSettings,FeatureFlags"
 	if strings.Join(names, ",") != want {
 		t.Errorf("portal resource interfaces = %v, want %s", names, want)
 	}

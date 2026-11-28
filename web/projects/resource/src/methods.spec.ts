@@ -73,7 +73,7 @@ describe('a method that declares its statuses', () => {
   it('throws ApiError for a status the method did not declare', async () => {
     const transport = scriptedTransport({
       status: 403,
-      body: { message: 'user (lead) does not have (Execute) on CompleteMission' },
+      body: { message: 'You may not do this here.' },
     });
     await expect(api(transport).completeMission.execute({ missionId: 'm1' })).rejects.toBeInstanceOf(ApiError);
   });
@@ -183,7 +183,7 @@ describe('a method asked for its warning', () => {
   it('rejects with the refusal the call itself would raise', async () => {
     const transport = scriptedTransport({
       status: 403,
-      body: { message: 'user (lead) does not have (Execute) on HoldMission' },
+      body: { message: 'You may not do this here.' },
     });
     await expect(api(transport).holdMission.warning({ missionId: 'm1', reason: 'weather' })).rejects.toBeInstanceOf(
       ApiError,

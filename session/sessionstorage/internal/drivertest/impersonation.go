@@ -168,6 +168,9 @@ func testInsertImpersonatedSession(_ context.Context, t *testing.T, h *Harness) 
 	// actorAccount is the account of a local actor: what the permission store names
 	// them by. A foreign actor has none here, and the column stays NULL.
 	actorAccount := impulse.Must(impulse.NewUUID())
+	// principalAccount is the account of the person a session is held as: the record
+	// names them by its id and keeps their username beside it.
+	principalAccount := impulse.Must(impulse.NewUUID())
 
 	tests := []struct {
 		name       string
@@ -178,6 +181,8 @@ func testInsertImpersonatedSession(_ context.Context, t *testing.T, h *Harness) 
 		wantCustom any
 	}{
 		{
+			// A session held as a role is held as no person, and the record keeps no
+			// person's username.
 			name: "role principal",
 			cfg:  Config{Impersonation: true},
 			req:  &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: "alice@example.com"},
@@ -190,7 +195,7 @@ func testInsertImpersonatedSession(_ context.Context, t *testing.T, h *Harness) 
 			},
 		},
 		{
-			name: "user principal with the actor's account, mask, reason, source session and per-call custom data",
+			name: "user principal by account and username, with the actor's account, mask, reason, source session and per-call custom data",
 			cfg:  Config{Impersonation: true, CustomData: true},
 			req: &sessioninfo.NewSessionRequest{
 				Reason:     sessioninfo.ReasonImpersonation,
@@ -198,16 +203,35 @@ func testInsertImpersonatedSession(_ context.Context, t *testing.T, h *Harness) 
 				CustomData: &CustomStringData{CustomString: "support"},
 			},
 			imp: &dbtype.InsertImpersonation{
-				ActorUsername:   "alice@example.com",
-				ActorUserID:     &actorAccount,
-				SourceSessionID: &SeededSource,
-				PrincipalKind:   dbtype.PrincipalKindUser,
-				PrincipalUserID: strPtr("bob@partner.org"),
-				Mask:            strPtr("List,Read"),
-				Reason:          strPtr("ticket JRN-2"),
-				ExpiresAt:       expires,
+				ActorUsername:     "alice@example.com",
+				ActorUserID:       &actorAccount,
+				SourceSessionID:   &SeededSource,
+				PrincipalKind:     dbtype.PrincipalKindUser,
+				PrincipalUserID:   strPtr(principalAccount.String()),
+				PrincipalUsername: strPtr("bob@partner.org"),
+				Mask:              strPtr("List,Read"),
+				Reason:            strPtr("ticket JRN-2"),
+				ExpiresAt:         expires,
 			},
 			wantCustom: &CustomStringData{CustomString: "support"},
+		},
+		{
+			// The column keeps a mask's whole text: the kinds it keeps and what it
+			// refuses inside them, a class and a permission on a resource whose name
+			// carries the text's own marks, which the text escapes.
+			name: "user principal whose mask refuses a class and a named resource inside the kinds it keeps",
+			cfg:  Config{Impersonation: true},
+			req:  &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: "bob@partner.org"},
+			imp: &dbtype.InsertImpersonation{
+				ActorUsername:   "alice@example.com",
+				PrincipalKind:   dbtype.PrincipalKindUser,
+				PrincipalUserID: strPtr("bob@partner.org"),
+				Mask: dbtype.MaskColumn(accesstypes.AllowAll().Refusing(
+					accesstypes.RefuseClass(accesstypes.ClassCredential),
+					accesstypes.RefusePermission(accesstypes.Update, "Led;gers,-on:all"),
+				)),
+				ExpiresAt: expires,
+			},
 		},
 		{
 			name:    "refused without the configuration",
@@ -242,21 +266,27 @@ func testInsertImpersonatedSession(_ context.Context, t *testing.T, h *Harness) 
 			// The record starts when the row is created, at the database's time.
 			w.assertStamped(t, "Session().CreatedAt", got.CreatedAt)
 			want := &dbtype.Impersonation{
-				SessionID:       id,
-				ActorUsername:   tt.imp.ActorUsername,
-				ActorUserID:     tt.imp.ActorUserID,
-				ActorRealm:      tt.imp.ActorRealm,
-				SourceSessionID: tt.imp.SourceSessionID,
-				PrincipalKind:   tt.imp.PrincipalKind,
-				PrincipalUserID: tt.imp.PrincipalUserID,
-				PrincipalRole:   tt.imp.PrincipalRole,
-				Mask:            tt.imp.Mask,
-				Reason:          tt.imp.Reason,
-				StartedAt:       got.CreatedAt,
-				ExpiresAt:       tt.imp.ExpiresAt,
+				SessionID:         id,
+				ActorUsername:     tt.imp.ActorUsername,
+				ActorUserID:       tt.imp.ActorUserID,
+				ActorRealm:        tt.imp.ActorRealm,
+				SourceSessionID:   tt.imp.SourceSessionID,
+				PrincipalKind:     tt.imp.PrincipalKind,
+				PrincipalUserID:   tt.imp.PrincipalUserID,
+				PrincipalUsername: tt.imp.PrincipalUsername,
+				PrincipalRole:     tt.imp.PrincipalRole,
+				Mask:              tt.imp.Mask,
+				Reason:            tt.imp.Reason,
+				StartedAt:         got.CreatedAt,
+				ExpiresAt:         tt.imp.ExpiresAt,
 			}
 			if diff := cmp.Diff(want, got.Impersonation); diff != "" {
 				t.Errorf("Session().Impersonation mismatch (-want +got):\n%s", diff)
+			}
+			// The mask the column is read as is the mask that was written, refusals
+			// and all.
+			if wrote, read := dbtype.MaskFromColumn(tt.imp.Mask), dbtype.MaskFromColumn(got.Impersonation.Mask); !read.Equal(wrote) {
+				t.Errorf("the mask read back = %s, want the mask written, %s", read, wrote)
 			}
 			if diff := cmp.Diff(tt.wantCustom, got.CustomData); diff != "" {
 				t.Errorf("Session().CustomData mismatch (-want +got):\n%s", diff)
@@ -583,7 +613,7 @@ func testUsernameKeyedOperations(ctx context.Context, t *testing.T, h *Harness) 
 		t.Fatalf("CreateUser() error = %v", err)
 	}
 
-	if err := c.SetUserUsername(ctx, user.ID, "dan@example.com"); err != nil {
+	if err := c.SetUserUsername(ctx, user.ID, "dan@example.com", nil); err != nil {
 		t.Fatalf("SetUserUsername() error = %v", err)
 	}
 	renamed := []struct {

@@ -30,11 +30,17 @@ import (
 // directly need of the caller (the grants of AssignStaffRole and RemoveStaffRole, each read with the
 // role in question), and is refused where one of them would be.
 //
+// Where the group is kept in a tenant and holds one of that tenant's
+// administrator roles there, a row offers it only to a caller whose session enters the
+// tenant (@callerEnters); the method refuses anyone else.
+//
 // @rpc
+// @callerEnters
 // @outlet(default)
 // @answers(204)
+// @class(access)
 type AddStaffGroupMember struct {
-	// @target(StaffGroup)
+	// @target(StaffListedGroup)
 	GroupID impulse.UUID
 	// UserID is the person, picked from the people the caller may list.
 	//

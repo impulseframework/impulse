@@ -73,6 +73,9 @@ func TestManager_OpenSignUp(t *testing.T) {
 		// refused says how a refusal answers, and wantHas what its words say.
 		refused func(err error) bool
 		wantHas string
+		// wantTold is the one sentence a person refused for the role is sent; wantHas
+		// is then kept in the refusal's cause, which the server's log prints.
+		wantTold string
 		// wantAsked is what the role file's grants were asked.
 		wantAsked []string
 	}{
@@ -95,6 +98,7 @@ func TestManager_OpenSignUp(t *testing.T) {
 			open:   SignUp{Method: "google", DefaultRole: "Steward"},
 			caller: erin, grants: &fakeGrants{noGive: []accesstypes.Role{"Steward"}},
 			refused: httpio.HasForbidden, wantHas: "the role Steward, which you may not give",
+			wantTold:  "Opening the method gives every person who signs up the role Steward, which you may not give.",
 			wantAsked: askedToGive("Steward"),
 		},
 		{
@@ -111,25 +115,25 @@ func TestManager_OpenSignUp(t *testing.T) {
 			wantFor:    `{"admits":["any-google-account"]}`,
 		},
 		{
-			name:    "a method whose registration carries an account rule of its own is refused by name",
+			name:    "a method whose registration carries an account rule of its own is refused",
 			open:    SignUp{Method: "partners", DefaultRole: "Steward"},
-			refused: httpio.HasConflict, wantHas: `partners\" is decided by the application's own account rule`,
+			refused: httpio.HasConflict, wantHas: "This way to sign in is decided by the application's own account rule. It is neither opened to sign-up nor made invite only here.",
 		},
 		{
 			name:    "without tenants, open without a default role is refused at the save",
 			open:    SignUp{Method: "google"},
-			refused: httpio.HasBadRequest, wantHas: "choose the default role",
+			refused: httpio.HasBadRequest, wantHas: "Choose the default role. Each person who signs up is given one, so a sign-in method cannot be opened without it.",
 		},
 		{
 			name:    "a default role that is not held for the whole application is refused",
-			open:    SignUp{Method: "google", DefaultRole: "Reader"},
-			refused: httpio.HasBadRequest, wantHas: "is not a role held for the whole application: choose one of the roles the picker lists",
+			open:    SignUp{Method: "google", DefaultRole: "NightShiftLead"},
+			refused: httpio.HasBadRequest, wantHas: "Night shift lead is not a role held for the whole application. Choose one of the roles the picker lists.",
 		},
 		{
 			name:   "a caller who may give the role is told that it is not held for the whole application",
 			open:   SignUp{Method: "google", DefaultRole: "Reader"},
 			caller: erin, grants: &fakeGrants{},
-			refused: httpio.HasBadRequest, wantHas: "is not a role held for the whole application: choose one of the roles the picker lists",
+			refused: httpio.HasBadRequest, wantHas: "Reader is not a role held for the whole application. Choose one of the roles the picker lists.",
 			wantAsked: askedToGive("Reader"),
 		},
 		{
@@ -137,12 +141,13 @@ func TestManager_OpenSignUp(t *testing.T) {
 			open:   SignUp{Method: "google", DefaultRole: "Ghost"},
 			caller: erin, grants: &fakeGrants{noGive: []accesstypes.Role{"Ghost"}},
 			refused: httpio.HasForbidden, wantHas: "opening the method gives every person who signs up the role Ghost, which you may not give: choose a role you may give, or have someone who may give Ghost open the method",
+			wantTold:  "Opening the method gives every person who signs up the role Ghost, which you may not give.",
 			wantAsked: askedToGive("Ghost"),
 		},
 		{
 			name:    "the Super Administrator role is never a default role",
 			open:    SignUp{Method: "google", DefaultRole: accesstypes.SuperAdministrator},
-			refused: httpio.HasBadRequest, wantHas: "is never a default role",
+			refused: httpio.HasBadRequest, wantHas: "The Super administrator role is never a default role, because every person who signed up would administer the application. Choose another role.",
 		},
 		{
 			name:       "with tenants, a method is opened with no role",
@@ -153,7 +158,7 @@ func TestManager_OpenSignUp(t *testing.T) {
 		{
 			name:    "with tenants, a default role is refused",
 			open:    SignUp{Method: "google", DefaultRole: "Steward", CreatesTenant: true},
-			refused: httpio.HasBadRequest, wantHas: "no default role is chosen here",
+			refused: httpio.HasBadRequest, wantHas: "No default role is chosen here, because a person who signs up creates a tenant of their own and administers it. Send the request without a role.",
 		},
 		{
 			name:    "a method the auth does not register is refused, and its methods named",
@@ -163,7 +168,7 @@ func TestManager_OpenSignUp(t *testing.T) {
 		{
 			name:    "a method whose directory gives the roles is refused",
 			open:    SignUp{Method: "entra", DefaultRole: "Steward"},
-			refused: httpio.HasConflict, wantHas: "takes its roles from its directory",
+			refused: httpio.HasConflict, wantHas: "This way to sign in takes its roles from its directory, which decides who may sign in. It is neither opened to sign-up nor made invite only here.",
 		},
 		{
 			name:       "the password method is opened like any other",
@@ -209,6 +214,9 @@ func TestManager_OpenSignUp(t *testing.T) {
 			} else if !tt.refused(err) || !containsText(err, tt.wantHas) {
 				t.Fatalf("OpenSignUp() error = %v, want the refusal saying %q", err, tt.wantHas)
 			}
+			if tt.wantTold != "" {
+				toldPlainly(t, err, tt.wantTold, "choose a role you may give")
+			}
 			if diff := cmp.Diff(tt.wantWrites, store.writes); diff != "" {
 				t.Errorf("buffered writes (-want +got):\n%s", diff)
 			}
@@ -219,9 +227,15 @@ func TestManager_OpenSignUp(t *testing.T) {
 func TestManager_OpenSignUpWarning(t *testing.T) {
 	t.Parallel()
 
+	// A custom role of the global scope whose name is several words.
+	nightKey := access.NewMembershipKey(globalScope, "", "NightShiftLead")
+	globalNightShiftLead := access.RoleKey{Kind: nightKey.Kind, Axis: nightKey.Axis, Domain: nightKey.Domain, Role: "NightShiftLead"}
+
 	tests := []struct {
-		name    string
-		open    SignUp
+		name string
+		open SignUp
+		// custom are the rows of the roles table: the custom roles; none where it is nil.
+		custom  map[access.RoleKey]bool
 		want    *resource.Warning
 		refused func(err error) bool
 	}{
@@ -250,6 +264,15 @@ func TestManager_OpenSignUpWarning(t *testing.T) {
 			},
 		},
 		{
+			name:   "a role whose name is several words is named in words",
+			open:   SignUp{Method: "google", DefaultRole: "NightShiftLead"},
+			custom: map[access.RoleKey]bool{globalNightShiftLead: true},
+			want: &resource.Warning{
+				Consequence: "Anyone with a Google account will be able to sign in without an invitation. Each of them gets the role Night shift lead.",
+				Confirm:     "Open to anyone with a Google account",
+			},
+		},
+		{
 			name: "before the role is picked, the warning says it is to be chosen",
 			open: SignUp{Method: "google"},
 			want: &resource.Warning{
@@ -273,7 +296,11 @@ func TestManager_OpenSignUpWarning(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			store := &fakeStore{roles: map[access.RoleKey]bool{}}
+			custom := tt.custom
+			if custom == nil {
+				custom = map[access.RoleKey]bool{}
+			}
+			store := &fakeStore{roles: custom}
 			m := newSignUpManager(t, store)
 
 			var got *resource.Warning
@@ -347,6 +374,7 @@ func TestManager_OpenSignUpWarning_roleTheCallerMayNotGive(t *testing.T) {
 	if !httpio.HasForbidden(err) || !containsText(err, "the role Steward, which you may not give") {
 		t.Errorf("OpenSignUpWarning() error = %v, want it forbidden, naming the role", err)
 	}
+	toldPlainly(t, err, "Opening the method gives every person who signs up the role Steward, which you may not give.", "choose a role you may give")
 }
 
 func TestManager_MakeInviteOnly(t *testing.T) {
@@ -480,10 +508,6 @@ func TestManager_SignInMethods(t *testing.T) {
 		t.Errorf("SignInMethods() (-want +got):\n%s", diff)
 	}
 
-	open, err := m.AnyMethodOpen(t.Context(), nil)
-	if err != nil || !open {
-		t.Errorf("AnyMethodOpen() = %v, %v; want true while google is open", open, err)
-	}
 	closed := newSignUpManager(t, &fakeStore{methodRows: map[string]SignInMethodRow{
 		"password":  {Name: "password", OpenSignUp: true, OpenedFor: &earlierPassword, DefaultRole: &member},
 		"workspace": {Name: "workspace", OpenSignUp: true, OpenedFor: &earlierWorkspace, DefaultRole: &member},
@@ -492,11 +516,8 @@ func TestManager_SignInMethods(t *testing.T) {
 		"partners":  {Name: "partners", OpenSignUp: true, OpenedFor: audienceOf("partners")},
 		"retired":   {Name: "retired", OpenSignUp: true, OpenedFor: audienceOf("google")},
 	}})
-	if open, err := closed.AnyMethodOpen(t.Context(), nil); err != nil || open {
-		t.Errorf("AnyMethodOpen() = %v, %v; want false: a row that kept its audience in the earlier form, by names, a row that names none, a row of the directory's method, one of a registration whose own rule decides, and one of a method the auth no longer registers open nothing", open, err)
-	}
-	// A row that names no audience says so in the list too, and so does a row that kept
-	// its audience in the earlier form, by names: neither can be compared with whom the
+	// A row that names no audience says so in the list, and so does a row that kept its
+	// audience in the earlier form, by names: neither can be compared with whom the
 	// method admits, so neither is open, even where the names are the registration's own.
 	listed, err := closed.SignInMethods(t.Context(), nil)
 	if err != nil {
@@ -507,6 +528,133 @@ func TestManager_SignInMethods(t *testing.T) {
 		if listed[at].OpenSignUp || listed[at].DefaultRole != "" || listed[at].Says != want {
 			t.Errorf("the row of %s lists as open = %v with the role %q saying %q, want invite only with no role saying %q", listed[at].Name, listed[at].OpenSignUp, listed[at].DefaultRole, listed[at].Says, want)
 		}
+	}
+}
+
+// TestManager_SessionMethodOpen pins what lets a person who holds no tenant create one:
+// the sign-in method the session came through, read from its first sign-in event, is
+// open to sign-up now for the audience it has. Some other method being open admits
+// nobody; a session that came through no method, or through one the auth no longer
+// offers, is answered no; where two registrations take the session's connection, one of
+// them open is enough.
+func TestManager_SessionMethodOpen(t *testing.T) {
+	t.Parallel()
+
+	audienceOf := func(name string) *string {
+		for _, method := range registeredMethods() {
+			if method.Name == name {
+				key := method.Audience.Key()
+
+				return &key
+			}
+		}
+		t.Fatalf("no method is registered under %q", name)
+
+		return nil
+	}
+	other := signin.Audience{Organizations: []string{"acme.example"}, Identities: []string{"domain:lakeside.edu"}}.Key()
+	googleOpen := SignInMethodRow{Name: "google", OpenSignUp: true, OpenedFor: audienceOf("google")}
+	byGoogle := sessioninfo.AuthEvent{Method: sessioninfo.MethodGoogle, Connection: "any-google-account"}
+	byPassword := sessioninfo.AuthEvent{Method: sessioninfo.MethodPassword}
+	tests := []struct {
+		name string
+		// events are the session's auth events, oldest first; noSession puts no session
+		// on the context. rows are the sign-in methods table's rows, by name.
+		events    []sessioninfo.AuthEvent
+		noSession bool
+		rows      map[string]SignInMethodRow
+		// untaken are connections no registration takes, and through the registrations
+		// an identity of a connection signs in through where it is not the one named
+		// for its method.
+		untaken map[string]bool
+		through map[string][]string
+		want    bool
+	}{
+		{
+			name:   "a session that came through the open method",
+			events: []sessioninfo.AuthEvent{byGoogle},
+			rows:   map[string]SignInMethodRow{"google": googleOpen, "password": {Name: "password"}},
+			want:   true,
+		},
+		{
+			name:   "a password session while another method is open and the password method is invite only",
+			events: []sessioninfo.AuthEvent{byPassword},
+			rows:   map[string]SignInMethodRow{"google": googleOpen, "password": {Name: "password"}},
+		},
+		{
+			name:   "a password session while the password method is open",
+			events: []sessioninfo.AuthEvent{byPassword},
+			rows:   map[string]SignInMethodRow{"password": {Name: "password", OpenSignUp: true, OpenedFor: audienceOf("password")}},
+			want:   true,
+		},
+		{
+			name:   "a session through a method opened for another audience than its registration has now",
+			events: []sessioninfo.AuthEvent{byGoogle},
+			rows:   map[string]SignInMethodRow{"google": {Name: "google", OpenSignUp: true, OpenedFor: &other}},
+		},
+		{
+			name:    "a session through a connection no registration takes",
+			events:  []sessioninfo.AuthEvent{byGoogle},
+			rows:    map[string]SignInMethodRow{"google": googleOpen},
+			untaken: map[string]bool{"any-google-account": true},
+		},
+		{
+			name:   "an impersonation",
+			events: []sessioninfo.AuthEvent{{Method: sessioninfo.MethodImpersonation}, byGoogle},
+			rows:   map[string]SignInMethodRow{"google": googleOpen},
+		},
+		{
+			name: "a session that records no event",
+			rows: map[string]SignInMethodRow{"google": googleOpen},
+		},
+		{
+			name:      "no session on the context",
+			noSession: true,
+			rows:      map[string]SignInMethodRow{"google": googleOpen},
+		},
+		{
+			name:    "a session through a connection two registrations take, the second one open",
+			events:  []sessioninfo.AuthEvent{{Method: sessioninfo.MethodGoogle, Connection: "acme.example"}},
+			rows:    map[string]SignInMethodRow{"workspace": {Name: "workspace"}, "google": googleOpen},
+			through: map[string][]string{"acme.example": {"workspace", "google"}},
+			want:    true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			sessions := fakeSessions{methods: registeredMethods(), untaken: tt.untaken, through: tt.through}
+			m, err := New(managedAuth, &fakeStore{methodRows: tt.rows}, &fakeEngine{roles: engineRoles}, sessions)
+			if err != nil {
+				t.Fatalf("New() error = %v", err)
+			}
+			ctx := t.Context()
+			if !tt.noSession {
+				ctx = context.WithValue(ctx, sessioninfo.CtxSessionInfo, &sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{}, AuthEvents: tt.events})
+			}
+
+			got, err := m.SessionMethodOpen(ctx, nil)
+			if err != nil {
+				t.Fatalf("SessionMethodOpen() error = %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("SessionMethodOpen() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestManager_OneTenantPerPerson pins that the manager says whether it was built to hold a
+// person to one tenant.
+func TestManager_OneTenantPerPerson(t *testing.T) {
+	t.Parallel()
+
+	if held, _ := newManager(t, &fakeStore{}, engineRoles, WithOneTenantPerPerson()); !held.OneTenantPerPerson() {
+		t.Error("OneTenantPerPerson() = false with WithOneTenantPerPerson, want true")
+	}
+	if free, _ := newManager(t, &fakeStore{}, engineRoles); free.OneTenantPerPerson() {
+		t.Error("OneTenantPerPerson() = true without the option, want false")
 	}
 }
 
@@ -672,5 +820,60 @@ func Test_withArticle(t *testing.T) {
 				t.Errorf("withArticle(%q) = %q, want %q", tt.word, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestManager_SetSelfServiceReset pins an administrator's switch for a person's own
+// password reset: the one field of the password method's row is written, on and off;
+// the list of sign-in methods says it of the password method alone; and an auth nobody
+// signs in to with a password has nothing to switch.
+func TestManager_SetSelfServiceReset(t *testing.T) {
+	t.Parallel()
+
+	store := &fakeStore{}
+	m := newSignUpManager(t, store)
+	for _, on := range []bool{true, false} {
+		if err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+			return m.SetSelfServiceReset(ctx, txn, on)
+		}); err != nil {
+			t.Fatalf("SetSelfServiceReset(%v) error = %v", on, err)
+		}
+	}
+	want := []string{"set self-service reset of password on=true", "set self-service reset of password on=false"}
+	if diff := cmp.Diff(want, store.writes); diff != "" {
+		t.Errorf("buffered writes (-want +got):\n%s", diff)
+	}
+
+	// The row says it, and the list says it of the password method and of no other,
+	// whatever a row of another method holds.
+	store = &fakeStore{methodRows: map[string]SignInMethodRow{
+		"password": {Name: "password", SelfServiceReset: true},
+		"google":   {Name: "google", SelfServiceReset: true},
+	}}
+	m = newSignUpManager(t, store)
+	var methods []SignInMethod
+	if err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		var err error
+		methods, err = m.SignInMethods(ctx, txn)
+
+		return err
+	}); err != nil {
+		t.Fatalf("SignInMethods() error = %v", err)
+	}
+	for i := range methods {
+		if got, want := methods[i].SelfServiceReset, methods[i].Name == "password"; got != want {
+			t.Errorf("SignInMethods(): %s says SelfServiceReset %v, want %v", methods[i].Name, got, want)
+		}
+	}
+
+	directory, err := New(managedAuth, &fakeStore{}, &fakeEngine{roles: engineRoles}, fakeSessions{methods: registeredMethods()[1:]})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	err = inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		return directory.SetSelfServiceReset(ctx, txn, true)
+	})
+	if !httpio.HasConflict(err) || httpio.Message(err) != "Nobody signs in to this application with a password, so there is none to reset." {
+		t.Errorf("SetSelfServiceReset() on an auth with no password method error = %v, want Conflict in a whole sentence", err)
 	}
 }

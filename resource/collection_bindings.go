@@ -19,7 +19,7 @@ const StateAttribute = "state"
 // §04). Bindings travel in generated code — the Collection is the
 // authoritative attribute listing — never as store rows: the generator
 // compiles the field-level binding annotations and registers the result here,
-// where deployment tooling (MigrateRoles condition validation) and the SQL
+// where role validation (access.ValidateRoles) and the SQL
 // lowering read it back.
 
 // BindingHop is one resolved step of a join path: read Table, joined on
@@ -33,7 +33,7 @@ type BindingHop struct {
 }
 
 // AttributeType is the attribute comparison-type vocabulary, canonically
-// defined in accesstypes so deployment tooling (MigrateRoles) shares one
+// defined in accesstypes so role validation (access.ValidateRoles) shares one
 // definition with generation.
 type AttributeType = accesstypes.AttributeType
 
@@ -91,6 +91,33 @@ type DomainBindingData struct {
 // it is the tests below joined by OR, and UserColumn is the column of one of
 // them, the one the declaration sits on. Where says which of those rows count:
 // nil, every one does. A subject value writes neither.
+//
+// Domain is the set's own way to a row's tenant, for a set declared on a
+// resource that is no tenant's (a global one) whose rows still belong to
+// tenants: the column of the row that holds the tenant's key (an empty Path),
+// or, where a row belongs to a tenant through a parent, the foreign key the
+// path leaves through and the path to the column that holds it. In a request
+// with a tenant the set then holds that tenant's rows alone; a row that names
+// another tenant, or none, is left out. Nil, the declaring resource's own
+// tenancy binding is the filter, and a global resource's set reads every row.
+// A set of a tenant's resource carries none, and a subject value never does
+// (validateCollectionBindings).
+//
+// Offered marks a set the generator declares for an auth, the set of a
+// person's groups: nobody wrote it, so the role-file check does not flag it
+// when no role reads it (GeneratedCollection.SubjectSets). Its declaration
+// names the auth it was generated for (Auth).
+//
+// Auth names the auth whose people the set describes, as the auth's package
+// names it (auth: in the @subjectSet): the user column holds that auth's
+// people and the set is looked up by their ids, so an engine opened for
+// another auth takes no grant that reads the set, in its role file, on a
+// custom role or from the store (GeneratedCollection.SubjectSetAuth), and
+// only that auth's role-file check looks at it
+// (GeneratedCollection.SubjectSets). It is empty on a set that says none,
+// which an application with one auth may leave so, every set being that
+// auth's, and on a subject value. Generation refuses a set that follows a
+// person through a set of another auth's people (a who: test against it).
 type SubjectBindingData struct {
 	Name       string
 	UserColumn string
@@ -99,6 +126,9 @@ type SubjectBindingData struct {
 	Path       []BindingHop
 	Who        []SubjectWhoData
 	Where      *SubjectWhereData
+	Domain     *DomainBindingData
+	Offered    bool
+	Auth       string
 }
 
 // SubjectWhoData is one test of a subject set's who: part. Column is the
@@ -202,7 +232,7 @@ func (g *GeneratedCollection) Bindings(scope accesstypes.PermissionScope, res ac
 }
 
 // The flat vocabulary accessors below answer with basic types only, so
-// deployment tooling (access.MigrateRoles) can consume the Collection through
+// the access package (access.New, access.ValidateRoles) can consume the Collection through
 // a structural interface without importing this package.
 
 // AttributeComparisonType resolves an attribute's comparison type on one
@@ -244,6 +274,129 @@ func (g *GeneratedCollection) SubjectSetComparisonType(name string) (accesstypes
 	return anchor.Binding.Type, true
 }
 
+// Auths lists the names of the auths the generation run knew
+// (CollectionData.Auths), in name order: the names a subject set may be labeled
+// for, and so the names a role file may be handed to the permission engine
+// under. It is empty for a run that declared no auth.
+func (g *GeneratedCollection) Auths() []string {
+	return slices.Clone(g.auths)
+}
+
+// SubjectSetAuth names the auth whose people a declared subject set describes
+// (SubjectBindingData.Auth), as the auth's package names it. It is empty for a
+// set that names none and for a name no set declares. The set of a person's
+// groups that the generator declares for an auth names that auth, so the answer
+// holds for it as for a set a person wrote, where SubjectSets leaves it out.
+func (g *GeneratedCollection) SubjectSetAuth(name string) string {
+	anchor, ok := g.SubjectSet(name)
+	if !ok {
+		return ""
+	}
+
+	return anchor.Binding.Auth
+}
+
+// SubjectSetDefinition says how a declared subject set is declared, as the parts a
+// union of collections compares two sites' sets by (access.UnionCollection): where it is
+// declared, the column that holds its person, the value it yields with each hop it
+// takes, its type, its who: and where: parts, and the way its rows reach a tenant (the
+// anchor's own, or the set's), seven parts in that order, each in words that read the
+// same whichever collection says them. The auth the set names is in no part
+// (SubjectSetAuth says it), and neither is the generator's mark on a set it declares. It
+// is nil for a name no set declares.
+func (g *GeneratedCollection) SubjectSetDefinition(name string) []string {
+	anchor, ok := g.SubjectSet(name)
+	if !ok {
+		return nil
+	}
+	set := &anchor.Binding
+
+	who := "who: (none)"
+	if len(set.Who) > 0 {
+		tests := make([]string, 0, len(set.Who))
+		for _, test := range set.Who {
+			if test.Set == "" {
+				tests = append(tests, test.Column)
+			} else {
+				tests = append(tests, test.Column+" IN subject."+test.Set)
+			}
+		}
+		who = "who: " + strings.Join(tests, ", ")
+	}
+
+	where := "where: (none)"
+	if set.Where != nil {
+		where = "where: " + set.Where.Condition
+		if len(set.Where.Columns) > 0 {
+			columns := make([]string, 0, len(set.Where.Columns))
+			for _, column := range set.Where.Columns {
+				columns = append(columns, column.Name+"="+column.Column+" ("+string(column.Type)+")")
+			}
+			where += " [" + strings.Join(columns, ", ") + "]"
+		}
+	}
+
+	tenant := "tenant: (none)"
+	if anchor.Domain != nil {
+		tenant = "tenant: " + anchor.Domain.Column + hopsInWords(anchor.Domain.Path)
+	}
+
+	return []string{
+		"declared on " + string(anchor.Resource) + " (" + string(anchor.Scope) + ")",
+		"person: " + set.UserColumn,
+		"value: " + set.Column + hopsInWords(set.Path),
+		"type: " + string(set.Type),
+		who,
+		where,
+		tenant,
+	}
+}
+
+// hopsInWords says the hops of a binding's path as a subject set's definition says them
+// (SubjectSetDefinition): each hop the table it reaches, its column and the column it
+// joins by, after the column the path leaves through.
+func hopsInWords(path []BindingHop) string {
+	var words strings.Builder
+	for _, hop := range path {
+		words.WriteString(" > " + hop.Table + "." + hop.Column + " by " + hop.JoinColumn)
+	}
+
+	return words.String()
+}
+
+// SubjectSets lists the subject sets the application declares (@subjectSet)
+// that describe the people of one auth, by name, each with the names of the
+// sets its who: part builds on (Column IN subject.<set>). auth is the auth's
+// name, as its package names it. A set that names another auth is left out:
+// an engine opened for this auth takes no grant that reads it, so that auth's
+// role-file check is the one that looks at it. A set that names no auth, as a set of an application with
+// one auth may, is listed for every auth, and an empty auth lists every set.
+// A set the generator declares for an auth (Offered) is left out: the
+// role-file check flags a listed set that no role reads
+// (access.UnreadSetWarning), and a set nobody wrote is no oversight.
+func (g *GeneratedCollection) SubjectSets(auth string) map[string][]string {
+	sets := make(map[string][]string)
+	for _, store := range g.bindings {
+		for _, bindings := range store {
+			for i := range bindings.SubjectSets {
+				set := &bindings.SubjectSets[i]
+				if set.Offered || (auth != "" && set.Auth != "" && set.Auth != auth) {
+					continue
+				}
+				var builds []string
+				for _, test := range set.Who {
+					if test.Set != "" {
+						builds = append(builds, test.Set)
+					}
+				}
+				sets[set.Name] = builds
+			}
+		}
+	}
+
+	return sets
+}
+
 // SubjectValueComparisonType resolves the comparison type of the column a
 // declared scalar subject value (subject.<name>) yields; ok is false when the
 // application declares no such value.
@@ -275,7 +428,14 @@ func (g *GeneratedCollection) attributeData(scope accesstypes.PermissionScope, r
 // every attribute and subject entry carrying a comparison type from the
 // vocabulary, and subject names unique across the whole collection —
 // subject.<name> is one application-wide namespace, so two resources
-// anchoring the same name would make a condition ambiguous.
+// anchoring the same name would make a condition ambiguous. It also holds a
+// subject entry's own way to a row's tenant (SubjectBindingData.Domain) to
+// where the generator admits one: on a subject set of a resource that is no
+// tenant's. The lowering reads that binding in place of the resource's own, so
+// on a tenant's resource it would take the place of the filter every other
+// query of the resource is kept to its tenant by. The generator refuses the
+// same with the struct named; reaching it here means the collection was
+// written by hand.
 func validateCollectionBindings(resources []CollectionResource) error {
 	type subjectClaim struct {
 		resource accesstypes.Resource
@@ -306,7 +466,21 @@ func validateCollectionBindings(resources []CollectionResource) error {
 				return errors.Newf("resource %q attribute %q carries comparison type %q, which is not in the vocabulary — regenerate the collection", res.Name, attr.Name, attr.Type)
 			}
 		}
-		for _, subject := range slices.Concat(res.SubjectSets, res.SubjectValues) {
+		for i := range res.SubjectSets {
+			set := &res.SubjectSets[i]
+			if set.Domain != nil && (res.Scope == accesstypes.DomainPermissionScope || res.Domain != nil) {
+				return errors.Newf("resource %q subject set %q writes a domain:, which says where a row's tenant is found on a resource that is no tenant's; %q is a tenant's resource, and its own domain binding keeps the set to the request's tenant — remove the set's domain", res.Name, set.Name, res.Name)
+			}
+		}
+		for i := range res.SubjectValues {
+			value := &res.SubjectValues[i]
+			if value.Domain != nil {
+				return errors.Newf("resource %q subject value %q writes a domain:, which is a part of a subject set alone — remove the value's domain", res.Name, value.Name)
+			}
+		}
+		subjects := slices.Concat(res.SubjectSets, res.SubjectValues)
+		for i := range subjects {
+			subject := &subjects[i]
 			if err := claimLocal(subject.Name); err != nil {
 				return err
 			}
@@ -445,9 +619,11 @@ func (g *GeneratedCollection) subjectSetWhere(set *SubjectBindingData) (conditio
 
 // SubjectAnchor is a subject-vocabulary entry with everything its rendering
 // needs: the anchor table (the resource declaring it), the entry itself, and
-// the anchor table's own tenancy binding — the rendered subquery filters to
-// the request's partition exactly when both the request and the anchor table
-// are partitioned, derived here, never authored.
+// the tenancy binding its rows are filtered by — the anchor table's own, or
+// the set's own way to a tenant where the table is no tenant's and the set
+// declares one (SubjectBindingData.Domain). The rendered subquery filters to
+// the request's partition exactly when the request is partitioned and there
+// is such a binding, derived here, never authored.
 type SubjectAnchor struct {
 	Resource accesstypes.Resource
 	Scope    accesstypes.PermissionScope
@@ -457,9 +633,21 @@ type SubjectAnchor struct {
 
 // SubjectSet resolves a @subjectSet name across the collection —
 // subject.<name> is one application-wide namespace, validated unique at
-// construction.
+// construction. A name no set declares may be one of the sets of the records a
+// person holds a role on, which the collection reads from the name
+// (recordSet), or the set of a person's groups of an auth whose store the
+// collection holds, read from the store (storeGroupSet): a declared set wins, so
+// the site whose program generates the auth's management answers its own
+// declaration.
 func (g *GeneratedCollection) SubjectSet(name string) (SubjectAnchor, bool) {
-	return g.subjectAnchor(name, func(b Bindings) []SubjectBindingData { return b.SubjectSets })
+	if anchor, ok := g.subjectAnchor(name, func(b Bindings) []SubjectBindingData { return b.SubjectSets }); ok {
+		return anchor, true
+	}
+	if anchor, ok := g.recordSet(name); ok {
+		return anchor, true
+	}
+
+	return g.storeGroupSet(name)
 }
 
 // SubjectValue resolves a @subjectValue name across the collection.
@@ -470,9 +658,16 @@ func (g *GeneratedCollection) SubjectValue(name string) (SubjectAnchor, bool) {
 func (g *GeneratedCollection) subjectAnchor(name string, entries func(Bindings) []SubjectBindingData) (SubjectAnchor, bool) {
 	for scope, store := range g.bindings {
 		for res, bindings := range store {
-			for _, entry := range entries(bindings) {
+			declared := entries(bindings)
+			for i := range declared {
+				entry := &declared[i]
 				if entry.Name == name {
-					return SubjectAnchor{Resource: res, Scope: scope, Binding: entry, Domain: bindings.Domain}, true
+					domain := bindings.Domain
+					if entry.Domain != nil {
+						domain = entry.Domain
+					}
+
+					return SubjectAnchor{Resource: res, Scope: scope, Binding: *entry, Domain: domain}, true
 				}
 			}
 		}

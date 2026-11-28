@@ -14,8 +14,11 @@ type (
 	// Tenant: a row of MembersSessionMailLinks of the invitation kind that names
 	// the tenant, with the columns MembersSessionMailLink serves of it. DomainId is the tenant the
 	// invitation seats a person in (the link's TenantId), and RoleNames the roles it gives
-	// there, and Name the name its sender gave the person, where they gave one. The
-	// link itself is in the message alone and its hash is not a column.
+	// there, and Name the name its sender gave the person, where they gave one. State
+	// says what became of the invitation (open, accepted, withdrawn, expired,
+	// notMailed), and SentBy who sent it. An invitation that makes a tenant names no
+	// tenant, so it is never a row of this list. The link itself is in the message alone
+	// and its hash is not a column.
 	//
 	// Pending is a fact about the row, under the name a grant's condition reads
 	// (pending): the invitation stands, neither accepted nor withdrawn (both consume it)
@@ -29,6 +32,7 @@ type (
 	// @outlet(portal)
 	// @order(CreatedAt desc)
 	// @page(default: 25, max: 200)
+	// @rowWord(invitation)
 	MembersTenantInvitation struct {
 		// @primarykey
 		ID impulse.UUID `spanner:"Id" index:"true"`
@@ -37,11 +41,15 @@ type (
 		Email    string  `spanner:"Email"    index:"true"`
 		Name     *string `spanner:"Name"`
 		// @attribute(role)
+		// @roleOf(Members)
 		RoleNames       []string      `spanner:"RoleNames"`
 		InvitedByUserID *impulse.UUID `spanner:"InvitedByUserId"`
+		SentBy          *string       `spanner:"SentBy"`
 		CreatedAt       time.Time     `spanner:"CreatedAt"       index:"true"`
 		ExpiresAt       time.Time     `spanner:"ExpiresAt"`
 		ConsumedAt      *time.Time    `spanner:"ConsumedAt"`
+		WithdrawnAt     *time.Time    `spanner:"WithdrawnAt"`
+		State           string        `spanner:"State"           index:"true"`
 		// @attribute(pending)
 		Pending bool `spanner:"Pending" index:"true"`
 	}
@@ -49,8 +57,9 @@ type (
 
 // membersTenantInvitationQuery selects the invitations of every tenant: the mail
 // links of the invitation kind that name one. The table's index by tenant holds them
-// newest first, with the columns the list shows, so a page reads its own rows from the
-// index and nothing else.
+// newest first, with every column of the table the list reads, so a page reads its own
+// rows from the index and no row of the table; the sender's name is read from the users
+// table, by the sender's id.
 const membersTenantInvitationQuery = `
 SELECT
   l.Id AS Id,
@@ -59,11 +68,21 @@ SELECT
   l.Name AS Name,
   l.RoleNames AS RoleNames,
   l.InvitedByUserId AS InvitedByUserId,
+  COALESCE(NULLIF(iu.Name, ''), iu.Username) AS SentBy,
   l.CreatedAt AS CreatedAt,
   l.ExpiresAt AS ExpiresAt,
   l.ConsumedAt AS ConsumedAt,
+  l.WithdrawnAt AS WithdrawnAt,
+  CASE
+    WHEN l.MailFailedAt IS NOT NULL THEN 'notMailed'
+    WHEN l.WithdrawnAt IS NOT NULL THEN 'withdrawn'
+    WHEN l.ConsumedAt IS NOT NULL THEN 'accepted'
+    WHEN l.ExpiresAt <= CURRENT_TIMESTAMP() THEN 'expired'
+    ELSE 'open'
+  END AS State,
   (l.ConsumedAt IS NULL AND l.ExpiresAt > CURRENT_TIMESTAMP()) AS Pending
 FROM MembersSessionMailLinks l
+LEFT JOIN MembersSessionUsers iu ON iu.Id = l.InvitedByUserId
 WHERE l.Kind = 'invitation' AND l.TenantId IS NOT NULL
 `
 

@@ -1,8 +1,10 @@
 package generation
 
 import (
+	"fmt"
 	"iter"
 	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -24,17 +26,228 @@ type ManualRegistration = resource.ManualRegistration
 // @manualAddResource annotations apply to.
 const accesstypesResourceType = "github.com/impulseframework/impulse/accesstypes.Resource"
 
+// accesstypesPermissionType is the fully qualified type of the constants
+// @manualAddPermission annotations apply to.
+const accesstypesPermissionType = "github.com/impulseframework/impulse/accesstypes.Permission"
+
+// readManualDeclarations reads what the resources package's constants declare by hand:
+// the registrations of @manualAddResource, added to the ones the application passed
+// with WithManualResources, and the permissions of @manualAddPermission. An annotation
+// in the comment above a const group, which nothing reads, is refused first
+// (annotationAboveConstGroup).
+func (r *resourceGenerator) readManualDeclarations(constants []*parser.Constant) error {
+	if err := annotationAboveConstGroup(constants); err != nil {
+		return err
+	}
+	registrations, err := manualRegistrationsFromConstants(constants)
+	if err != nil {
+		return err
+	}
+	r.manualRegistrations = append(r.manualRegistrations, registrations...)
+
+	r.manualPermissions, err = manualPermissionsFromConstants(constants)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// annotationAboveConstGroup refuses an annotation written in the comment above a
+// const ( ... ) group (parser.Constant.GroupComments), which nothing reads: an
+// annotation is read from the comment of the constant it stands above. A resource's or
+// a permission's constant (an alias's included) is refused any line there that starts
+// with @, since every such line on its own comment is read as an annotation; a constant
+// of another type is refused a line that starts with @manualAddPermission or
+// @manualAddResource, as its own comment is (commentDeclaresPermission,
+// commentRegistersResource). The first constant that matches, in the parser's order,
+// and the first such line of its group's comment are said.
+func annotationAboveConstGroup(constants []*parser.Constant) error {
+	for _, c := range constants {
+		annotated := func(line string) bool {
+			return commentDeclaresPermission(line) || commentRegistersResource(line)
+		}
+		if c.TypeName() == accesstypesResourceType || c.TypeName() == accesstypesPermissionType {
+			annotated = func(line string) bool {
+				return strings.HasPrefix(strings.TrimLeft(line, " \t"), "@")
+			}
+		}
+		for line := range strings.Lines(c.GroupComments()) {
+			if !annotated(line) {
+				continue
+			}
+
+			return errors.Newf(
+				"constant %q: the comment above its const group holds the line %q, and nothing reads an annotation there: "+
+					"an annotation is read from the comment of the constant it stands above. "+
+					"Write the line above each constant it is meant for, inside the group; if the line is prose, start it with another word",
+				c.Name(), strings.TrimSpace(line),
+			)
+		}
+	}
+
+	return nil
+}
+
+// annotationInLooseComment refuses a line that starts with @manualAddResource or
+// @manualAddPermission (commentRegistersResource, commentDeclaresPermission) in a
+// comment of the resources package that is no declaration's (parser.LooseComments): one
+// a blank line parts from the constant below it, or one no declaration follows. An
+// annotation is read from the comment directly above its constant, so one there would be
+// read by nothing, and the route it was written for would be denied to every role
+// without a word. The first such comment, and its first such line, are said; a line that
+// names the annotation inside prose, or starts with a longer word
+// (@manualAddResourceSet), is taken.
+func annotationInLooseComment(comments []*parser.LooseComment) error {
+	for _, c := range comments {
+		for line := range strings.Lines(c.Text()) {
+			if !commentRegistersResource(line) && !commentDeclaresPermission(line) {
+				continue
+			}
+
+			return errors.Newf(
+				"%s: the comment holds the line %q and is no constant's: a blank line parts it from the declaration below it, or none follows it. "+
+					"An annotation is read from the comment directly above its constant: close the gap, or, if the line is prose, start it with another word",
+				c.Position(), strings.TrimSpace(line),
+			)
+		}
+	}
+
+	return nil
+}
+
+// manualPermissionsFromConstants extracts @manualAddPermission annotations from the
+// resources package's accesstypes.Permission constants: each declares the constant's
+// value as a permission of the application that no resource registers, one it checks for
+// the whole of a scope (access.CheckUser, access.CheckRole) and gives a custom role with
+// AddRolePermission. The generated collection lists it, which is what makes it a
+// permission the release has. The annotation takes no argument and stands alone: a
+// permission is mounted under no outlet and is no action to class, and a resource is
+// registered on a resource's constant, so @outlet, @class or @manualAddResource beside
+// it is refused. One of the three on a permission's constant that does not carry
+// @manualAddPermission is refused as well: the constant declares nothing, so the
+// annotation would be read by nothing and the registration, the outlet or the class its
+// author meant would be missing without a word. A constant that declares the same
+// permission as an earlier one is refused too, and so is the annotation on a constant
+// of another type, which would declare nothing and leave every check of the permission
+// denied.
+func manualPermissionsFromConstants(constants []*parser.Constant) ([]accesstypes.Permission, error) {
+	var permissions []accesstypes.Permission
+	for _, c := range constants {
+		if c.TypeName() != accesstypesPermissionType {
+			// A resource's constant is refused where the resources' registrations are
+			// read (manualRegistrationsFromConstants), with what a resource does instead.
+			if c.TypeName() != accesstypesResourceType && commentDeclaresPermission(c.Comments()) {
+				return nil, errors.Newf(
+					"constant %q: @%s declares the constant's value as a permission, and the constant's type is %s, so it declares nothing: give the constant the type accesstypes.Permission",
+					c.Name(), manualAddPermissionKeyword, c.TypeName(),
+				)
+			}
+
+			continue
+		}
+
+		annotations, err := genlang.NewScanner(resourceKeywords()).ScanConstant(c)
+		if err != nil {
+			return nil, errors.Wrapf(err, "scanning annotations on constant %q", c.Name())
+		}
+		declares := annotations.Const.Has(manualAddPermissionKeyword)
+		for _, other := range resourceConstantAnnotations {
+			if !annotations.Const.Has(other.keyword) {
+				continue
+			}
+			if declares {
+				return nil, errors.Newf(
+					"constant %q: @%s declares a permission with no resource and stands alone, so @%s beside it says nothing: remove it (a resource is registered with @%s on an accesstypes.Resource constant)",
+					c.Name(), manualAddPermissionKeyword, other.keyword, manualAddResourceKeyword,
+				)
+			}
+
+			return nil, errors.Newf(
+				"constant %q: @%s %s, and this constant is a permission, so it says nothing here: write it on the resource's constant, one of type accesstypes.Resource, or remove it (a permission that no resource registers is declared with @%s alone)",
+				c.Name(), other.keyword, other.does, manualAddPermissionKeyword,
+			)
+		}
+		if !declares {
+			continue
+		}
+
+		permission := accesstypes.Permission(c.Value())
+		if permission == accesstypes.NullPermission {
+			return nil, errors.Newf("constant %q: @%s declares the constant's value as a permission, and the value is empty: give the constant the permission's name", c.Name(), manualAddPermissionKeyword)
+		}
+		if slices.Contains(permissions, permission) {
+			return nil, errors.Newf("constant %q: @%s declares the permission %s, which an earlier constant already declares: remove one of the two", c.Name(), manualAddPermissionKeyword, permission)
+		}
+		permissions = append(permissions, permission)
+	}
+
+	return permissions, nil
+}
+
+// resourceConstantAnnotations are the annotations a resource's constant takes, each with
+// what it does there, in the words a refusal of it on a permission's constant says.
+var resourceConstantAnnotations = []struct {
+	keyword string
+	does    string
+}{
+	{keyword: manualAddResourceKeyword, does: "registers a permission on a resource"},
+	{keyword: outletKeyword, does: "names the outlets a route registered by hand is mounted under"},
+	{keyword: classKeyword, does: "marks an action registered by hand"},
+}
+
+// permissionDeclarationLine matches a comment line that starts with
+// @manualAddPermission, the way the scanner reads an annotation.
+var permissionDeclarationLine = regexp.MustCompile(`(?m)^\s*@` + manualAddPermissionKeyword + `\b`)
+
+// commentDeclaresPermission reports whether a constant's comments hold a line that
+// starts with @manualAddPermission. It reads the text alone, for a constant whose type
+// has its comments scanned for nothing: such a constant is not held to the annotation
+// grammar, only told that the declaration it carries declares nothing there.
+func commentDeclaresPermission(comments string) bool {
+	return permissionDeclarationLine.MatchString(comments)
+}
+
+// resourceRegistrationLine matches a comment line that starts with @manualAddResource,
+// the way the scanner reads an annotation.
+var resourceRegistrationLine = regexp.MustCompile(`(?m)^\s*@` + manualAddResourceKeyword + `\b`)
+
+// commentRegistersResource reports whether a constant's comments hold a line that starts
+// with @manualAddResource. It reads the text alone, for a constant of a type whose
+// comments are scanned for nothing, as commentDeclaresPermission does: such a constant
+// is told that the registration it carries registers nothing there.
+func commentRegistersResource(comments string) bool {
+	return resourceRegistrationLine.MatchString(comments)
+}
+
 // manualRegistrationsFromConstants extracts @manualAddResource annotations from the
 // resources package's accesstypes.Resource constants. The registered resource name is
 // the constant's value; the annotation supplies the permission and, optionally, the
 // scope: @manualAddResource(Execute) or @manualAddResource(Read, domain). An @outlet
 // annotation beside it names the outlets the hand-written route is mounted under, with
 // the same meaning it has on a struct; every registration the constant declares
-// shares it.
+// shares it. A @class annotation beside it names the classes the registered action
+// carries, as it does on a method; a @class on a constant that registers nothing is
+// refused, since it would mark no action, and so is one on a constant that registers
+// a permission other than Execute, since a class is carried by an action alone
+// (classOnNoAction). A constant of an alias of accesstypes.Resource is a resource's
+// constant, since the alias is the same type. The annotation on a constant of any other
+// type, a type declared over accesstypes.Resource and an untyped string among them, is
+// refused with the type to give it, since it would register nothing and the route it
+// was written for would be denied without a word; a permission's constant is left to
+// manualPermissionsFromConstants, which refuses it there.
 func manualRegistrationsFromConstants(constants []*parser.Constant) ([]ManualRegistration, error) {
 	var registrations []ManualRegistration
 	for _, c := range constants {
 		if c.TypeName() != accesstypesResourceType {
+			if c.TypeName() != accesstypesPermissionType && commentRegistersResource(c.Comments()) {
+				return nil, errors.Newf(
+					"constant %q: @%s registers a permission on a resource, and the constant's type is %s, so it registers nothing: "+
+						"give the constant the type accesstypes.Resource (a type declared over accesstypes.Resource is another type; an alias of it is read as accesstypes.Resource)",
+					c.Name(), manualAddResourceKeyword, c.TypeName(),
+				)
+			}
+
 			continue
 		}
 
@@ -43,7 +256,18 @@ func manualRegistrationsFromConstants(constants []*parser.Constant) ([]ManualReg
 			return nil, errors.Wrapf(err, "scanning annotations on constant %q", c.Name())
 		}
 
+		if annotations.Const.Has(manualAddPermissionKeyword) {
+			return nil, errors.Newf(
+				"constant %q: @%s declares a permission with no resource, and this constant is a resource: put it on a constant of type accesstypes.Permission, or register a permission on this resource with @%s(<permission>)",
+				c.Name(), manualAddPermissionKeyword, manualAddResourceKeyword,
+			)
+		}
+
 		if !annotations.Const.Has(manualAddResourceKeyword) {
+			if annotations.Const.Has(classKeyword) {
+				return nil, errors.Newf("constant %q: @%s marks a registration made by hand, and the constant registers nothing; add @%s(<permission>) beside it or remove it", c.Name(), classKeyword, manualAddResourceKeyword)
+			}
+
 			continue
 		}
 
@@ -51,13 +275,21 @@ func manualRegistrationsFromConstants(constants []*parser.Constant) ([]ManualReg
 		if err := resolveOutlets(annotations.Const, &outlets); err != nil {
 			return nil, errors.Wrapf(err, "constant %q", c.Name())
 		}
+		classes, err := resolveClasses(annotations.Const, "constant "+c.Name())
+		if err != nil {
+			return nil, err
+		}
 
 		for arg := range annotations.Const.Get(manualAddResourceKeyword).Seq() {
 			registration, err := parseManualAddResourceArgs(c, arg)
 			if err != nil {
 				return nil, err
 			}
+			if err := classOnNoAction(fmt.Sprintf("constant %q", c.Name()), registration.Permission, classes); err != nil {
+				return nil, err
+			}
 			registration.Outlets = outlets.OutletNames
+			registration.Classes = classes
 
 			registrations = append(registrations, registration)
 		}
@@ -179,6 +411,53 @@ func scopeOrGlobal(scope accesstypes.PermissionScope) accesstypes.PermissionScop
 	return scope
 }
 
+// oneScopePerName refuses a name the collection registers in both scopes, for the whole
+// application and for a tenant: a resource and a registration made by hand under its
+// name in the other scope, or a constant that registers a permission in each. The
+// collection finds a resource's scope by its name alone
+// (resource.GeneratedCollection.Scope), which is how a role's grant is held to its scope
+// and how a check finds what binds the resource to a tenant, so a name of two scopes
+// would be answered with either, one run to the next. A collection made from data built
+// by hand is refused the same (resource.NewGeneratedCollection).
+func oneScopePerName(data *resource.CollectionData) error {
+	global := make(map[accesstypes.Resource]*resource.CollectionResource)
+	for i := range data.Resources {
+		if res := &data.Resources[i]; res.Scope == accesstypes.GlobalPermissionScope {
+			global[res.Name] = res
+		}
+	}
+	for i := range data.Resources {
+		res := &data.Resources[i]
+		whole, ok := global[res.Name]
+		if !ok || res.Scope == accesstypes.GlobalPermissionScope {
+			continue
+		}
+
+		return errors.Newf(
+			"%q is registered for the whole application%s and for a tenant%s: a name is of one scope, which a role's grant and a check find by the name alone. "+
+				"Register both in one scope, written with @%s on a struct and as the second argument of @%s on a constant, or give one of the two a name of its own",
+			string(res.Name), registeredPermissions(whole), registeredPermissions(res), permissionScopeKeyword, manualAddResourceKeyword,
+		)
+	}
+
+	return nil
+}
+
+// registeredPermissions words the permissions a collection resource registers, in
+// parentheses after the scope a refusal names them in. A resource that registers none,
+// one that only declares what a condition reads, is worded as nothing.
+func registeredPermissions(res *resource.CollectionResource) string {
+	if len(res.Permissions) == 0 {
+		return ""
+	}
+	names := make([]string, len(res.Permissions))
+	for i, permission := range res.Permissions {
+		names[i] = string(permission)
+	}
+
+	return " (" + strings.Join(names, ", ") + ")"
+}
+
 // computeCollectionData derives the permission collection statically from the same
 // parsed state the generator renders handlers from. Without GenerateRoutes no generated
 // wiring performs registrations, so only the manual declarations (@manualAddResource and
@@ -204,9 +483,16 @@ func (r *resourceGenerator) computeCollectionData() (resource.CollectionData, er
 	if err := r.collectRPCRegistrations(b); err != nil {
 		return resource.CollectionData{}, err
 	}
+	r.collectIdentityJudgedRegistrations(b)
 
 	if err := r.collectManualRegistrations(b); err != nil {
 		return resource.CollectionData{}, err
+	}
+
+	for _, permission := range r.manualPermissions {
+		if err := b.AddPermission(permission); err != nil {
+			return resource.CollectionData{}, errors.Wrapf(err, "declared permission %q", permission)
+		}
 	}
 
 	if err := r.collectFeatureRegistrations(b); err != nil {
@@ -217,15 +503,41 @@ func (r *resourceGenerator) computeCollectionData() (resource.CollectionData, er
 		return resource.CollectionData{}, err
 	}
 
+	if err := r.collectTenantCreationRegistration(b); err != nil {
+		return resource.CollectionData{}, err
+	}
+
 	r.collectBindingRegistrations(b)
+	if err := r.collectRecordRoleRegistrations(b); err != nil {
+		return resource.CollectionData{}, err
+	}
+	r.collectWriteClassRegistrations(b)
 	r.collectWorkflowMemberRegistrations(b)
 	r.collectRequiredRegistrations(b)
 	r.collectAcrossTenantsRegistrations(b)
 
 	data := b.Data()
-	if err := r.validateStateEnumTables(data); err != nil {
+	if err := oneScopePerName(&data); err != nil {
 		return resource.CollectionData{}, err
 	}
+	if err := r.validateStateEnumTables(&data); err != nil {
+		return resource.CollectionData{}, err
+	}
+	if err := classesOnActionsAlone(&data); err != nil {
+		return resource.CollectionData{}, err
+	}
+	// Each class in use is declared as a constant of the collection file.
+	if _, err := actionClassConstants(&data); err != nil {
+		return resource.CollectionData{}, err
+	}
+	// The collection names the auths the run knew, the application's: the names its sets
+	// may be labeled for (resolveSubjectSetAuths), which the engine holds a role file's
+	// auth to.
+	auths, err := r.authNames()
+	if err != nil {
+		return resource.CollectionData{}, err
+	}
+	data.Auths = auths
 
 	return data, nil
 }
@@ -294,6 +606,20 @@ func requiredOnCreate(res *resourceInfo) []accesstypes.Tag {
 func (r *resourceGenerator) collectBindingRegistrations(b *resource.CollectionBuilder) {
 	for _, res := range r.resources {
 		b.SetResourceBindings(scopeOrGlobal(res.PermissionScope), accesstypes.Resource(r.pluralize(res.Name())), collectionBindings(res))
+	}
+}
+
+// collectWriteClassRegistrations gives the class access to the writes of every record
+// that decides what a person may do (writesThatDecideAccess). Like bindings, the
+// classes describe the data model and not the generated handlers: a write the
+// generated routes do not offer carries its class all the same, so a route written by
+// hand that registers it is refused by the same mask.
+func (r *resourceGenerator) collectWriteClassRegistrations(b *resource.CollectionBuilder) {
+	for _, write := range r.writesThatDecideAccess() {
+		b.SetWriteClasses(
+			scopeOrGlobal(write.Record.PermissionScope), accesstypes.Resource(r.pluralize(write.Record.Name())),
+			write.Permission, []accesstypes.ActionClass{accesstypes.ClassAccess},
+		)
 	}
 }
 
@@ -478,13 +804,25 @@ func (r *resourceGenerator) collectComputedRegistrations(b *resource.CollectionB
 }
 
 func (r *resourceGenerator) collectRPCRegistrations(b *resource.CollectionBuilder) error {
-	// RPC handlers only register when the generated routes invoke them.
+	// RPC handlers only register when the generated routes invoke them. A method's
+	// classes ride its registration, so a method that carries a class and registers
+	// nothing here is refused: its class would be lost without a word.
 	if !r.hasRPC() || !r.genRoutes {
+		for _, method := range r.rpcMethods {
+			if err := classWithoutRegistration(method, "this generation writes no routes (GenerateRoutes), so the method registers no action"); err != nil {
+				return err
+			}
+		}
+
 		return nil
 	}
 
 	for _, method := range r.rpcMethods {
 		if method.SuppressHandler {
+			if err := classWithoutRegistration(method, "@"+suppressKeyword+" leaves the method without the generated handler that registers its action"); err != nil {
+				return err
+			}
+
 			continue
 		}
 
@@ -494,6 +832,7 @@ func (r *resourceGenerator) collectRPCRegistrations(b *resource.CollectionBuilde
 		if method.Formerly != "" {
 			b.SetMethodFormerName(scopeOrGlobal(method.PermissionScope), accesstypes.Resource(method.Name()), accesstypes.Resource(method.Formerly))
 		}
+		b.SetActionClasses(scopeOrGlobal(method.PermissionScope), accesstypes.Resource(method.Name()), method.Classes)
 
 		if t := method.Transition; t != nil {
 			b.SetMethodTransition(scopeOrGlobal(method.PermissionScope), accesstypes.Resource(method.Name()), resource.TransitionData{
@@ -504,6 +843,19 @@ func (r *resourceGenerator) collectRPCRegistrations(b *resource.CollectionBuilde
 		}
 		if t := method.Target; t != nil {
 			b.SetMethodTarget(scopeOrGlobal(method.PermissionScope), accesstypes.Resource(method.Name()), accesstypes.Resource(t.RootResource))
+		}
+		if method.CallerEnters {
+			b.SetMethodCallerEnters(scopeOrGlobal(method.PermissionScope), accesstypes.Resource(method.Name()))
+		}
+		if method.NotOnOwnAccount != "" {
+			b.SetMethodNotOnOwnAccount(scopeOrGlobal(method.PermissionScope), accesstypes.Resource(method.Name()), method.NotOnOwnAccount)
+		}
+		if len(method.OfferedOn) != 0 {
+			rows := make([]accesstypes.Resource, 0, len(method.OfferedOn))
+			for _, row := range method.OfferedOn {
+				rows = append(rows, accesstypes.Resource(row.RootResource))
+			}
+			b.SetMethodOfferedOn(scopeOrGlobal(method.PermissionScope), accesstypes.Resource(method.Name()), rows)
 		}
 		// The method's request fields a grant's condition may read (new.<name>).
 		if len(method.RequestAttributes) != 0 {
@@ -516,14 +868,31 @@ func (r *resourceGenerator) collectRPCRegistrations(b *resource.CollectionBuilde
 
 func (r *resourceGenerator) collectManualRegistrations(b *resource.CollectionBuilder) error {
 	for _, reg := range r.manualRegistrations {
+		if strings.ContainsRune(string(reg.Resource), '.') {
+			return errors.Newf(
+				"manual registration for resource %q: a resource's name holds no dot. "+
+					"A dot separates a resource from one of its fields, so this name would be read as a field of another resource and would answer for it. "+
+					"Give the registration a name without a dot; a field's permissions are registered with its resource",
+				reg.Resource,
+			)
+		}
 		scope := reg.Scope
 		if scope == "" {
 			scope = accesstypes.GlobalPermissionScope
 		}
 
+		if err := classOnNoAction(fmt.Sprintf("manual registration for resource %q", reg.Resource), reg.Permission, reg.Classes); err != nil {
+			return err
+		}
 		if err := b.AddResource(scope, reg.Permission, reg.Resource); err != nil {
 			return errors.Wrapf(err, "manual registration for resource %q", reg.Resource)
 		}
+		for _, class := range reg.Classes {
+			if !class.Valid() {
+				return errors.Newf("manual registration for resource %q: the class %q is not a class's name; a class is named by a lowercase letter, then lowercase letters, digits and underscores", reg.Resource, string(class))
+			}
+		}
+		b.SetActionClasses(scope, reg.Resource, reg.Classes)
 	}
 
 	return nil

@@ -38,6 +38,10 @@ func (a *App) Missions() http.HandlerFunc {
 		StatusID           string                `json:"statusId"           index:"true"`
 		Notes              *string               `json:"notes"`
 		Settlement         decimal.NullDecimal   `json:"settlement"`
+		SectorName         *string               `json:"sectorName"         nameof:"SectorID"                                                   index:"true"`
+		KindName           *string               `json:"kindName"           nameof:"KindID"                                                     index:"true"`
+		RequiredCertName   *string               `json:"requiredCertName"   nameof:"RequiredCertID"                                             index:"true"`
+		StatusName         *string               `json:"statusName"         nameof:"StatusID"                                                   index:"true"`
 	}
 
 	type response []map[string]any
@@ -56,8 +60,9 @@ func (a *App) Missions() http.HandlerFunc {
 		}
 
 		// A live list registers before the query runs, so a commit that lands during
-		// the query is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, a.LiveService(), querySet, live.ListSubscription(querySet.Resource(), domain))
+		// the query is not missed; a refused request registers nothing. With it the
+		// request registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, a.LiveService(), querySet, live.ListSubscription(querySet.Resource(), domain))
 
 		res := resources.NewMissionQueryFromQuerySet(querySet)
 
@@ -76,7 +81,7 @@ func (a *App) Missions() http.HandlerFunc {
 			if !page.Add(row) {
 				break
 			}
-			rec := (*mission)(&row.Data)
+			rec := &row.Data
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
@@ -150,6 +155,11 @@ func (a *App) Missions() http.HandlerFunc {
 					}
 				}
 			}
+			for _, name := range querySet.Names() {
+				if looked := row.Name(name.Field); looked != nil {
+					rmap[name.JSONName] = *looked
+				}
+			}
 			if capabilities := row.Capabilities(); capabilities != nil {
 				rmap[resource.CapabilitiesProperty] = capabilities
 			}
@@ -188,6 +198,10 @@ func (a *App) Mission() http.HandlerFunc {
 		StatusID           string                `json:"statusId"`
 		Notes              *string               `json:"notes"`
 		Settlement         decimal.NullDecimal   `json:"settlement"`
+		SectorName         *string               `json:"sectorName"         nameof:"SectorID"`
+		KindName           *string               `json:"kindName"           nameof:"KindID"`
+		RequiredCertName   *string               `json:"requiredCertName"   nameof:"RequiredCertID"`
+		StatusName         *string               `json:"statusName"         nameof:"StatusID"`
 	}
 
 	decoder := NewQueryDecoder[resources.Mission, response](a, accesstypes.Read)
@@ -205,8 +219,9 @@ func (a *App) Mission() http.HandlerFunc {
 		}
 
 		// A live row registers before the read runs, so a commit that lands during the
-		// read is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, a.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(id)))
+		// read is not missed; a refused request registers nothing. With it the request
+		// registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, a.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(id)))
 
 		res := resources.NewMissionQueryFromQuerySet(querySet).SetID(id)
 
@@ -214,7 +229,7 @@ func (a *App) Mission() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		rec := (*response)(&row.Data)
+		rec := &row.Data
 		rmap := make(map[string]any)
 		for _, field := range querySet.Fields() {
 			switch string(field) {
@@ -288,6 +303,11 @@ func (a *App) Mission() http.HandlerFunc {
 				}
 			}
 		}
+		for _, name := range querySet.Names() {
+			if looked := row.Name(name.Field); looked != nil {
+				rmap[name.JSONName] = *looked
+			}
+		}
 		if capabilities := row.Capabilities(); capabilities != nil {
 			rmap[resource.CapabilitiesProperty] = capabilities
 		}
@@ -322,6 +342,10 @@ func (a *App) MissionsAcrossTenants() http.HandlerFunc {
 		StatusID           string                `json:"statusId"           index:"true"`
 		Notes              *string               `json:"notes"`
 		Settlement         decimal.NullDecimal   `json:"settlement"`
+		SectorName         *string               `json:"sectorName"         nameof:"SectorID"                                                   index:"true"`
+		KindName           *string               `json:"kindName"           nameof:"KindID"                                                     index:"true"`
+		RequiredCertName   *string               `json:"requiredCertName"   nameof:"RequiredCertID"                                             index:"true"`
+		StatusName         *string               `json:"statusName"         nameof:"StatusID"                                                   index:"true"`
 	}
 
 	type response []map[string]any
@@ -342,8 +366,9 @@ func (a *App) MissionsAcrossTenants() http.HandlerFunc {
 		// lands during the query is not missed: one subscription over the tenants the
 		// list reads for the person, and none of a tenant it does not. A set of more
 		// tenants than one subscription holds registers nothing, and the list is
-		// served plain.
-		liveness := live.SubscribeAcrossTenants(ctx, r, a.LiveService(), querySet)
+		// served plain. With it the request registers the lists the names it shows
+		// are read from.
+		liveness := live.SubscribeAcrossTenants(ctx, w, r, a.LiveService(), querySet)
 
 		res := resources.NewMissionQueryFromQuerySet(querySet)
 
@@ -362,7 +387,7 @@ func (a *App) MissionsAcrossTenants() http.HandlerFunc {
 			if !page.Add(row) {
 				break
 			}
-			rec := (*mission)(&row.Data)
+			rec := &row.Data
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
@@ -436,6 +461,11 @@ func (a *App) MissionsAcrossTenants() http.HandlerFunc {
 					}
 				}
 			}
+			for _, name := range querySet.Names() {
+				if looked := row.Name(name.Field); looked != nil {
+					rmap[name.JSONName] = *looked
+				}
+			}
 			rmap[resource.TenantProperty] = row.Tenant()
 			resp = append(resp, rmap)
 		}
@@ -451,5 +481,56 @@ func (a *App) MissionsAcrossTenants() http.HandlerFunc {
 		liveness.SetCacheControl(w, r)
 
 		return httpio.NewEncoder(w).Ok(resp)
+	})
+}
+
+// MissionChangeHistory answers a page of one mission's change records, newest first, to whoever may read the record, with the fields they may see on it. It answers 404 while the resource does not track its changes.
+func (a *App) MissionChangeHistory() http.HandlerFunc {
+	type response struct {
+		ID                 impulse.UUID          `json:"id"                 index:"true"                                                        perm:"-"`
+		SectorID           impulse.UUID          `json:"sectorId"`
+		ClientID           impulse.UUID          `json:"clientId"`
+		KindID             string                `json:"kindId"`
+		Title              string                `json:"title"              search:"token=Title_Search;index=MissionsSearch;role=text;contains"`
+		Brief              *string               `json:"brief"`
+		BriefingTemplateID *string               `json:"briefingTemplateId"`
+		Hazard             resources.HazardLevel `json:"hazard"`
+		Fee                decimal.Decimal       `json:"fee"`
+		Deadline           time.Time             `json:"deadline"           masking:"positional"                                                search:"token=Deadline_Search;index=MissionsSearch;role=date;contains;zone=UTC"`
+		RequiredCertID     *string               `json:"requiredCertId"`
+		BookedByUserID     string                `json:"bookedByUserId"`
+		BookedByName       string                `json:"bookedByName"`
+		AssignedSquadronID impulse.NullUUID      `json:"assignedSquadronId"`
+		StatusID           string                `json:"statusId"`
+		Notes              *string               `json:"notes"`
+		Settlement         decimal.NullDecimal   `json:"settlement"`
+		SectorName         *string               `json:"sectorName"         nameof:"SectorID"`
+		KindName           *string               `json:"kindName"           nameof:"KindID"`
+		RequiredCertName   *string               `json:"requiredCertName"   nameof:"RequiredCertID"`
+		StatusName         *string               `json:"statusName"         nameof:"StatusID"`
+	}
+
+	decoder := NewQueryDecoder[resources.Mission, response](a, accesstypes.Read)
+
+	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := tracer.Start(r.Context())
+		defer span.End()
+
+		id := httpio.Param[impulse.UUID](r, router.MissionID)
+
+		domain := httpio.Param[accesstypes.Domain](r, router.Domain)
+		history, err := decoder.DecodeChangeHistory(r, a.UserPermissions(r), accesstypes.DomainScope(domain))
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		resources.NewMissionQueryFromQuerySet(history.QuerySet()).SetID(id)
+
+		page, err := history.Read(ctx, a.ResourceClient())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok(page)
 	})
 }

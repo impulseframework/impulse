@@ -11,6 +11,8 @@ import (
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
+	"github.com/impulseframework/impulse/session/sessioninfo"
+	"github.com/impulseframework/impulse/session/signin"
 )
 
 // entering is a request's caller as the rule on a directory-only tenant reads one: who
@@ -42,6 +44,61 @@ func asEntering(ctx context.Context, user accesstypes.User, enters ...accesstype
 	return resource.WithCaller(resource.WithAuth(ctx, managedAuth), &resource.Caller{Permissions: entering{user: user, enters: enters}})
 }
 
+// sessionChecker is the checker an application hands resource.SessionPermissions for a
+// caller, as far as the tenant's door reads it: the person, who is no super
+// administrator and administers no tenant. Every other method is the embedded nil
+// interface's, and panics if a rule reaches for it.
+type sessionChecker struct {
+	resource.UserPermissionChecker
+	user accesstypes.User
+}
+
+func (c sessionChecker) User() accesstypes.User {
+	return c.user
+}
+
+func (sessionChecker) SuperAdministrator(context.Context) (bool, error) {
+	return false, nil
+}
+
+func (sessionChecker) AdministersTenant(context.Context, accesstypes.Domain) (bool, error) {
+	return false, nil
+}
+
+func (sessionChecker) Auth() string {
+	return managedAuth
+}
+
+// inDisabledAlpha is the context of a request erin makes with a password session, its
+// permissions the ones resource.SessionPermissions composes over alpha's declaration:
+// alpha is disabled, and directory only with the acme Workspace where directoryOnly says.
+// The disabled tenant's door is shut to her, and its sign-in settings say of her session
+// what they said before it was disabled.
+func inDisabledAlpha(ctx context.Context, directoryOnly bool) context.Context {
+	declaration := &signin.TenantDeclaration{Disabled: true}
+	if directoryOnly {
+		declaration.Directories = []signin.Directory{{Method: sessioninfo.MethodGoogle, Connection: "acme"}}
+		declaration.DirectoryOnly = true
+	}
+	session := context.WithValue(context.Background(), sessioninfo.CtxSessionInfo, &sessioninfo.SessionData{
+		SessionInfo: &sessioninfo.SessionInfo{Username: "erin"},
+		UserID:      impulse.NullUUIDFromUUID(otherUser),
+		AuthEvents:  []sessioninfo.AuthEvent{{Method: sessioninfo.MethodPassword}},
+	})
+	forUser := func(user accesstypes.User) sessionChecker {
+		return sessionChecker{user: user}
+	}
+	roster := func(context.Context) ([]accesstypes.Domain, error) {
+		return []accesstypes.Domain{"alpha"}, nil
+	}
+	declarations := func(context.Context, accesstypes.Domain) (*signin.TenantDeclaration, error) {
+		return declaration, nil
+	}
+	perms := resource.SessionPermissions(session, forUser, resource.RolePrincipalsUnsupported, roster, declarations, nil)
+
+	return resource.WithCaller(resource.WithAuth(ctx, managedAuth), &resource.Caller{Permissions: perms})
+}
+
 // tenantWardenRoles are the roles of the tests' engine: Warden administers a tenant, and
 // exists in alpha and in every tenant beside Reader.
 var tenantWardenRoles = map[accesstypes.PolicyScope][]accesstypes.Role{
@@ -64,20 +121,23 @@ func outsiderManager(t *testing.T, store Store) *Manager {
 }
 
 const (
-	roleKeptFromOutsiders    = "Warden is a role that administers a tenant, and this tenant admits only people who sign in through its own directory, which your sign-in does not enter. Who holds the role there is changed by one of its administrators, or by a super administrator"
-	accountKeptFromOutsiders = "This person administers a tenant that admits only people who sign in through its own directory, which your sign-in does not enter. Their account is changed by one of that tenant's administrators, or by a super administrator"
+	roleKeptFromOutsiders    = "Warden is a role that administers a tenant, and this tenant admits only people who sign in through its own directory, which your sign-in does not enter. Who holds the role there is changed by one of its administrators, or by a super administrator."
+	accountKeptFromOutsiders = "This person administers a tenant that admits only people who sign in through its own directory, which your sign-in does not enter. Their account is changed by one of that tenant's administrators, or by a super administrator."
 )
 
 // TestManager_directoryOnly_administratorsRole pins that who holds a tenant's
 // administrator role in the tenant is changed only by a caller the tenant admits: every
-// act that gives the role or takes it away, to a person, through a new account, by an
-// invitation, to a group, or by a place in a group that holds it, is refused a caller
+// act that gives the role or takes it away, to a person, by an invitation, to a group,
+// or by a place in a group that holds it, is refused a caller
 // whose session does not enter the tenant, in a sentence that says who does it. A
 // caller the tenant admits makes the change, the application acts outside any request,
 // and neither another role of the tenant nor the role held in every tenant is judged.
 // The reach is asked of the session the caller holds, whoever it views the application
 // as: that a session viewing as a tenant's administrator reaches no directory-only
-// tenant is the resource library's answer, proven there and on the served stack.
+// tenant is the resource library's answer, proven there and on the served stack. A
+// disabled tenant is judged by its sign-in settings, as before it was disabled: a caller
+// who is no super administrator changes who holds the role in one that is not directory
+// only, and is refused it in one that is.
 func TestManager_directoryOnly_administratorsRole(t *testing.T) {
 	t.Parallel()
 
@@ -90,9 +150,6 @@ func TestManager_directoryOnly_administratorsRole(t *testing.T) {
 		act   func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager, scope accesstypes.PolicyScope, role accesstypes.Role) error
 		// tenantOnly marks an act that names one tenant and no other scope.
 		tenantOnly bool
-		// buffersFirst marks an act that buffers a row before its roles are judged: the
-		// refusal fails the transaction, so nothing of it is committed.
-		buffersFirst bool
 	}{
 		{
 			name: "giving a person the role",
@@ -110,15 +167,6 @@ func TestManager_directoryOnly_administratorsRole(t *testing.T) {
 			},
 			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager, scope accesstypes.PolicyScope, role accesstypes.Role) error {
 				return m.RemoveRole(ctx, txn, scope, userID, role)
-			},
-		},
-		{
-			name: "a new account that starts with the role", buffersFirst: true,
-			setup: func(store *fakeStore) { store.nextID = createdID },
-			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager, scope accesstypes.PolicyScope, role accesstypes.Role) error {
-				_, err := m.CreateUser(ctx, txn, &NewAccount{Username: "hale", Scope: scope, Roles: []accesstypes.Role{role}})
-
-				return err
 			},
 		},
 		{
@@ -166,6 +214,14 @@ func TestManager_directoryOnly_administratorsRole(t *testing.T) {
 			ctx:  func(ctx context.Context) context.Context { return asEntering(ctx, erin, "alpha") }, scope: alphaScope, role: "Warden",
 		},
 		{
+			name: "a caller who is no super administrator makes the change in a disabled tenant that is not directory only, as before it was disabled",
+			ctx:  func(ctx context.Context) context.Context { return inDisabledAlpha(ctx, false) }, scope: alphaScope, role: "Warden",
+		},
+		{
+			name: "and is refused it in a disabled directory-only tenant, as before it was disabled",
+			ctx:  func(ctx context.Context) context.Context { return inDisabledAlpha(ctx, true) }, scope: alphaScope, role: "Warden", refused: true,
+		},
+		{
 			name: "the application acts outside any request",
 			ctx:  func(ctx context.Context) context.Context { return ctx }, scope: alphaScope, role: "Warden",
 		},
@@ -205,11 +261,77 @@ func TestManager_directoryOnly_administratorsRole(t *testing.T) {
 				if !httpio.HasForbidden(err) || httpio.Message(err) != roleKeptFromOutsiders {
 					t.Fatalf("error = %v, want the refusal reading %q", err, roleKeptFromOutsiders)
 				}
-				if len(store.writes) != 0 && !act.buffersFirst {
+				if len(store.writes) != 0 {
 					t.Errorf("buffered writes = %v, want none", store.writes)
 				}
 			})
 		}
+	}
+}
+
+// TestManager_directoryOnly_administratorsRoleInEveryTenant pins three decisions as they
+// are built. An administrator's role held in every tenant is the application's to give:
+// it is no way into a directory-only tenant, so an invitation that gives it in every
+// tenant and a group of the whole application given it in every tenant are not judged,
+// and a caller no tenant admits makes both. And a person who holds the role in every
+// tenant, and in no tenant of its own, gives the tenant's own administrator role from a
+// session the tenant admits, as its directory's sign-in is: the tenant keeps out who its
+// directory does not let in, and what a person it lets in may give is the role file's
+// to say.
+func TestManager_directoryOnly_administratorsRoleInEveryTenant(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		ctx  func(context.Context) context.Context
+		// setup commits what the caller holds.
+		setup func(store *fakeStore)
+		act   func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error
+	}{
+		{
+			name: "an invitation that gives the role in every tenant is sent by a caller no tenant admits",
+			ctx:  func(ctx context.Context) context.Context { return asEntering(ctx, erin) },
+			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
+				_, err := m.Invite(ctx, txn, &Invitation{Email: "hale@example.com", EveryDomain: true, Roles: []accesstypes.Role{"Warden"}}, nil)
+
+				return err
+			},
+		},
+		{
+			name: "a group of the whole application is given the role in every tenant by a caller no tenant admits",
+			ctx:  func(ctx context.Context) context.Context { return asEntering(ctx, erin) },
+			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
+				return m.GiveGroupRoleFor(ctx, txn, staffID, everyScope, "Warden", accesstypes.Period{})
+			},
+		},
+		{
+			name: "a caller who holds the role in every tenant gives the tenant's own administrator role from a session the tenant admits",
+			ctx:  func(ctx context.Context) context.Context { return asEntering(ctx, erin, "alpha") },
+			setup: func(store *fakeStore) {
+				store.memberships[access.NewMembershipKey(everyScope, erin, "Warden")] = true
+			},
+			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
+				return m.AssignRole(ctx, txn, alphaScope, userID, "Warden")
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := groupStore()
+			if tt.setup != nil {
+				tt.setup(store)
+			}
+			m := outsiderManager(t, store)
+
+			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+				return tt.act(tt.ctx(ctx), txn, m)
+			})
+			if err != nil {
+				t.Fatalf("error = %v, want the act to go through", err)
+			}
+		})
 	}
 }
 
@@ -299,7 +421,10 @@ func TestManager_directoryOnly_groupOfAdministrators(t *testing.T) {
 // tenant admits acts, the application acts outside any request, and a person who
 // administers no tenant stays whoever's the role file says: one who holds another role
 // there, the role in every tenant, the role through a group kept for the whole
-// application, or an assignment that has ended.
+// application, or an assignment that has ended. A disabled tenant is judged by its
+// sign-in settings, as before it was disabled: a caller who is no super administrator
+// acts for an administrator of one that is not directory only, and is refused for one of
+// a tenant that is.
 func TestManager_directoryOnly_administratorsAccount(t *testing.T) {
 	t.Parallel()
 
@@ -310,9 +435,6 @@ func TestManager_directoryOnly_administratorsAccount(t *testing.T) {
 		name string
 		act  func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error
 	}{
-		{name: "a temporary password", act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
-			return m.SetTemporaryPassword(ctx, txn, userID, "first-day")
-		}},
 		{name: "the removal of the password", act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
 			return m.RemovePassword(ctx, txn, userID)
 		}},
@@ -323,7 +445,7 @@ func TestManager_directoryOnly_administratorsAccount(t *testing.T) {
 			return m.RenameUser(ctx, txn, userID, "dana.r")
 		}},
 		{name: "a new address", act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
-			return m.SetEmail(ctx, txn, userID, &address)
+			return m.SetEmail(ctx, txn, userID, address, nil)
 		}},
 		{name: "the unlinking of an identity", act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
 			return m.UnlinkIdentity(ctx, txn, identityA)
@@ -335,7 +457,9 @@ func TestManager_directoryOnly_administratorsAccount(t *testing.T) {
 			return m.EnableUser(ctx, txn, userID)
 		}},
 		{name: "the account deleted", act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
-			return m.DeleteUser(ctx, txn, userID)
+			_, err := m.DeleteUser(ctx, txn, userID, false)
+
+			return err
 		}},
 	}
 	callers := []struct {
@@ -379,6 +503,17 @@ func TestManager_directoryOnly_administratorsAccount(t *testing.T) {
 			name:  "a caller the tenant admits acts",
 			ctx:   func(ctx context.Context) context.Context { return asEntering(ctx, erin, "alpha") },
 			holds: func(store *fakeStore) { store.memberships[wardenOfAlpha] = true },
+		},
+		{
+			name:  "a caller who is no super administrator acts for an administrator of a disabled tenant that is not directory only, as before it was disabled",
+			ctx:   func(ctx context.Context) context.Context { return inDisabledAlpha(ctx, false) },
+			holds: func(store *fakeStore) { store.memberships[wardenOfAlpha] = true },
+		},
+		{
+			name:    "and is refused for one of a disabled directory-only tenant, as before it was disabled",
+			ctx:     func(ctx context.Context) context.Context { return inDisabledAlpha(ctx, true) },
+			holds:   func(store *fakeStore) { store.memberships[wardenOfAlpha] = true },
+			refused: true,
 		},
 		{
 			name:  "the application acts outside any request",
@@ -466,7 +601,7 @@ func TestManager_RolesToGive_directoryOnly(t *testing.T) {
 			t.Parallel()
 
 			m := outsiderManager(t, groupStore())
-			roles, err := m.RolesToGive(asEntering(t.Context(), erin, tt.enters...), "alpha")
+			roles, err := m.RolesToGive(asEntering(t.Context(), erin, tt.enters...), assigns, "alpha")
 			if err != nil {
 				t.Fatalf("RolesToGive() error = %v", err)
 			}
@@ -610,7 +745,7 @@ func TestManager_directoryOnly_administratorOfSeveral(t *testing.T) {
 	t.Parallel()
 
 	const keptFromSomeone = "This person administers more than one tenant, and one of them admits only people who sign in through its own directory, which your sign-in does not enter. " +
-		"Their account is changed by someone whose sign-in enters every tenant they administer, or by a super administrator"
+		"Their account is changed by someone whose sign-in enters every tenant they administer, or by a super administrator."
 	tests := []struct {
 		name   string
 		enters []accesstypes.Domain

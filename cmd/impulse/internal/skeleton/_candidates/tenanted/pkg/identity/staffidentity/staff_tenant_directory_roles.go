@@ -30,9 +30,11 @@ import (
 // @suppress(readHandler)
 // @outlet(default)
 // @order(Name asc)
+// @rowWord(role)
 type StaffTenantDirectoryRole struct {
 	// @primarykey
 	// @attribute(name)
+	// @roleOf(Staff)
 	Name        string `spanner:"Name"`
 	Description string `spanner:"Description"`
 }

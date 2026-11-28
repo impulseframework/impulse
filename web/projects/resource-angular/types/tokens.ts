@@ -126,7 +126,7 @@ export const RESOURCE_DOMAIN = new InjectionToken<Signal<Domain | undefined>>('R
 });
 
 /**
- * The generated resourceMeta from the output of the [ccc package](https://github.com/impulseframework/impulse) typescript generator
+ * The generated resourceMeta from the output of the [impulse package](https://github.com/impulseframework/impulse) typescript generator
  * Required to work with generated routes and resource metadata
  * @defaultValue a no-op function that returns an empty object
  */
@@ -135,7 +135,7 @@ export const RESOURCE_META = new InjectionToken<(resource: Resource) => Resource
 });
 
 /**
- * The generated methodMeta from the output of the [ccc package](https://github.com/impulseframework/impulse) typescript generator
+ * The generated methodMeta from the output of the [impulse package](https://github.com/impulseframework/impulse) typescript generator
  * Required to work with generated method data
  * @defaultValue a no-op function that returns an empty object
  */
@@ -228,15 +228,32 @@ export const DEFAULT_LOGIN_MESSAGES: Readonly<Record<string, string>> = {
     'This Google account is not one this application accepts. Sign in with the Google account your organization gave you.',
   email_not_verified: 'The email address of this account is not verified.',
   no_roles: 'This account has no role in this application. Please contact your administrator.',
-  password_change_required: 'Your password was set by an administrator. Choose a new password to continue.',
+  password_change_required: 'An administrator asked you to choose a new password. Choose one to continue.',
   no_email_claim: 'The service you signed in with did not say which account signed in.',
   unlisted_tenant: 'This account belongs to an organization that cannot sign in here.',
   personal_account: 'Personal Microsoft accounts cannot sign in here. Use your work or school account.',
   organization_mismatch: 'This account belongs to a different organization than the one you signed in through.',
   identity_rejected: 'This account could not be matched to a user of this application.',
+  // A sign-in that would make a new account proves an address an account here holds unconfirmed: no second account is made.
+  address_held_unconfirmed:
+    'An account here already has this email address and has not confirmed it. Sign in to that account with its password and enter the code we email you. After that you can sign in this way too.',
+  // The same, where that account has no password to sign in with.
+  address_held_no_password:
+    'An account here already has this email address and has not confirmed it. Ask your administrator for help.',
   not_invited: 'This account has not been invited to this application.',
   // The login page names the invited address itself while the invitation stands; this is the sentence without it.
   invitation_address: 'This invitation is for another account. Sign in with the account it was sent to.',
+  // Twenty-five codes were entered for the invitation and none accepted it: it takes no more and mails none.
+  invitation_spent: "This invitation can't be used any more. Ask the person who invited you to send a new one.",
+  // Twenty-five wrong codes were entered for an address typed at the code step: it takes no more and is mailed none.
+  address_spent:
+    "This email address can't be confirmed with a code any more. Ask an administrator to add it to your account.",
+  // Twenty-five wrong codes were entered for an account's own sign-in code: the account takes no more and is mailed none until the count is reset.
+  codes_spent:
+    'Too many wrong codes were entered for this account. Reset your password if you can, or ask an administrator to unlock your sign-in.',
+  // A code mailed for an invitation, entered where that invitation's link is not open: the step stays, and the code works once the link is opened again.
+  invitation_not_open:
+    'This code belongs to an invitation that is not open in this browser. Open the link in your invitation again, then enter the code.',
   guest_account: 'Guest accounts cannot sign in here. Use an account that is a member of the organization.',
   policy_denied: 'Signing in this way is not allowed for this account.',
   user_disabled: 'This account has been disabled. Please contact your administrator.',
@@ -251,9 +268,17 @@ export const DEFAULT_LOGIN_MESSAGES: Readonly<Record<string, string>> = {
     'Your organization does not sign in the way you just tried. Please sign in the way your organization has set up.',
   directory_only:
     'Your organization does not sign in with a password here. Please sign in the way your organization has set up.',
+  // The same refusal for a session the application starts itself: the person typed no password, so none is named.
+  directory_only_session:
+    'Your organization admits only people who sign in through its own directory. Please sign in the way your organization has set up.',
+  // The same refusal after Google or Microsoft with a personal account: the person used no password, so none is named.
+  directory_only_personal_account:
+    "Your organization admits only people who sign in with the account it gave them. Sign in with your organization's account, not a personal one.",
   invitation_only: 'Your organization signs people in by invitation. Ask your administrator to invite you.',
   other_tenant:
     'This account already belongs to another organization in this application, so it cannot join a second one.',
+  second_directory:
+    "This account already signs in through another organization's directory, so it cannot sign in through this one. Please sign in the way you have before.",
   // An invitation that makes an organization entered through its directory only, met with a password or a personal account.
   organization_account_required:
     "This invitation is accepted with your organization's account. Sign in with that account, not with a password or a personal account.",

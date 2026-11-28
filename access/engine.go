@@ -5,10 +5,15 @@ import (
 
 	"github.com/impulseframework/impulse/access/internal/policy"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 )
 
 // evaluator answers permission checks on the request path; the snapshot
-// engine implements it. Implementations must be safe for concurrent use.
+// engine implements it. Implementations must be safe for concurrent use. The
+// context of a call is the request's, and is never what the policy store is
+// read under: a call may be made inside a database transaction. Every method
+// that takes a scope refuses the zero Scope with accesstypes.ErrNoScope before
+// it reads the snapshot.
 type evaluator interface {
 	// checkUser returns user's scope-wide (no resource attachment) decision
 	// within scope: granted on any unconditional cover, the covering
@@ -29,8 +34,8 @@ type evaluator interface {
 	) ([]resourceDecision, error)
 
 	// userDigest returns user's structural grant enumeration within scope:
-	// every resource and field the user's grants reach, permission → granted
-	// or conditional, with denied targets absent. Non-folding by design —
+	// every resource and field the user's grants reach, permission → granted,
+	// conditional on time or conditional, with denied targets absent. Non-folding by design —
 	// the answer is a pure function of the policy snapshot. This and the
 	// three user answers below take no Environment and read the user's
 	// assignments at the engine's own clock.
@@ -91,8 +96,7 @@ type evaluator interface {
 type policyStore interface {
 	// Membership. A membership is given for a period, which replaces the
 	// period of one that is there, and the listings answer what counts now.
-	addUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period) error
-	deleteUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role) error
+	deleteUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, record *auditlog.Record) error
 	userRoles(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User) ([]accesstypes.Role, error)
 	// userMemberships lists every membership the user holds now, wherever it
 	// is held.
@@ -102,6 +106,9 @@ type policyStore interface {
 	// it, and listed with it.
 	addRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, description string) error
 	roles(ctx context.Context, scope accesstypes.PolicyScope) ([]RoleInfo, error)
+	// domainRoles lists every custom role held in one domain, whatever the
+	// domain.
+	domainRoles(ctx context.Context) ([]policy.Role, error)
 	// deleteRole removes the role and its grants, scoped to (scope, role).
 	deleteRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error)
 	roleExists(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error)
@@ -116,8 +123,9 @@ type policyStore interface {
 	removeGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, perm accesstypes.Permission, resource accesstypes.Resource) error
 	addScopeWideGrant(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, perm accesstypes.Permission) error
 	removeScopeWideGrant(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, perm accesstypes.Permission) error
+	removeAllGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) error
 	roleGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (accesstypes.RolePermissionCollection, error)
-	roleGrantConditions(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (map[accesstypes.Permission]map[accesstypes.Resource][]string, error)
+	roleResourceGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) ([]policy.RoleGrant, error)
 
 	// Groups of people, their members and the roles each holds (groups.go).
 	addGroup(ctx context.Context, group *policy.GroupRow) (taken bool, err error)
@@ -130,6 +138,10 @@ type policyStore interface {
 	deleteGroupUser(ctx context.Context, group accesstypes.Group, user accesstypes.User) error
 	groupUsers(ctx context.Context, group accesstypes.Group) ([]accesstypes.User, error)
 	addGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role, period accesstypes.Period) error
+	// addCustomGroupRole writes what addGroupRole writes, only while a row of the
+	// custom role is held where the group's role reads it, and wraps policy.ErrNoRole
+	// where none is.
+	addCustomGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role, period accesstypes.Period) error
 	deleteGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role) error
 	groupRoles(ctx context.Context, group accesstypes.Group) ([]policy.Membership, error)
 	// userGroupRoles lists every role held now by a group the user is in now.

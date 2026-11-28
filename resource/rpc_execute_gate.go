@@ -11,7 +11,6 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/accesstypes/condition"
-	"github.com/impulseframework/impulse/httpio"
 	"google.golang.org/api/iterator"
 )
 
@@ -25,9 +24,11 @@ import (
 // target's @domain binding is a join path, the frame's tenancy check itself
 // rides the gate (VerifyTenancy): the located row carries no tenant key of
 // its own, so the gate walks the binding hops in the same transaction.
-// Methods without a target row keep the decode-time posture: MigrateRoles
-// rejects row-referencing conditions on them, and a Conditional decision
-// reaching their decode is a 500-class invariant breach.
+// Methods without a target row keep the decode-time posture: a grant of one
+// under a row-referencing condition is refused in a role file
+// (access.ValidateRoles), refused as a write to a custom role and left out of
+// the policy when the store holds one, and a Conditional decision reaching
+// their decode is a 500-class invariant breach.
 //
 // A target may be a row of a view (a @virtual struct). A view's row is one row
 // of the view's query, and in a tenant-scoped view its key names a row in each
@@ -45,6 +46,9 @@ type TargetedRPCDecoder[Request any] struct {
 	perm            accesstypes.Permission
 	userPermissions func(*http.Request) UserPermissions
 	collection      *GeneratedCollection
+	// namedRowSources are the views and the computed lists a row the request's picked
+	// field or a body's armed write names is asked of (WithNamedRowSources).
+	namedRowSources NamedRowSources
 }
 
 // MustNewTargetedRPCDecoder builds a decoder for a @target-bearing RPC method
@@ -67,6 +71,17 @@ func MustNewTargetedRPCDecoder[Request any](a DecoderAccessor, collection *Gener
 	}
 }
 
+// WithNamedRowSources installs the views and the computed lists a row a write or a
+// method's picked field names is asked of, so the caller of the gate the decoder answers
+// carries them to the generated handler's hold on the request's picked fields (HoldPicked)
+// and to a body's armed writes (NamedRowSources).
+func (s *TargetedRPCDecoder[Request]) WithNamedRowSources(sources NamedRowSources) *TargetedRPCDecoder[Request] {
+	decoder := *s
+	decoder.namedRowSources = sources
+
+	return &decoder
+}
+
 // WithValidator sets a validator function on the decoder.
 func (s *TargetedRPCDecoder[Request]) WithValidator(v ValidatorFunc) *TargetedRPCDecoder[Request] {
 	decoder := *s
@@ -86,11 +101,12 @@ func (s *TargetedRPCDecoder[Request]) Decode(request *http.Request, scope access
 		return nil, nil, errors.Wrap(err, "structDecoder.Decode()")
 	}
 
-	caller := &Caller{Permissions: s.userPermissions(request), Scope: scope, Env: RequestEnvironment(), collection: s.collection}
+	caller := &Caller{Permissions: s.userPermissions(request), Scope: scope, Env: RequestEnvironment(), collection: s.collection, namedRowSources: s.namedRowSources}
 	gate, err := caller.gateFor(request.Context(), s.res, s.perm, req)
 	if err != nil {
 		return nil, nil, err
 	}
+	gate.entryPermission = s.perm
 
 	return req, gate, nil
 }
@@ -102,12 +118,12 @@ func (s *TargetedRPCDecoder[Request]) Decode(request *http.Request, scope access
 // the target row and rides the gate; a constant FALSE rides it too, so the row is
 // still looked for and a missing row is still NotFound.
 func (c *Caller) gateFor(ctx context.Context, method accesstypes.Resource, perm accesstypes.Permission, request any) (*ExecuteGate, error) {
-	decisions, err := c.Permissions.Check(ctx, c.Env, c.Scope, perm, method)
+	decisions, err := judgedDecisions(ctx, c.Permissions, c.collection, c.Env, c.Scope, perm, method)
 	if err != nil {
 		return nil, errors.Wrap(err, "resource.UserPermissions.Check()")
 	}
 	if denied := decisions.DeniedResources(); len(denied) > 0 {
-		return nil, httpio.NewForbiddenMessagef("user %s, scope %s, does not have %s on %s", c.Permissions.User(), c.Scope, perm, denied)
+		return nil, methodRefused(errors.Newf("user %s, scope %s, does not have %s on %s", c.Permissions.User(), c.Scope, perm, denied))
 	}
 
 	gate := &ExecuteGate{
@@ -117,6 +133,7 @@ func (c *Caller) gateFor(ctx context.Context, method accesstypes.Resource, perm 
 		scope:           c.Scope,
 		env:             c.Env,
 		collection:      c.collection,
+		namedRowSources: c.namedRowSources,
 	}
 	if decision, ok := decisions[method]; ok && decision.IsConditional() {
 		expr, err := conditionalExpr(method, decision)
@@ -162,9 +179,11 @@ type ExecuteTarget struct {
 	// Resource is the target row resource: its table, or the view's resource.
 	Resource accesstypes.Resource
 
-	// Label is the target's struct name, for the refusal message — the same
-	// words the frame's own state check refuses with, so the wire never
-	// distinguishes a wrong-state refusal from a condition refusal.
+	// Label is the target's struct name. A refusal says the row by it in words
+	// ("You may not do this to this mission.", TargetRefused), the same sentence
+	// the frame's own state check refuses with, so the wire never distinguishes a
+	// wrong-state refusal from a condition refusal. The NotFound answer and the
+	// server's log say the name as it is.
 	Label string
 
 	// PKColumns are the primary-key columns the check-SELECT locates the row by,
@@ -197,13 +216,28 @@ type ExecuteGate struct {
 	env             accesstypes.Environment
 	collection      *GeneratedCollection
 	cond            condition.Expr
+	// namedRowSources are the views and the computed lists a row a write names is asked
+	// of, carried from the caller the gate was asked for to the caller it answers
+	// (Caller).
+	namedRowSources NamedRowSources
+	// entryPermission is the permission a method's decode asked on the method, for the
+	// gate its decode answers (TargetedRPCDecoder.Decode); empty for a gate a body asks
+	// through Caller.ExecuteGate.
+	entryPermission accesstypes.Permission
 }
 
 // Caller returns the caller the decode-time check ran as — checker, scope, sampled
 // environment, and the collection — for the handler to stamp into the context the
-// method's body runs under.
+// method's body runs under. The caller of the gate a method's decode answers carries the
+// method and the permission the decode asked; the caller of a gate a body asks through
+// Caller.ExecuteGate carries neither.
 func (g *ExecuteGate) Caller() *Caller {
-	return &Caller{Permissions: g.userPermissions, Scope: g.scope, Env: g.env, collection: g.collection}
+	caller := &Caller{Permissions: g.userPermissions, Scope: g.scope, Env: g.env, collection: g.collection, namedRowSources: g.namedRowSources}
+	if g.entryPermission != "" {
+		caller.method, caller.permission = g.method, g.entryPermission
+	}
+
+	return caller
 }
 
 // Settled reports what the gate decides before any row is read. settled is true where
@@ -368,7 +402,7 @@ func (g *ExecuteGate) EnforceProposed(ctx context.Context, facts SubjectFactSour
 		return errors.Wrapf(err, "method %s: condition.Evaluate()", g.method)
 	}
 	if !truth.Permits() {
-		return httpio.NewForbiddenMessagef("%s may not run against this %s", g.method, target.Label)
+		return TargetRefused(g.method, target.Label)
 	}
 
 	return nil
@@ -398,10 +432,10 @@ func (g *ExecuteGate) enforce(ctx context.Context, txn ReadWriteTransaction, tar
 		return err
 	}
 	if !found {
-		return httpio.NewNotFoundMessagef("%s %s does not exist", target.Label, key)
+		return TargetNotFound(target.Label, pkValues...)
 	}
 	if !passed.Valid || !passed.Bool {
-		return httpio.NewForbiddenMessagef("%s may not run against %s %s", g.method, target.Label, key)
+		return TargetRefused(g.method, target.Label, pkValues...)
 	}
 
 	return nil
@@ -486,7 +520,7 @@ func (g *ExecuteGate) VerifyTenancy(ctx context.Context, txn ReadWriteTransactio
 		return err
 	}
 	if !found || !inTenant.Valid || !inTenant.Bool {
-		return httpio.NewNotFoundMessagef("%s %s does not exist", target.Label, key)
+		return TargetNotFound(target.Label, pkValues...)
 	}
 
 	return nil

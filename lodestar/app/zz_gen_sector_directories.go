@@ -19,11 +19,13 @@ import (
 
 func (a *App) SectorDirectories() http.HandlerFunc {
 	type sectorDirectory struct {
-		ID          impulse.UUID `json:"id"          index:"true" perm:"-"`
-		SectorID    impulse.UUID `json:"sectorId"    index:"true"`
-		Method      string       `json:"method"      index:"true"`
-		Connection  string       `json:"connection"`
-		DefaultSeat *string      `json:"defaultSeat"`
+		ID               impulse.UUID `json:"id"               index:"true"      perm:"-"`
+		SectorID         impulse.UUID `json:"sectorId"         index:"true"`
+		Method           string       `json:"method"           index:"true"`
+		Connection       string       `json:"connection"`
+		DefaultSeat      *string      `json:"defaultSeat"`
+		AsksSecondFactor bool         `json:"asksSecondFactor"`
+		SectorName       *string      `json:"sectorName"       nameof:"SectorID" index:"true"`
 	}
 
 	type response []map[string]any
@@ -42,8 +44,9 @@ func (a *App) SectorDirectories() http.HandlerFunc {
 		}
 
 		// A live list registers before the query runs, so a commit that lands during
-		// the query is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, a.LiveService(), querySet, live.ListSubscription(querySet.Resource(), domain))
+		// the query is not missed; a refused request registers nothing. With it the
+		// request registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, a.LiveService(), querySet, live.ListSubscription(querySet.Resource(), domain))
 
 		res := resources.NewSectorDirectoryQueryFromQuerySet(querySet)
 
@@ -62,7 +65,7 @@ func (a *App) SectorDirectories() http.HandlerFunc {
 			if !page.Add(row) {
 				break
 			}
-			rec := (*sectorDirectory)(&row.Data)
+			rec := &row.Data
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
@@ -86,6 +89,15 @@ func (a *App) SectorDirectories() http.HandlerFunc {
 					if !row.Masked("defaultSeat") {
 						rmap["defaultSeat"] = rec.DefaultSeat
 					}
+				case "AsksSecondFactor":
+					if !row.Masked("asksSecondFactor") {
+						rmap["asksSecondFactor"] = rec.AsksSecondFactor
+					}
+				}
+			}
+			for _, name := range querySet.Names() {
+				if looked := row.Name(name.Field); looked != nil {
+					rmap[name.JSONName] = *looked
 				}
 			}
 			if capabilities := row.Capabilities(); capabilities != nil {
@@ -109,11 +121,13 @@ func (a *App) SectorDirectories() http.HandlerFunc {
 
 func (a *App) SectorDirectory() http.HandlerFunc {
 	type response struct {
-		ID          impulse.UUID `json:"id"          index:"true" perm:"-"`
-		SectorID    impulse.UUID `json:"sectorId"    index:"true"`
-		Method      string       `json:"method"`
-		Connection  string       `json:"connection"`
-		DefaultSeat *string      `json:"defaultSeat"`
+		ID               impulse.UUID `json:"id"               index:"true"      perm:"-"`
+		SectorID         impulse.UUID `json:"sectorId"         index:"true"`
+		Method           string       `json:"method"`
+		Connection       string       `json:"connection"`
+		DefaultSeat      *string      `json:"defaultSeat"`
+		AsksSecondFactor bool         `json:"asksSecondFactor"`
+		SectorName       *string      `json:"sectorName"       nameof:"SectorID"`
 	}
 
 	decoder := NewQueryDecoder[resources.SectorDirectory, response](a, accesstypes.Read)
@@ -131,8 +145,9 @@ func (a *App) SectorDirectory() http.HandlerFunc {
 		}
 
 		// A live row registers before the read runs, so a commit that lands during the
-		// read is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, a.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(id)))
+		// read is not missed; a refused request registers nothing. With it the request
+		// registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, a.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(id)))
 
 		res := resources.NewSectorDirectoryQueryFromQuerySet(querySet).SetID(id)
 
@@ -140,7 +155,7 @@ func (a *App) SectorDirectory() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		rec := (*response)(&row.Data)
+		rec := &row.Data
 		rmap := make(map[string]any)
 		for _, field := range querySet.Fields() {
 			switch string(field) {
@@ -164,6 +179,15 @@ func (a *App) SectorDirectory() http.HandlerFunc {
 				if !row.Masked("defaultSeat") {
 					rmap["defaultSeat"] = rec.DefaultSeat
 				}
+			case "AsksSecondFactor":
+				if !row.Masked("asksSecondFactor") {
+					rmap["asksSecondFactor"] = rec.AsksSecondFactor
+				}
+			}
+		}
+		for _, name := range querySet.Names() {
+			if looked := row.Name(name.Field); looked != nil {
+				rmap[name.JSONName] = *looked
 			}
 		}
 		if capabilities := row.Capabilities(); capabilities != nil {
@@ -172,5 +196,42 @@ func (a *App) SectorDirectory() http.HandlerFunc {
 		live.SetCacheControl(w, r)
 
 		return httpio.NewEncoder(w).Ok(rmap)
+	})
+}
+
+// SectorDirectoryChangeHistory answers a page of one sector directory's change records, newest first, to whoever may read the record, with the fields they may see on it. It answers 404 while the resource does not track its changes.
+func (a *App) SectorDirectoryChangeHistory() http.HandlerFunc {
+	type response struct {
+		ID               impulse.UUID `json:"id"               index:"true"      perm:"-"`
+		SectorID         impulse.UUID `json:"sectorId"         index:"true"`
+		Method           string       `json:"method"`
+		Connection       string       `json:"connection"`
+		DefaultSeat      *string      `json:"defaultSeat"`
+		AsksSecondFactor bool         `json:"asksSecondFactor"`
+		SectorName       *string      `json:"sectorName"       nameof:"SectorID"`
+	}
+
+	decoder := NewQueryDecoder[resources.SectorDirectory, response](a, accesstypes.Read)
+
+	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := tracer.Start(r.Context())
+		defer span.End()
+
+		id := httpio.Param[impulse.UUID](r, router.SectorDirectoryID)
+
+		domain := httpio.Param[accesstypes.Domain](r, router.Domain)
+		history, err := decoder.DecodeChangeHistory(r, a.UserPermissions(r), accesstypes.DomainScope(domain))
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		resources.NewSectorDirectoryQueryFromQuerySet(history.QuerySet()).SetID(id)
+
+		page, err := history.Read(ctx, a.ResourceClient())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok(page)
 	})
 }

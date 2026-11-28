@@ -35,6 +35,13 @@ func TestAccounts_aRoleIsHeldByTheAccountNotTheName(t *testing.T) {
 		t.Fatalf("the member's tenants before the rename = %v, want [%s]", domains, north)
 	}
 
+	// The member holds a role in north alone, so north manages the account. A role of the
+	// whole application beside it makes the account no tenant's to manage, and so the
+	// application's administrator's to rename; it reaches no tenant.
+	if status, body := admin.do(ctx, http.MethodPost, "/api/assign-staff-role", roleOf(s.memberID, "FeatureAdministrator", false)); status != http.StatusNoContent {
+		t.Fatalf("giving the member a role of the whole application: status %d: %s", status, body)
+	}
+
 	// The administrator gives the member a new username.
 	const renamed = "member-renamed"
 	rename, err := json.Marshal(map[string]string{"userId": s.memberID, "username": renamed})

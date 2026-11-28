@@ -42,7 +42,7 @@ type MockClient struct {
 // fields with, built from fixed bytes in a test (NewSecretKeys), so what a patch buffers
 // is the sealed value and the test can open it.
 func NewMockClient(txnMock ReadWriteTransaction, readOnlyMocks, txnReadMocks []any, opts ...ClientOption) *MockClient {
-	stores, secrets := applyClientOptions(opts)
+	stores, secrets, _ := applyClientOptions(opts)
 
 	return &MockClient{
 		dbType:        SpannerDBType,
@@ -88,7 +88,9 @@ func (c *MockClient) SpannerReadOnlyTransaction() spxapi.Querier {
 // holds none for, deletes the file objects the function's patches released from their
 // stores once the function returns nil, hands the rows the patches wrote to the
 // collector ctx carries (CollectTouchedRows), runs what the patches registered for after
-// the commit (AfterCommit), and does none of it when it errors.
+// the commit (AfterCommit), and does none of it when it errors. It refuses no delete
+// over the rows under the record, as the Spanner client does before its commit: a mock
+// holds no rows to count.
 func (c *MockClient) ExecuteFunc(ctx context.Context, f func(ctx context.Context, txn ReadWriteTransaction) error) error {
 	txn := newMockReadWriteTransaction(c.txnMock, newReleasedKeys(), c.txnReadMocks...).WithSecretKeys(c.secrets)
 	if err := f(ctx, txn); err != nil {
@@ -99,10 +101,15 @@ func (c *MockClient) ExecuteFunc(ctx context.Context, f func(ctx context.Context
 	}
 
 	releaseFiles(ctx, c.stores, txn.Released())
-	collectTouched(ctx, txn.touched())
 	txn.Committed(ctx)
 
 	return nil
+}
+
+// ExecuteDeleteFunc is ExecuteFunc whatever run says: a mock holds no rows to ask about,
+// and no isolation level.
+func (c *MockClient) ExecuteDeleteFunc(ctx context.Context, _ DeleteRun, f func(ctx context.Context, txn ReadWriteTransaction) error) error {
+	return c.ExecuteFunc(ctx, f)
 }
 
 // ReadOnlyTransaction returns a ReadOnlyTransaction that can be used for multiple reads from the database.
@@ -168,11 +175,13 @@ func (c *MockReadWriteTransaction) recordAfterCommit(key any, f func(ctx context
 	c.committed.record(key, f)
 }
 
-// Committed runs what the transaction's writes registered for after the commit
-// (AfterCommit), as SpannerReadWriteTransaction.Committed does: for a transaction a test
-// builds itself (NewMockReadWriteTransaction); the Mock client's ExecuteFunc makes the
-// calls once the function returns nil.
+// Committed hands the rows the transaction's patches wrote to the collector ctx carries
+// (CollectTouchedRows), then runs what the transaction's writes registered for after the
+// commit (AfterCommit), as SpannerReadWriteTransaction.Committed does: for a transaction a
+// test builds itself (NewMockReadWriteTransaction); the Mock client's ExecuteFunc makes
+// the call once the function returns nil.
 func (c *MockReadWriteTransaction) Committed(ctx context.Context) {
+	collectTouched(ctx, c.touched())
 	c.committed.run(ctx)
 }
 

@@ -206,3 +206,67 @@ func TestRepoUnstaged(t *testing.T) {
 		})
 	}
 }
+
+// TestRepoStageAll stages a change with a brief left standing from an earlier handoff,
+// in a real repository whose .gitignore does not name the brief: what the change wrote
+// is staged and the brief is not, so the next commit never carries it. A brief the
+// repository ignores is left out the same way.
+func TestRepoStageAll(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		gitignore string
+	}{
+		{name: "an application whose .gitignore does not name the brief", gitignore: ".envrc\n"},
+		{name: "an application that ignores the brief", gitignore: ".envrc\n" + File + "\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			root := t.TempDir()
+			exec := check.OSExec{}
+			git := func(args ...string) {
+				t.Helper()
+				if out, err := exec.Run(t.Context(), root, nil, "git", args...); err != nil {
+					t.Fatalf("git %s: %v: %s", strings.Join(args, " "), err, out)
+				}
+			}
+			write := func(rel, content string) {
+				t.Helper()
+				if err := os.MkdirAll(filepath.Dir(filepath.Join(root, rel)), 0o750); err != nil {
+					t.Fatalf("os.MkdirAll() error = %v", err)
+				}
+				if err := os.WriteFile(filepath.Join(root, rel), []byte(content), 0o600); err != nil {
+					t.Fatalf("os.WriteFile() error = %v", err)
+				}
+			}
+			git("init", "-q")
+			write(".gitignore", tt.gitignore)
+			write("go.mod", "module example.com/acme/beacon\n")
+			git("add", "-A")
+			git("-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "-q", "-m", "the application")
+
+			// An earlier handoff left its brief; the next change writes two files.
+			write(File, "# Impulse handoff: beacon\n")
+			write("go.mod", "module example.com/acme/beacon\n\ngo 1.27\n")
+			write("pkg/auth/staff/sso.go", "package staff\n")
+
+			repo := Repo{Root: root, Exec: exec}
+			if err := repo.StageAll(t.Context()); err != nil {
+				t.Fatalf("StageAll() error = %v", err)
+			}
+			staged, err := repo.Staged(t.Context())
+			if err != nil {
+				t.Fatalf("Staged() error = %v", err)
+			}
+			if diff := cmp.Diff([]string{"go.mod", "pkg/auth/staff/sso.go"}, staged); diff != "" {
+				t.Errorf("staged paths mismatch (-want +got):\n%s", diff)
+			}
+			if _, err := os.Stat(filepath.Join(root, File)); err != nil {
+				t.Errorf("the standing brief is gone: %v; StageAll leaves it where it is", err)
+			}
+		})
+	}
+}

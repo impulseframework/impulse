@@ -4,6 +4,7 @@ import {
   computed,
   DestroyRef,
   effect,
+  ElementRef,
   inject,
   input,
   OnInit,
@@ -18,6 +19,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
+import { ApiError } from '@impulseframework/resource';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { CamelCaseToTitlePipe } from '@impulseframework/resource-angular/camel-case-to-title';
 import { FormStateService } from '@impulseframework/resource-angular/resource-services';
@@ -26,7 +28,9 @@ import {
   ChildResourceConfig,
   CreatePermission,
   DataType,
+  FieldDefault,
   FieldElement,
+  FieldMeta,
   ListViewConfig,
   RecordData,
   Resource,
@@ -41,13 +45,36 @@ import { NotificationService } from '@impulseframework/resource-angular/ui-notif
 import { tap } from 'rxjs';
 import { camelCase } from '../concat-fns';
 import { flattenElements } from '../gui-constants';
+import { refusedSentence } from '../refused-fields';
 import { ResourceLayoutComponent } from '../resource-layout/resource-layout.component';
 import { ResourceStore } from '../resource-store.service';
 import { rendererFor } from '../resource-field/renderer';
 import { maxLengthValidator, metadataTypeCoercion } from '../resources-helpers';
+import { rowMessage, rowWordsOf } from '../row-words';
 
 /** The display types the create form presents and never takes: their control starts null and a null control leaves the add operation. */
 const READ_ONLY_SHAPES = new Set(['bytes', 'array', 'object']);
+
+/**
+ * Where a create form starts a yes or no field. What the page's config gives it comes
+ * first. With nothing given, a field the resource requires starts at No: the resource
+ * declares no default for it, the form draws a field whose answer is required as a
+ * picker and not as a box, the picker shows No, and a form saved untouched sends that.
+ * A field the resource does not require starts at the default the schema declares for
+ * it, which the generated metadata carries (`schemaDefault`): the form shows what a
+ * create that left the field out would store, and a form saved untouched sends it.
+ * Where the schema declares none the form holds nothing for the field, which a box
+ * draws unchecked, and sends nothing unless the person answers.
+ */
+function yesOrNoStart(field: FieldMeta, given: FieldDefault): boolean | null {
+  if (given?.type === 'static' && typeof given.value === 'boolean') {
+    return given.value;
+  }
+  if (field.required) {
+    return false;
+  }
+  return field.schemaDefault ?? null;
+}
 
 @Component({
   selector: 'impulse-resource-create',
@@ -76,13 +103,39 @@ export class ResourceCreateComponent implements OnInit {
   router = inject(Router);
   destroyRef = inject(DestroyRef);
   formState = inject(FormStateService);
+  private host = inject<ElementRef<HTMLElement>>(ElementRef);
 
+  /**
+   * Whether the form holds something not yet created. While it does, the form is one of
+   * the unsaved forms the leave-page question counts.
+   */
   isDirty = signal(false);
   submitted = signal<boolean>(false);
   complete = output<boolean>();
   resourceConfig = input<ChildResourceConfig>();
   parentData = input<RecordData>({});
   loadCreatedResource = input<boolean>(false);
+  /**
+   * Set by the dialog a list's create opens in: the dialog draws the title and the
+   * Cancel and create buttons, so the form draws its fields alone, and a create the
+   * server refuses is kept in `refusal` for the dialog to show, where on a page it is
+   * the page's notice.
+   */
+  inDialog = input<boolean>(false);
+  /** Whether a create is on its way to the server. */
+  saving = signal(false);
+  /** The server's refusal of the last create in a dialog, in its words; empty while there is none. */
+  refusal = signal('');
+  /**
+   * What the form says about the last create it did not send because it refuses a field, as
+   * the form stood when the create was asked for; empty until one is refused.
+   */
+  incomplete = signal('');
+  /**
+   * Whether that create left the form nothing to bring into view: every field it refuses
+   * is one that is not on it, and the sentence alone tells the person.
+   */
+  nothingRefusedIsDrawn = signal(false);
 
   rootConfig = computed(() => {
     return this.activatedRoute.snapshot.data['config'] as RootConfig;
@@ -145,9 +198,6 @@ export class ResourceCreateComponent implements OnInit {
       }
 
       let control: FormControl<DataType | null> = new FormControl<DataType | null>('');
-      if (field.displayType === 'boolean') {
-        control = new FormControl<boolean>(false);
-      }
       // A bytes, array, or object field has no editor yet: its control is null, which
       // the cleaning step before ops.add leaves out, so the add sends no value for it.
       if (READ_ONLY_SHAPES.has(rendererFor(field.displayType))) {
@@ -161,14 +211,11 @@ export class ResourceCreateComponent implements OnInit {
       }
       const fieldDefault = fieldConfig.default;
       if (field.displayType === 'boolean') {
-        const booleanDefaultValue =
-          fieldDefault?.type == 'static' && typeof fieldDefault?.value === 'boolean' ? fieldDefault.value : null;
-        if (booleanDefaultValue === null) {
-          console.error(
-            `Default value for boolean field, ${field.fieldName}, is null, add a default value to the config`,
-          );
-        }
-        control = new FormControl<boolean | null>(booleanDefaultValue);
+        control = new FormControl<boolean | null>(yesOrNoStart(field, fieldDefault));
+      } else if (field.displayType === 'nullboolean' && field.schemaDefault !== undefined) {
+        // A yes or no field that can be empty starts at the schema's default as well; with
+        // none declared it starts empty.
+        control = new FormControl<boolean | null>(yesOrNoStart(field, fieldDefault));
       }
 
       if (fieldDefault?.type === 'foreignKey' && this.parentData()) {
@@ -224,6 +271,12 @@ export class ResourceCreateComponent implements OnInit {
 
   camelCaseToTitlePipe = new CamelCaseToTitlePipe();
 
+  /**
+   * The words the created row goes by: the listed resource's, as its metadata carries
+   * them. The message after a create names the row by them.
+   */
+  rowWords = computed(() => rowWordsOf(this.resourceMeta(this.config().primaryResource as Resource)));
+
   ngOnInit(): void {
     // The form is built for the resource the create goes into: the listed resource,
     // or its table when the list is a view declaring one (rowsOf).
@@ -235,15 +288,52 @@ export class ResourceCreateComponent implements OnInit {
     }
   }
 
+  /**
+   * Brings the first field the form refuses into view, in whatever scrolls around the
+   * form (the frame's page, a dialog): the field with its label and the line under it
+   * that says what is wrong, in the middle of the room, clear of a row the page keeps at
+   * its top. The field is found among this form's own elements, by the marks Angular's
+   * forms keep: `ng-invalid` on what does not hold, and `ng-touched` or `ng-untouched`
+   * on every element they keep a mark on at all. An element that carries the form's
+   * group is marked for the whole form, whatever its own control holds, and a text, a
+   * number and a date field carry it on their `mat-form-field`: a field that is filled
+   * is marked as refused while another is not. So a refused control is a marked element
+   * that holds no other element of the form's. A field that is not shown keeps its control
+   * in the form, inside an element the library's stylesheet takes off the screen
+   * (`hidden-field`), and it can be the first one refused: there is nothing of it to bring
+   * into view, so the field brought into view is the first refused one that is drawn.
+   * The answer is whether there was one.
+   */
+  private showFirstRefused(): boolean {
+    const marked = Array.from(this.host.nativeElement.querySelectorAll('form .ng-invalid'));
+    const control = marked.find(
+      (element) =>
+        element.querySelector('.ng-touched, .ng-untouched') === null && element.closest('.hidden-field') === null,
+    );
+    const field = control?.closest('mat-form-field') ?? control;
+    field?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return field !== undefined;
+  }
+
+  /**
+   * What the form says about a create it does not send: the sentence every form of the
+   * library says about the fields it refuses (see `refusedSentence`), over the fields that
+   * do not hold. One that is not on the form is named by its label.
+   */
+  private refusedSentence(): string {
+    return refusedSentence(
+      this.host.nativeElement,
+      this.config().elements,
+      (name) => this.form().get(name)?.invalid === true,
+    );
+  }
+
   saveForm(): void {
     if (!this.form().valid) {
       this.submitted.set(true);
       this.form().markAllAsTouched();
-      const formElement = document.getElementById('resource-form');
-      const invalidField = formElement?.querySelector('.mdc-text-field--invalid');
-      if (invalidField) {
-        invalidField.scrollIntoView({ behavior: 'smooth' });
-      }
+      this.incomplete.set(this.refusedSentence());
+      this.nothingRefusedIsDrawn.set(!this.showFirstRefused());
       return;
     }
 
@@ -266,33 +356,61 @@ export class ResourceCreateComponent implements OnInit {
     const handle = this.store.handle();
     const operation = handle.ops.add(coercedCleanedData);
 
-    void this.store.apply([operation], `${this.store.resourceName()} created successfully`).then((response) => {
-      this.formState.decrementDirtyForms();
+    this.refusal.set('');
+    this.saving.set(true);
+    void this.store
+      .apply([operation], rowMessage(this.rowWords(), 'added'))
+      .then((response) => {
+        // Created: nothing in the form is unsaved any more.
+        this.form().markAsPristine();
 
-      if (!response) {
-        this.complete.emit(true);
-        return;
-      }
-
-      const createIds: string[] =
-        response[handle.descriptor.property] ?? response[camelCase(this.store.resourceName())] ?? [];
-
-      {
-        if (this.loadCreatedResource() && createIds.length === 1) {
-          const navigationRoutes = this.config().createNavigation;
-          if (navigationRoutes.length === 0) {
-            this.router.navigate([createdRoute, createIds[0]]);
-          } else {
-            if (createIds[0]) {
-              navigationRoutes.push(createIds[0]);
-            }
-            this.router.navigate(navigationRoutes);
-          }
-        } else {
+        if (!response) {
           this.complete.emit(true);
+          return;
         }
-      }
-    });
+
+        // The consolidated route keys the new rows' ids by resource. A route of the
+        // resource's own answers them under `ids` (`iDs` on a server from before the key
+        // changed), as the client's own create reads them.
+        const createIds: string[] =
+          response[handle.descriptor.property] ??
+          response[camelCase(this.store.resourceName())] ??
+          response.ids ??
+          response.iDs ??
+          [];
+
+        {
+          if (this.loadCreatedResource() && createIds.length === 1) {
+            // The dialog closes before the new row's page opens under it.
+            if (this.inDialog()) {
+              this.complete.emit(true);
+            }
+            const navigationRoutes = this.config().createNavigation;
+            if (navigationRoutes.length === 0) {
+              this.router.navigate([createdRoute, createIds[0]]);
+            } else {
+              if (createIds[0]) {
+                navigationRoutes.push(createIds[0]);
+              }
+              this.router.navigate(navigationRoutes);
+            }
+          } else {
+            this.complete.emit(true);
+          }
+        }
+      })
+      .catch((error: unknown) => {
+        // On a page a refused create is left to the error handler, which raises the
+        // page's notice. A dialog covers that notice, so the form keeps the server's
+        // words for the dialog to show and stays as it was filled.
+        if (!this.inDialog() || !(error instanceof ApiError)) {
+          throw error;
+        }
+        this.refusal.set(error.message);
+      })
+      .finally(() => {
+        this.saving.set(false);
+      });
   }
 
   /**
@@ -307,9 +425,8 @@ export class ResourceCreateComponent implements OnInit {
   }
 
   cancelForm(): void {
-    if (this.form().dirty) {
-      this.formState.decrementDirtyForms();
-    }
+    // What was typed is dropped, so nothing in the form is unsaved any more.
+    this.form().markAsPristine();
     this.complete.emit(true);
   }
 
@@ -317,8 +434,12 @@ export class ResourceCreateComponent implements OnInit {
     effect(() => {
       console.debug('USAGE | New FormGroup subscription for: ', this.config().title);
 
+      // The form counts as unsaved exactly while it is dirty, whichever way it got
+      // there: a typed input changes the value, a picker writes the value and marks
+      // the form afterwards, and a create or a cancel marks it pristine again. Every
+      // one of those is an event of the form, where a change of value is only the first.
       this.form()
-        .valueChanges.pipe(
+        .events.pipe(
           tap(() => {
             const dirty = this.form().dirty;
 

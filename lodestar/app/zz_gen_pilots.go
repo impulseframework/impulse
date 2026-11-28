@@ -20,11 +20,12 @@ import (
 
 func (a *App) Pilots() http.HandlerFunc {
 	type pilot struct {
-		ID          impulse.UUID    `json:"id"          index:"true" perm:"-"`
+		ID          impulse.UUID    `json:"id"          index:"true"    perm:"-"`
 		UserID      string          `json:"userId"      index:"true"`
-		DisplayName string          `json:"displayName"`
+		DisplayName string          `json:"displayName" index:"true"`
 		Clearance   int64           `json:"clearance"`
 		FeeLimit    decimal.Decimal `json:"feeLimit"`
+		UserName    *string         `json:"userName"    nameof:"UserID" index:"true"`
 	}
 
 	type response []map[string]any
@@ -42,8 +43,9 @@ func (a *App) Pilots() http.HandlerFunc {
 		}
 
 		// A live list registers before the query runs, so a commit that lands during
-		// the query is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, a.LiveService(), querySet, live.ListSubscription(querySet.Resource(), ""))
+		// the query is not missed; a refused request registers nothing. With it the
+		// request registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, a.LiveService(), querySet, live.ListSubscription(querySet.Resource(), ""))
 
 		res := resources.NewPilotQueryFromQuerySet(querySet)
 
@@ -62,7 +64,7 @@ func (a *App) Pilots() http.HandlerFunc {
 			if !page.Add(row) {
 				break
 			}
-			rec := (*pilot)(&row.Data)
+			rec := &row.Data
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
@@ -88,6 +90,11 @@ func (a *App) Pilots() http.HandlerFunc {
 					}
 				}
 			}
+			for _, name := range querySet.Names() {
+				if looked := row.Name(name.Field); looked != nil {
+					rmap[name.JSONName] = *looked
+				}
+			}
 			if capabilities := row.Capabilities(); capabilities != nil {
 				rmap[resource.CapabilitiesProperty] = capabilities
 			}
@@ -109,11 +116,12 @@ func (a *App) Pilots() http.HandlerFunc {
 
 func (a *App) Pilot() http.HandlerFunc {
 	type response struct {
-		ID          impulse.UUID    `json:"id"          index:"true" perm:"-"`
+		ID          impulse.UUID    `json:"id"          index:"true"    perm:"-"`
 		UserID      string          `json:"userId"      index:"true"`
 		DisplayName string          `json:"displayName"`
 		Clearance   int64           `json:"clearance"`
 		FeeLimit    decimal.Decimal `json:"feeLimit"`
+		UserName    *string         `json:"userName"    nameof:"UserID"`
 	}
 
 	decoder := NewQueryDecoder[resources.Pilot, response](a, accesstypes.Read)
@@ -130,8 +138,9 @@ func (a *App) Pilot() http.HandlerFunc {
 		}
 
 		// A live row registers before the read runs, so a commit that lands during the
-		// read is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, a.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(id)))
+		// read is not missed; a refused request registers nothing. With it the request
+		// registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, a.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(id)))
 
 		res := resources.NewPilotQueryFromQuerySet(querySet).SetID(id)
 
@@ -139,7 +148,7 @@ func (a *App) Pilot() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		rec := (*response)(&row.Data)
+		rec := &row.Data
 		rmap := make(map[string]any)
 		for _, field := range querySet.Fields() {
 			switch string(field) {
@@ -165,11 +174,51 @@ func (a *App) Pilot() http.HandlerFunc {
 				}
 			}
 		}
+		for _, name := range querySet.Names() {
+			if looked := row.Name(name.Field); looked != nil {
+				rmap[name.JSONName] = *looked
+			}
+		}
 		if capabilities := row.Capabilities(); capabilities != nil {
 			rmap[resource.CapabilitiesProperty] = capabilities
 		}
 		live.SetCacheControl(w, r)
 
 		return httpio.NewEncoder(w).Ok(rmap)
+	})
+}
+
+// PilotChangeHistory answers a page of one pilot's change records, newest first, to whoever may read the record, with the fields they may see on it. It answers 404 while the resource does not track its changes.
+func (a *App) PilotChangeHistory() http.HandlerFunc {
+	type response struct {
+		ID          impulse.UUID    `json:"id"          index:"true"    perm:"-"`
+		UserID      string          `json:"userId"      index:"true"`
+		DisplayName string          `json:"displayName"`
+		Clearance   int64           `json:"clearance"`
+		FeeLimit    decimal.Decimal `json:"feeLimit"`
+		UserName    *string         `json:"userName"    nameof:"UserID"`
+	}
+
+	decoder := NewQueryDecoder[resources.Pilot, response](a, accesstypes.Read)
+
+	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := tracer.Start(r.Context())
+		defer span.End()
+
+		id := httpio.Param[impulse.UUID](r, router.PilotID)
+
+		history, err := decoder.DecodeChangeHistory(r, a.UserPermissions(r), accesstypes.GlobalScope())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		resources.NewPilotQueryFromQuerySet(history.QuerySet()).SetID(id)
+
+		page, err := history.Read(ctx, a.ResourceClient())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok(page)
 	})
 }

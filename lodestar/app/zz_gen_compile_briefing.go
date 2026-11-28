@@ -93,8 +93,21 @@ func (a *App) CompileBriefing() http.HandlerFunc {
 		// write or a read against the caller (Enforce) evaluates the same checker,
 		// scope, and decision instant.
 		ctx = resource.WithCaller(ctx, caller)
+		// The method's name rides the context too: who made a change
+		// (eventsource.UserEvent) reads it there, so every change record the body writes
+		// names the method.
+		ctx = resource.WithRPC(ctx, "CompileBriefing")
 
 		p := (*rpc.CompileBriefing)(params)
+
+		// A row the request names in a picked field is one the caller can list
+		// (resource.Caller.HoldPicked): any other is answered as a row that is not there,
+		// before the warning, the transaction and the body.
+		if err := caller.HoldPicked(ctx, a.ResourceClient(), "CompileBriefing",
+			resource.PickedRow{Row: resource.NamedRow{Field: "TemplateID", Resource: "BriefingTemplates", Table: "", KeyColumn: "", Computed: true}, Value: p.TemplateID},
+		); err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
 
 		// The X-Warning header takes the value true or is left off the request: any
 		// other value is refused here, and the call is not run.

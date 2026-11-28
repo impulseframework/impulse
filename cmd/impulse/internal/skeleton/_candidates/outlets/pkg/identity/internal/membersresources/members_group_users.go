@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/resource"
 )
 
 type (
@@ -25,6 +26,7 @@ type (
 	// @outlet(portal)
 	// @order(Username asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(group member)
 	MembersGroupUser struct {
 		// @primarykey
 		// @attribute(group)
@@ -62,4 +64,41 @@ WHERE (m.EndsAt IS NULL OR m.EndsAt > CURRENT_TIMESTAMP())
 // Subquery is the query the rows are read from.
 func (MembersGroupUser) Subquery() (query string, params map[string]any) {
 	return membersGroupUserQuery, nil
+}
+
+// membersGroupAdministeredTenantsQuery answers the tenant each group of the
+// Members auth makes its people administrators of, a row for each, RowKey the group's id,
+// Tenant the tenant, and the kind, the tenant and the name of the role: a
+// group kept in a tenant that holds there one of the roles the auth's permission
+// engine names as a tenant's administrator's (@enteringAdministratorRoles), in
+// an assignment that has not ended, one that has not begun included. The methods that put a
+// person in a group and take one out refuse a caller by the same count (the identity
+// package's requireEnteringToChange), and each row of the whole application's groups, of
+// their people and of the roles they hold reads it (TenantsToEnter).
+const membersGroupAdministeredTenantsQuery = `
+SELECT tr.GroupId AS RowKey, tr.Kind AS Kind, tr.DomainId AS DomainId, tr.Role AS Role, tg.DomainId AS Tenant
+FROM MembersGroupRoles tr
+JOIN MembersGroups tg ON tg.Id = tr.GroupId
+WHERE tg.Kind = 'domain' AND tg.Axis = ''
+  AND tr.Kind = 'domain' AND tr.Axis = '' AND tr.DomainId = tg.DomainId
+  AND tr.Role IN UNNEST(@enteringAdministratorRoles)
+  AND (tr.EndsAt IS NULL OR tr.EndsAt > CURRENT_TIMESTAMP())
+`
+
+// membersGroupTenantsToEnter is what each row of a group of the Members auth, or
+// of one of its people, answers TenantsToEnter with: the query, the roles it reads, and
+// column, the row's column that holds the group's id.
+func membersGroupTenantsToEnter(column string) resource.TenantsToEnter {
+	// The roles are the people's: the same names, bound under the same parameter.
+	enter := membersSessionUserTenantsToEnter(column)
+	enter.Query = membersGroupAdministeredTenantsQuery
+
+	return enter
+}
+
+// TenantsToEnter names the tenant the group is kept in, where the group holds one
+// of that tenant's administrator roles there: a caller whose session does not
+// enter it is not offered the methods that put a person in the group or take one out.
+func (MembersGroupUser) TenantsToEnter() resource.TenantsToEnter {
+	return membersGroupTenantsToEnter("GroupId")
 }

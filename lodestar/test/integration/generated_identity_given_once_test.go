@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -21,19 +20,15 @@ func TestGeneratedIdentityRoleGivenOnce(t *testing.T) {
 	ctx := sessionContext(t, "governor")
 	username := "gina-" + identitySuffix()
 
-	// One transaction creates the person and gives the role twice, to the account the
-	// create made, by its id.
-	var gina impulse.UUID
+	// One transaction gives the role twice, to an account that is there already, by its
+	// id.
+	gina := w.seedCrewUser(ctx, t, username, "CrewCommon")
 	if err := w.inTransaction(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-		var err error
-		if gina, err = w.createCrewUser(ctx, txn, username, "CrewCommon"); err != nil {
-			return err
-		}
-		if err := w.assignCrewRole(ctx, txn, gina, "Headquarters"); err != nil {
+		if err := w.assignHeadquarters(ctx, txn, gina); err != nil {
 			return err
 		}
 
-		return w.assignCrewRole(ctx, txn, gina, "Headquarters")
+		return w.assignHeadquarters(ctx, txn, gina)
 	}); err != nil {
 		t.Fatalf("a role given twice in one transaction: %v", err)
 	}
@@ -44,7 +39,7 @@ func TestGeneratedIdentityRoleGivenOnce(t *testing.T) {
 
 	// Given again in a later transaction, the row is left as it is.
 	if err := w.inTransaction(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-		return w.assignCrewRole(ctx, txn, gina, "Headquarters")
+		return w.assignHeadquarters(ctx, txn, gina)
 	}); err != nil {
 		t.Fatalf("a role given to a person who holds it: %v", err)
 	}

@@ -20,6 +20,9 @@ type RoleResourceChecker interface {
 	RolePermissionDigest(ctx context.Context, role accesstypes.Role, scope accesstypes.Scope) (accesstypes.PermissionDigest, error)
 
 	RoleHasGrants(ctx context.Context, role accesstypes.Role, scope accesstypes.Scope) (bool, error)
+
+	// Auth names the auth the engine was opened for (Client.Auth).
+	Auth() string
 }
 
 // RoleChecker is the request-bound permission checker for one role: what a
@@ -88,4 +91,11 @@ func (r *RoleChecker) HasGrants(ctx context.Context, scope accesstypes.Scope) (b
 // Role returns the bound role.
 func (r *RoleChecker) Role() accesstypes.Role {
 	return r.role
+}
+
+// Auth names the auth whose engine the checker answers from, empty for an engine
+// opened under no auth's name: the resource package asks it before it answers a
+// request that came through an auth.
+func (r *RoleChecker) Auth() string {
+	return r.checker.Auth()
 }

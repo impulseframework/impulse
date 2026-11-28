@@ -8,13 +8,15 @@ import (
 	"time"
 
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/resource"
 )
 
 // How a tenant admits a stranger its directory vouches for is the directories record's
 // default seat column (@directoryDefaultSeat): with a role named there the tenant is
-// open to the directory's people, each given the role at their first sign-in through
-// it, and with none the tenant is invite only. The choice is the tenant's own, made by
+// open to the directory's people, each given the role whenever they sign in through it
+// and hold nothing in the tenant, and with none the tenant is invite only. The choice is
+// the tenant's own, made by
 // the tenant's administrator, so the generator writes it as two methods in the tenant's
 // scope for a directories record that carries the column, on every outlet that serves
 // sessions and the record:
@@ -65,11 +67,15 @@ func makeInviteOnlyMethodName(record string) string {
 
 // directoryRoleMethodsOf are the two methods that say how the record admits its
 // directory's people: the one that opens it, which warns, and the one that makes it
-// invite only.
+// invite only. The first gives a role to everyone who arrives through the directory
+// and the second takes it away again, so both carry the class of the actions that
+// change who may do what (accesstypes.ClassAccess).
 func directoryRoleMethodsOf(record string) []tenantOwnMethod {
+	changesAccess := []accesstypes.ActionClass{accesstypes.ClassAccess}
+
 	return []tenantOwnMethod{
-		{Name: openToDirectoryMethodName(record), Typed: resource.OpenToDirectoryWord},
-		{Name: makeInviteOnlyMethodName(record), Typed: ""},
+		{Name: openToDirectoryMethodName(record), Typed: resource.OpenToDirectoryWord, Classes: changesAccess},
+		{Name: makeInviteOnlyMethodName(record), Typed: "", Classes: changesAccess},
 	}
 }
 
@@ -182,8 +188,9 @@ type directoryRoleData struct {
 	// NULL; a plain string holds none as the empty string.
 	SeatIsPointer bool
 	// Auth is the Pascal name of the auth whose generated identity client judges the
-	// role, IdentityAccessor the application's accessor of that client, and Picker the
-	// list of the roles that exist in one tenant.
+	// role, IdentityAccessor the application's accessor of that client, whose audit log
+	// the two methods are recorded in (tenantSignInRecorder names the same), and Picker
+	// the list of the roles that exist in one tenant.
 	Auth             string
 	IdentityAccessor string
 	Picker           string
@@ -236,4 +243,36 @@ func (r *resourceGenerator) generateDirectoryRole() error {
 	log.Printf("Generated the directory's default role file in %s: %s", time.Since(begin), destinationFilePath)
 
 	return nil
+}
+
+// tenantSignInRecorder is the application's accessor of the generated identity client
+// whose audit log a tenant's sign-in settings are recorded in: that of the auth the
+// directories record's session outlets are bound to (identityInstance.recordsTenantSignIn),
+// whether or not its management opens a tenant to its directory's people with a starting
+// role. The seven methods of a tenant's directory (the take, the directory-only switch,
+// the default role and the second factor's word) record their act through it, in their
+// transaction, after their write. It is "" where no auth's management is generated for
+// those outlets, and the methods are written with no record.
+//
+// The tenant's sign-in settings are recorded in the audit log of the auth whose people the directories record's outlets sign in. An application with no such auth has no log to write them to.
+func (r *resourceGenerator) tenantSignInRecorder() string {
+	for _, inst := range r.identity {
+		if inst.recordsTenantSignIn {
+			return inst.accessor()
+		}
+	}
+
+	return ""
+}
+
+// directoryRemovalRecorder is the application's accessor of the identity client whose
+// audit log the delete of res records the directory's removal in: the auth that records
+// a tenant's sign-in acts (tenantSignInRecorder) for the directories record, and none for
+// any other resource or where no auth records them.
+func (r *resourceGenerator) directoryRemovalRecorder(res *resourceInfo) string {
+	if !res.IsTenantDirectory {
+		return ""
+	}
+
+	return r.tenantSignInRecorder()
 }

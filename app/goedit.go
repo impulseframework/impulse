@@ -296,6 +296,50 @@ func AddLiteralElementOfType(rel string, src []byte, typeName, element string) (
 	return p.appendElement(rel, lit, element)
 }
 
+// AddLiteralElementToEachOfType appends "key: value" to every composite literal of the
+// named type in the file, for a field every construction must set (a setting the
+// constructor refuses without): the data level's literal and a test harness's alike. A
+// literal that sets the key already is left as it is, and a file that builds no literal
+// of the type has no anchor.
+func AddLiteralElementToEachOfType(rel string, src []byte, typeName, element string) ([]byte, error) {
+	key, err := elementKey(element)
+	if err != nil {
+		return nil, err
+	}
+	if key == "" {
+		return nil, errors.Newf("the element %q has no key", element)
+	}
+	found := false
+	for {
+		p, err := parseSource(rel, src)
+		if err != nil {
+			return nil, err
+		}
+		var next *ast.CompositeLit
+		ast.Inspect(p.file, func(n ast.Node) bool {
+			if cl, ok := n.(*ast.CompositeLit); ok && exprName(cl.Type) == typeName {
+				found = true
+				if next == nil && !hasKey(cl, key) {
+					next = cl
+				}
+			}
+
+			return true
+		})
+		if next == nil {
+			break
+		}
+		if src, err = p.appendElement(rel, next, element); err != nil {
+			return nil, err
+		}
+	}
+	if !found {
+		return nil, errors.Wrapf(ErrNoAnchor, "%s builds no %s literal", rel, typeName)
+	}
+
+	return src, nil
+}
+
 // appendElement appends the element to the literal, unless the literal sets its key. A
 // literal written on one line stays on one line, and a multi-line literal gains the
 // element on a line of its own, so the result is what gofumpt accepts: a literal is

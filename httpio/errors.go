@@ -23,6 +23,7 @@ const (
 	requestEntityTooLarge msgType = http.StatusRequestEntityTooLarge
 	unsupportedMediaType  msgType = http.StatusUnsupportedMediaType
 	unprocessableEntity   msgType = http.StatusUnprocessableEntity
+	preconditionRequired  msgType = http.StatusPreconditionRequired
 	tooManyRequests       msgType = http.StatusTooManyRequests
 	clientClosedRequest   msgType = 499
 	internalServerError   msgType = http.StatusInternalServerError
@@ -98,11 +99,23 @@ type ClientMessage struct {
 	msgType       msgType
 	clientMessage string
 	error         error
+	// records is the number a question counted, carried in the answer's body beside the
+	// message (NewPreconditionRequiredRecords); zero for any other message.
+	records int64
+	// token is the token a question that passed gave, carried in the answer's body beside
+	// the message (NewPreconditionRequiredToken); empty for any other message.
+	token string
 }
 
 // Message returns the client message
 func (c *ClientMessage) Message() string {
 	return c.clientMessage
+}
+
+// Records returns the number of records a question counted
+// (NewPreconditionRequiredRecords), zero for any other message.
+func (c *ClientMessage) Records() int64 {
+	return c.records
 }
 
 // Error returns the error message
@@ -485,6 +498,41 @@ func NewUnprocessableEntityMessage(message string) errors.Chain {
 	return wrap(&ClientMessage{
 		msgType:       unprocessableEntity,
 		clientMessage: message,
+	})
+}
+
+// NewPreconditionRequiredMessage creates a new client message with a PreconditionRequired (428) return code:
+// the request is one the server takes only once the client has said something more, and the
+// message is what the client is asked. A delete that would take the records under the one it
+// names is answered with it until the request says so.
+func NewPreconditionRequiredMessage(message string) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       preconditionRequired,
+		clientMessage: message,
+	})
+}
+
+// NewPreconditionRequiredRecords is NewPreconditionRequiredMessage for a question that
+// counts records: the answer's body carries the number beside the message, as records. A
+// delete that would take the records under the one it names asks with it, and whoever
+// repeats the delete shows its progress against that number.
+func NewPreconditionRequiredRecords(message string, records int64) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       preconditionRequired,
+		clientMessage: message,
+		records:       records,
+	})
+}
+
+// NewPreconditionRequiredToken is NewPreconditionRequiredRecords for a question that
+// passed with no read-write transaction open: the answer's body also carries the token the
+// delete that takes the records brings back, as token.
+func NewPreconditionRequiredToken(message string, records int64, token string) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       preconditionRequired,
+		clientMessage: message,
+		records:       records,
+		token:         token,
 	})
 }
 
@@ -1117,6 +1165,16 @@ func HasUnprocessableEntity(err error) bool {
 	cerr := &ClientMessage{}
 	if errors.As(err, &cerr) {
 		return cerr.msgType == unprocessableEntity
+	}
+
+	return false
+}
+
+// HasPreconditionRequired checks if the error contains a PreconditionRequired (428) message
+func HasPreconditionRequired(err error) bool {
+	cerr := &ClientMessage{}
+	if errors.As(err, &cerr) {
+		return cerr.msgType == preconditionRequired
 	}
 
 	return false

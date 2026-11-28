@@ -4,14 +4,19 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/internal/actor"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
@@ -54,16 +59,20 @@ type NewTenant struct {
 	// DefaultRole is the role a person from the tenant's directory starts with: the
 	// directory row's default seat. Empty for none.
 	DefaultRole accesstypes.Role
-	// Source is what the change events of the tenant's rows name as their source: the
-	// person who accepted and the invitation, since the write is made at a sign-in,
-	// before any session stands.
-	Source string
+	// Source is who the change records of the tenant's rows say made them: the person who
+	// accepted the invitation, through the process that makes the tenant. The write is
+	// made at a sign-in, before any session stands, so the records name no session.
+	Source eventsource.EventSource
 	// Caller is set at the check a send makes, and nil at an acceptance: the request's
 	// caller, whose grants the record's create is held to (the Create grant on the
 	// tenant record and on each field, with every condition), so a detail the sender
 	// could not have written by creating the tenant is refused when the invitation is
 	// sent. At an acceptance the write is the application's own.
 	Caller *resource.Caller
+	// Name is set by Make: what the tenant it made is called, the value its row holds in the
+	// record's @tenantName column, and "" where the record marks none or the row holds
+	// none. A caller hands it empty.
+	Name string
 }
 
 // TenantMaker makes a tenant from an invitation's details. The generator writes one over
@@ -86,6 +95,10 @@ type TenantMaker interface {
 	// DeclaresDirectoryOnly reports whether the tenant record declares the
 	// directory-only switch. An invitation says directory only where it does.
 	DeclaresDirectoryOnly() bool
+	// TakesDirectory reports whether a tenant keeps a directory: the application
+	// declares the tenant record's directories record. A tenant made through an
+	// organization's directory takes it as its own only where it does.
+	TakesDirectory() bool
 }
 
 // WithTenantMaker hands the manager what makes a tenant from an accepted invitation
@@ -149,7 +162,8 @@ func (m *Manager) CheckInvitedTenant(ctx context.Context, client resource.Client
 	}
 	err := client.ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 		if _, err := m.tenants.Make(ctx, txn, &NewTenant{
-			Fields: inv.Fields, DirectoryOnly: false, Directory: signin.Directory{Method: "", Connection: ""}, DefaultRole: "", Source: "the check of an invitation, rolled back", Caller: caller,
+			Fields: inv.Fields, DirectoryOnly: false, Directory: signin.Directory{Method: "", Connection: ""}, DefaultRole: "", Source: eventsource.ProcessEvent("CheckInvitedTenant"), Caller: caller,
+			Name: "",
 		}); err != nil {
 			return errors.Wrap(err, "identity.TenantMaker.Make()")
 		}
@@ -192,14 +206,17 @@ func (m *Manager) InviteTenant(ctx context.Context, txn resource.ReadWriteTransa
 	}
 	email := strings.TrimSpace(inv.Email)
 	if email == "" {
-		return impulse.NilUUID, httpio.NewBadRequestMessage("an address is required: the invitation is mailed to it")
+		return impulse.NilUUID, httpio.NewBadRequestMessage("The invitation has no email address. Give the address to mail it to.")
 	}
 	tenantName := strings.TrimSpace(inv.TenantName)
 	if tenantName == "" {
-		return impulse.NilUUID, httpio.NewBadRequestMessagef("the %s's name is required: the invitation page shows it to the person invited", m.tenantWord)
+		return impulse.NilUUID, httpio.NewBadRequestMessagef("The %s has no name. Give the name the invitation page shows to the person invited.", m.tenantWord)
 	}
 	if inv.DirectoryOnly && !m.tenants.DeclaresDirectoryOnly() {
-		return impulse.NilUUID, httpio.NewBadRequestMessagef("a %s here cannot be directory only: the application's %s record declares no such switch", m.tenantWord, m.tenantWord)
+		return impulse.NilUUID, httpio.NewBadRequestMessagef(
+			"%s here cannot be directory only, because the application's %s record declares no such switch. Send the invitation without it.",
+			sentenceStart(withArticle(m.tenantWord)), m.tenantWord,
+		)
 	}
 	role, err := m.startingRole(ctx, txn, inv.DefaultRole)
 	if err != nil {
@@ -210,7 +227,7 @@ func (m *Manager) InviteTenant(ctx context.Context, txn resource.ReadWriteTransa
 		return impulse.NilUUID, errors.Wrap(err, "json.Marshal()")
 	}
 	req := &session.InvitationRequest{
-		Email: email, Name: "", TenantID: "", RoleNames: nil, InvitedByUserID: m.callerAccount(ctx, txn),
+		Email: email, Name: "", TenantID: "", EveryTenant: false, RoleNames: nil, InvitedByUserID: m.callerAccount(ctx, txn),
 		NewTenant: &sessioninfo.NewTenant{Name: tenantName, DirectoryOnly: inv.DirectoryOnly, Details: details},
 	}
 	if inv.Name != nil {
@@ -222,16 +239,25 @@ func (m *Manager) InviteTenant(ctx context.Context, txn resource.ReadWriteTransa
 		return impulse.NilUUID, errors.Wrap(err, "identity.SessionAPI.PrepareInvitation()")
 	}
 	row := prepared.Row()
+	if err := m.refuseImpersonatorsAddress(ctx, txn, row.Email); err != nil {
+		return impulse.NilUUID, err
+	}
 	if err := m.refuseInvitedWithATenant(ctx, txn, row.Email); err != nil {
 		return impulse.NilUUID, err
 	}
 	if err := m.store.InsertInvitation(ctx, txn, row); err != nil {
 		return impulse.NilUUID, errors.Wrap(err, "identity.Store.InsertInvitation()")
 	}
+	// The row names no role and no tenant: there is none yet.
+	invited := invitationRecord(auditlog.ActInvited, row.ID, row.Email)
+	invited.Form = auditlog.FormNewTenant
+	if err := m.record(ctx, txn, invited); err != nil {
+		return impulse.NilUUID, err
+	}
 	if err := resource.AfterCommit(txn, func(ctx context.Context) {
 		err := prepared.Send(ctx)
 		if err != nil {
-			logger.FromCtx(ctx).Errorf("identity: the invitation %s to %s is committed and its message could not be sent, so it is withdrawn: %v", row.ID, row.Email, err)
+			logger.FromCtx(ctx).Errorf("identity: the invitation %s to %s is committed and its message could not be sent, so it is ended, not mailed: %v", row.ID, row.Email, err)
 		}
 		if sent != nil {
 			sent(err == nil)
@@ -297,20 +323,30 @@ func (m *Manager) startingRole(ctx context.Context, txn resource.ReadWriteTransa
 	}
 	role := accesstypes.Role(strings.TrimSpace(*named))
 	if !m.tenants.SeatsDefaultRole() {
-		return "", httpio.NewBadRequestMessagef("a %s's directory keeps no starting role here, so the invitation names none: leave the role empty", m.tenantWord)
+		return "", httpio.NewBadRequestMessagef("%s's directory keeps no starting role here, so the invitation names none. Leave the role empty.", sentenceStart(withArticle(m.tenantWord)))
 	}
 	if err := m.mayStartWith(ctx, txn, role); err != nil {
 		return "", err
 	}
 	if role == accesstypes.SuperAdministrator {
-		return "", httpio.NewBadRequestMessagef("the %s role is held for the whole application alone, and is never the role a %s's people start with", string(role), m.tenantWord)
+		const (
+			said  = "The %s role is held for the whole application alone, and is never the role %s's people start with. Choose another role, or none."
+			cause = "the %s role is held for the whole application alone, and is never the role a %s's people start with"
+		)
+
+		return "", httpio.NewBadRequestMessageWithErrorf(errors.Newf(cause, string(role), m.tenantWord), said, roleInWords(role), withArticle(m.tenantWord))
 	}
 	exists, err := m.roleExistsIn(ctx, txn, role, []accesstypes.PolicyScope{accesstypes.EveryDomainPolicyScope()})
 	if err != nil {
 		return "", err
 	}
 	if !exists {
-		return "", httpio.NewBadRequestMessagef("role %q is no role of a %s: the people of the new %s's directory start with one of its roles", role, m.tenantWord, m.tenantWord)
+		const (
+			said  = "%s is not a role of %s. The people of the new %s's directory start with one of its roles, so choose one of those."
+			cause = "role %q is no role of a %s: the people of the new %s's directory start with one of its roles"
+		)
+
+		return "", httpio.NewBadRequestMessageWithErrorf(errors.Newf(cause, role, m.tenantWord, m.tenantWord), said, roleInWords(role), withArticle(m.tenantWord), m.tenantWord)
 	}
 
 	return role, nil
@@ -319,7 +355,9 @@ func (m *Manager) startingRole(ctx context.Context, txn resource.ReadWriteTransa
 // mayStartWith answers whether the request's caller could give the role to a person in
 // a tenant, nil when they could. A call outside any request is the application's own
 // act and is not judged; a request that reaches a manager built without the grants
-// cannot be judged, which is an error and never a pass.
+// cannot be judged, which is an error and never a pass. A caller who could not is told
+// so in one sentence that names the role in words (roleInWords); the role's code name
+// and the advice are the refusal's cause, kept for the server's log.
 func (m *Manager) mayStartWith(ctx context.Context, txn resource.ReadWriteTransaction, role accesstypes.Role) error {
 	if resource.CallerFrom(ctx).IsZero() {
 		return nil
@@ -332,15 +370,90 @@ func (m *Manager) mayStartWith(ctx context.Context, txn resource.ReadWriteTransa
 	if err != nil {
 		return errors.Wrap(err, "impulse.NewUUID()")
 	}
-	may, err := m.grants.MayGive(ctx, txn, accesstypes.DomainPolicyScope(accesstypes.Domain(placeholder.String())), impulse.NilUUID, role)
+	may, err := m.mayGiveInTenantToBe(ctx, txn, accesstypes.DomainPolicyScope(accesstypes.Domain(placeholder.String())), role)
 	if err != nil {
-		return errors.Wrap(err, "identity.RoleGrants.MayGive()")
+		return err
 	}
 	if !may {
-		return httpio.NewForbiddenMessagef("the people of the new %s's directory would start with the role %s, which you may not give: name a role you may give, or none", m.tenantWord, string(role))
+		return httpio.NewForbiddenMessageWithError(
+			errors.Newf("the people of the new %s's directory would start with the role %s, which you may not give: name a role you may give, or none", m.tenantWord, string(role)),
+			fmt.Sprintf("The people of the new %s's directory would start with the role %s, which you may not give.", m.tenantWord, roleInWords(role)),
+		)
 	}
 
 	return nil
+}
+
+// StartingRoles lists the roles the people of a new tenant's directory may start with,
+// as the dialog of the invitation that makes a tenant offers them (method: the
+// invitation's method, by the name its grant is written under). They are the roles
+// InviteTenant takes from the request's caller and no other: a role held in every
+// tenant, the role file's or a custom one, never the Super Administrator role, that the
+// caller could give a person in a tenant no row names yet (RoleGrants.MayGive, asked of
+// nobody in particular) and that the invitation's own grant does not refuse
+// (RoleGrants.CouldGive). A page offers what the caller may do: a role the list leaves
+// out is one the invitation refuses, and one it offers is one the invitation takes.
+// Where a tenant's directory keeps no starting role the list is empty. A call outside
+// any request is the application's own and lists every role held in every tenant; a
+// manager a request reaches without the role grants cannot judge it, which is an error
+// and never a list.
+//
+// It is a list's read, called outside any transaction, and opens none: the whole
+// application's methods name no row, so their grants are settled without one.
+func (m *Manager) StartingRoles(ctx context.Context, method accesstypes.Resource) ([]access.RoleInfo, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := m.requireTenantMaker(); err != nil {
+		return nil, err
+	}
+	if !m.tenants.SeatsDefaultRole() {
+		return []access.RoleInfo{}, nil
+	}
+	roles, err := m.access.UserManager().Roles(ctx, accesstypes.EveryDomainPolicyScope())
+	if err != nil {
+		return nil, errors.Wrap(err, "access.UserManager.Roles()")
+	}
+	roles = slices.DeleteFunc(roles, func(role access.RoleInfo) bool { return role.Name == accesstypes.SuperAdministrator })
+	if resource.CallerFrom(ctx).IsZero() {
+		return roles, nil
+	}
+	if m.grants == nil {
+		return nil, errors.New("a request lists the roles the people of a new tenant's directory may start with and the manager holds no role grants to judge them by: " +
+			"build it with identity.WithRoleGrants, as the generated client does")
+	}
+	placeholder, err := impulse.NewUUID()
+	if err != nil {
+		return nil, errors.Wrap(err, "impulse.NewUUID()")
+	}
+	scope := accesstypes.DomainPolicyScope(accesstypes.Domain(placeholder.String()))
+
+	return rolesOffered(roles, func(role accesstypes.Role) (bool, error) {
+		may, err := m.mayGiveInTenantToBe(ctx, nil, scope, role)
+		if err != nil || !may {
+			return false, err
+		}
+		could, err := m.grants.CouldGive(ctx, method, scope, role)
+		if err != nil {
+			return false, errors.Wrap(err, "identity.RoleGrants.CouldGive()")
+		}
+
+		return could, nil
+	})
+}
+
+// mayGiveInTenantToBe reports whether the request's caller could give the role to a
+// person in a tenant that does not exist yet (scope: one no row names), by the grant of
+// the method that gives a role, asked of nobody in particular. The invitation that makes
+// a tenant (mayStartWith) and the list its starting role is picked from (StartingRoles)
+// ask it alike, so the two cannot drift.
+func (m *Manager) mayGiveInTenantToBe(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {
+	may, err := m.grants.MayGive(ctx, txn, scope, impulse.NilUUID, role)
+	if err != nil {
+		return false, errors.Wrap(err, "identity.RoleGrants.MayGive()")
+	}
+
+	return may, nil
 }
 
 // refuseInvitedWithATenant is the rule of one tenant per person on an invitation that
@@ -366,7 +479,7 @@ func (m *Manager) refuseInvitedWithATenant(ctx context.Context, txn resource.Rea
 	}
 	if !outsideTenants(held) && tenantCount(held) > 0 {
 		return sessioninfo.NewLoginRefusal(sessioninfo.RefusedOtherTenant, httpio.NewConflictMessagef(
-			"an account already holds the address %s and belongs to a %s, and a person belongs to one %s here: the invitation is not sent", email, m.tenantWord, m.tenantWord,
+			"An account already holds the address %s and belongs to %s, and a person belongs to one %s here. The invitation is not sent.", email, withArticle(m.tenantWord), m.tenantWord,
 		))
 	}
 
@@ -386,41 +499,89 @@ func (m *Manager) refuseInvitedWithATenant(ctx context.Context, txn resource.Rea
 // directory whatever called the hook. A directory another tenant has is the maker's
 // refusal (sessioninfo.RefusedOrganizationHasTenant), and a person who already belongs to
 // a tenant, where a person belongs to one, is the membership's (AssignRole).
-func (m *Manager) acceptTenantInvitation(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, username string, inv *sessioninfo.Invitation) (accesstypes.Domain, error) {
+//
+// The tenant made is noted on the invitation (sessioninfo.Invitation.MadeTenantID),
+// which is how the session library learns where to open the application for the
+// person: the invitation itself names no tenant. A refusal notes none.
+//
+// It answers the tenant with what it is called, the name its maker made it with
+// (NewTenant.Name, "" for none): the rows of its making are written under MakingTenant,
+// since the roster learns of the tenant only after the commit.
+func (m *Manager) acceptTenantInvitation(
+	ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, username string, inv *sessioninfo.Invitation,
+) (accesstypes.Domain, string, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	if err := m.requireTenantMaker(); err != nil {
-		return "", err
+		return "", "", err
 	}
 	var details tenantDetails
 	if len(inv.NewTenant.Details) > 0 {
 		if err := json.Unmarshal(inv.NewTenant.Details, &details); err != nil {
-			return "", errors.Wrapf(err, "the invitation %s to %s carries details that do not read", inv.ID, inv.Email)
+			return "", "", errors.Wrapf(err, "the invitation %s to %s carries details that do not read", inv.ID, inv.Email)
 		}
 	}
 	directory := signin.Directory{Method: inv.SignInMethod, Connection: inv.SignInConnection}
 	if !directory.Organization() {
 		directory = signin.Directory{Method: "", Connection: ""}
 		if inv.NewTenant.DirectoryOnly {
-			return "", sessioninfo.NewLoginRefusal(sessioninfo.RefusedOrganizationAccountRequired, httpio.NewUnauthorizedMessageWithError(signin.ErrOrganizationAccountRequired,
+			return "", "", sessioninfo.NewLoginRefusal(sessioninfo.RefusedOrganizationAccountRequired, httpio.NewUnauthorizedMessageWithError(signin.ErrOrganizationAccountRequired,
 				"This invitation is accepted with your organization's account, not with a password or a personal account. Sign in with your organization's account (Google Workspace or Microsoft Entra)."))
 		}
 	}
-	domain, err := m.tenants.Make(ctx, txn, &NewTenant{
+	made := &NewTenant{
 		Fields: details.Fields, DirectoryOnly: inv.NewTenant.DirectoryOnly, Directory: directory, DefaultRole: accesstypes.Role(details.DefaultRole),
-		Source: fmt.Sprintf("%s (%s), invitation %s", username, userID, inv.ID), Caller: nil,
-	})
+		Source: eventsource.AccountProcessEvent(ctx, actor.NewAccount(userID, username), "AcceptInvitation"), Caller: nil, Name: "",
+	}
+	domain, err := m.tenants.Make(ctx, txn, made)
 	if err != nil {
-		return "", errors.Wrapf(err, "the invitation to %s makes a %s", inv.Email, m.tenantWord)
+		return "", "", errors.Wrapf(err, "the invitation to %s makes a %s", inv.Email, m.tenantWord)
+	}
+	ctx = MakingTenant(ctx, domain, made.Name)
+	if err := m.recordMadeWithDirectory(ctx, txn, domain, directory, inv.NewTenant.DirectoryOnly, accesstypes.Role(details.DefaultRole)); err != nil {
+		return "", "", err
 	}
 	for _, role := range m.administrators.domain {
 		if err := m.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(domain), userID, role); err != nil {
-			return "", errors.Wrapf(err, "the invitation to %s seats %q as the new %s's administrator with the role %s", inv.Email, username, m.tenantWord, role)
+			return "", "", errors.Wrapf(err, "the invitation to %s seats %q as the new %s's administrator with the role %s", inv.Email, username, m.tenantWord, role)
+		}
+	}
+	// The session library opens the application for the person in the tenant their
+	// invitation made: it is told which here, once everything is buffered.
+	inv.MadeTenantID = string(domain)
+
+	return domain, made.Name, nil
+}
+
+// recordMadeWithDirectory records what a tenant was made with of its own sign-in
+// settings, in the auth's audit log, in the tenant: the organization's directory it took
+// as its own, where it keeps one (TenantMaker.TakesDirectory), that it is directory only,
+// and the role its directory's people start with, where its directory keeps one
+// (TenantMaker.SeatsDefaultRole). Each is the row its own act writes later
+// (RecordTenantSignIn), by what made the tenant. A tenant made with no directory records
+// none.
+func (m *Manager) recordMadeWithDirectory(
+	ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain, directory signin.Directory, directoryOnly bool, role accesstypes.Role,
+) error {
+	if !directory.Organization() || !m.tenants.TakesDirectory() {
+		return nil
+	}
+	if err := m.RecordTenantSignIn(ctx, txn, tenant, auditlog.ActDirectoryTaken, resource.DirectoryNameOrKind(directory, m.DirectoryName)); err != nil {
+		return err
+	}
+	if directoryOnly {
+		if err := m.RecordTenantSignIn(ctx, txn, tenant, auditlog.ActDirectoryOnlyOn, ""); err != nil {
+			return err
+		}
+	}
+	if role != "" && m.tenants.SeatsDefaultRole() {
+		if err := m.RecordTenantSignIn(ctx, txn, tenant, auditlog.ActDirectoryOpened, string(role)); err != nil {
+			return err
 		}
 	}
 
-	return domain, nil
+	return nil
 }
 
 // tenantInvitationAccepted answers the session library's hook for an invitation that
@@ -429,15 +590,20 @@ func (m *Manager) tenantInvitationAccepted(
 	ctx context.Context, auth string, tx *spanner.ReadWriteTransaction, userID impulse.UUID, username string, inv *sessioninfo.Invitation,
 ) (func(ctx context.Context), error) {
 	txn := resource.NewSpannerReadWriteTransaction(tx)
-	domain, err := m.acceptTenantInvitation(m.oneTenant.within(ctx, tx), txn, userID, username, inv)
+	domain, name, err := m.acceptTenantInvitation(m.oneTenant.within(ctx, tx), txn, userID, username, inv)
 	if err != nil {
+		return nil, err
+	}
+	if err := m.recordAccepted(MakingTenant(ctx, domain, name), txn, userID, username, string(domain)); err != nil {
 		return nil, err
 	}
 
 	return func(ctx context.Context) {
 		m.oneTenant.forget(tx)
+		ctx, announcement := m.announcing(ctx)
 		txn.Committed(ctx)
 		logger.FromCtx(ctx).Infof("%s: %q accepted the invitation to %s: the %s %s was made, and they administer it", auth, username, inv.Email, m.tenantWord, domain)
+		announcement.row(m.tables.Users, userID).row(m.tables.MailLinks, inv.ID).whole(m.tables.Identities).announce(ctx)
 	}, nil
 }
 
@@ -527,16 +693,13 @@ func (m *Manager) WithdrawTenantInvitation(ctx context.Context, txn resource.Rea
 	if err != nil {
 		return err
 	}
-	stands := false
-	for _, inv := range standing {
-		stands = stands || inv.ID == invitationID
-	}
-	if !stands {
-		return httpio.NewNotFoundMessagef("no invitation %q that makes a %s stands: it was accepted, withdrawn or has expired, or it never was one", invitationID, m.tenantWord)
+	i := slices.IndexFunc(standing, func(inv *InvitedTenant) bool { return inv.ID == invitationID })
+	if i < 0 {
+		return invitationNoLongerStands(errors.Newf("no invitation %q that makes a %s stands: it was accepted, withdrawn or has expired, or it never was one", invitationID, m.tenantWord))
 	}
 	if err := m.store.ConsumeMailLink(ctx, txn, invitationID); err != nil {
 		return errors.Wrap(err, "identity.Store.ConsumeMailLink()")
 	}
 
-	return nil
+	return m.record(ctx, txn, invitationRecord(auditlog.ActInvitationWithdrawn, invitationID, standing[i].Email))
 }

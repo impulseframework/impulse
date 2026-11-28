@@ -46,9 +46,16 @@ func defaultConfig() resource.Config {
 package {{ .Package }}
 
 import (
+	{{- if .OffersToEntering }}
+	"sync/atomic"
+	{{- end }}
 	"time"
 
 	"github.com/impulseframework/impulse"
+	{{- if .OffersToEntering }}
+	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/resource"
+	{{- end }}
 )
 
 type (
@@ -58,23 +65,104 @@ type (
 	// holds one; it identifies nobody. The password hash is not a field, so it is never
 	// read or written here, and the normalized columns are the table's own.
 	//
+	// The username is what a list that points to an account shows it by. It is the
+	// table's name (@name), so a field of another resource that holds an account's id,
+	// by a foreign key to this table or by @enumerate of this list, gets a name field
+	// read from it, and a change record of that field keeps the username.
+	//
+	// An account's delete takes with it the application's rows that name the account in
+	// a column that says so (@deletedWith), after a question that counts them, and is
+	// refused while a row names it in a column that does not.
+	//
 	// @resource
 	// @suppress(patchHandler)
 	// @outlet({{ .Outlets }})
 	// @order(Username asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(account)
 	{{ .User }} struct {
-		ID                     impulse.UUID ` + "`spanner:\"Id\"`" + `
-		Username               string       ` + "`spanner:\"Username\"`" + `
-		Name                   *string      ` + "`spanner:\"Name\"`" + `
-		Email                  *string      ` + "`spanner:\"Email\"`" + `
-		EmailVerifiedAt        *time.Time   ` + "`spanner:\"EmailVerifiedAt\"`" + `
-		Disabled               bool         ` + "`spanner:\"Disabled\"`" + `
-		PasswordChangeRequired bool         ` + "`spanner:\"PasswordChangeRequired\"`" + `
-		CreatedAt              time.Time    ` + "`spanner:\"CreatedAt\"`" + `
-		LastSignInAt           *time.Time   ` + "`spanner:\"LastSignInAt\"`" + `
+		ID impulse.UUID ` + "`spanner:\"Id\"`" + `
+		// @name
+		Username               string     ` + "`spanner:\"Username\"`" + `
+		Name                   *string    ` + "`spanner:\"Name\"`" + `
+		Email                  *string    ` + "`spanner:\"Email\"`" + `
+		EmailVerifiedAt        *time.Time ` + "`spanner:\"EmailVerifiedAt\"`" + `
+		Disabled               bool       ` + "`spanner:\"Disabled\"`" + `
+		PasswordChangeRequired bool       ` + "`spanner:\"PasswordChangeRequired\"`" + `
+		CreatedAt              time.Time  ` + "`spanner:\"CreatedAt\"`" + `
+		LastSignInAt           *time.Time ` + "`spanner:\"LastSignInAt\"`" + `
 	}
 )
+{{- if .OffersToEntering }}
+
+// {{ GoCamel .User }}AdministeredTenantsQuery answers the {{ .TenantWord }}s each person of the {{ .Auth }}
+// auth administers, a row for each, RowKey the account's id and Tenant the {{ .TenantWord }}: one of
+// the roles the auth's permission engine names as a {{ .TenantWord }}'s administrator's
+// (@{{ .EnteringAdministratorsParam }}) held in the {{ .TenantWord }} itself, by a membership of the
+// person's own or through a group kept in that {{ .TenantWord }}, in an assignment that has not ended,
+// one that has not begun included. The methods that change how a person signs in refuse a
+// caller by the same count (the identity package's requireEnteringFor), and each row of
+// the auth's people reads it (TenantsToEnter).
+const {{ GoCamel .User }}AdministeredTenantsQuery = ` + "`" + `
+SELECT ta.UserId AS RowKey, ta.DomainId AS Tenant
+FROM {{ .Policy.UserRoles }} ta
+WHERE ta.Kind = {{ .KindDomain }} AND ta.Axis = {{ .ScopeAxis }}
+  AND ta.Role IN UNNEST(@{{ .EnteringAdministratorsParam }})
+  AND {{ .Standing "ta" }}
+{{- if .KeepsGroups }}
+UNION DISTINCT
+SELECT tm.UserId AS RowKey, tg.DomainId AS Tenant
+FROM {{ .Policy.GroupRoles }} tr
+JOIN {{ .Policy.Groups }} tg ON tg.Id = tr.GroupId
+JOIN {{ .Policy.GroupMembers }} tm ON tm.GroupId = tr.GroupId
+WHERE tg.Kind = {{ .KindDomain }} AND tg.Axis = {{ .ScopeAxis }}
+  AND tr.Kind = {{ .KindDomain }} AND tr.Axis = {{ .ScopeAxis }} AND tr.DomainId = tg.DomainId
+  AND tr.Role IN UNNEST(@{{ .EnteringAdministratorsParam }})
+  AND {{ .Standing "tr" }}
+  AND {{ .Standing "tm" }}
+{{- end }}
+` + "`" + `
+
+// {{ GoCamel .User }}Administrators are the roles whose holders administer a {{ .TenantWord }}, as the
+// {{ .Auth }} auth's permission engine names them: what the query reads as
+// @{{ .EnteringAdministratorsParam }}. None until the auth's identity client is built, and then
+// nobody is taken for an administrator.
+var {{ GoCamel .User }}Administrators atomic.Pointer[[]string]
+
+// Set{{ .User }}AdministratorRoles tells the lists of the {{ .Auth }} auth which roles administer a
+// {{ .TenantWord }}: the ones its permission engine answers who administers a {{ .TenantWord }} by. The
+// auth's generated identity client calls it where it is built, so a row offers the methods
+// that change how a {{ .TenantWord }}'s administrator signs in by the names the methods themselves
+// refuse by.
+func Set{{ .User }}AdministratorRoles(roles []accesstypes.Role) {
+	names := make([]string, 0, len(roles))
+	for _, role := range roles {
+		names = append(names, string(role))
+	}
+	{{ GoCamel .User }}Administrators.Store(&names)
+}
+
+// {{ GoCamel .User }}TenantsToEnter is what each row of the {{ .Auth }} auth's people answers
+// TenantsToEnter with: the query, the roles it reads, and column, the row's column that
+// holds the account's id.
+func {{ GoCamel .User }}TenantsToEnter(column string) resource.TenantsToEnter {
+	administrators := []string{}
+	if named := {{ GoCamel .User }}Administrators.Load(); named != nil {
+		administrators = *named
+	}
+
+	return resource.TenantsToEnter{
+		Query:  {{ GoCamel .User }}AdministeredTenantsQuery,
+		Params: map[string]any{ {{- printf "%q" .EnteringAdministratorsParam }}: administrators},
+		Match:  map[string]string{"RowKey": column},
+	}
+}
+
+` + identityTenantsToEnterDoc + `
+func ({{ .User }}) TenantsToEnter() resource.TenantsToEnter {
+	return {{ GoCamel .User }}TenantsToEnter("Id")
+}
+{{- end }}
 `
 
 	// identitySessionsTemplate declares the sessions table.
@@ -91,14 +179,17 @@ import (
 
 type (
 	// {{ .Session }} is one session of the {{ .Auth }} auth: a row of
-	// {{ .Tables.Sessions }}, the session library's sessions table. A session ends by
-	// its Expired column; the rows are never deleted.
+	// {{ .Tables.Sessions }}, the session library's sessions table. A session is ended by
+	// its Expired column, and the session library removes a row 30 days after the session
+	// was last used. A page lists the sessions from {{ .ListedSession }}, which also says
+	// whether each is live.
 	//
 	// @resource
 	// @suppress(patchHandler)
 	// @outlet({{ .Outlets }})
 	// @order(CreatedAt desc)
 	// @page(default: 25, max: 200)
+	// @rowWord(session)
 	{{ .Session }} struct {
 		ID              impulse.UUID  ` + "`spanner:\"Id\"`" + `
 		UserID          *impulse.UUID ` + "`spanner:\"UserId\"`" + `
@@ -121,6 +212,9 @@ import (
 	"time"
 
 	"github.com/impulseframework/impulse"
+	{{- if .OffersToEntering }}
+	"github.com/impulseframework/impulse/resource"
+	{{- end }}
 )
 
 type (
@@ -134,6 +228,7 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(CreatedAt desc)
 	// @page(default: 25, max: 200)
+	// @rowWord(sign-in identity)
 	{{ .Identity }} struct {
 		ID          impulse.UUID ` + "`spanner:\"Id\"`" + `
 		UserID      impulse.UUID ` + "`spanner:\"UserId\"`" + `
@@ -146,6 +241,13 @@ type (
 		LastUsedAt  time.Time    ` + "`spanner:\"LastUsedAt\"`" + `
 	}
 )
+{{- if .OffersToEntering }}
+
+` + identityTenantsToEnterDoc + `
+func ({{ .Identity }}) TenantsToEnter() resource.TenantsToEnter {
+	return {{ GoCamel .User }}TenantsToEnter("UserId")
+}
+{{- end }}
 `
 
 	// identityTokensTemplate declares the tokens table. The hash a token is found by is
@@ -172,6 +274,7 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(CreatedAt desc)
 	// @page(default: 25, max: 200)
+	// @rowWord(token)
 	{{ .Token }} struct {
 		ID            impulse.UUID  ` + "`spanner:\"Id\"`" + `
 		Kind          string        ` + "`spanner:\"Kind\"`" + `
@@ -190,8 +293,9 @@ type (
 `
 
 	// identityMailLinksTemplate declares the mail links table: the invitations, and the
-	// address verifications and sign-ups beside them. The hash a link is found by is not
-	// a field.
+	// other links beside them (address verifications, sign-ups, first-password codes,
+	// password resets and address confirmations). The hash a link is found by is not a
+	// field.
 	identityMailLinksTemplate = `// Code generated by resourcegeneration. DO NOT EDIT.
 // Source: {{ .Source }}
 
@@ -205,30 +309,48 @@ import (
 
 type (
 	// {{ .MailLink }} is one link the {{ .Auth }} auth mailed: a row of
-	// {{ .Tables.MailLinks }}. Kind says what the link is for (invitation, verification
-	// or sign-up); an invitation carries the roles and the tenant it invites into, and
-	// the name its sender gave the person (Name), where they gave one. A
-	// link stands while it is neither consumed nor expired, and one that was followed
-	// and one that was revoked are both consumed. The link itself is in the message
-	// alone and its hash is not a field.
+	// {{ .Tables.MailLinks }}. Kind says what the link is for: an invitation
+	// (invitation), the verification of an address a person adds (verification), a
+	// sign-up (sign-up), the code a person with no password chooses their first one by
+	// (first-password), a password reset (password-reset), or the confirmation of an
+	// address an administrator set (address-change). An invitation carries the roles
+	// and where they are held (TenantID for one tenant, EveryTenant for every tenant,
+	// neither for the whole application), and the name its sender gave the person
+	// (Name), where they gave one. A link stands while it is neither consumed nor
+	// expired, and one that was followed and one that was withdrawn are both consumed,
+	// the second with WithdrawnAt set. A link whose message could not be mailed is
+	// consumed too, where the mail failed, and MailFailedAt says when: the one field
+	// that tells it from a link that was used. A link that was taken back is consumed
+	// too, with WithdrawnAt set: it tells a withdrawal from an acceptance. The link
+	// itself is in the message alone and its hash is not a field. A page lists the
+	// links through {{ .ListedMailLink }}, which says what became of each and who sent
+	// it.
 	//
 	// @resource
 	// @suppress(patchHandler)
 	// @outlet({{ .Outlets }})
 	// @order(CreatedAt desc)
 	// @page(default: 25, max: 200)
+	// @rowWord(mailed link)
 	{{ .MailLink }} struct {
 		ID         impulse.UUID  ` + "`spanner:\"Id\"`" + `
 		Kind       string        ` + "`spanner:\"Kind\"`" + `
 		Email      string        ` + "`spanner:\"Email\"`" + `
 		Name       *string       ` + "`spanner:\"Name\"`" + `
 		UserID     *impulse.UUID ` + "`spanner:\"UserId\"`" + `
+		{{- if .TenantPicker }}
+		// @enumerate({{ .TenantPicker }})
+		{{- end }}
 		TenantID   *string       ` + "`spanner:\"TenantId\"`" + `
+		EveryTenant bool         ` + "`spanner:\"EveryTenant\"`" + `
+		// @roleOf({{ .Auth }})
 		RoleNames  []string      ` + "`spanner:\"RoleNames\"`" + `
 		InvitedByUserID  *impulse.UUID ` + "`spanner:\"InvitedByUserId\"`" + `
 		CreatedAt  time.Time     ` + "`spanner:\"CreatedAt\"`" + `
 		ExpiresAt  time.Time     ` + "`spanner:\"ExpiresAt\"`" + `
 		ConsumedAt *time.Time    ` + "`spanner:\"ConsumedAt\"`" + `
+		MailFailedAt *time.Time  ` + "`spanner:\"MailFailedAt\"`" + `
+		WithdrawnAt *time.Time   ` + "`spanner:\"WithdrawnAt\"`" + `
 	}
 )
 `
@@ -247,8 +369,12 @@ type (
 	// {{ .SignInAttempt }} is the count of failed sign-ins the {{ .Auth }} auth keeps
 	// for one name: a row of {{ .Tables.SignInAttempts }}. Name is what was typed into
 	// the username field, folded as the auth compares names, whether or not a user
-	// holds it; the rows the auth keeps for the mail it sends to an address are named
-	// mail: and the address. A name is locked while LockedUntil is ahead.
+	// holds it; the rows the auth keeps for its own counts are named in capitals, which
+	// no folded name holds: MAIL:, CODE: and RESET: and the address for the mail, the
+	// sign-in codes and the reset links an address is sent, FIRST-PASSWORD: and the
+	// account for the guesses at the code of a first password. A name is locked while
+	// LockedUntil is ahead. A page lists the counts from {{ .ListedSignInAttempt }}, which
+	// holds only those that are locked or still being counted.
 	//
 	// @resource
 	// @suppress(readHandler)
@@ -256,6 +382,7 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(UpdatedAt desc)
 	// @page(default: 25, max: 200)
+	// @rowWord(failed sign-in)
 	{{ .SignInAttempt }} struct {
 		Name         string     ` + "`spanner:\"Name\"`" + `
 		Failures     int64      ` + "`spanner:\"Failures\"`" + `
@@ -291,6 +418,7 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(OccurredAt desc)
 	// @page(default: 25, max: 200)
+	// @rowWord(sign-in event)
 	{{ .AuthEvent }} struct {
 		SessionID  impulse.UUID ` + "`spanner:\"SessionId\"`" + `
 		Seq        int64        ` + "`spanner:\"Seq\"`" + `
@@ -302,7 +430,9 @@ type (
 )
 `
 
-	// identityImpersonationsTemplate declares the impersonations table.
+	// identityImpersonationsTemplate declares the impersonations table. Its Mask field
+	// reads the mask's text in words (accesstypes.NullMaskWords), so the list of
+	// impersonations says each session's mask as a person would.
 	identityImpersonationsTemplate = `// Code generated by resourcegeneration. DO NOT EDIT.
 // Source: {{ .Source }}
 
@@ -312,6 +442,7 @@ import (
 	"time"
 
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/accesstypes"
 )
 
 type (
@@ -319,17 +450,24 @@ type (
 	// was established as someone or something else: a row of
 	// {{ .Tables.Impersonations }}, keyed by the session and kept after it as evidence.
 	// The actor is who established it (ActorRealm is empty for a person of this auth,
-	// whose account ActorUserID names), the principal the role it acts as or the user,
-	// named by the id of their account, and Mask the permissions it is
-	// held to (none set is unrestricted). The record is the authority on whether the
-	// session still stands: one that has ended (EndedAt) is refused whatever its
-	// session row says.
+	// whose account ActorUserID names), and the principal the role it acts as or the user,
+	// named by the id of their account. PrincipalUsername is the username of the person
+	// the session is held as, as it was when the session began; empty for a session held
+	// as a role. Mask is what the session is held to, in words: the kinds of permission it
+	// keeps and what it refuses inside them, a class of actions, one action, or a record's
+	// writes ("everything", "reading only", "everything except credential actions"). The
+	// column holds the mask's text, NULL for the unrestricted mask, which the session
+	// library writes and reads the session by; the list says it as a person would
+	// (accesstypes.NullMaskWords), and nothing writes it through this record. The record
+	// is the authority on whether the session still stands: one that has ended (EndedAt)
+	// is refused whatever its session row says.
 	//
 	// @resource
 	// @suppress(patchHandler)
 	// @outlet({{ .Outlets }})
 	// @order(StartedAt desc)
 	// @page(default: 25, max: 200)
+	// @rowWord(impersonation)
 	{{ .Impersonation }} struct {
 		SessionID       impulse.UUID  ` + "`spanner:\"SessionId\"`" + `
 		ActorUsername   string        ` + "`spanner:\"ActorUsername\"`" + `
@@ -338,8 +476,10 @@ type (
 		SourceSessionID *impulse.UUID ` + "`spanner:\"SourceSessionId\"`" + `
 		PrincipalKind   string        ` + "`spanner:\"PrincipalKind\"`" + `
 		PrincipalUserID   *string       ` + "`spanner:\"PrincipalUserId\"`" + `
+		PrincipalUsername *string       ` + "`spanner:\"PrincipalUsername\"`" + `
+		// @roleOf({{ .Auth }})
 		PrincipalRole   *string       ` + "`spanner:\"PrincipalRole\"`" + `
-		Mask            *string       ` + "`spanner:\"Mask\"`" + `
+		Mask            accesstypes.NullMaskWords ` + "`spanner:\"Mask\"`" + `
 		Reason          *string       ` + "`spanner:\"Reason\"`" + `
 		StartedAt       time.Time     ` + "`spanner:\"StartedAt\"`" + `
 		ExpiresAt       time.Time     ` + "`spanner:\"ExpiresAt\"`" + `
@@ -374,6 +514,7 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(CreatedAt desc)
 	// @page(default: 25, max: 200)
+	// @rowWord(trusted device)
 	{{ .TrustedDevice }} struct {
 		ID         impulse.UUID ` + "`spanner:\"Id\"`" + `
 		UserID     impulse.UUID ` + "`spanner:\"UserId\"`" + `
@@ -405,7 +546,9 @@ type (
 	// StartsAt and EndsAt are the membership's period: the first instant it counts and
 	// the first it no longer does, each empty for none. Outside its period a membership
 	// grants nothing, and a row whose period has ended stands until its person next signs
-	// in, which removes it.
+	// in, which removes it. Reason is why the role was given, one line of plain text and
+	// empty for none: it is written with the period and replaced with it, and nothing
+	// edits it by itself.
 	//
 	// @resource
 	// @suppress(readHandler)
@@ -413,15 +556,18 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(UserID asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(held role)
 	{{ .Membership }} struct {
 		Kind      string    ` + "`spanner:\"Kind\"`" + `
 		Axis      string    ` + "`spanner:\"Axis\"`" + `
 		DomainID  string    ` + "`spanner:\"DomainId\"`" + `
+		// @roleOf({{ .Auth }})
 		Role      string    ` + "`spanner:\"Role\"`" + `
 		UserID    string     ` + "`spanner:\"UserId\"`" + `
 		CreatedAt time.Time  ` + "`spanner:\"CreatedAt\"`" + `
 		StartsAt  *time.Time ` + "`spanner:\"StartsAt\"`" + `
 		EndsAt    *time.Time ` + "`spanner:\"EndsAt\"`" + `
+		Reason    *string    ` + "`spanner:\"Reason\"`" + `
 	}
 )
 `
@@ -451,6 +597,7 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(Role asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(role)
 	{{ .Role }} struct {
 		Kind        string    ` + "`spanner:\"Kind\"`" + `
 		Axis        string    ` + "`spanner:\"Axis\"`" + `
@@ -463,7 +610,8 @@ type (
 `
 
 	// identityRoleGrantsTemplate declares the role grants table, whose key spells the
-	// whole grant: a list, with no read route.
+	// whole grant: the store's own, with no route. The list a page reads is
+	// identityListedRoleGrantsTemplate's.
 	identityRoleGrantsTemplate = `// Code generated by resourcegeneration. DO NOT EDIT.
 // Source: {{ .Source }}
 
@@ -479,14 +627,17 @@ type (
 	// the table's Resource column, named apart from the method every declaration
 	// carries. The grants of the release's role file are no rows: the permission engine
 	// holds them. The role file and the deployment's migration write the rows; nothing
-	// here changes one.
+	// here changes one. No route lists the table: {{ .ListedRoleGrant }} is the list of
+	// its rows, which says of each whether its role holds it.
 	//
 	// @resource
+	// @suppress(listHandler)
 	// @suppress(readHandler)
 	// @suppress(patchHandler)
 	// @outlet({{ .Outlets }})
 	// @order(Role asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(role grant)
 	{{ .RoleGrant }} struct {
 		Kind         string    ` + "`spanner:\"Kind\"`" + `
 		Axis         string    ` + "`spanner:\"Axis\"`" + `
@@ -509,7 +660,7 @@ type (
 // Package {{ .Package }} holds the methods that manage the people of the {{ .Auth }}
 // auth: each an RPC method of the application, served on its routes behind an Execute
 // grant, and a Go call an application makes in a transaction of its own, so a person is
-// created and seated beside the application's own rows and committed with them.
+// given a role beside the application's own rows and committed with them.
 //
 // Every method's body is one call into the framework's identity package, where the
 // rules are; this package gives them the auth's own tables. The generator writes it
@@ -523,9 +674,11 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/resource"
+	"github.com/impulseframework/impulse/resource/live"
 	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/signin"
 	{{ .LocalPackageImports }}
@@ -586,6 +739,25 @@ func NewClient(controller access.Controller, sessions identity.SessionAPI, {{ if
 	opts = append([]identity.Option{identity.WithTenantWord({{ printf "%q" .TenantWord }})}, opts...)
 	{{- end }}
 	opts = append(opts, identity.WithSuperAdministratorMethods(SuperAdministratorMethods()...))
+	// The manager announces a sign-in's writes under the names the generated types give
+	// the auth's tables (AnnounceThrough).
+	opts = append(opts, identity.WithAccountTables(&identity.AccountTables{
+		{{- if .Has "users" }}
+		Users: {{ .ResourcesPackage }}.{{ .User }}{}.Resource(),
+		{{- end }}
+		{{- if .Has "sessions" }}
+		Sessions: {{ .ResourcesPackage }}.{{ .Session }}{}.Resource(),
+		{{- end }}
+		{{- if .Has "identities" }}
+		Identities: {{ .ResourcesPackage }}.{{ .Identity }}{}.Resource(),
+		{{- end }}
+		{{- if .Has "memberships" }}
+		Memberships: {{ .ResourcesPackage }}.{{ .Membership }}{}.Resource(),
+		{{- end }}
+		{{- if .Has "mailLinks" }}
+		MailLinks: {{ .ResourcesPackage }}.{{ .MailLink }}{}.Resource(),
+		{{- end }}
+	}))
 	{{- if .JudgesRoleChanges }}
 	// What gives a person a role without naming them is judged as giving the role
 	// directly, by the grants of the methods that give a role and take one away
@@ -603,6 +775,27 @@ func NewClient(controller access.Controller, sessions identity.SessionAPI, {{ if
 	// reads who administers a {{ .TenantWord }} by the engine's own names, the ones the sign-in and
 	// the session's reach decide by.
 	{{ .ResourcesPackage }}.Set{{ .TenantUser }}AdministratorRoles(manager.TenantAdministratorRoles())
+	{{- end }}
+	{{- if .OffersToEntering }}
+	// A row of the auth's people offers the methods that change how a {{ .TenantWord }}'s
+	// administrator signs in only to a caller who enters the {{ .TenantWord }}s the person
+	// administers, read by the engine's own names, the ones the methods refuse by.
+	{{ .ResourcesPackage }}.Set{{ .User }}AdministratorRoles(manager.TenantAdministratorRoles())
+	{{- end }}
+	{{- if .ListsTenants }}
+	// The whole application's list of {{ .TenantWord }}s names each one's administrators by the
+	// engine's own names.
+	{{ .ResourcesPackage }}.Set{{ .ListedTenant }}AdministratorRoles(manager.TenantAdministratorRoles())
+	{{- end }}
+	{{- if .Has "sessions" }}
+	// The list of the auth's sessions says which are live by the timeout the Auth judges a
+	// request by.
+	{{ .ResourcesPackage }}.Set{{ .ListedSession }}Timeout(sessions.SessionTimeout())
+	{{- end }}
+	{{- if .Has "signInAttempts" }}
+	// The list of the failed sign-ins says the limit that locks a name by asking the Auth
+	// at each query: the limit is fixed when the password method is registered.
+	{{ .ResourcesPackage }}.Set{{ .ListedSignInAttempt }}Limit(sessions.SignInFailureLimit)
 	{{- end }}
 
 	return &Client{manager: manager}, nil
@@ -636,7 +829,8 @@ func SuperAdministratorMethods() []accesstypes.Resource {
 // user is the person as the permission store names them, the id of their account: a
 // request's caller is its resource.UserPermissions.User(). A role is held by an account,
 // so a user that is no account's id (a session that acts for nobody with an account
-// here) is refused, and nothing is written. The call reads no account: a user created
+// here) is refused, in a sentence that names no role by its code name, and nothing is
+// written. The call reads no account: a user created
 // earlier in the same transaction is one the database cannot yet show it, and such a
 // user is what a Go caller often gives a role to. The caller names an account it knows
 // exists, its request's caller or one it created; a role method served to a person who
@@ -644,7 +838,7 @@ func SuperAdministratorMethods() []accesstypes.Resource {
 func (c *Client) AssignRole(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role) error {
 	userID, ok := identity.UserID(user)
 	if !ok {
-		return httpio.NewForbiddenMessagef("the role %s is given to a person with an account, and this session acts for none", role)
+		return httpio.NewForbiddenMessageWithError(errors.Newf("the role %s is given to a person with an account, and %q is no account's id", role, user), "A role is given to a person with an account, and this session acts for none.")
 	}
 	if err := c.manager.AssignRole(ctx, txn, scope, userID, role); err != nil {
 		return errors.Wrap(err, "identity.Manager.AssignRole()")
@@ -653,20 +847,44 @@ func (c *Client) AssignRole(ctx context.Context, txn resource.ReadWriteTransacti
 	return nil
 }
 
-// ClearTenant buffers the removal of everything the {{ .Auth }} auth holds for a tenant, in
-// the transaction that deletes the tenant's row (identity.Manager.ClearTenant): every
-// membership held in it, the custom roles made in it with their grants, and the
-// withdrawal of every invitation into it that still stands. A person the tenant's
-// memberships were the only ones of is deleted with their identity links and sessions,
-// by the rule on an account nothing admits. The generated delete of the tenant record
-// calls it; an application that deletes a tenant in a transaction of its own calls it
-// there.
-func (c *Client) ClearTenant(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) error {
-	if err := c.manager.ClearTenant(ctx, txn, domain); err != nil {
-		return errors.Wrap(err, "identity.Manager.ClearTenant()")
+// HoldsTenant reports whether user holds a role of the {{ .Auth }} auth in some tenant, read
+// in the caller's transaction (identity.Manager.HoldsTenant): a membership of their own
+// held in one tenant, or a place in a group kept in one. The generated create of a
+// tenant asks it in the transaction that writes the tenant's row, so that of two
+// creations by one person at once only one is written. A user that is no account's id
+// (a session that acts for nobody with an account here) holds none.
+func (c *Client) HoldsTenant(ctx context.Context, txn resource.ReadWriteTransaction, user accesstypes.User) (bool, error) {
+	userID, ok := identity.UserID(user)
+	if !ok {
+		return false, nil
+	}
+	holds, err := c.manager.HoldsTenant(ctx, txn, userID)
+	if err != nil {
+		return false, errors.Wrap(err, "identity.Manager.HoldsTenant()")
 	}
 
-	return nil
+	return holds, nil
+}
+
+// TenantKinds answers what the {{ .Auth }} auth holds for a tenant as kinds of the
+// tenant's delete (identity.Manager.TenantKinds): the accounts that are the tenant's
+// alone, the roles held in it, its groups, its custom roles and its invitations that
+// still stand. The generated delete of the tenant record hands them to the delete
+// (resource.PatchSet.DeleteAlso), which counts them in its question and takes them in
+// its rounds; an application that deletes a tenant in code of its own hands them to its
+// delete there.
+func (c *Client) TenantKinds(domain accesstypes.Domain) []resource.TakenKind {
+	return c.manager.TenantKinds(domain)
+}
+
+// RecordKinds answers what the {{ .Auth }} auth holds on one record as kinds of the
+// record's delete (identity.Manager.RecordKinds): the roles held on it, a person's and a
+// group's. The generated delete of a record a role can be held on hands them to the
+// delete (resource.PatchSet.DeleteAlso), which counts them in its question and takes them
+// in its rounds; an application that deletes such a record in code of its own hands them
+// to its delete there.
+func (c *Client) RecordKinds(at accesstypes.RecordScope) []resource.TakenKind {
+	return c.manager.RecordKinds(at)
 }
 
 // DirectoryName answers what the {{ .Auth }} auth's sign-in registrations call a
@@ -697,6 +915,22 @@ func (c *Client) CallerPassword(ctx context.Context, txn resource.ReadWriteTrans
 	return has, applies, nil
 }
 
+// AuthSecondFactor answers whether the {{ .Auth }} auth's sign-in settings ask everyone for
+// a second factor now, and whether the question is this auth's to answer for the
+// request: it is not where the request came through another auth
+// (identity.Manager.AuthSecondFactor). It is a resource.AuthSecondFactor: the generated
+// frame of the method by which a tenant vouches for its directory's second factor hands
+// it to the rule that there is something to turn off
+// (resource.TenantDirectoryRules.SecondFactorsBy).
+func (c *Client) AuthSecondFactor(ctx context.Context, txn resource.ReadWriteTransaction) (required, applies bool, err error) {
+	required, applies, err = c.manager.AuthSecondFactor(ctx, txn)
+	if err != nil {
+		return false, false, errors.Wrap(err, "identity.Manager.AuthSecondFactor()")
+	}
+
+	return required, applies, nil
+}
+
 // AdministratorsEnterWithPassword reports whether a tenant's own administrators of the
 // {{ .Auth }} auth keep a way into a tenant that is directory only: the auth registers
 // the password method and its permission engine names the roles that administer a
@@ -704,6 +938,36 @@ func (c *Client) CallerPassword(ctx context.Context, txn resource.ReadWriteTrans
 // that makes a tenant directory only says so (resource.DirectoryPeople).
 func (c *Client) AdministratorsEnterWithPassword() bool {
 	return c.manager.AdministratorsEnterWithPassword()
+}
+
+// AnnounceThrough has the client announce what a sign-in writes to the open pages,
+// through the application's live service and with its live derivations: the session a
+// sign-in makes, the person's account, the identities and the roles a sign-in can write,
+// the roles an accepted invitation, a directory's default role or a sign-up gives, and
+// what a person's leaving a tenant writes. The auth's generated handlers call it where
+// the application constructs them (New), so an application writes nothing; the first
+// service and derivations handed over are kept. Until then nothing is announced.
+func (c *Client) AnnounceThrough(svc live.Service, derivations *live.Derivations) {
+	if c == nil || svc == nil {
+		return
+	}
+	c.manager.AnnounceWith(func(ctx context.Context, touched *resource.TouchedRows) {
+		live.Announce(ctx, svc, derivations, touched)
+	})
+}
+
+// SignedIn answers the session library's hook for a sign-in that stands
+// (session.Auth.SetSignedInHook) over the {{ .Auth }} auth's tables: the person's roles
+// and places in groups whose period has ended are removed (identity.Manager.SignedIn),
+// in a transaction of the hook's own on db, the application's database. Nothing else
+// removes them: no job runs on a schedule. The session library calls the hook once the
+// session is committed and logs an error it answers, so the removal neither fails a
+// sign-in nor undoes one; a sign-in with nothing to clear costs one read. The hook then
+// announces the sign-in to the open pages, once the generated handlers have handed the
+// client a service to announce through (AnnounceThrough). The auth's package sets it
+// {{ if .RolesSynced }}where it builds the auth and this client{{ else }}where it sets the invitation's{{ end }}.
+func (c *Client) SignedIn(db resource.Client) session.SignedInHook {
+	return c.manager.SignedIn("{{ .Auth }}", db)
 }
 {{- if not .RolesSynced }}
 
@@ -720,9 +984,10 @@ func (c *Client) InvitationAccepted() session.InvitationAcceptedHook[*spanner.Re
 
 // DirectorySeated answers the session library's hook for a tenant directory's default
 // role (session.Auth.SetDirectoryAdmission) over the {{ .Auth }} auth's tables: the role
-// is given in the transaction that creates the person at their first sign-in, so no
-// account is left holding nothing (identity.Manager.DirectorySeated). The auth's package
-// sets it where it sets the invitation's.
+// is given in the sign-in's transaction to a person who signs in through the directory
+// and holds nothing in the tenant, at every sign-in, so no account is left holding
+// nothing (identity.Manager.DirectorySeated). The auth's package sets it where it sets
+// the invitation's.
 func (c *Client) DirectorySeated() session.DirectorySeatedHook[*spanner.ReadWriteTransaction] {
 	return c.manager.DirectorySeated("{{ .Auth }}")
 }
@@ -740,17 +1005,31 @@ func (c *Client) DirectoryRole(ctx context.Context, txn resource.ReadWriteTransa
 
 	return nil
 }
+{{- end }}
 
-// SignedIn answers the session library's hook for a sign-in that stands
-// (session.Auth.SetSignedInHook) over the {{ .Auth }} auth's tables: the person's roles
-// and places in groups whose period has ended are removed (identity.Manager.SignedIn),
-// in a transaction of the hook's own on db, the application's database. Nothing else
-// removes them: no job runs on a schedule. The session library calls the hook once the
-// session is committed and logs an error it answers, so the removal neither fails a
-// sign-in nor undoes one; a sign-in with nothing to clear costs one read. The auth's
-// package sets it where it sets the invitation's.
-func (c *Client) SignedIn(db resource.Client) session.SignedInHook {
-	return c.manager.SignedIn("{{ .Auth }}", db)
+// RecordTenantSignIn records an act on a tenant's own sign-in settings in the {{ .Auth }}
+// auth's audit log, in the caller's transaction: done to the tenant, by who acted, with
+// the act's one part, named (identity.Manager.RecordTenantSignIn). The generated methods
+// of a tenant's directory call it after their write, where this auth's people are the
+// ones the directories record's outlets sign in.
+func (c *Client) RecordTenantSignIn(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain, act auditlog.Act, named string) error {
+	if err := c.manager.RecordTenantSignIn(ctx, txn, tenant, act, named); err != nil {
+		return errors.Wrap(err, "identity.Manager.RecordTenantSignIn()")
+	}
+
+	return nil
+}
+{{- if not .RolesSynced }}
+
+// OwnTenants answers the session library's own-tenants hook (session.Auth.SetOwnTenants)
+// over the {{ .Auth }} auth's tables: a signed-in person's account page lists the
+// tenants they hold something in, with the roles held in each, and takes them out of one
+// at their own word (identity.Manager.OwnTenants), each in a transaction of the hook's
+// own on db, the application's database. A tenant's last administrator does not leave
+// it, and an account left holding nothing stays. The auth's package sets it where it sets
+// the after-sign-in hook.
+func (c *Client) OwnTenants(db resource.Client) session.OwnTenantsHook {
+	return c.manager.OwnTenants("{{ .Auth }}", db)
 }
 {{- end }}
 ` + identitySignUpClientTemplate
@@ -765,6 +1044,7 @@ package {{ .Package }}
 
 import (
 	"context"
+	"iter"
 	"time"
 
 	"cloud.google.com/go/spanner"
@@ -772,12 +1052,15 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage"
+	"google.golang.org/api/iterator"
 	{{ .LocalPackageImports }}
 )
 
@@ -787,30 +1070,6 @@ var _ identity.Store = store{}
 // is one read or one buffered write through the declarations' own query and patch
 // types, and holds no rule.
 type store struct{}
-
-func (store) InsertUser(ctx context.Context, txn resource.ReadWriteTransaction, user *identity.NewUser) (impulse.UUID, error) {
-	patch, err := {{ .ResourcesPackage }}.New{{ .User }}CreatePatch()
-	if err != nil {
-		return impulse.NilUUID, errors.Wrap(err, "{{ .ResourcesPackage }}.New{{ .User }}CreatePatch()")
-	}
-	patch.SetUsername(user.Username).SetDisabled(false).SetPasswordChangeRequired(false).SetCreatedAt(spanner.CommitTimestamp)
-	if user.Name != nil {
-		patch.SetName(user.Name)
-	}
-	{{- if .UsernameIsEmail }}
-	// The auth's usernames are the addresses: the table derives the address from the
-	// username, so none is written.
-	{{- else }}
-	if user.Email != nil {
-		patch.SetEmail(user.Email)
-	}
-	{{- end }}
-	if err := patch.Buffer(ctx, txn); err != nil {
-		return impulse.NilUUID, errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .User }}CreatePatch.Buffer()")
-	}
-
-	return patch.ID(), nil
-}
 
 func (store) UpdateUser(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, change *identity.UserChange) error {
 	patch := {{ .ResourcesPackage }}.New{{ .User }}UpdatePatch(id)
@@ -826,18 +1085,6 @@ func (store) UpdateUser(ctx context.Context, txn resource.ReadWriteTransaction, 
 	if change.Name != nil {
 		patch.SetName(change.Name.Name)
 	}
-	{{- if .UsernameIsEmail }}
-	// The auth's usernames are the addresses: the table derives the address from the
-	// username, and it changes when the person verifies a new one.
-	if change.Email != nil {
-		return errors.New("the auth's usernames are the addresses: an address is not set on a user by hand")
-	}
-	{{- else }}
-	// An address entered by hand is unverified, whatever the one before it was.
-	if change.Email != nil {
-		patch.SetEmail(change.Email.Address).SetEmailVerifiedAt(nil)
-	}
-	{{- end }}
 	if err := patch.Buffer(ctx, txn); err != nil {
 		return errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .User }}UpdatePatch.Buffer()")
 	}
@@ -869,16 +1116,17 @@ func (store) EndSession(ctx context.Context, txn resource.ReadWriteTransaction, 
 }
 
 func (store) RenameSession(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, username string) error {
-	if err := {{ .ResourcesPackage }}.New{{ .Session }}UpdatePatch(id).SetUsername(username).SetUpdatedAt(spanner.CommitTimestamp).Buffer(ctx, txn); err != nil {
+	if err := {{ .ResourcesPackage }}.New{{ .Session }}UpdatePatch(id).SetUsername(username).Buffer(ctx, txn); err != nil {
 		return errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .Session }}UpdatePatch.Buffer()")
 	}
 
 	return nil
 }
 {{ if .Password }}
-// passwordWrite names the user row a password is written on. It is the one write that
+// passwordWrite names the user row a password is taken off. It is the one write that
 // goes past the declarations: the password hash is no field of any of them, so no read
-// returns it and nothing but SetPassword and RemovePassword writes it.
+// returns it and nothing here but RemovePassword writes it. A person chooses their own
+// password, in the session library's storage.
 type passwordWrite struct {
 	id impulse.UUID
 }
@@ -895,15 +1143,6 @@ func (passwordWrite) Resource() accesstypes.Resource {
 	return "{{ .Tables.Users }}"
 }
 
-func (store) SetPassword(_ context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, hash string, changeRequired bool) error {
-	row := map[string]any{"Id": id, "PasswordHash": hash, "PasswordChangeRequired": changeRequired}
-	if err := txn.BufferMap(passwordWrite{id: id}, row); err != nil {
-		return errors.Wrap(err, "resource.ReadWriteTransaction.BufferMap()")
-	}
-
-	return nil
-}
-
 func (store) RemovePassword(_ context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error {
 	// The password write with no hash: the column is left holding nothing, and the mark
 	// that the person must change the password goes with it.
@@ -915,12 +1154,7 @@ func (store) RemovePassword(_ context.Context, txn resource.ReadWriteTransaction
 	return nil
 }
 {{ else }}
-// The {{ .Auth }} auth has no password method: nobody of it holds a password, and none
-// is written.
-
-func (store) SetPassword(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID, _ string, _ bool) error {
-	return errors.Newf("the {{ .Auth }} auth has no password method: user %s is given no password", id)
-}
+// The {{ .Auth }} auth has no password method: nobody of it holds a password.
 
 func (store) RemovePassword(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID) error {
 	return errors.Newf("the {{ .Auth }} auth has no password method: user %s holds no password to remove", id)
@@ -1021,7 +1255,7 @@ func (store) DeleteIdentity(_ context.Context, _ resource.ReadWriteTransaction, 
 {{ end }}{{ if .Has "tokens" }}
 func (store) Token(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (token *identity.Token, found bool, err error) {
 	row, err := {{ .ResourcesPackage }}.New{{ .Token }}Query().
-		AddColumns({{ .ResourcesPackage }}.New{{ .Token }}Columns().FamilyID().ExpiresAt().RevokedAt()).
+		AddColumns({{ .ResourcesPackage }}.New{{ .Token }}Columns().UserID().FamilyID().ExpiresAt().RevokedAt()).
 		SetID(id).
 		Read(ctx, txn)
 	if err != nil {
@@ -1032,7 +1266,7 @@ func (store) Token(ctx context.Context, txn resource.ReadWriteTransaction, id im
 		return nil, false, errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .Token }}Query.Read()")
 	}
 
-	return &identity.Token{FamilyID: row.Data.FamilyID, ExpiresAt: row.Data.ExpiresAt, Revoked: row.Data.RevokedAt != nil}, true, nil
+	return &identity.Token{UserID: row.Data.UserID, FamilyID: row.Data.FamilyID, ExpiresAt: row.Data.ExpiresAt, Revoked: row.Data.RevokedAt != nil}, true, nil
 }
 
 func (store) FamilyTokens(ctx context.Context, txn resource.ReadWriteTransaction, family impulse.UUID) ([]impulse.UUID, error) {
@@ -1113,9 +1347,11 @@ func (store) UserDisabled(ctx context.Context, txn resource.ReadWriteTransaction
 func (store) UserID(ctx context.Context, txn resource.ReadWriteTransaction, username string) (id impulse.UUID, found bool, err error) {
 	// A read that goes past the declarations, as the session library's own lookup of
 	// a name does: the table's normalized username is no field of the declaration,
-	// and it is the column the unique index is over.
+	// and it is the column the unique index is over. The name is folded as the column
+	// folds it: one with an @ in it as an address is, any other in Unicode's
+	// normalization and case folding.
 	stmt := spanner.Statement{
-		SQL:    "SELECT Id FROM {{ .Tables.Users }} WHERE NormalizedUsername = NORMALIZE_AND_CASEFOLD(@username)",
+		SQL:    "SELECT Id FROM {{ .Tables.Users }} WHERE NormalizedUsername = IF(STRPOS(@username, '@') > 0, CAST(LOWER(CAST(@username AS BYTES)) AS STRING), NORMALIZE(NORMALIZE_AND_CASEFOLD(@username)))",
 		Params: map[string]any{"username": username},
 	}
 	if err := txn.SpannerReadOnlyTransaction().Query(ctx, stmt).Do(func(row *spanner.Row) error {
@@ -1132,10 +1368,12 @@ func (store) UserID(ctx context.Context, txn resource.ReadWriteTransaction, user
 func (store) UserByVerifiedEmail(ctx context.Context, txn resource.ReadWriteTransaction, email string) (id impulse.UUID, found bool, err error) {
 	// A read that goes past the declarations, as UserID's is: the table's normalized
 	// address is no field of the declaration, and it is the column the unique index
-	// is over, so the address is compared as the session library compares one. An
-	// address nobody confirmed names no one, as at a sign-in.
+	// is over, so the address is compared as the session library compares one, by the
+	// case of its ASCII letters alone (LOWER over BYTES treats its argument as ASCII and
+	// leaves every byte above 127 as it is). An address nobody confirmed names no one,
+	// as at a sign-in.
 	stmt := spanner.Statement{
-		SQL:    "SELECT Id FROM {{ .Tables.Users }} WHERE NormalizedEmail = NORMALIZE_AND_CASEFOLD(@email) AND EmailVerifiedAt IS NOT NULL",
+		SQL:    "SELECT Id FROM {{ .Tables.Users }} WHERE NormalizedEmail = CAST(LOWER(CAST(@email AS BYTES)) AS STRING) AND EmailVerifiedAt IS NOT NULL",
 		Params: map[string]any{"email": email},
 	}
 	if err := txn.SpannerReadOnlyTransaction().Query(ctx, stmt).Do(func(row *spanner.Row) error {
@@ -1149,8 +1387,66 @@ func (store) UserByVerifiedEmail(ctx context.Context, txn resource.ReadWriteTran
 	return id, found, nil
 }
 
-func (store) DeleteUser(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error {
-	if err := {{ .ResourcesPackage }}.New{{ .User }}DeletePatch(id).Buffer(ctx, txn); err != nil {
+func (store) ConfirmedEmail(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (email string, found bool, err error) {
+	// A read that goes past the declarations, as UserByVerifiedEmail's is: an address
+	// nobody confirmed is no address to mail a person at, so it is not answered.
+	stmt := spanner.Statement{
+		SQL:    "SELECT Email FROM {{ .Tables.Users }} WHERE Id = @id AND Email IS NOT NULL AND EmailVerifiedAt IS NOT NULL",
+		Params: map[string]any{"id": id.String()},
+	}
+	if err := txn.SpannerReadOnlyTransaction().Query(ctx, stmt).Do(func(row *spanner.Row) error {
+		found = true
+
+		return row.Column(0, &email)
+	}); err != nil {
+		return "", false, errors.Wrap(err, "spanner.RowIterator.Do()")
+	}
+
+	return email, found, nil
+}
+
+// deletedBy is who a delete of an account or of a group is recorded as made by, in the
+// change records of the rows it takes that keep a change history: the request's person
+// (eventsource.UserEvent), and nobody for a call made outside any request, which carries
+// no session to read a person from. A row that keeps a change history refuses a delete
+// that names nobody: a job deletes such rows first, in a transaction before, under its
+// own process's name (eventsource.ProcessEvent).
+func deletedBy(ctx context.Context) []eventsource.EventSource {
+	if _, inRequest := ctx.Value(sessioninfo.CtxSessionInfo).(*sessioninfo.SessionData); !inRequest {
+		return nil
+	}
+
+	return []eventsource.EventSource{eventsource.UserEvent(ctx)}
+}
+
+func (store) DeleteUser(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, everythingUnder bool) (*resource.DeleteLeft, error) {
+	// The row's delete takes the application's rows that go with the account
+	// (@deletedWith), where it is told to. In a person's request the delete is that
+	// person's (deletedBy): a row it takes that keeps a change history records its
+	// delete as theirs.
+	patch := {{ .ResourcesPackage }}.New{{ .User }}DeletePatch(id)
+	if everythingUnder {
+		// Where the method that called declared a token (@deleteToken), the delete goes on
+		// it, and asks where it does not hold. Anywhere else it is code's word: every save
+		// asks everything again.
+		if token, declared := resource.DeleteTokenFrom(ctx); declared {
+			patch = patch.WithDeleteToken(token)
+		} else {
+			patch = patch.WithEverythingUnder()
+		}
+	}
+	if err := patch.Buffer(ctx, txn, deletedBy(ctx)...); err != nil {
+		return nil, errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .User }}DeletePatch.Buffer()")
+	}
+
+	return patch.Left(), nil
+}
+
+func (store) DeleteUserWithTenant(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error {
+	// The tenant's delete took the application's rows under the tenant before it reached
+	// the accounts: the row's delete leaves the application's rows out.
+	patch := {{ .ResourcesPackage }}.New{{ .User }}DeletePatch(id).WithEverythingUnder().WithLibraryRowsAlone()
+	if err := patch.Buffer(ctx, txn); err != nil {
 		return errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .User }}DeletePatch.Buffer()")
 	}
 
@@ -1350,24 +1646,32 @@ func (store) TenantMemberships(ctx context.Context, txn resource.ReadWriteTransa
 	return keys, nil
 }
 
-// DeleteTenantRoles removes the custom roles made in one tenant with their grants: the
-// one write here to the roles and grants tables, whose rows are otherwise the
-// permission engine's to write, made because the tenant itself goes.
+// TenantRoles counts the custom roles made in one tenant: the rows of the roles table
+// under the tenant's own scope, read in the caller's transaction
+// (identity.Store.TenantRoles).
+func (store) TenantRoles(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) (int, error) {
+	at := access.NewMembershipKey(accesstypes.DomainPolicyScope(domain), "", "")
+	query := {{ .ResourcesPackage }}.New{{ .Role }}Query().
+		AddColumns({{ .ResourcesPackage }}.New{{ .Role }}Columns().Kind().Axis().DomainID().Role()).
+		SetKind(at.Kind).SetAxis(at.Axis).SetDomainID(at.Domain)
+	roles := 0
+	for _, err := range query.List(ctx, txn) {
+		if err != nil {
+			return 0, errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .Role }}Query.List()")
+		}
+		roles++
+	}
+
+	return roles, nil
+}
+
+// DeleteTenantRoles removes the custom roles made in one tenant: the one write here to
+// the roles table, whose rows are otherwise the permission engine's to write, made
+// because the tenant itself goes. Each role's grants go with it by the database's rule,
+// the grants table being interleaved in the roles table ON DELETE CASCADE, as the
+// permission engine's own delete of a role takes them.
 func (store) DeleteTenantRoles(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) (int, error) {
 	at := access.NewMembershipKey(accesstypes.DomainPolicyScope(domain), "", "")
-	{{- if .Has "roleGrants" }}
-	grants := {{ .ResourcesPackage }}.New{{ .RoleGrant }}Query().
-		AddColumns({{ .ResourcesPackage }}.New{{ .RoleGrant }}Columns().Kind().Axis().DomainID().Role().Permission().ResourceName().Field().Condition()).
-		SetKind(at.Kind).SetAxis(at.Axis).SetDomainID(at.Domain)
-	var grantPatches []*{{ .ResourcesPackage }}.{{ .RoleGrant }}DeletePatch
-	for row, err := range grants.List(ctx, txn) {
-		if err != nil {
-			return 0, errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .RoleGrant }}Query.List()")
-		}
-		grant := row.Data
-		grantPatches = append(grantPatches, {{ .ResourcesPackage }}.New{{ .RoleGrant }}DeletePatch(grant.Kind, grant.Axis, grant.DomainID, grant.Role, grant.Permission, grant.ResourceName, grant.Field, grant.Condition))
-	}
-	{{- end }}
 	roles := {{ .ResourcesPackage }}.New{{ .Role }}Query().
 		AddColumns({{ .ResourcesPackage }}.New{{ .Role }}Columns().Kind().Axis().DomainID().Role()).
 		SetKind(at.Kind).SetAxis(at.Axis).SetDomainID(at.Domain)
@@ -1379,13 +1683,6 @@ func (store) DeleteTenantRoles(ctx context.Context, txn resource.ReadWriteTransa
 		role := row.Data
 		rolePatches = append(rolePatches, {{ .ResourcesPackage }}.New{{ .Role }}DeletePatch(role.Kind, role.Axis, role.DomainID, role.Role))
 	}
-	{{- if .Has "roleGrants" }}
-	for _, patch := range grantPatches {
-		if err := patch.Buffer(ctx, txn); err != nil {
-			return 0, errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .RoleGrant }}DeletePatch.Buffer()")
-		}
-	}
-	{{- end }}
 	for _, patch := range rolePatches {
 		if err := patch.Buffer(ctx, txn); err != nil {
 			return 0, errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .Role }}DeletePatch.Buffer()")
@@ -1432,6 +1729,10 @@ func (store) TenantMemberships(context.Context, resource.ReadWriteTransaction, a
 	return nil, nil
 }
 
+func (store) TenantRoles(context.Context, resource.ReadWriteTransaction, accesstypes.Domain) (int, error) {
+	return 0, nil
+}
+
 func (store) DeleteTenantRoles(context.Context, resource.ReadWriteTransaction, accesstypes.Domain) (int, error) {
 	return 0, nil
 }
@@ -1458,15 +1759,18 @@ func (invitationWrite) Resource() accesstypes.Resource {
 
 func (store) InsertInvitation(_ context.Context, txn resource.ReadWriteTransaction, row *session.InvitationRow) error {
 	// The row as the session library says an invitation is written
-	// (session.InvitationRow): the user and the consumption are left null.
+	// (session.InvitationRow): the user and the consumption are left null. EveryTenant
+	// is written on every row, true or false: with TenantId it is the place the
+	// acceptance gives the roles in.
 	columns := map[string]any{
-		"Id":        row.ID,
-		"TokenHash": row.TokenHash,
-		"Kind":      string(sessionstorage.MailLinkInvitation),
-		"Email":     row.Email,
-		"RoleNames": row.RoleNames,
-		"CreatedAt": spanner.CommitTimestamp,
-		"ExpiresAt": row.ExpiresAt,
+		"Id":          row.ID,
+		"TokenHash":   row.TokenHash,
+		"Kind":        string(sessionstorage.MailLinkInvitation),
+		"Email":       row.Email,
+		"EveryTenant": row.EveryTenant,
+		"RoleNames":   row.RoleNames,
+		"CreatedAt":   spanner.CommitTimestamp,
+		"ExpiresAt":   row.ExpiresAt,
 	}
 	if row.Name != "" {
 		columns["Name"] = row.Name
@@ -1511,11 +1815,48 @@ func (store) MailLink(ctx context.Context, txn resource.ReadWriteTransaction, id
 
 func (store) ConsumeMailLink(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error {
 	consumedAt := spanner.CommitTimestamp
-	if err := {{ .ResourcesPackage }}.New{{ .MailLink }}UpdatePatch(id).SetConsumedAt(&consumedAt).Buffer(ctx, txn); err != nil {
+	if err := {{ .ResourcesPackage }}.New{{ .MailLink }}UpdatePatch(id).SetConsumedAt(&consumedAt).SetWithdrawnAt(&consumedAt).Buffer(ctx, txn); err != nil {
 		return errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .MailLink }}UpdatePatch.Buffer()")
 	}
 
 	return nil
+}
+
+func (store) SentInvitation(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (invitation *identity.SentInvitation, found bool, err error) {
+	// A read that goes past the declarations, as UserID's does: whether an invitation
+	// makes a tenant is its NewTenant document, which is no field of the declaration.
+	// A link of another kind is not found.
+	stmt := spanner.Statement{
+		SQL: "SELECT Email, Name, TenantId, EveryTenant, RoleNames, NewTenant IS NOT NULL, ConsumedAt IS NOT NULL AND WithdrawnAt IS NULL AND MailFailedAt IS NULL, WithdrawnAt IS NOT NULL, MailFailedAt IS NOT NULL, ExpiresAt" +
+			" FROM {{ .Tables.MailLinks }} WHERE Id = @id AND Kind = @kind",
+		Params: map[string]any{"id": id.String(), "kind": string(sessionstorage.MailLinkInvitation)},
+	}
+	if err := txn.SpannerReadOnlyTransaction().Query(ctx, stmt).Do(func(row *spanner.Row) error {
+		var (
+			sent         identity.SentInvitation
+			name, tenant spanner.NullString
+			roles        []string
+		)
+		if err := row.Columns(&sent.Invitation.Email, &name, &tenant, &sent.Invitation.EveryDomain, &roles, &sent.MakesTenant, &sent.Accepted, &sent.Withdrawn, &sent.NotMailed, &sent.ExpiresAt); err != nil {
+			return errors.Wrap(err, "spanner.Row.Columns()")
+		}
+		if name.Valid {
+			sent.Invitation.Name = &name.StringVal
+		}
+		if tenant.Valid {
+			sent.Invitation.Domain = &tenant.StringVal
+		}
+		for _, role := range roles {
+			sent.Invitation.Roles = append(sent.Invitation.Roles, accesstypes.Role(role))
+		}
+		invitation, found = &sent, true
+
+		return nil
+	}); err != nil {
+		return nil, false, errors.Wrap(err, "spanner.RowIterator.Do()")
+	}
+
+	return invitation, found, nil
 }
 
 func (store) TenantInvitations(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]impulse.UUID, error) {
@@ -1581,6 +1922,10 @@ func (store) ConsumeMailLink(_ context.Context, _ resource.ReadWriteTransaction,
 	return errors.Newf("the schema holds no table {{ .Tables.MailLinks }}: there is no mail link %s to consume", id)
 }
 
+func (store) SentInvitation(context.Context, resource.ReadWriteTransaction, impulse.UUID) (invitation *identity.SentInvitation, found bool, err error) {
+	return nil, false, nil
+}
+
 func (store) TenantInvitations(context.Context, resource.ReadWriteTransaction, accesstypes.Domain) ([]impulse.UUID, error) {
 	return nil, nil
 }
@@ -1588,7 +1933,7 @@ func (store) TenantInvitations(context.Context, resource.ReadWriteTransaction, a
 func (store) InvitedTenants(context.Context, resource.ReadOnlyTransaction) ([]identity.InvitedTenantRow, error) {
 	return nil, nil
 }
-{{ end }}` + identitySignInMethodStoreTemplate + `{{ if .Has "trustedDevices" }}
+{{ end }}` + identitySignInMethodStoreTemplate + identitySignInSettingsStoreTemplate + identityAuditRecordsStoreTemplate + `{{ if .Has "trustedDevices" }}
 func (store) TrustedDevices(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]impulse.UUID, error) {
 	// The index leads with the user; whether a device is revoked is read off each row.
 	query := {{ .ResourcesPackage }}.New{{ .TrustedDevice }}Query().
@@ -1627,6 +1972,63 @@ func (store) RevokeTrustedDevice(_ context.Context, _ resource.ReadWriteTransact
 	return errors.Newf("the schema holds no table {{ .Tables.TrustedDevices }}: there is no remembered browser %s to revoke", id)
 }
 {{ end }}
+` + identityTenantHoldingsStoreTemplate + `
+// DeleteCosts answers what the delete of one row of each of the {{ .Auth }} auth's tables
+// a tenant's delete takes costs in a commit, as the schema read at generation tells it:
+// the delete and an entry out of each of the table's indexes besides its key, with no
+// change record, since the declarations write none. The withdrawal of an invitation costs
+// what its update costs: the key, the columns ConsumeMailLink writes, and each index that
+// holds one of them, two where the column is in the index's key and one and its stored
+// columns otherwise. A table the schema does not hold costs nothing
+// (identity.Store.DeleteCosts).
+func (store) DeleteCosts() identity.TenantDeleteCosts {
+	return identity.TenantDeleteCosts{
+		{{- range .DeleteCosts }}
+		{{ .Field }}: {{ .Cost }},
+		{{- end }}
+	}
+}
+{{ if .UserCascades }}
+// RowsWithUser counts what the database's own rules add to the delete of the user's row,
+// in mutations: each row of each table that hangs on the user by a foreign key declared
+// ON DELETE CASCADE, as the schema read at generation holds them, with an entry out of
+// each of that table's indexes, counted in the caller's transaction
+// (identity.Store.RowsWithUser). The tables: {{ range $i, $c := .UserCascades }}{{ if $i }}, {{ end }}{{ $c.Table }}{{ end }}.
+func (store) RowsWithUser(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) (int, error) {
+	stmt := spanner.Statement{
+		SQL:    {{ .RowsWithUserSQL }},
+		Params: map[string]any{"userId": userID.String()},
+	}
+	costs := []int{
+		{{- range .UserCascades }}
+		resource.DeleteCost{IndexEntries: {{ .IndexEntries }}}.Mutations(0),
+		{{- end }}
+	}
+	rows := 0
+	if err := txn.SpannerReadOnlyTransaction().Query(ctx, stmt).Do(func(row *spanner.Row) error {
+		for i, cost := range costs {
+			var count int64
+			if err := row.Column(i, &count); err != nil {
+				return errors.Wrap(err, "spanner.Row.Column()")
+			}
+			rows += int(count) * cost
+		}
+
+		return nil
+	}); err != nil {
+		return 0, errors.Wrap(err, "spanner.RowIterator.Do()")
+	}
+
+	return rows, nil
+}
+{{ else }}
+// RowsWithUser answers nothing: no table of the schema hangs on the {{ .Auth }} auth's
+// users by a foreign key declared ON DELETE CASCADE, so the database removes nothing with
+// a user's row (identity.Store.RowsWithUser).
+func (store) RowsWithUser(context.Context, resource.ReadWriteTransaction, impulse.UUID) (int, error) {
+	return 0, nil
+}
+{{ end }}
 {{- if .ListsDirectoryOutsiders }}
 
 // DirectoryOutsiders lists the people of the {{ .Auth }} auth who hold a role in the
@@ -1655,104 +2057,114 @@ func (c *Client) DirectoryOutsiders(ctx context.Context, txn resource.ReadWriteT
 
 	return outsiders, nil
 }
-{{- end }}` + identityGroupStore + identityPeriodStore
 
-	// identityCreateUserTemplate is the method that creates a person.
-	identityCreateUserTemplate = `// Code generated by resourcegeneration. DO NOT EDIT.
-// Source: {{ .Source }}
-
-package {{ .Package }}
-
-import (
-	"context"
-
-	"github.com/go-playground/errors/v5"
-	"github.com/impulseframework/impulse"
-	"github.com/impulseframework/impulse/accesstypes"
-	"github.com/impulseframework/impulse/identity"
-	"github.com/impulseframework/impulse/resource"
-)
-
-type (
-	// Create{{ .Auth }}User creates a person in the {{ .Auth }} auth. The person is
-	// created holding the roles, at least one: in the global scope, in one domain
-	// (Domain), or in every domain (EveryDomain), written in the same transaction as
-	// the user. Each role must exist where it is given.
-	{{- if eq .PasswordOnCreate "required" }}
-	// Password is a temporary password, which the person changes before anything else
-	// is served: the password is the auth's one way in, so a person is created with
-	// one.
-	{{- else if eq .PasswordOnCreate "optional" }}
-	// Password, when given, is a temporary password, which the person changes before
-	// anything else is served; without one the person signs in another way, or
-	// follows an invitation and chooses their own.
-	{{- else }}
-	// The person holds no password: they sign in through a directory.
-	{{- end }}
-	// Name is the person's name as people read it, shown in place of the username
-	// where it is given; the person may change it themselves.
-	// It answers the new user's id. A username or an address another user holds is
-	// refused when the transaction commits.
-	//
-	// @rpc
-	// @outlet({{ .Outlets }})
-	Create{{ .Auth }}User struct {
-		Username    string ` + "`validate:\"required\"`" + `
-		Name        *string
-		{{- if not .UsernameIsEmail }}
-		Email       *string
-		{{- end }}
-		{{- if eq .PasswordOnCreate "required" }}
-		Password    string ` + "`validate:\"required\" conditions:\"secret\"`" + `
-		{{- else if eq .PasswordOnCreate "optional" }}
-		Password    *string ` + "`conditions:\"secret\"`" + `
-		{{- end }}
-		// Roles are the roles the person is given. A grant's condition reads each of them as
-		// new.role, so a role file can limit which roles the grant's holder hands out.
-		//
-		// @attribute(role)
-		Roles       []string
-		{{- if .TenantPicker }}
-		// Domain is the one {{ .TenantName }} the roles are given in, picked from the
-		// {{ .TenantName }} records the caller may list.
-		//
-		// @enumerate({{ .TenantPicker }})
-		{{- end }}
-		Domain      *string
-		EveryDomain bool
-	}
-	// Create{{ .Auth }}UserResult answers the new user's id.
-	Create{{ .Auth }}UserResult struct {
-		ID impulse.UUID
-	}
-)
-
-// Execute buffers the new user and the memberships into the caller's transaction.
-func (m *Create{{ .Auth }}User) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*Create{{ .Auth }}UserResult, error) {
-	scope, err := identity.Scope(m.Domain, m.EveryDomain)
-	if err != nil {
-		return nil, errors.Wrap(err, "identity.Scope()")
-	}
-	account := &identity.NewAccount{Username: m.Username, Name: m.Name, Scope: scope}
-	{{- if not .UsernameIsEmail }}
-	account.Email = m.Email
-	{{- end }}
-	{{- if eq .PasswordOnCreate "required" }}
-	account.Password, account.PasswordRequired = &m.Password, true
-	{{- else if eq .PasswordOnCreate "optional" }}
-	account.Password = m.Password
-	{{- end }}
-	for _, role := range m.Roles {
-		account.Roles = append(account.Roles, accesstypes.Role(role))
-	}
-	id, err := client.manager.CreateUser(ctx, txn, account)
-	if err != nil {
-		return nil, errors.Wrap(err, "identity.Manager.CreateUser()")
+// SeatedCount counts the people of the {{ .Auth }} auth in the {{ .TenantWord }}'s own
+// list of its people ({{ .TenantUser }}): who holds a role in the {{ .TenantWord }}, in it or in
+// every {{ .TenantWord }}, and, where the {{ .TenantWord }} has a directory, who signs in through it,
+// one row a person, the list DirectoryOutsiders reads, in the caller's transaction. The
+// read of the {{ .TenantWord }}'s directory-only switch says it beside the people
+// DirectoryOutsiders counts (resource.TenantDirectoryRules.CountedBy), so a page that
+// shows the switch says how many of the {{ .TenantWord }}'s people it keeps out.
+func (c *Client) SeatedCount(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain) (int, error) {
+	query := {{ .ResourcesPackage }}.New{{ .TenantUser }}Query().
+		AddColumns({{ .ResourcesPackage }}.New{{ .TenantUser }}Columns().ID()).
+		Where({{ .ResourcesPackage }}.New{{ .TenantUser }}QueryClause().DomainID().Equal(string(tenant)))
+	seated := 0
+	for _, err := range query.List(ctx, txn) {
+		if err != nil {
+			return 0, errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .TenantUser }}Query.List()")
+		}
+		seated++
 	}
 
-	return &Create{{ .Auth }}UserResult{ID: id}, nil
+	return seated, nil
 }
-`
+{{- if .AdministratorsEnter }}
+
+// DirectoryAdministrators lists the people of the {{ .Auth }} auth who are the {{ .TenantWord }}'s own
+// administrators and have a password: the people who enter the {{ .TenantWord }} with it and a
+// code mailed to them while it is directory only, the one way in beside its directory.
+// It reads the {{ .TenantWord }}'s own list of its people ({{ .TenantUser }}, whose
+// AdministratorWithPassword column is the fact), in the caller's transaction. The
+// warning of the generated method that turns the switch on counts and names them
+// (resource.DirectoryPeople.Administrators).
+func (c *Client) DirectoryAdministrators(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain) ([]resource.DirectoryAdministrator, error) {
+	query := {{ .ResourcesPackage }}.New{{ .TenantUser }}Query().
+		AddColumns({{ .ResourcesPackage }}.New{{ .TenantUser }}Columns().ID().Username().Name()).
+		Where({{ .ResourcesPackage }}.New{{ .TenantUser }}QueryClause().DomainID().Equal(string(tenant)).And().AdministratorWithPassword().Equal(true))
+	administrators := []resource.DirectoryAdministrator{}
+	for row, err := range query.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .TenantUser }}Query.List()")
+		}
+		administrators = append(administrators, resource.DirectoryAdministrator{UserID: row.Data.ID, Username: row.Data.Username, Name: row.Data.Name})
+	}
+
+	return administrators, nil
+}
+{{- end }}
+{{- if .ListsDirectoryInvitations }}
+
+// DirectoryInvitations lists the invitations of the {{ .Auth }} auth into the {{ .TenantWord }} that are
+// not yet accepted and give one of the roles that administer a {{ .TenantWord }}, by the auth's
+// permission engine's own names: each would make another of the {{ .TenantWord }}'s administrators,
+// who enters with a password and a code mailed to them while the {{ .TenantWord }} is directory
+// only. It reads the {{ .TenantWord }}'s own list of its invitations ({{ .TenantMailLink }}, whose
+// Pending column says the invitation stands), in the caller's transaction. The warning
+// of the generated method that turns the switch on counts and names them
+// (resource.DirectoryPeople.Invitations).
+func (c *Client) DirectoryInvitations(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain) ([]resource.DirectoryInvitation, error) {
+	administers := map[string]bool{}
+	for _, role := range c.manager.TenantAdministratorRoles() {
+		administers[string(role)] = true
+	}
+	query := {{ .ResourcesPackage }}.New{{ .TenantMailLink }}Query().
+		AddColumns({{ .ResourcesPackage }}.New{{ .TenantMailLink }}Columns().ID().Email().Name().RoleNames()).
+		Where({{ .ResourcesPackage }}.New{{ .TenantMailLink }}QueryClause().DomainID().Equal(string(tenant)).And().Pending().Equal(true))
+	invitations := []resource.DirectoryInvitation{}
+	for row, err := range query.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .TenantMailLink }}Query.List()")
+		}
+		for _, role := range row.Data.RoleNames {
+			if administers[role] {
+				invitations = append(invitations, resource.DirectoryInvitation{ID: row.Data.ID, Email: row.Data.Email, Name: row.Data.Name})
+
+				break
+			}
+		}
+	}
+
+	return invitations, nil
+}
+{{- end }}
+{{- end }}
+{{- if .ReadsSeatedAgain }}
+
+// SeatedAgainBySignIn reports whether a person of the {{ .Auth }} auth removed from the
+// {{ .TenantWord }} is given its starting role again the next time they sign in: the {{ .TenantWord }}'s
+// row of {{ .DirectorySeat.Table }} names a default seat, and the person has a sign-in identity
+// ({{ .Tables.Identities }}) whose method and connection are that row's. The directory gives a
+// person who holds nothing in the {{ .TenantWord }} that role at every sign-in
+// (identity.Manager.DirectorySeated). It is one statement past the declarations, as
+// UserID's is, read in the caller's transaction. The warning of the generated method
+// that removes a person from a {{ .TenantWord }} asks it, and on yes says so
+// (identity.Tenant.SeatedAgainNote).
+func (c *Client) SeatedAgainBySignIn(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain, userID impulse.UUID) (bool, error) {
+	stmt := spanner.Statement{
+		SQL:    "SELECT EXISTS (SELECT 1 FROM {{ .Tables.Identities }} i JOIN {{ .DirectorySeat.Table }} d ON d.{{ .DirectorySeat.MethodColumn }} = i.Method AND d.{{ .DirectorySeat.ConnectionColumn }} = i.Connection WHERE i.UserId = @userId AND d.{{ .DirectorySeat.TenantColumn }} = @tenant AND d.{{ .DirectorySeat.SeatColumn }} IS NOT NULL AND d.{{ .DirectorySeat.SeatColumn }} != '')",
+		Params: map[string]any{"userId": userID.String(), "tenant": string(tenant)},
+	}
+	var seated bool
+	if err := txn.SpannerReadOnlyTransaction().Query(ctx, stmt).Do(func(row *spanner.Row) error {
+		return row.Column(0, &seated)
+	}); err != nil {
+		return false, errors.Wrap(err, "spanner.RowIterator.Do()")
+	}
+
+	return seated, nil
+}
+{{- end }}` + identityGroupStore + identityPeriodStore + identityRecordRoleStore
 
 	// identityDisableUserTemplate is the method that disables a person.
 	identityDisableUserTemplate = `// Code generated by resourcegeneration. DO NOT EDIT.
@@ -1770,9 +2182,9 @@ import (
 
 // Disable{{ .Subject }}User disables a person of the {{ .Auth }} auth and ends every
 // session they hold, in one transaction: their next request is refused, and so is
-// their next sign-in. Nobody disables themselves: the caller's own account is refused.` + identityTenantUserNote + `
+// their next sign-in. Nobody disables themselves: the caller's own account is refused.` + identityTenantUserNote + identityNotOnOwnAccountNote + identityCallerEntersNote + `
 //
-// @rpc` + identityTenantScope + `
+// @rpc` + identityTenantScope + identityCallerEnters + identityNotOnOwnAccount + `
 // @outlet({{ .Outlets }})
 // @answers(204)
 type Disable{{ .Subject }}User struct {
@@ -1803,18 +2215,42 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/resource"
+	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
 // End{{ .Session }} ends one session of the {{ .Auth }} auth: the next request that
 // carries it is refused. A session established as someone or something else ends with
-// its impersonation record; a session that has ended already is left as it is.
+// its impersonation record; a session that has ended already is left as it is. It names
+// the session by its row of {{ .ListedSession }}, the list a page shows, so a row of that
+// list offers it.
+//
+// Before it runs, the method says what it does (Warning): for the session the caller
+// is using, that ending it signs them out.
 //
 // @rpc
 // @outlet({{ .Outlets }})
 // @answers(204)
+// @warning
 type End{{ .Session }} struct {
-	// @target({{ .Session }})
+	// @target({{ .ListedSession }})
 	SessionID impulse.UUID
+}
+
+// Warning says what ending the session does, in the words the person confirms: where
+// it is the session the request arrived on, that ending it signs them out. It writes
+// nothing.
+func (m *End{{ .Session }}) Warning(ctx context.Context, _ resource.ReadWriteTransaction, _ *Client) (*resource.Warning, error) {
+	if sessioninfo.IDFromCtx(ctx) == m.SessionID {
+		return &resource.Warning{
+			Consequence: "This is the session you are using. Ending it signs you out.",
+			Confirm:     "End the session and sign out",
+		}, nil
+	}
+
+	return &resource.Warning{
+		Consequence: "The browser or device this session is on is signed out.",
+		Confirm:     "End the session",
+	}, nil
 }
 
 // Execute buffers the end of the session into the caller's transaction.
@@ -1920,11 +2356,11 @@ import (
 // Require{{ .Subject }}PasswordChange requires a person of the {{ .Auth }} auth to change
 // their password: every request of theirs is refused until they have. Only the
 // password they hold lifts the requirement, so it is refused for a person who holds
-// none.` + identityTenantUserNote + `
+// none.` + identityTenantUserNote + identityCallerEntersNote + `
 //
-// @rpc` + identityTenantScope + `
+// @rpc` + identityTenantScope + identityCallerEnters + `
 // @outlet({{ .Outlets }})
-// @answers(204)
+// @answers(204)` + identityCredentialClass + `
 type Require{{ .Subject }}PasswordChange struct {
 	// @target({{ .SubjectUser }})
 	UserID impulse.UUID
@@ -1960,11 +2396,11 @@ import (
 // person. A person who holds no password keeps an identity that can sign them in: the
 // last one that counts stays, whatever identities that sign nobody in remain. Unlink
 // one identity of a person per transaction: a second in the same one does not see the
-// first.` + identityTenantIdentityNote + `
+// first.` + identityTenantIdentityNote + identityCallerEntersNote + `
 //
-// @rpc` + identityTenantScope + `
+// @rpc` + identityTenantScope + identityCallerEnters + `
 // @outlet({{ .Outlets }})
-// @answers(204)
+// @answers(204)` + identityCredentialClass + `
 type {{ .UnlinkIdentity }} struct {
 	// @target({{ .SubjectIdentity }})
 	IdentityID impulse.UUID
@@ -2000,11 +2436,11 @@ import (
 // password, their one way in. The sessions the person holds stand, the count of failed
 // sign-ins kept under their name is cleared, and the requirement to change the password
 // goes with the password. The request names the person and carries nothing else, so no
-// record of the call holds a value.` + identityTenantUserNote + `
+// record of the call holds a value.` + identityTenantUserNote + identityCallerEntersNote + `
 //
-// @rpc` + identityTenantScope + `
+// @rpc` + identityTenantScope + identityCallerEnters + `
 // @outlet({{ .Outlets }})
-// @answers(204)
+// @answers(204)` + identityCredentialClass + `
 type Remove{{ .Subject }}Password struct {
 	// @target({{ .SubjectUser }})
 	UserID impulse.UUID
@@ -2072,9 +2508,9 @@ import (
 )
 
 // Enable{{ .Subject }}User enables a disabled person of the {{ .Auth }} auth, who may sign
-// in again. The sessions that ended when they were disabled stay ended.` + identityTenantUserNote + `
+// in again. The sessions that ended when they were disabled stay ended.` + identityTenantUserNote + identityCallerEntersNote + `
 //
-// @rpc` + identityTenantScope + `
+// @rpc` + identityTenantScope + identityCallerEnters + `
 // @outlet({{ .Outlets }})
 // @answers(204)
 type Enable{{ .Subject }}User struct {
@@ -2109,12 +2545,20 @@ import (
 	"github.com/impulseframework/impulse/resource"
 )
 
+{{ if .HasTenant -}}
 // Assign{{ .Auth }}Role gives a person of the {{ .Auth }} auth a role: in the global
 // scope, in one domain (Domain), or in every domain (EveryDomain). The person is named
 // by the id of their account, and an id no user holds is refused: a role is held by an
 // account. The role must exist where it is given. The person's next request is served
 // with the role. The Super Administrator role is given in the global scope alone, and by
 // a super administrator.
+{{- else -}}
+// Assign{{ .Auth }}Role gives a person of the {{ .Auth }} auth a role, held for the whole
+// application: the application has no tenants, so the request names no place. The
+// person is named by the id of their account, and an id no user holds is refused: a
+// role is held by an account. The role must exist. The person's next request is served
+// with the role. The Super Administrator role is given by a super administrator.
+{{- end }}
 //
 // The role is given for a period where the request names one (StartsAt, EndsAt, each
 // optional): outside it the role grants nothing, and nothing is written when it begins
@@ -2123,16 +2567,16 @@ import (
 // stand until it is taken away; ending a role now is taking it away. The Super
 // Administrator role takes no period: there is always one.
 //
+// The role carries the reason the request gives (Reason), which is shown wherever the
+// person's roles are listed. It is replaced with the period: a role given again carries
+// the reason of the new request, and none where the request gives none.
+//
 // @rpc
 // @outlet({{ .Outlets }})
-// @answers(204)
+// @answers(204)` + identityAccessClass + `
 type Assign{{ .Auth }}Role struct {
 	UserID      impulse.UUID
-	// Role is the role the person is given. A grant's condition reads it as new.role, so a
-	// role file can limit which roles the grant's holder hands out.
-	//
-	// @attribute(role)
-	Role        string ` + "`validate:\"required\"`" + `
+	{{- if .HasTenant }}
 	{{- if .TenantPicker }}
 	// Domain is the one {{ .TenantName }} the role is given in, picked from the
 	// {{ .TenantName }} records the caller may list.
@@ -2140,15 +2584,29 @@ type Assign{{ .Auth }}Role struct {
 	// @enumerate({{ .TenantPicker }})
 	{{- end }}
 	Domain      *string
-	EveryDomain bool` + identityPeriodFields + `
+	EveryDomain bool
+	{{- end }}
+	// Role is the role the person is given, picked from the roles that exist where it is
+	// given that the caller could give there ({{ .GivablePicker }}). A grant's condition
+	// reads it as new.role, so a role file can limit which roles the grant's holder hands
+	// out.
+	//
+	// @attribute(role)
+	// @enumerate({{ .GivablePicker }})
+	Role        string ` + "`validate:\"required\"`" + identityPeriodFields + identityReasonField + `
 }
 
 // Execute buffers the membership into the caller's transaction.
 func (m *Assign{{ .Auth }}Role) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error {
+	{{- if .HasTenant }}
 	scope, err := identity.Scope(m.Domain, m.EveryDomain)
 	if err != nil {
 		return errors.Wrap(err, "identity.Scope()")
 	}
+	{{- else }}
+	// The application has no tenants: every role is held for the whole application.
+	scope := accesstypes.GlobalPolicyScope()
+	{{- end }}
 	period, err := identity.RequestPeriod(m.StartsAt, m.EndsAt)
 	if err != nil {
 		return errors.Wrap(err, "identity.RequestPeriod()")
@@ -2156,7 +2614,7 @@ func (m *Assign{{ .Auth }}Role) Execute(ctx context.Context, txn resource.ReadWr
 	if err := client.manager.RequireUser(ctx, txn, m.UserID); err != nil {
 		return errors.Wrap(err, "identity.Manager.RequireUser()")
 	}
-	if err := client.manager.AssignRoleFor(ctx, txn, scope, m.UserID, accesstypes.Role(m.Role), period); err != nil {
+	if err := client.manager.AssignRoleFor(ctx, txn, scope, m.UserID, accesstypes.Role(m.Role), period, identity.RequestReason(m.Reason)); err != nil {
 		return errors.Wrap(err, "identity.Manager.AssignRoleFor()")
 	}
 
@@ -2180,34 +2638,73 @@ import (
 	"github.com/impulseframework/impulse/resource"
 )
 
+{{ if .HasTenant -}}
 // Remove{{ .Auth }}Role takes a role from a person of the {{ .Auth }} auth, named by the
 // id of their account: the one held in the global scope, in one domain (Domain), or in
 // every domain (EveryDomain). A role the person does not hold there is no error. The
 // person's next request is served without it.
+{{- else -}}
+// Remove{{ .Auth }}Role takes a role from a person of the {{ .Auth }} auth, named by the
+// id of their account. The application has no tenants, so the role is the one held for
+// the whole application and the request names no place. A role the person does not hold
+// is no error. The person's next request is served without it.
+{{- end }}
 //
 // A person who removes a role from themselves in a domain keeps an administrator role
 // nobody else would hold there (identity.WithAdministratorRoles names them). The Super
 // Administrator role is taken away by a super administrator alone, and never from the
-// last one who can sign in. A person left with no role anywhere is deleted with their
-// identity links and sessions, in the same transaction: an account nothing admits is
-// not kept.
+// last one who can sign in. Where the role is the last thing the person holds, the
+// account stays, holding nothing.` + identityRoleRemovalEntersNote + `
+//
+// The method declares a warning with no word to type: asked first, the server says whose
+// role goes and where it is held.
 //
 // @rpc
+{{- with .RoleRemovalRows }}
+// @callerEnters({{ . }})
+{{- end }}
 // @outlet({{ .Outlets }})
 // @answers(204)
+// @warning` + identityAccessClass + `
 type Remove{{ .Auth }}Role struct {
 	UserID      impulse.UUID
 	Role        string ` + "`validate:\"required\"`" + `
+	{{- if .HasTenant }}
 	Domain      *string
 	EveryDomain bool
+	{{- end }}
+}
+
+// Warning says whose role would go and where it is held. It writes nothing.
+func (m *Remove{{ .Auth }}Role) Warning(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*resource.Warning, error) {
+	{{- if .HasTenant }}
+	scope, err := identity.Scope(m.Domain, m.EveryDomain)
+	if err != nil {
+		return nil, errors.Wrap(err, "identity.Scope()")
+	}
+	{{- else }}
+	// The application has no tenants: every role is held for the whole application.
+	scope := accesstypes.GlobalPolicyScope()
+	{{- end }}
+	warning, err := client.manager.RoleRemovalWarning(ctx, txn, scope, m.UserID, accesstypes.Role(m.Role))
+	if err != nil {
+		return nil, errors.Wrap(err, "identity.Manager.RoleRemovalWarning()")
+	}
+
+	return warning, nil
 }
 
 // Execute buffers the removal into the caller's transaction.
 func (m *Remove{{ .Auth }}Role) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error {
+	{{- if .HasTenant }}
 	scope, err := identity.Scope(m.Domain, m.EveryDomain)
 	if err != nil {
 		return errors.Wrap(err, "identity.Scope()")
 	}
+	{{- else }}
+	// The application has no tenants: every role is held for the whole application.
+	scope := accesstypes.GlobalPolicyScope()
+	{{- end }}
 	if err := client.manager.RemoveRole(ctx, txn, scope, m.UserID, accesstypes.Role(m.Role)); err != nil {
 		return errors.Wrap(err, "identity.Manager.RemoveRole()")
 	}
@@ -2234,11 +2731,11 @@ import (
 // takes what carries the name for people to read with it, in one transaction: the
 // sessions they hold and the impersonations they established. The roles stay where they
 // are: the permission store names a person by the id of their account. A name another
-// user holds is refused.` + identityTenantUserNote + `
+// user holds is refused.` + identityTenantUserNote + identityCallerEntersNote + `
 //
-// @rpc` + identityTenantScope + `
+// @rpc` + identityTenantScope + identityCallerEnters + `
 // @outlet({{ .Outlets }})
-// @answers(204)
+// @answers(204)` + identityCredentialClass + `
 type Rename{{ .Subject }}User struct {
 	// @target({{ .SubjectUser }})
 	UserID   impulse.UUID
@@ -2263,6 +2760,7 @@ package {{ .Package }}
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
@@ -2271,62 +2769,87 @@ import (
 
 // Delete{{ .Subject }}User deletes a person of the {{ .Auth }} auth, in one transaction:
 // every session they hold is ended, and their identity links and every role they hold
-// go with the account. Nobody deletes themselves: the caller's own account is refused.` + identityTenantUserNote + `
+// go with the account, and with it the application's rows that name the account in a
+// column that says so (@deletedWith). Asked without EverythingUnder of an account that
+// has such a row, it deletes nothing and answers the question a person is asked first,
+// with their counts; asked with it and the question's token, it takes them. Nobody
+// deletes themselves: the caller's own account is refused.
 //
-// @rpc` + identityTenantScope + `
+// The rows that go with the account go on this method's grant: no grant is asked on
+// their own tables. For a request made for the whole application every such row goes.
+// For one made under a tenant's address the rows of that tenant go, and those of each
+// other tenant in which the person holds the same permission; a row of any other
+// tenant, or of none, refuses the delete, with nothing gone, in a sentence that says
+// where it is.
+{{- if and .ForTenant .ReadsSeatedAgain }}
+//
+// Before it runs on a tenant's side, the method says what it does (Warning): where the
+// tenant is open to its directory and the person signs in through it, that they can sign
+// in again and will get a new account.
+{{- end }}` + identityTenantUserNote + identityNotOnOwnAccountNote + identityCallerEntersNote + `
+//
+// @rpc` + identityTenantScope + identityCallerEnters + identityNotOnOwnAccount + `
 // @outlet({{ .Outlets }})
-// @answers(204)
+// @answers(202, 204)
+{{- if and .ForTenant .ReadsSeatedAgain }}
+// @warning
+{{- end }}
 type Delete{{ .Subject }}User struct {
 	// @target({{ .SubjectUser }})
 	UserID impulse.UUID
+	// EverythingUnder says the person was asked what the account's delete takes and
+	// confirmed it, so the delete takes the application's rows that go with the account.
+	EverythingUnder bool
+	// Token is the token the delete's question gave (the 428's "token"): with
+	// EverythingUnder, the delete takes what is under the account only on it.
+	//
+	// @deleteToken
+	Token string
 }
 
-// Execute buffers the removal into the caller's transaction.
-func (m *Delete{{ .Subject }}User) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error {` + identityTenantGuard + `
-	if err := client.manager.DeleteUser(ctx, txn, m.UserID); err != nil {
-		return errors.Wrap(err, "identity.Manager.DeleteUser()")
+// Delete{{ .Subject }}UserResult is what a delete of an account with more under it than
+// one save holds left (resource.DeleteLeft): the records this request deleted. The account
+// stands until a request takes the last of them.
+type Delete{{ .Subject }}UserResult struct {
+	Deleted int64 ` + "`json:\"deleted\"`" + `
+}
+
+// HTTPStatus answers 202: the account still stands, and the same delete, sent again, goes on.
+func (*Delete{{ .Subject }}UserResult) HTTPStatus() int {
+	return http.StatusAccepted
+}
+{{- if and .ForTenant .ReadsSeatedAgain }}
+
+// Warning says what deleting the person does before it runs, and, where the tenant is open
+// to its directory and the person signs in through it, that they can sign in again and will
+// get a new account. It writes nothing.
+func (m *Delete{{ .Subject }}User) Warning(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*resource.Warning, error) {
+	// A tenant's method acts for a request made under the tenant's address.
+	tenant, err := client.manager.Tenant(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "identity.Manager.Tenant()")
+	}
+	again, err := client.SeatedAgainBySignIn(ctx, txn, tenant.Domain(), m.UserID)
+	if err != nil {
+		return nil, errors.Wrap(err, "Client.SeatedAgainBySignIn()")
 	}
 
-	return nil
+	return tenant.DeletionWarning(again), nil
 }
-`
+{{- end }}
 
-	// identitySetTemporaryPasswordTemplate is the method that sets a temporary password.
-	identitySetTemporaryPasswordTemplate = `// Code generated by resourcegeneration. DO NOT EDIT.
-// Source: {{ .Source }}
-
-package {{ .Package }}
-
-import (
-	"context"
-
-	"github.com/go-playground/errors/v5"
-	"github.com/impulseframework/impulse"
-	"github.com/impulseframework/impulse/resource"
-)
-
-// Set{{ .Subject }}TemporaryPassword sets a password an operator chose for a person of the
-// {{ .Auth }} auth, in one transaction: the person must change it before anything
-// else is served, every session they hold is ended, and the count of failed sign-ins
-// kept under their name is cleared, so a person locked out signs in with it at once.` + identityTenantUserNote + `
-//
-// @rpc` + identityTenantScope + `
-// @outlet({{ .Outlets }})
-// @answers(204)
-type Set{{ .Subject }}TemporaryPassword struct {
-	// @target({{ .SubjectUser }})
-	UserID   impulse.UUID
-	Password string ` + "`validate:\"required\" conditions:\"secret\"`" + `
-}
-
-// Execute buffers the password, the end of the person's sessions and the cleared count
-// into the caller's transaction.
-func (m *Set{{ .Subject }}TemporaryPassword) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error {` + identityTenantGuard + `
-	if err := client.manager.SetTemporaryPassword(ctx, txn, m.UserID, m.Password); err != nil {
-		return errors.Wrap(err, "identity.Manager.SetTemporaryPassword()")
+// Execute buffers the removal into the caller's transaction. It answers nothing (204)
+// once the account is gone, and the rows one save deleted (202) while it stands.
+func (m *Delete{{ .Subject }}User) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*Delete{{ .Subject }}UserResult, error) {` + identityTenantGuardAnswering + `
+	left, err := client.manager.DeleteUser(ctx, txn, m.UserID, m.EverythingUnder)
+	if err != nil {
+		return nil, errors.Wrap(err, "identity.Manager.DeleteUser()")
+	}
+	if left == nil {
+		return nil, nil
 	}
 
-	return nil
+	return &Delete{{ .Subject }}UserResult{Deleted: left.Deleted}, nil
 }
 `
 
@@ -2347,37 +2870,54 @@ import (
 )
 
 type (
+	{{- if .HasTenant }}
 	// Invite{{ .Auth }}User invites an address to the {{ .Auth }} auth: a link is
 	// mailed to it, and whoever follows the link and signs in, or signs up, is given
 	// the roles. An invitation gives at least one role: into a tenant (Domain), where
-	// every role is held there, or into the application, where a role of the global
-	// scope is held there and a role of the domain kind in every tenant. Name is the
-	// name the sender gives the person: whoever accepts the invitation takes it where
-	// their account holds none.
+	// every role is held there; into every tenant (EveryDomain), where every role is
+	// one of the domain kind and none carries the name of a role of the global scope;
+	// or with neither, into the whole application, where every role is one of the
+	// global scope: a role that exists only in the tenants is refused there, with what
+	// to choose. Name is the name the sender gives the person: whoever accepts the
+	// invitation takes it where their account holds none.
+	{{- else }}
+	// Invite{{ .Auth }}User invites an address to the {{ .Auth }} auth: a link is
+	// mailed to it, and whoever follows the link and signs in, or signs up, is given
+	// the roles. An invitation gives at least one role, held for the whole application:
+	// the application has no tenants, so the request names no place. Name is the name
+	// the sender gives the person: whoever accepts the invitation takes it where their
+	// account holds none.
+	{{- end }}
 	//
 	// The invitation is written in the transaction, beside whatever else it writes,
 	// and its message is sent once the transaction has committed, since a message
 	// cannot be taken back. The answer says whether the message went (Sent). When it
-	// did not, the invitation is withdrawn, so no link stands that nobody holds:
-	// invite again.
+	// did not, the invitation is ended, not mailed, so no link stands that nobody
+	// holds: invite again.
 	//
 	// @rpc
-	// @outlet({{ .Outlets }})
+	// @outlet({{ .Outlets }})` + identityAccessClass + `
 	Invite{{ .Auth }}User struct {
 		Email  string ` + "`validate:\"required\"`" + `
 		Name   *string
-		// Roles are the roles the person is given. A grant's condition reads each of them as
-		// new.role, so a role file can limit which roles the grant's holder hands out.
-		//
-		// @attribute(role)
-		Roles  []string
+		{{- if .HasTenant }}
 		{{- if .TenantPicker }}
 		// Domain is the one {{ .TenantName }} the roles are given in, picked from the
 		// {{ .TenantName }} records the caller may list.
 		//
 		// @enumerate({{ .TenantPicker }})
 		{{- end }}
-		Domain *string
+		Domain      *string
+		EveryDomain bool
+		{{- end }}
+		// Roles are the roles the person is given, picked from the roles that exist where
+		// they are given that the caller could give there ({{ .GivablePicker }}). A
+		// grant's condition reads each of them as new.role, so a role file can limit which
+		// roles the grant's holder hands out.
+		//
+		// @attribute(role)
+		// @enumerate({{ .GivablePicker }})
+		Roles  []string
 	}
 	// Invite{{ .Auth }}UserResult answers the invitation's id and whether its message
 	// went. Sent is set once the transaction has committed: a caller that runs the
@@ -2391,7 +2931,7 @@ type (
 // Execute buffers the invitation into the caller's transaction and registers the send
 // for after its commit.
 func (m *Invite{{ .Auth }}User) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*Invite{{ .Auth }}UserResult, error) {
-	invitation := &identity.Invitation{Email: m.Email, Name: m.Name, Domain: m.Domain}
+	invitation := &identity.Invitation{Email: m.Email, Name: m.Name{{ if .HasTenant }}, Domain: m.Domain, EveryDomain: m.EveryDomain{{ end }}}
 	for _, role := range m.Roles {
 		invitation.Roles = append(invitation.Roles, accesstypes.Role(role))
 	}
@@ -2427,7 +2967,7 @@ import (
 //
 // @rpc` + identityTenantScope + `
 // @outlet({{ .Outlets }})
-// @answers(204)
+// @answers(204)` + identityAccessClass + `
 type Withdraw{{ .Subject }}Invitation struct {
 	// @target({{ .SubjectMailLink }})
 	InvitationID impulse.UUID
@@ -2440,6 +2980,66 @@ func (m *Withdraw{{ .Subject }}Invitation) Execute(ctx context.Context, txn reso
 	}
 
 	return nil
+}
+`
+
+	// identityResendInvitationTemplate is the method that sends an invitation again.
+	identityResendInvitationTemplate = `// Code generated by resourcegeneration. DO NOT EDIT.
+// Source: {{ .Source }}
+
+package {{ .Package }}
+
+import (
+	"context"
+
+	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/resource"
+)
+
+type (
+	// Resend{{ .Subject }}Invitation sends an invitation of the {{ .Auth }} auth again: a
+	// new link to the same address, with the same roles, held in the same place, and
+	// the same name, mailed once the transaction has committed. An invitation that
+	// still stands is withdrawn in the same transaction, so the link mailed before
+	// stops working; one that has expired or whose message could not be mailed is left
+	// as it is. The new invitation is held to every rule an invitation is held to, as
+	// the caller's own, and names the caller as its sender. An invitation that was
+	// accepted or withdrawn is refused, and one that makes a tenant is not found here,
+	// as a link of another kind is.
+	//
+	// No role is given the method, and no role file grants it: whoever may run
+	// Invite{{ .Subject }}User for the roles the invitation gives may send it again. The
+	// frame asks that method's Execute grant, a condition on it that reads new.role read
+	// over the roles of the invitation's row, and the row's Execute answer follows the
+	// same check, so a page offers the method where the caller could send the invitation
+	// new.` + identityTenantInvitationNote + `
+	//
+	// @rpc` + identityTenantScope + `
+	// @outlet({{ .Outlets }})` + identityAccessClass + `
+	Resend{{ .Subject }}Invitation struct {
+		// @target({{ .SubjectMailLink }})
+		InvitationID impulse.UUID
+	}
+	// Resend{{ .Subject }}InvitationResult answers the new invitation's id and whether
+	// its message went. Sent is set once the transaction has committed.
+	Resend{{ .Subject }}InvitationResult struct {
+		ID   impulse.UUID
+		Sent bool
+	}
+)
+
+// Execute buffers the new invitation, and the withdrawal of one that stands, into the
+// caller's transaction and registers the send for after its commit.
+func (m *Resend{{ .Subject }}Invitation) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*Resend{{ .Subject }}InvitationResult, error) {` + identityTenantGuardAnswering + `
+	result := &Resend{{ .Subject }}InvitationResult{}
+	id, err := client.manager.ResendInvitation(ctx, txn, m.InvitationID, func(sent bool) { result.Sent = sent })
+	if err != nil {
+		return nil, errors.Wrap(err, "identity.Manager.ResendInvitation()")
+	}
+	result.ID = id
+
+	return result, nil
 }
 `
 
@@ -2460,13 +3060,15 @@ import (
 // keeps under a name, and with it the lock the count earned: the name may sign in
 // again. Every instance of the application lets the name through within a few seconds
 // of the commit, the time each trusts what it remembers of a name. A client held for
-// its own failed attempts, whatever the name, waits its hold out.
+// its own failed attempts, whatever the name, waits its hold out. It names the count by
+// its row of {{ .ListedSignInAttempt }}, the list a page shows, so a row of that list
+// offers it.
 //
 // @rpc
 // @outlet({{ .Outlets }})
 // @answers(204)
 type Unlock{{ .Auth }}SignIn struct {
-	// @target({{ .SignInAttempt }})
+	// @target({{ .ListedSignInAttempt }})
 	Name string ` + "`validate:\"required\"`" + `
 }
 
@@ -2569,7 +3171,11 @@ type Handlers struct {
 // New returns the handlers over the application, publishing with the application's
 // live derivations. The application's generated handler package calls it with its own
 // assembly of them; nil publishes the rows a commit wrote and no view derived from them.
+// It also hands the auth's client the same service and derivations to announce a
+// sign-in's writes with (AnnounceThrough).
 func New(deps Deps, derivations *live.Derivations) *Handlers {
+	deps.{{ .Accessor }}().AnnounceThrough(deps.LiveService(), derivations)
+
 	return &Handlers{Deps: deps, liveDerivations: derivations}
 }
 

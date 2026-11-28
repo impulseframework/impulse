@@ -11,8 +11,10 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/sites/apps/console/pkg/resources"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/sites/apps/console/pkg/router"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/resource/live"
@@ -22,8 +24,8 @@ import (
 // OpenTenantToDirectory serves the method that opens a tenant to its directory's people,
 // POST <prefix>/tenants/{tenantID}/open-tenant-to-directory with {"role": ...}, on every outlet that serves
 // sessions and the TenantDirectory record: from the commit on, a person the tenant's directory
-// vouches for enters the tenant with no invitation, and is given the role at their first
-// sign-in through the directory (TenantDirectory.DefaultSeat). The choice is the tenant's own:
+// vouches for enters the tenant with no invitation, and is given the role whenever they sign in through the directory and
+// hold nothing in the tenant (TenantDirectory.DefaultSeat). The choice is the tenant's own:
 // the method runs in the tenant's scope, to an Execute grant on OpenTenantToDirectory there, and
 // the TenantDirectory record's own update shows the role and never writes it.
 //
@@ -40,9 +42,13 @@ import (
 // running the call, what it would do (resource.TenantDirectoryRules.OpenToDirectoryWarning):
 // who will be able to enter and the role each of them gets, or, while no role is picked
 // yet, that one is to be chosen; or the refusal the call itself would answer, in the
-// same words. The role is written through the record's update patch, so its change event
+// same words. Where the application holds a person to one tenant, the warning also says
+// that the directory's people who belong to another tenant are moved to this one when
+// they sign in (resource.TenantDirectoryRules.OpenTakesPeopleNote). The role is written through the record's update patch, so its change event
 // is written with it; the sign-in reads it in its own transaction, so the next sign-in
-// is decided by it. A dry run (X-Dry-Run: true) runs the whole frame and rolls back.
+// is decided by it. The tenant opened is recorded in the Staff auth's audit log, with the
+// role (StaffIdentity().RecordTenantSignIn), in the same transaction. A dry run
+// (X-Dry-Run: true) runs the whole frame and rolls back.
 func (a *App) OpenTenantToDirectory() http.HandlerFunc {
 	type request struct {
 		Role string `json:"role"`
@@ -66,6 +72,7 @@ func (a *App) OpenTenantToDirectory() http.HandlerFunc {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		ctx = resource.WithCaller(ctx, caller)
+		ctx = resource.WithRPC(ctx, "OpenTenantToDirectory")
 		role := accesstypes.Role(strings.TrimSpace(req.Role))
 
 		// A request that asks for the method's warning (X-Warning: true) is decoded
@@ -82,7 +89,7 @@ func (a *App) OpenTenantToDirectory() http.HandlerFunc {
 		if role == "" && !asksWarning {
 			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewBadRequestMessage("Choose the role each person from the directory gets: a tenant is not opened to its directory without one."))
 		}
-		eventSource := resource.UserEvent(ctx)
+		eventSource := eventsource.UserEvent(ctx)
 
 		ctx, touched := resource.CollectTouchedRows(ctx)
 		dryRun, err := resource.IsDryRun(r)
@@ -101,6 +108,11 @@ func (a *App) OpenTenantToDirectory() http.HandlerFunc {
 			}
 			if asksWarning {
 				said := rules.OpenToDirectoryWarning(directory, role)
+				// Where a person belongs to one tenant, the directory's people who belong
+				// to another are moved to this one at their next sign-in: the warning says so.
+				if a.StaffIdentity().OneTenantPerPerson() {
+					said.Also = append(said.Also, rules.OpenTakesPeopleNote(directory))
+				}
 				if err := resource.CheckWarning("OpenTenantToDirectory", said); err != nil {
 					return errors.Wrap(err, "resource.CheckWarning()")
 				}
@@ -115,6 +127,9 @@ func (a *App) OpenTenantToDirectory() http.HandlerFunc {
 			seat := string(role)
 			if err := resources.NewTenantDirectoryUpdatePatch(id).SetDefaultSeat(&seat).Buffer(ctx, txn, eventSource); err != nil {
 				return errors.Wrap(err, "resources.TenantDirectoryUpdatePatch.Buffer()")
+			}
+			if err := a.StaffIdentity().RecordTenantSignIn(ctx, txn, domain, auditlog.ActDirectoryOpened, seat); err != nil {
+				return errors.Wrap(err, "StaffIdentity().RecordTenantSignIn()")
 			}
 			if dryRun {
 				return resource.ErrDryRun
@@ -142,7 +157,8 @@ func (a *App) OpenTenantToDirectory() http.HandlerFunc {
 // MakeTenantInviteOnly in the tenant: from the commit on, a person from the directory who
 // holds no role in the tenant enters once they are invited, and the people the directory
 // already seated keep what they hold. It clears the role (TenantDirectory.DefaultSeat) through
-// the record's update patch; a tenant that is invite only already is left as it is. It
+// the record's update patch, and records it in the Staff auth's audit log in the same
+// transaction; a tenant that is invite only already is left as it is, and nothing is recorded. It
 // is plain: no rule holds it and it declares no warning, so a request that asks for one
 // is refused (400) and never runs the call. A tenant with no directory is refused (409).
 // A dry run (X-Dry-Run: true) runs the whole frame and rolls back.
@@ -168,6 +184,7 @@ func (a *App) MakeTenantInviteOnly() http.HandlerFunc {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		ctx = resource.WithCaller(ctx, caller)
+		ctx = resource.WithRPC(ctx, "MakeTenantInviteOnly")
 		// The header takes the value true or is left off the request: any other value
 		// is refused here, and the call is not run.
 		asksWarning, err := resource.AsksWarning(r)
@@ -179,7 +196,7 @@ func (a *App) MakeTenantInviteOnly() http.HandlerFunc {
 			// and never runs the call.
 			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewBadRequestMessage("MakeTenantInviteOnly declares no warning: send the call without the X-Warning header"))
 		}
-		eventSource := resource.UserEvent(ctx)
+		eventSource := eventsource.UserEvent(ctx)
 
 		ctx, touched := resource.CollectTouchedRows(ctx)
 		dryRun, err := resource.IsDryRun(r)
@@ -198,6 +215,9 @@ func (a *App) MakeTenantInviteOnly() http.HandlerFunc {
 				}
 				if err := resources.NewTenantDirectoryUpdatePatch(id).SetDefaultSeat(nil).Buffer(ctx, txn, eventSource); err != nil {
 					return errors.Wrap(err, "resources.TenantDirectoryUpdatePatch.Buffer()")
+				}
+				if err := a.StaffIdentity().RecordTenantSignIn(ctx, txn, domain, auditlog.ActDirectoryInviteOnly, ""); err != nil {
+					return errors.Wrap(err, "StaffIdentity().RecordTenantSignIn()")
 				}
 			}
 			if dryRun {

@@ -14,7 +14,6 @@ import {
   field,
   foreignKeyDefault,
   listViewConfig,
-  multiColumnConfig,
   rootConfig,
   section,
 } from '@impulseframework/resource-angular/types';
@@ -28,7 +27,10 @@ import { SquadronChannelComponent } from '@components/sector/squadron-channel/sq
 // the view alone, its create form is SquadronMemberships' (the squadron filled from the
 // page, the person picked from the sector's people), and a row is deleted from the list
 // through the table by the compound key the view carries under the table's own column
-// names. The row route names the roster's pilotId, whose declared enumeration is Pilots:
+// names. The roster writes its add button's label ("Add a pilot"): the view states no
+// word for its rows and so takes its table's, a squadron membership, which is what a
+// delete takes away ("Delete this squadron membership?"), never the pilot. The row
+// route names the roster's pilotId, whose declared enumeration is Pilots:
 // a row opens the pilot's page by that value, gated on Read of Pilots.
 //
 // The row page also carries the two related-config shapes that are not a list: the
@@ -51,13 +53,9 @@ export const squadronsConfig = rootConfig({
     primaryResource: Resources.Squadrons,
     listColumns: [
       { id: Squadrons.fieldName.name },
-      // The wing by its name: the column holds the wing's id, which nobody reads.
-      multiColumnConfig({
-        id: Squadrons.fieldName.wingId,
-        header: 'Wing',
-        additionalIds: [{ id: Wings.fieldName.id, resource: Resources.Wings, field: Wings.fieldName.name }],
-        concatFn: 'hyphen-concat',
-      }),
+      // The wing by its name: the column holds the wing's id, which nobody reads, and the
+      // list asks the server for the wing's name beside it, and sorts and filters by it.
+      { id: Squadrons.fieldName.wingId, header: 'Wing' },
       { id: Squadrons.fieldName.callsigns },
     ],
     elements: [
@@ -85,12 +83,14 @@ export const squadronsConfig = rootConfig({
     listViewConfig({
       title: 'Roster',
       createTitle: 'Pilot',
+      createButtonLabel: 'Add a pilot',
       primaryResource: Resources.SquadronRosters,
       parentRelation: { parentKey: Squadrons.fieldName.id, childKey: SquadronRosters.fieldName.squadronId },
       rowRoute: SquadronRosters.fieldName.pilotId,
-      // A member is named by the pilot's name; the id of their account, which the
+      // A member is named by the pilot's name: the column is on the pilot's id, and the list
+      // asks the server for the name beside it. The id of their account, which the
       // membership holds, is nothing a person reads.
-      listColumns: [{ id: SquadronRosters.fieldName.pilotName, header: 'Pilot' }],
+      listColumns: [{ id: SquadronRosters.fieldName.pilotId, header: 'Pilot' }],
       elements: [
         section({
           label: 'Membership',
@@ -129,15 +129,7 @@ export const squadronsConfig = rootConfig({
       listFilter: (squadron: SquadronRow): string => `${Squadrons.fieldName.id}:ne:${squadron.id}`,
       iteratedConfig: listViewConfig({
         primaryResource: Resources.Squadrons,
-        listColumns: [
-          { id: Squadrons.fieldName.name },
-          multiColumnConfig({
-            id: Squadrons.fieldName.wingId,
-            header: 'Wing',
-            additionalIds: [{ id: Wings.fieldName.id, resource: Resources.Wings, field: Wings.fieldName.name }],
-            concatFn: 'hyphen-concat',
-          }),
-        ],
+        listColumns: [{ id: Squadrons.fieldName.name }, { id: Squadrons.fieldName.wingId, header: 'Wing' }],
         elements: [
           section({
             label: 'Squadron',

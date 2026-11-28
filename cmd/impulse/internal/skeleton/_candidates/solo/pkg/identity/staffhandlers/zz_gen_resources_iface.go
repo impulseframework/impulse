@@ -13,12 +13,20 @@ type Resourcer interface {
 	resource.Resourcer
 	staffresources.StaffGroup | staffresources.StaffGroupMember |
 		staffresources.StaffGroupRole | staffresources.StaffGroupUser |
-		staffresources.StaffRole | staffresources.StaffRoleGrant | staffresources.StaffSession |
+		staffresources.StaffHeldRole | staffresources.StaffListedGroup |
+		staffresources.StaffListedGroupRole | staffresources.StaffListedMailLink |
+		staffresources.StaffListedSession | staffresources.StaffListedSignInAttempt |
+		staffresources.StaffListedUser | staffresources.StaffRole |
+		staffresources.StaffRoleGrant | staffresources.StaffSession |
 		staffresources.StaffSessionAuthEvent | staffresources.StaffSessionIdentity |
 		staffresources.StaffSessionMailLink | staffresources.StaffSessionSignInAttempt |
-		staffresources.StaffSessionSignInMethod | staffresources.StaffSessionToken |
-		staffresources.StaffSessionTrustedDevice | staffresources.StaffSessionUser |
+		staffresources.StaffSessionSignInMethod | staffresources.StaffSessionSignInSetting |
+		staffresources.StaffSessionToken | staffresources.StaffSessionTrustedDevice |
+		staffresources.StaffSessionUser | staffresources.StaffTakenRole |
 		staffresources.StaffUserGroupRole | staffresources.StaffUserRole |
-		staffidentity.StaffSignInMethod | staffidentity.StaffSignInWay |
-		staffidentity.StaffSignUpRole
+		staffidentity.StaffGivableRole | staffidentity.StaffListedAuditRecord |
+		staffidentity.StaffListedRoleGrant | staffidentity.StaffRememberLength |
+		staffidentity.StaffSignInMethod | staffidentity.StaffSignInSetting |
+		staffidentity.StaffSignInWay | staffidentity.StaffSignUpRole |
+		staffidentity.StaffTakeLength | staffidentity.StaffTakeableRole
 }

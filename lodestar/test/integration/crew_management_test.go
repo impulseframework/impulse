@@ -2,6 +2,7 @@ package integration
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"slices"
 	"testing"
@@ -20,9 +21,10 @@ import (
 
 // The application-wide lists of the crew auth's generated management, by route.
 const (
-	crewAccountsPath  = "crew-session-users"
-	crewRolesHeldPath = "crew-user-roles"
-	crewMailLinksPath = "crew-session-mail-links"
+	crewAccountsPath       = "crew-session-users"
+	crewListedAccountsPath = "crew-listed-users"
+	crewRolesHeldPath      = "crew-user-roles"
+	crewMailLinksPath      = "crew-session-mail-links"
 )
 
 // crewMethod is the console's route of an application-wide method of the crew's
@@ -146,13 +148,13 @@ func standingInvitations(ctx context.Context, t *testing.T, b *browser) []map[st
 	return standing
 }
 
-// standingSectorInvitations are the invitations into the sector that stand, read from
-// the sector's list of invitations.
-func standingSectorInvitations(ctx context.Context, t *testing.T, b *browser, sector string) []map[string]any {
+// standingAnvilInvitations are the invitations into Anvil that stand, read from the
+// sector's list of invitations.
+func standingAnvilInvitations(ctx context.Context, t *testing.T, b *browser) []map[string]any {
 	t.Helper()
 
 	var standing []map[string]any
-	for _, row := range crewSectorList(ctx, t, b, sector, sectorInvitationsPath) {
+	for _, row := range crewSectorList(ctx, t, b, anvil, sectorInvitationsPath) {
 		if pending, _ := row["pending"].(bool); pending {
 			standing = append(standing, row)
 		}
@@ -196,4 +198,21 @@ func assertRolesHeld(t *testing.T, step string, body []byte, username accesstype
 	if !slices.Equal(got, want) {
 		t.Errorf("%s: %s holds %v, want %v: %s", step, username, got, want, body)
 	}
+}
+
+// mailingAnswer reads the answer of a method that mails a person: whether the message
+// went and, where it did not, why.
+func mailingAnswer(t *testing.T, status int, body []byte) (sent bool, reason string) {
+	t.Helper()
+
+	assertStatus(t, status, http.StatusOK, body)
+	var answer struct {
+		Sent   bool   `json:"sent"`
+		Reason string `json:"reason"`
+	}
+	if err := json.Unmarshal(body, &answer); err != nil {
+		t.Fatalf("decoding the mailing's answer: %v: %s", err, body)
+	}
+
+	return answer.Sent, answer.Reason
 }

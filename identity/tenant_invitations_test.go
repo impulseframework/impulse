@@ -3,6 +3,7 @@ package identity
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -10,10 +11,14 @@ import (
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/internal/actor"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/signin"
@@ -25,12 +30,18 @@ const madeTenant = accesstypes.Domain("made")
 // fakeMaker is the application's maker of a tenant as a test scripts it: it records what
 // it was asked to make, and answers the tenant or the failure the test names.
 type fakeMaker struct {
-	// seats and directoryOnly say what the application's records keep: a default role
-	// on a tenant's directory, and the directory-only switch.
+	// seats, directoryOnly and takes say what the application's records keep: a default
+	// role on a tenant's directory, the directory-only switch, and a tenant's directory.
 	seats         bool
 	directoryOnly bool
-	err           error
-	made          []string
+	takes         bool
+	// name is what the tenant it makes is called, as the record's @tenantName column
+	// holds it: Make sets it on the NewTenant it is handed. "" for none.
+	name string
+	err  error
+	made []string
+	// sources are who each tenant made was handed as having made its rows.
+	sources []eventsource.EventSource
 	// committed counts the transactions that made a tenant and committed.
 	committed int
 }
@@ -43,13 +54,16 @@ func (f *fakeMaker) Make(_ context.Context, txn resource.ReadWriteTransaction, t
 	f.made = append(f.made, strings.Join([]string{
 		"fields=" + string(tenant.Fields), "directory-only=" + boolText(tenant.DirectoryOnly),
 		"directory=" + string(tenant.Directory.Method) + "/" + tenant.Directory.Connection, "role=" + string(tenant.DefaultRole), armed,
+		"source=" + tenant.Source.String(),
 	}, " "))
+	f.sources = append(f.sources, tenant.Source)
 	if f.err != nil {
 		return "", f.err
 	}
 	if err := resource.AfterCommit(txn, func(context.Context) { f.committed++ }); err != nil {
 		return "", errors.Wrap(err, "resource.AfterCommit()")
 	}
+	tenant.Name = f.name
 
 	return madeTenant, nil
 }
@@ -60,6 +74,10 @@ func (f *fakeMaker) SeatsDefaultRole() bool {
 
 func (f *fakeMaker) DeclaresDirectoryOnly() bool {
 	return f.directoryOnly
+}
+
+func (f *fakeMaker) TakesDirectory() bool {
+	return f.takes
 }
 
 // invitedTenantRoles are the roles the fake engine holds for the tests of a tenant invitation:
@@ -127,13 +145,14 @@ func TestManager_InviteTenant(t *testing.T) {
 			wantAsked: 1,
 		},
 		{
-			name:   "a starting role the sender may not give is refused, naming it",
+			name:   "a starting role the sender may not give is refused in one sentence that names it, and the log keeps the advice",
 			inv:    TenantInvitation{Email: "pat@example.com", TenantName: "Dawn", Fields: fields, DefaultRole: ptr("Keeper")},
 			caller: dana,
 			maker:  &fakeMaker{seats: true},
 			grants: &fakeGrants{noGive: []accesstypes.Role{"Keeper"}},
 			wantErr: func(err error) bool {
-				return httpio.HasForbidden(err) && strings.Contains(httpio.Message(err), "Keeper")
+				return httpio.HasForbidden(err) && strings.Contains(err.Error(), "name a role you may give, or none") &&
+					httpio.Message(err) == "The people of the new tenant's directory would start with the role Keeper, which you may not give."
 			},
 			wantAsked: 1,
 		},
@@ -145,6 +164,17 @@ func TestManager_InviteTenant(t *testing.T) {
 			caller:    dana,
 			maker:     &fakeMaker{seats: true},
 			wantErr:   httpio.HasBadRequest,
+			wantAsked: 1,
+		},
+		{
+			name:   "a starting role that is no role of a tenant is named in words",
+			inv:    TenantInvitation{Email: "pat@example.com", TenantName: "Dawn", Fields: fields, DefaultRole: ptr("NightShiftLead")},
+			caller: dana,
+			maker:  &fakeMaker{seats: true},
+			wantErr: func(err error) bool {
+				return httpio.HasBadRequest(err) &&
+					httpio.Message(err) == "Night shift lead is not a role of a tenant. The people of the new tenant's directory start with one of its roles, so choose one of those."
+			},
 			wantAsked: 1,
 		},
 		{
@@ -164,7 +194,7 @@ func TestManager_InviteTenant(t *testing.T) {
 			caller: dana,
 			maker:  &fakeMaker{seats: true},
 			wantErr: func(err error) bool {
-				return httpio.HasBadRequest(err) && strings.Contains(httpio.Message(err), "whole application")
+				return httpio.HasBadRequest(err) && httpio.Message(err) == "The Super administrator role is held for the whole application alone, and is never the role a tenant's people start with. Choose another role, or none."
 			},
 			wantAsked: 1,
 		},
@@ -259,6 +289,7 @@ func TestManager_InviteTenant(t *testing.T) {
 			if diff := cmp.Diff(want, store.writes); diff != "" {
 				t.Errorf("writes mismatch (-want +got):\n%s", diff)
 			}
+			wantInvitationRow(t, store, auditlog.ActInvited, invitationID)
 			if len(grants.asked) != tt.wantAsked {
 				t.Errorf("the role file was asked %v, want %d question(s)", grants.asked, tt.wantAsked)
 			}
@@ -291,6 +322,209 @@ func TestManager_InviteTenant_startingRoleIsAskedForATenantToBe(t *testing.T) {
 	}
 }
 
+// invitesTenant is the method the tests' lists of the starting roles are asked for: the
+// invitation that makes a tenant, as a role file names it.
+const invitesTenant accesstypes.Resource = "InviteMembersTenant"
+
+// TestManager_StartingRoles pins the list the starting role of an invitation that makes a
+// tenant is picked from: the roles held in every tenant, never the Super Administrator
+// role, that the request's caller could give a person in a tenant no row names and that
+// the invitation's own grant does not refuse; every one outside a request, none where a
+// tenant's directory keeps no starting role, and an error where a request reaches a
+// manager that cannot judge it.
+func TestManager_StartingRoles(t *testing.T) {
+	t.Parallel()
+
+	// The engine holds a role of the whole application, a role of one tenant alone and the
+	// Super Administrator role in the every-tenant scope, none of which is offered.
+	roles := map[accesstypes.PolicyScope][]accesstypes.Role{
+		globalScope: {accesstypes.SuperAdministrator, "Steward"},
+		everyScope:  {"Reader", accesstypes.SuperAdministrator, "Keeper"},
+		alphaScope:  {"Warden"},
+	}
+	reader := access.RoleInfo{Name: "Reader", Description: "the Reader role"}
+	keeper := access.RoleInfo{Name: "Keeper", Description: "the Keeper role"}
+
+	tests := []struct {
+		name string
+		// caller makes the request, "" for a call outside any request; grants are the
+		// role file's answers on giving a role, nil for a manager built without them.
+		caller  accesstypes.User
+		grants  *fakeGrants
+		maker   *fakeMaker
+		noMaker bool
+		want    []access.RoleInfo
+		wantErr string
+		// asks says the role file is asked; otherwise it is asked nothing.
+		asks bool
+	}{
+		{
+			name:   "outside a request: every role held in every tenant with its description, and no other",
+			grants: &fakeGrants{}, maker: &fakeMaker{seats: true},
+			want: []access.RoleInfo{reader, keeper},
+		},
+		{
+			name:   "a caller who may give every role is offered every one",
+			caller: erin, grants: &fakeGrants{}, maker: &fakeMaker{seats: true},
+			want: []access.RoleInfo{reader, keeper}, asks: true,
+		},
+		{
+			name:   "a role the caller may not give a person in a tenant is left out: the invitation refuses it",
+			caller: erin, grants: &fakeGrants{noGive: []accesstypes.Role{"Keeper"}}, maker: &fakeMaker{seats: true},
+			want: []access.RoleInfo{reader}, asks: true,
+		},
+		{
+			name:   "a role the invitation's own grant refuses is left out",
+			caller: erin, grants: &fakeGrants{noneGives: []accesstypes.Role{"Keeper"}}, maker: &fakeMaker{seats: true},
+			want: []access.RoleInfo{reader}, asks: true,
+		},
+		{
+			name:   "a role another method alone gives is left out",
+			caller: erin, grants: &fakeGrants{onlyBy: map[accesstypes.Role]accesstypes.Resource{"Keeper": assigns}}, maker: &fakeMaker{seats: true},
+			want: []access.RoleInfo{reader}, asks: true,
+		},
+		{
+			name:   "a role the invitation alone gives is listed",
+			caller: erin, grants: &fakeGrants{onlyBy: map[accesstypes.Role]accesstypes.Resource{"Keeper": invitesTenant}}, maker: &fakeMaker{seats: true},
+			want: []access.RoleInfo{reader, keeper}, asks: true,
+		},
+		{
+			name:   "a caller who may give no role is offered none",
+			caller: erin, grants: &fakeGrants{noGive: []accesstypes.Role{"Reader", "Keeper", accesstypes.SuperAdministrator}}, maker: &fakeMaker{seats: true},
+			asks: true,
+		},
+		{
+			name:   "where a tenant's directory keeps no starting role the list is empty, and nothing is asked",
+			caller: erin, grants: &fakeGrants{}, maker: &fakeMaker{seats: false},
+		},
+		{
+			name:   "a request reaches a manager built without the role file's grants: an error, never the whole list",
+			caller: erin, maker: &fakeMaker{seats: true},
+			wantErr: "identity.WithRoleGrants",
+		},
+		{
+			name:   "a manager built without a maker lists none: an error",
+			caller: erin, grants: &fakeGrants{}, noMaker: true,
+			wantErr: "identity.WithTenantMaker",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			opts := []Option{WithAdministratorRoles([]accesstypes.Role{"Keeper"})}
+			if tt.grants != nil {
+				opts = append(opts, WithRoleGrants(tt.grants))
+			}
+			if !tt.noMaker {
+				opts = append(opts, WithTenantMaker(tt.maker))
+			}
+			m, _ := newManager(t, &fakeStore{}, roles, opts...)
+
+			got, err := m.StartingRoles(asCaller(t.Context(), tt.caller), invitesTenant)
+
+			if tt.wantErr != "" {
+				if err == nil || !containsText(err, tt.wantErr) {
+					t.Fatalf("StartingRoles() = %v, %v; want an error saying %q", got, err, tt.wantErr)
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("StartingRoles() error = %v", err)
+			}
+			if diff := cmp.Diff(tt.want, got, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("StartingRoles() (-want +got):\n%s", diff)
+			}
+			if !tt.asks {
+				if len(tt.grants.asked) != 0 {
+					t.Errorf("the role file was asked %q, want nothing", tt.grants.asked)
+				}
+
+				return
+			}
+			assertAskedForATenantToBe(t, tt.grants.asked)
+		})
+	}
+}
+
+// assertAskedForATenantToBe holds what the role file was asked for a list of the starting
+// roles to the questions the invitation is held to: giving a role in one tenant no row of
+// the tests names, to nobody in particular, and the invitation's own grant on the role in
+// that same tenant.
+func assertAskedForATenantToBe(t *testing.T, asked []string) {
+	t.Helper()
+
+	if len(asked) == 0 {
+		t.Fatal("the role file was asked nothing, want the questions of the invitation")
+	}
+	nobody := string(User(impulse.NilUUID))
+	scopes := map[string]bool{}
+	for _, question := range asked {
+		words := strings.Fields(question)
+		switch {
+		case len(words) == 4 && words[0] == "give" && strings.HasPrefix(words[1], "domain/"):
+			if words[2] != nobody {
+				t.Errorf("question %q names %s, want nobody in particular", question, words[2])
+			}
+			scopes[strings.TrimPrefix(words[1], "domain/")] = true
+		case len(words) == 5 && words[1] == "could" && words[2] == "give":
+			if words[0] != string(invitesTenant) {
+				t.Errorf("question %q names the method %s, want %s", question, words[0], invitesTenant)
+			}
+			scopes[words[3]] = true
+		default:
+			t.Errorf("question %q is neither giving a role in a tenant nor the invitation's own grant", question)
+		}
+	}
+	if len(scopes) != 1 {
+		t.Errorf("the questions %q name the tenants %v, want one for the whole list", asked, scopes)
+	}
+	for scope := range scopes {
+		if scope == "" || scope == "alpha" || scope == string(madeTenant) {
+			t.Errorf("the questions name the tenant %q, want one no row names", scope)
+		}
+	}
+}
+
+// TestManager_StartingRoles_theListAndTheInvitationAgree pins the list to the invitation's
+// own rule: each role the engine holds is offered exactly when an invitation that names it
+// as the starting role is taken from the same caller.
+func TestManager_StartingRoles_theListAndTheInvitationAgree(t *testing.T) {
+	t.Parallel()
+
+	newInviter := func(t *testing.T) *Manager {
+		t.Helper()
+
+		return newTenantInviter(t, &fakeStore{usernames: map[impulse.UUID]string{userID: "dana"}}, &fakeMaker{seats: true},
+			&fakeMail{id: invitationID}, &fakeGrants{noGive: []accesstypes.Role{"Keeper"}})
+	}
+	listed, err := newInviter(t).StartingRoles(asCaller(t.Context(), dana), invitesTenant)
+	if err != nil {
+		t.Fatalf("StartingRoles() error = %v", err)
+	}
+	var held []accesstypes.Role
+	for _, scope := range []accesstypes.PolicyScope{everyScope, globalScope} {
+		held = append(held, invitedTenantRoles[scope]...)
+	}
+	for _, role := range held {
+		t.Run(string(role), func(t *testing.T) {
+			t.Parallel()
+			m := newInviter(t)
+
+			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+				_, err := m.InviteTenant(asCaller(ctx, dana), txn, &TenantInvitation{Email: "pat@example.com", TenantName: "Dawn", DefaultRole: ptr(string(role))}, nil)
+
+				return err
+			})
+
+			offered := slices.ContainsFunc(listed, func(info access.RoleInfo) bool { return info.Name == role })
+			if taken := err == nil; taken != offered {
+				t.Errorf("the list offers %s = %v, and the invitation takes it = %v (error %v): want the two to agree", role, offered, taken, err)
+			}
+		})
+	}
+}
+
 // TestManager_CheckInvitedTenant pins the check a send makes: the tenant is made as the
 // acceptance will make it, armed with the request's caller and with no directory, in a
 // transaction that is rolled back; the maker's refusal is the answer; and a call outside
@@ -309,7 +543,7 @@ func TestManager_CheckInvitedTenant(t *testing.T) {
 		if err := m.CheckInvitedTenant(asCaller(t.Context(), dana), client, inv); err != nil {
 			t.Fatalf("CheckInvitedTenant() error = %v", err)
 		}
-		want := []string{`fields={"Name":"Dawn"} directory-only=false directory=/ role= armed as ` + string(dana)}
+		want := []string{`fields={"Name":"Dawn"} directory-only=false directory=/ role= armed as ` + string(dana) + ` source=the process CheckInvitedTenant`}
 		if diff := cmp.Diff(want, maker.made); diff != "" {
 			t.Errorf("the maker was asked (-want +got):\n%s", diff)
 		}
@@ -370,28 +604,28 @@ func TestManager_acceptTenantInvitation(t *testing.T) {
 			name:       "through a Google Workspace: the tenant takes it as its directory, with the starting role",
 			inv:        tenantInvitation(false, sessioninfo.MethodGoogle, "acme.example"),
 			maker:      &fakeMaker{seats: true},
-			wantMade:   []string{`fields={"Name":"Dawn"} directory-only=false directory=google/acme.example role=Reader trusted`},
+			wantMade:   []string{`fields={"Name":"Dawn"} directory-only=false directory=google/acme.example role=Reader trusted source=dana, through the process AcceptInvitation`},
 			wantWrites: []string{seat},
 		},
 		{
 			name:       "by password: the tenant has no directory",
 			inv:        tenantInvitation(false, sessioninfo.MethodPassword, ""),
 			maker:      &fakeMaker{seats: true},
-			wantMade:   []string{`fields={"Name":"Dawn"} directory-only=false directory=/ role=Reader trusted`},
+			wantMade:   []string{`fields={"Name":"Dawn"} directory-only=false directory=/ role=Reader trusted source=dana, through the process AcceptInvitation`},
 			wantWrites: []string{seat},
 		},
 		{
 			name:       "with a personal Google account: the tenant has no directory",
 			inv:        tenantInvitation(false, sessioninfo.MethodGoogle, signin.GoogleAnyAccountConnection),
 			maker:      &fakeMaker{seats: true},
-			wantMade:   []string{`fields={"Name":"Dawn"} directory-only=false directory=/ role=Reader trusted`},
+			wantMade:   []string{`fields={"Name":"Dawn"} directory-only=false directory=/ role=Reader trusted source=dana, through the process AcceptInvitation`},
 			wantWrites: []string{seat},
 		},
 		{
 			name:       "directory only, through an organization's directory: made directory only with its directory",
 			inv:        tenantInvitation(true, sessioninfo.MethodAzure, "9a2c1d0e-0000-4000-8000-000000000001"),
 			maker:      &fakeMaker{seats: true, directoryOnly: true},
-			wantMade:   []string{`fields={"Name":"Dawn"} directory-only=true directory=azure/9a2c1d0e-0000-4000-8000-000000000001 role=Reader trusted`},
+			wantMade:   []string{`fields={"Name":"Dawn"} directory-only=true directory=azure/9a2c1d0e-0000-4000-8000-000000000001 role=Reader trusted source=dana, through the process AcceptInvitation`},
 			wantWrites: []string{seat},
 		},
 		{
@@ -406,7 +640,7 @@ func TestManager_acceptTenantInvitation(t *testing.T) {
 			name:     "a directory another tenant has: the maker's refusal is the sign-in's, and nobody is seated",
 			inv:      tenantInvitation(false, sessioninfo.MethodGoogle, "acme.example"),
 			maker:    &fakeMaker{seats: true, err: refusal},
-			wantMade: []string{`fields={"Name":"Dawn"} directory-only=false directory=google/acme.example role=Reader trusted`},
+			wantMade: []string{`fields={"Name":"Dawn"} directory-only=false directory=google/acme.example role=Reader trusted source=dana, through the process AcceptInvitation`},
 			wantErr: func(err error) bool {
 				return sessioninfo.LoginRefusalCodeOf(err) == sessioninfo.RefusedOrganizationHasTenant
 			},
@@ -417,7 +651,7 @@ func TestManager_acceptTenantInvitation(t *testing.T) {
 			maker:    &fakeMaker{seats: true},
 			opts:     []Option{WithOneTenantPerPerson()},
 			holds:    []access.MembershipKey{access.NewMembershipKey(alphaScope, dana, "Reader")},
-			wantMade: []string{`fields={"Name":"Dawn"} directory-only=false directory=/ role=Reader trusted`},
+			wantMade: []string{`fields={"Name":"Dawn"} directory-only=false directory=/ role=Reader trusted source=dana, through the process AcceptInvitation`},
 			wantErr: func(err error) bool {
 				return sessioninfo.LoginRefusalCodeOf(err) == sessioninfo.RefusedOtherTenant && !strings.Contains(httpio.Message(err), "alpha")
 			},
@@ -436,7 +670,7 @@ func TestManager_acceptTenantInvitation(t *testing.T) {
 			var domain accesstypes.Domain
 			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 				var err error
-				domain, err = m.acceptTenantInvitation(ctx, txn, userID, "dana", tt.inv)
+				domain, _, err = m.acceptTenantInvitation(ctx, txn, userID, "dana", tt.inv)
 
 				return err
 			})
@@ -450,8 +684,23 @@ func TestManager_acceptTenantInvitation(t *testing.T) {
 			case domain != madeTenant:
 				t.Errorf("acceptTenantInvitation() = %q, want the tenant the maker made", domain)
 			}
+			wantSaid := ""
+			if tt.wantErr == nil {
+				wantSaid = string(madeTenant)
+			}
+			if tt.inv.MadeTenantID != wantSaid {
+				t.Errorf("the invitation's MadeTenantID = %q, want %q: the acceptance tells the session library the tenant it made, and names none when it made none", tt.inv.MadeTenantID, wantSaid)
+			}
 			if diff := cmp.Diff(tt.wantMade, tt.maker.made); diff != "" {
 				t.Errorf("the maker was asked (-want +got):\n%s", diff)
+			}
+			// The tenant's rows are recorded as made by the person who accepted, through the
+			// process AcceptInvitation, and name no session.
+			want := eventsource.AccountProcessEvent(t.Context(), actor.NewAccount(userID, "dana"), "AcceptInvitation")
+			for _, source := range tt.maker.sources {
+				if source != want {
+					t.Errorf("the tenant's source = %q, want %q", source, want)
+				}
 			}
 			if diff := cmp.Diff(tt.wantWrites, store.writes); diff != "" {
 				t.Errorf("writes mismatch (-want +got):\n%s", diff)
@@ -526,6 +775,7 @@ func TestManager_InvitedTenants(t *testing.T) {
 		if diff := cmp.Diff([]string{"consume mail link " + standing.String()}, store.writes); diff != "" {
 			t.Errorf("writes mismatch (-want +got):\n%s", diff)
 		}
+		wantInvitationRow(t, store, auditlog.ActInvitationWithdrawn, standing)
 	})
 	for name, id := range map[string]impulse.UUID{"one that has expired": expired, "an invitation of another kind": invitationID} {
 		t.Run(name+" is not found, and nothing is written", func(t *testing.T) {
@@ -539,6 +789,7 @@ func TestManager_InvitedTenants(t *testing.T) {
 			if !httpio.HasNotFound(err) || len(store.writes) != 0 {
 				t.Fatalf("WithdrawTenantInvitation() error = %v, writes = %v; want NotFound and nothing written", err, store.writes)
 			}
+			wantInvitationRow(t, store, auditlog.ActInvitationWithdrawn, id)
 		})
 	}
 }

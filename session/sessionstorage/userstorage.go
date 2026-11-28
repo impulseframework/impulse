@@ -5,8 +5,10 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/securehash"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
+	"github.com/impulseframework/impulse/session/internal/sealed"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/tracer"
 )
@@ -15,6 +17,19 @@ import (
 // operations over the users table. Auth builds on it.
 type userStorage struct {
 	sessionStorage
+	// userRead is the read of an account as this storage holds it, under a name that
+	// belongs to the session library's internal package: the library reads the account
+	// an impersonated session acts as through it, so a store that wraps this one is
+	// never asked. own builds it.
+	userRead
+}
+
+// own gives the storage its reads of a session and of an account as the session library
+// reaches them (sealed.Session, sealed.User, sealed.UserByUserName), and names store as
+// the one the read of a session was made for.
+func (s *userStorage) own(store any) {
+	s.sessionStorage.own(store)
+	s.userRead = sealed.NewUserRead(s.User, s.UserByUserName)
 }
 
 // CreateSession creates a new session for the request and returns its ID. When a custom
@@ -80,11 +95,11 @@ func (s *userStorage) CreateUser(ctx context.Context, user *dbtype.InsertSession
 
 // SetUserUsername updates the user username and, atomically, the Username
 // on every active session row for that user.
-func (s *userStorage) SetUserUsername(ctx context.Context, id impulse.UUID, newUsername string) error {
+func (s *userStorage) SetUserUsername(ctx context.Context, id impulse.UUID, newUsername string, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := s.db.SetUserUsername(ctx, id, newUsername); err != nil {
+	if err := s.db.SetUserUsername(ctx, id, newUsername, record); err != nil {
 		return errors.Wrap(err, "db.SetUserUsername()")
 	}
 
@@ -106,36 +121,42 @@ func (s *userStorage) UpgradeUserPasswordHash(ctx context.Context, id impulse.UU
 	return nil
 }
 
-// DeactivateUser deactivates a user
-func (s *userStorage) DeactivateUser(ctx context.Context, id impulse.UUID) error {
+// DeactivateUser deactivates a user. It is the bare write: the rule that a person who
+// acts as someone else does not switch their own account is the session API's
+// (DeactivateSessionUser), which a route calls in place of this.
+func (s *userStorage) DeactivateUser(ctx context.Context, id impulse.UUID, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := s.db.DeactivateUser(ctx, id); err != nil {
+	if err := s.db.DeactivateUser(ctx, id, record); err != nil {
 		return errors.Wrap(err, "db.DeactivateUser()")
 	}
 
 	return nil
 }
 
-// DeleteUser deletes a user
-func (s *userStorage) DeleteUser(ctx context.Context, id impulse.UUID) error {
+// DeleteUser deletes a user. It is the bare write: the rule that a person who acts as
+// someone else does not switch their own account is the session API's
+// (DeleteSessionUser), which a route calls in place of this.
+func (s *userStorage) DeleteUser(ctx context.Context, id impulse.UUID, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := s.db.DeleteUser(ctx, id); err != nil {
+	if err := s.db.DeleteUser(ctx, id, record); err != nil {
 		return errors.Wrap(err, "db.DeleteUser()")
 	}
 
 	return nil
 }
 
-// ActivateUser activates a user
-func (s *userStorage) ActivateUser(ctx context.Context, id impulse.UUID) error {
+// ActivateUser activates a user. It is the bare write: the rule that a person who acts
+// as someone else does not switch their own account is the session API's
+// (ActivateSessionUser), which a route calls in place of this.
+func (s *userStorage) ActivateUser(ctx context.Context, id impulse.UUID, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := s.db.ActivateUser(ctx, id); err != nil {
+	if err := s.db.ActivateUser(ctx, id, record); err != nil {
 		return errors.Wrap(err, "db.ActivateUser()")
 	}
 

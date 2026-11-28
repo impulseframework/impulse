@@ -582,7 +582,7 @@ func Test_fileAuthzCases(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("queryRouteCase() = %v, %v", ok, err)
 	}
-	want := authzCase{Name: "DocumentContent", Method: "http.MethodGet", URL: "/api/documents/00000000-0000-0000-0000-000000000001/content", Permission: string(accesstypes.Read)}
+	want := authzCase{Name: "DocumentContent", Method: "http.MethodGet", URL: "/api/documents/00000000-0000-0000-0000-000000000001/content", Permission: string(accesstypes.Read), OutsideTenantGuard: true}
 	if diff := cmp.Diff(want, c, cmp.AllowUnexported(authzCase{})); diff != "" {
 		t.Errorf("file route case mismatch (-want +got):\n%s", diff)
 	}
@@ -814,7 +814,7 @@ func Test_computedResourceHandlerTemplate_files(t *testing.T) {
 				"StoreKey string       `json:\"-\" perm:\"-\"`",
 				"Name     string       `json:\"-\" perm:\"-\"`",
 				"source, err := computed.ReadStoredComputed(ctx, id, querySet, a.ResourceClient(), a.ComputedClient())",
-				"httpio.NewNotFoundMessagef(\"StoredComputed %v does not exist\", id)",
+				"return httpio.NewEncoder(w).ClientMessage(ctx, resource.TargetNotFound(\"StoredComputed\", id))",
 				"file.Key = source.StoreKey",
 				"file.Name = source.Name",
 				"if err := resource.ServeStoredFile(ctx, w, r, a.ResourceClient().FileStore(resource.DefaultStore), file, \"content\", \"StoredComputed\", id); err != nil {",

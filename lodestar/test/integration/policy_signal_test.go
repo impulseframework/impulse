@@ -186,7 +186,7 @@ func TestPolicySignal_roleReachesSecondInstance(t *testing.T) {
 			check: func(t *testing.T, step string, body []byte) {
 				t.Helper()
 				assertRolesHeld(t, step, body, policyCadet, "Cadet", "SectorCrew")
-				assertRolesHeld(t, step, body, policyHollis, string(harbormasterRole), "SectorCrew")
+				assertRolesHeld(t, step, body, policyHollis, string(harbormasterRole), "MusterClerk", "SectorCrew")
 			},
 		},
 		{name: "the cadet cannot give herself a role: no Execute on the sector's role method", on: first, user: policyCadet, method: http.MethodPost, target: assign, body: sectorRoleBody(cadet, harbormasterRole), wantStatus: http.StatusForbidden},

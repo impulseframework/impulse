@@ -3,7 +3,6 @@ package session
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/securehash"
 	"github.com/impulseframework/impulse/session/mail"
@@ -67,7 +67,7 @@ func sendFirstPasswordCode(t *testing.T, f *authFixture, recorder *mail.Recorder
 // how many were written.
 func expectFirstPassword(f *authFixture, user *sessionstorage.SessionUser) *int {
 	written := new(int)
-	f.store.EXPECT().SetFirstUserPassword(gomock.Any(), user.ID, gomock.Any()).DoAndReturn(func(_ context.Context, _ impulse.UUID, hash *securehash.Hash) error {
+	f.store.EXPECT().SetFirstUserPassword(gomock.Any(), user.ID, gomock.Any(), aRecord()).DoAndReturn(func(_ context.Context, _ impulse.UUID, hash *securehash.Hash, _ *auditlog.Record) error {
 		f.mu.Lock()
 		defer f.mu.Unlock()
 		if user.PasswordHash != nil {
@@ -91,10 +91,10 @@ func TestAuth_FirstPassword(t *testing.T) {
 	t.Run("an account that holds a password is refused the code and the password", firstPasswordCase4)
 	t.Run("an account with no confirmed address is refused the code, and told to confirm one", firstPasswordCase5)
 	t.Run("an Auth with no password method refuses both", firstPasswordCase6)
-	t.Run("the password is held to the rule a sign-up's is, and a refused one leaves the code standing", firstPasswordCase7)
+	t.Run("the password is held to the judgment a sign-up's is, and a refused one leaves the code standing", firstPasswordCase7)
 	t.Run("a new code replaces the one that stood, and a code writes one password", firstPasswordCase8)
 	t.Run("a mailbox is sent five codes it does not use, then refused", firstPasswordCase9)
-	t.Run("an Auth that records no auth events writes the password and records none; an Auth without mail has no first password handlers", firstPasswordCase10)
+	t.Run("an Auth that records no auth events writes the password and records none", firstPasswordCase10)
 	t.Run("a code counts for the mailbox it was mailed to: once the account's confirmed address is another, or none, it writes no password", firstPasswordCase11)
 }
 
@@ -134,7 +134,7 @@ func firstPasswordCase1(t *testing.T) {
 	if strings.Contains(string(row.TokenHash), code) {
 		t.Error("the stored row holds the code itself, want its hash")
 	}
-	if record := f.attemptsRecord("mail:pat@lakeside.edu"); record == nil || record.Failures != 1 {
+	if record := f.attemptsRecord("MAIL:pat@lakeside.edu"); record == nil || record.Failures != 1 {
 		t.Errorf("the address's mail count after SendCode() = %+v, want one", record)
 	}
 
@@ -156,8 +156,10 @@ func firstPasswordCase1(t *testing.T) {
 	}
 	if row := links.last(t); row.ConsumedAt == nil {
 		t.Error("the code still stands after it wrote the password, want it ended")
+	} else if links.takenBack(row.ID) {
+		t.Error("the code that wrote the password was ended as withdrawn, want it consumed: it was used")
 	}
-	if record := f.attemptsRecord("mail:pat@lakeside.edu"); record != nil {
+	if record := f.attemptsRecord("MAIL:pat@lakeside.edu"); record != nil {
 		t.Errorf("the address's mail count after the code was used = %+v, want none", record)
 	}
 }
@@ -173,7 +175,7 @@ func firstPasswordCase2(t *testing.T) {
 		return f.asUser(f.auth.FirstPassword().Set(), sessionID, map[string]string{"code": code, "password": chosenPassword}, nil)
 	}
 
-	if rr := set("123456"); rr.Code != http.StatusConflict || !strings.Contains(rr.Body.String(), "Ask for a new one") {
+	if rr := set("123456"); rr.Code != http.StatusConflict || !strings.Contains(rr.Body.String(), "That code has expired or was already used. Ask for a new one.") {
 		t.Errorf("Set() with no code sent = %d %s, want 409 saying to ask for one", rr.Code, rr.Body.String())
 	}
 	if rr := set(""); rr.Code != http.StatusConflict {
@@ -249,8 +251,10 @@ func firstPasswordCase3(t *testing.T) {
 	if got := decoded(t, rr)["message"]; got != "Too many wrong codes were entered. Ask for a new code in 15 minutes" {
 		t.Errorf("the fifth wrong code said %q, want it to say wrong codes were what was held and when to ask again", got)
 	}
-	if links.last(t).ConsumedAt == nil {
+	if row := links.last(t); row.ConsumedAt == nil {
 		t.Error("the code stands after five wrong ones, want it ended")
+	} else if !links.takenBack(row.ID) {
+		t.Error("the code ended after five wrong ones is not marked withdrawn, want it taken back")
 	}
 
 	// The account is held: the right code is taken no more, and no new one is mailed.
@@ -359,19 +363,16 @@ func firstPasswordCase7(t *testing.T) {
 	f.store.EXPECT().AppendAuthEvent(gomock.Any(), sessionID, gomock.Any()).Return(nil)
 
 	code := sendFirstPasswordCode(t, f, recorder, sessionID)
-	rr := f.asUser(f.auth.FirstPassword().Set(), sessionID, map[string]string{"code": code, "password": "short"}, nil)
-	if rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), "at least 8 characters") {
-		t.Errorf("Set() with a short password = %d %s, want 400 saying how long a password is", rr.Code, rr.Body.String())
-	}
+	answeredWith(t, f.asUser(f.auth.FirstPassword().Set(), sessionID, map[string]string{"code": code, "password": weakPassword}, nil), tooEasyToGuess)
 	if *written != 0 || links.last(t).ConsumedAt != nil {
 		t.Fatalf("after the refused password: %d written, the code ended = %t; want none written and the code standing", *written, links.last(t).ConsumedAt != nil)
 	}
 	if record := f.attemptsRecord(firstPasswordKey(userID)); record != nil {
 		t.Errorf("the refused password counted as a wrong code: %+v", record)
 	}
-	rr = f.asUser(f.auth.FirstPassword().Set(), sessionID, map[string]string{"code": code, "password": chosenPassword}, nil)
+	rr := f.asUser(f.auth.FirstPassword().Set(), sessionID, map[string]string{"code": code, "password": chosenPassword}, nil)
 	if rr.Code != http.StatusOK || *written != 1 {
-		t.Errorf("Set() with the same code and a password long enough = %d %s (%d written), want it written", rr.Code, rr.Body.String(), *written)
+		t.Errorf("Set() with the same code and a password strong enough = %d %s (%d written), want it written", rr.Code, rr.Body.String(), *written)
 	}
 }
 
@@ -438,11 +439,6 @@ func firstPasswordCase10(t *testing.T) {
 	if rr.Code != http.StatusOK || *written != 1 {
 		t.Errorf("Set() on an Auth that records no auth events = %d %s (%d written), want the password written", rr.Code, rr.Body.String(), *written)
 	}
-
-	plain := newAuthFixture(t, gomock.NewController(t))
-	if recovered := registrationPanic(func() { plain.auth.FirstPassword() }); recovered == nil || !strings.Contains(fmt.Sprint(recovered), "FirstPassword() needs mail") {
-		t.Errorf("FirstPassword() on an Auth without mail panic = %v, want it to say the handlers need mail", recovered)
-	}
 }
 
 // TestAuth_Methods_firstPassword pins the routes the account page is told: the paths of
@@ -463,6 +459,14 @@ func firstPasswordCase11(t *testing.T) {
 			name: "the confirmed address was replaced after the code was mailed: the code is ended",
 			change: func(user *sessionstorage.SessionUser) {
 				user.Email = strPtr("elsewhere@lakeside.edu")
+			},
+			wantSays:  "Ask for a new one",
+			wantEnded: true,
+		},
+		{
+			name: "the confirmed address was replaced by one that reads as it only once Unicode folds the Kelvin sign: the code is ended",
+			change: func(user *sessionstorage.SessionUser) {
+				user.Email = strPtr(strings.Replace(*user.Email, "k", "\u212A", 1))
 			},
 			wantSays:  "Ask for a new one",
 			wantEnded: true,
@@ -523,7 +527,7 @@ func TestAuth_Methods_firstPassword(t *testing.T) {
 
 	t.Run("the list names the routes, and the answer carries them", func(t *testing.T) {
 		t.Parallel()
-		got := answered(t, &MethodList{Methods: password, ChangePassword: "/api/user/password/change", FirstPassword: routes})
+		got := answered(t, &MethodList{Methods: password, ChangePassword: "/api/user/password/change", PasswordStrength: "/api/user/password/strength", FirstPassword: routes})
 		want := map[string]any{"sendCode": "/api/user/password/first/code", "set": "/api/user/password/first"}
 		if diff := cmp.Diff(want, got["firstPassword"]); diff != "" {
 			t.Errorf("Methods() firstPassword mismatch (-want +got):\n%s", diff)
@@ -532,7 +536,7 @@ func TestAuth_Methods_firstPassword(t *testing.T) {
 
 	t.Run("a list that names no routes answers none", func(t *testing.T) {
 		t.Parallel()
-		if got := answered(t, &MethodList{Methods: password, ChangePassword: "/api/user/password/change"}); got["firstPassword"] != nil {
+		if got := answered(t, &MethodList{Methods: password, ChangePassword: "/api/user/password/change", PasswordStrength: "/api/user/password/strength"}); got["firstPassword"] != nil {
 			t.Errorf("Methods() answered firstPassword = %v, want none", got["firstPassword"])
 		}
 	})
@@ -544,12 +548,12 @@ func TestAuth_Methods_firstPassword(t *testing.T) {
 	}{
 		{
 			name: "a route off-site",
-			list: &MethodList{Methods: password, ChangePassword: "/password", FirstPassword: FirstPasswordRoutes{SendCode: "https://evil.example/code", Set: "/password/first"}},
+			list: &MethodList{Methods: password, ChangePassword: "/password", PasswordStrength: "/password/strength", FirstPassword: FirstPasswordRoutes{SendCode: "https://evil.example/code", Set: "/password/first"}},
 			want: "name the send-code and set paths together",
 		},
 		{
 			name: "one route without the other",
-			list: &MethodList{Methods: password, ChangePassword: "/password", FirstPassword: FirstPasswordRoutes{Set: "/password/first"}},
+			list: &MethodList{Methods: password, ChangePassword: "/password", PasswordStrength: "/password/strength", FirstPassword: FirstPasswordRoutes{Set: "/password/first"}},
 			want: "name the send-code and set paths together",
 		},
 		{

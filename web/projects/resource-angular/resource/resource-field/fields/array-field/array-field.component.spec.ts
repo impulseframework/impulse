@@ -35,7 +35,7 @@ describe('ArrayFieldComponent', () => {
   const cases: { name: string; displayType: ValidDisplayTypes; value: unknown; want: string[] }[] = [
     { name: 'a number array, one chip per element', displayType: 'number[]', value: [60, 60, 30], want: ['60', '60', '30'] },
     { name: 'a string array', displayType: 'string[]', value: ['Hammerfall', 'Anvil Actual'], want: ['Hammerfall', 'Anvil Actual'] },
-    { name: 'a date array, each element as a date', displayType: 'date[]', value: ['2026-09-21T12:00:00Z'], want: ['9/21/2026'] },
+    { name: 'a date array, each element as a date with its time of day', displayType: 'date[]', value: ['2026-09-21T08:05:00'], want: ['9/21/26 8:05 AM'] },
     { name: 'an object array, each element as its JSON', displayType: 'object[]', value: [{ a: 1 }], want: ['{"a":1}'] },
     { name: 'a null value draws no chip', displayType: 'number[]', value: null, want: [] },
   ];

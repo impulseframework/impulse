@@ -24,25 +24,38 @@ import (
 // set the password or the address of a person who holds it, and walk in.
 //
 // So one judgment stands over every act that could (callerEnters): the request's caller
-// enters the tenant with the session they hold. It is the reach the tenant's own routes
-// are guarded by (resource.UserPermissions.Reaches): a tenant that is not directory
-// only admits every session, and one that is admits a session established through its
+// enters the tenant with the session they hold. It is what the tenant's sign-in settings
+// say of the session (resource.AdmitsSession): a tenant that is not directory only
+// admits every session, and one that is admits a session established through its
 // directory, a super administrator's, and its own administrator's come with a password
-// and a second factor. A session that views the application as someone else is
-// established by its impersonation and enters no directory-only tenant unless the real
-// person behind it is a super administrator, so viewing as a tenant's administrator
-// gains nothing. A caller the tenant does not admit is refused:
+// and a second factor. Whether the tenant is disabled is not asked: a disabled tenant
+// gives nobody a way in, and the rule binds the same people before, while and after. A
+// session that views the application as someone else is established by its
+// impersonation and enters no directory-only tenant unless the real person behind it is
+// a super administrator, so viewing as a tenant's administrator gains nothing. A caller
+// the tenant does not admit is refused:
 //
 //   - giving or taking one of the tenant's administrator roles in the tenant, to a
-//     person (AssignRoleFor, RemoveRole, CreateUser, which starts a person with roles)
-//     or to a group of the tenant's own (GiveGroupRoleFor, TakeGroupRole);
+//     person (AssignRoleFor, RemoveRole) or to a group of the tenant's own
+//     (GiveGroupRoleFor, TakeGroupRole);
 //   - putting a person in, or taking one out of, a group of the tenant's own that
 //     holds such a role there (AddGroupMemberFor, RemoveGroupMember);
 //   - an invitation that carries such a role there (Invite);
 //   - for a person who holds such a role there, of their own or through a group of
-//     the tenant's own: setting or removing their password, requiring a change of it,
-//     renaming them, changing their address, unlinking a sign-in identity, disabling
-//     or enabling the account, and deleting it (requireEnteringFor).
+//     the tenant's own: removing their password, requiring a change of it, renaming
+//     them, changing their address, unlinking a sign-in identity, disabling or
+//     enabling the account, and deleting it (requireEnteringFor).
+//
+// The generated lists hold what they offer to the same judgment where a method names
+// its row: a method this refuses for a person is left out of that person's row for the
+// caller, and the methods that put a person in a group and take one out are left out
+// of the row of a group they are refused for (@callerEnters on the method,
+// TenantsToEnter on the list), so a page offers what the method will do. The whole
+// application's methods that take a role away from a person and from a group name no
+// row, and the rows a page runs them from answer for them: a row of the roles people
+// hold, of the roles held for a set time and of the roles the groups hold leaves the
+// method out for a caller it refuses (@callerEnters naming the lists, TenantsToEnter on
+// each).
 //
 // What makes a person a tenant's administrator is the permission engine's to say, and
 // the judgment asks the engine's own statement of it (access.AdministersTenant, over
@@ -61,9 +74,9 @@ func (m *Manager) callerEnters(ctx context.Context, tenant accesstypes.Domain) (
 	if caller.IsZero() {
 		return true, nil
 	}
-	enters, err := caller.Permissions.Reaches(ctx, tenant)
+	enters, err := resource.AdmitsSession(ctx, caller.Permissions, tenant)
 	if err != nil {
-		return false, errors.Wrap(err, "resource.UserPermissions.Reaches()")
+		return false, errors.Wrap(err, "resource.AdmitsSession()")
 	}
 
 	return enters, nil
@@ -97,7 +110,8 @@ func (m *Manager) entersToChange(ctx context.Context, scope accesstypes.PolicySc
 
 // requireEnteringToChange refuses a change to who holds the role in the scope unless
 // the request's caller enters the tenant (entersToChange), in a sentence that says who
-// makes the change.
+// makes the change. The person reads the role in words (roleInWords); the same words
+// with the role's code name are the refusal's cause, kept for the server's log.
 func (m *Manager) requireEnteringToChange(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, kept *accesstypes.PolicyScope) error {
 	enters, err := m.entersToChange(ctx, scope, role, kept)
 	if err != nil {
@@ -107,10 +121,10 @@ func (m *Manager) requireEnteringToChange(ctx context.Context, scope accesstypes
 		return nil
 	}
 
-	return httpio.NewForbiddenMessagef(
-		"%[1]s is a role that administers a %[2]s, and this %[2]s admits only people who sign in through its own directory, which your sign-in does not enter. "+
-			"Who holds the role there is changed by one of its administrators, or by a super administrator",
-		string(role), m.tenantWord)
+	const said = "%[1]s is a role that administers a %[2]s, and this %[2]s admits only people who sign in through its own directory, which your sign-in does not enter. " +
+		"Who holds the role there is changed by one of its administrators, or by a super administrator"
+
+	return httpio.NewForbiddenMessageWithErrorf(errors.Newf(said, string(role), m.tenantWord), said+".", roleInWords(role), m.tenantWord)
 }
 
 // requireEnteringFor refuses a change to how a person signs in, to where their codes
@@ -143,13 +157,13 @@ func (m *Manager) requireEnteringFor(ctx context.Context, txn resource.ReadWrite
 		if len(tenants) > 1 {
 			return httpio.NewForbiddenMessagef(
 				"This person administers more than one %[1]s, and one of them admits only people who sign in through its own directory, which your sign-in does not enter. "+
-					"Their account is changed by someone whose sign-in enters every %[1]s they administer, or by a super administrator",
+					"Their account is changed by someone whose sign-in enters every %[1]s they administer, or by a super administrator.",
 				m.tenantWord)
 		}
 
 		return httpio.NewForbiddenMessagef(
 			"This person administers a %[1]s that admits only people who sign in through its own directory, which your sign-in does not enter. "+
-				"Their account is changed by one of that %[1]s's administrators, or by a super administrator",
+				"Their account is changed by one of that %[1]s's administrators, or by a super administrator.",
 			m.tenantWord)
 	}
 

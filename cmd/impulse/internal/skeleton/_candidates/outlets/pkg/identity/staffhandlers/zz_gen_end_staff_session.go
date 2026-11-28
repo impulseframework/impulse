@@ -42,20 +42,23 @@ func (h *Handlers) EndStaffSession() http.HandlerFunc {
 		// write or a read against the caller (Enforce) evaluates the same checker,
 		// scope, and decision instant.
 		ctx = resource.WithCaller(ctx, gate.Caller())
+		// The method's name rides the context too: who made a change
+		// (eventsource.UserEvent) reads it there, so every change record the body writes
+		// names the method.
+		ctx = resource.WithRPC(ctx, "EndStaffSession")
 
 		p := (*staffidentity.EndStaffSession)(params)
 
-		// The X-Warning header takes the value true or is left off the request: any
-		// other value is refused here, and the call is not run.
+		// A request that asks for the method's warning (X-Warning: true) is decoded
+		// and checked as the call is, and answers what Warning writes for it in
+		// place of running the call: the transaction below rolls back.
+		// The header takes the value true or is left off the request: any other value
+		// is refused here, and the call is not run.
 		asksWarning, err := resource.AsksWarning(r)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		if asksWarning {
-			// The method declares no warning (@warning): a request that asks for one
-			// is refused, and never runs the call.
-			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewBadRequestMessage("EndStaffSession declares no warning: send the call without the X-Warning header"))
-		}
+		var warning *resource.Warning
 
 		// The rows the method writes are collected for the live pages, published once
 		// the commit lands and before the answer; a transaction that rolls back wrote
@@ -71,23 +74,26 @@ func (h *Handlers) EndStaffSession() http.HandlerFunc {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		if err := h.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-			// Declared target: locate the row within the tenancy predicate
-			// before the body runs.
-			row, err := staffresources.NewStaffSessionQuery().
-				AddColumns(staffresources.NewStaffSessionColumns().ID()).
-				SetID(p.SessionID).
-				Read(ctx, txn)
-			if err != nil {
-				return errors.Wrap(err, "staffresources.StaffSessionQuery.Read()")
-			}
-			if row == nil {
-				return httpio.NewNotFoundMessagef("StaffSession %s does not exist", p.SessionID)
+			// Declared target: a row of the StaffListedSession view.
+			// A view's row is one row of its query, so the gate locates it by
+			// the key and judges any row-referencing condition on the caller's
+			// Execute grant against it, in one SELECT over that query in this
+			// transaction. No row there is NotFound.
+			if err := gate.EnforceView(ctx, txn, resource.ExecuteTarget{Resource: "StaffListedSessions", Label: "StaffListedSession", PKColumns: []string{"Id"}, View: staffresources.StaffListedSession{}}, p.SessionID); err != nil {
+				return err
 			}
 
-			// A row-referencing condition on the caller's Execute grant
-			// evaluates against the located row, in this transaction.
-			if err := gate.Enforce(ctx, txn, resource.ExecuteTarget{Resource: "StaffSessions", Label: "StaffSession", PKColumns: []string{"Id"}}, p.SessionID); err != nil {
-				return err
+			if asksWarning {
+				said, err := p.Warning(ctx, txn, h.RPCClient())
+				if err != nil {
+					return errors.Wrap(err, "EndStaffSession.Warning()")
+				}
+				if err := resource.CheckWarning("EndStaffSession", said); err != nil {
+					return errors.Wrap(err, "resource.CheckWarning()")
+				}
+				warning = said
+
+				return resource.ErrWarningAsked
 			}
 			if err := p.Execute(ctx, txn, h.RPCClient()); err != nil {
 				return errors.Wrap(err, "Transaction.Execute()")
@@ -98,11 +104,14 @@ func (h *Handlers) EndStaffSession() http.HandlerFunc {
 
 			return nil
 		}); err != nil {
+			if asksWarning && resource.WarningAsked(err) {
+				return httpio.NewEncoder(w).Ok(warning)
+			}
 			if dryRun && resource.DryRunRolledBack(err) {
 				return httpio.NewEncoder(w).Ok(nil)
 			}
 
-			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "spanner.Client.ReadWriteTransaction()"))
+			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "resource.Client.ExecuteFunc()"))
 		}
 
 		live.Publish(ctx, w, h.LiveService(), h.liveDerivations, "", touched)

@@ -24,11 +24,21 @@ func Test_identityOn(t *testing.T) {
 		tables: map[identityTable]bool{identityMailLinks: true, identityMemberships: true},
 		tenant: &identityTenant{name: "Sector", table: "Sectors", key: "Id", invitation: &identityTenantInvitation{}},
 	}
+	// The same auth where the outlet serves the tenant record too: its management lists the
+	// tenants.
+	listing := &identityInstance{
+		auth: "Crew", outlets: []string{"console"}, createsTenant: true,
+		tables: map[identityTable]bool{identityUsers: true, identityMailLinks: true, identityMemberships: true},
+		tenant: &identityTenant{name: "Sector", table: "Sectors", key: "Id", outlets: []string{"console"}, invitation: &identityTenantInvitation{}},
+	}
+	// The auth of an application whose tenants have a directory, a row of the record the
+	// package declares for it.
+	directed := &identityInstance{auth: "Crew", outlets: []string{"console"}, tenant: &identityTenant{name: "Sector", table: "Sectors", key: "Id", directories: "SectorDirectory"}}
 
 	names := func(names ...string) (resources []*tsAPIResource, methods []*tsAPIMethod) {
 		for _, name := range names {
 			switch {
-			case strings.HasSuffix(name, "s") && !strings.HasPrefix(name, "End") && !strings.HasPrefix(name, "Revoke"):
+			case strings.HasSuffix(name, "s") && !strings.HasPrefix(name, "End") && !strings.HasPrefix(name, "Revoke") && !strings.HasPrefix(name, "Set"):
 				resources = append(resources, &tsAPIResource{Name: name})
 			default:
 				methods = append(methods, &tsAPIMethod{Name: name})
@@ -53,18 +63,27 @@ func Test_identityOn(t *testing.T) {
 			outlet:    "console",
 			instances: []*identityInstance{crew},
 			served: []string{
-				"CrewSessionUsers", "CrewUserRoles", "CrewSessionIdentities", "CrewSessionMailLinks", "CrewSessions", "CrewSessionSignInAttempts",
+				"CrewSessionUsers", "CrewUserRoles", "CrewSessionIdentities", "CrewListedMailLinks", "CrewSessions", "CrewListedSessions", "CrewListedSignInAttempts",
 				"CrewSignInMethods", "CrewSignInWays",
-				"CrewSectorUsers", "CrewSectorUserRoles", "CrewSectorInvitations", "CrewSectorSignInWays",
-				"DisableCrewUser", "EndCrewSession", "EndCrewUserSessions", "UnlockCrewSignIn", "UnlinkCrewSessionIdentity", "CreateCrewUser",
+				// A tenant's roles are the one list that says where each comes from, and the
+				// list of the roles people hold themselves is no part of the description.
+				"CrewSectorUsers", "CrewSectorUserRoles", "CrewSectorHeldRoles", "CrewSectorInvitations", "CrewSectorSignInWays",
+				"DisableCrewUser", "EndCrewSession", "EndCrewUserSessions", "UnlockCrewSignIn", "UnlinkCrewSessionIdentity",
 				"RemoveCrewPassword", "OpenCrewSignUp", "MakeCrewInviteOnly",
+				// The way back in: the link an administrator sends from a person's row, on
+				// each side, and the switch for a person's own request, which is the whole
+				// application's alone.
+				"SendCrewUserPasswordResetLink", "SetCrewSelfServiceReset", "SendCrewSectorUserPasswordResetLink",
 				"DisableCrewSectorUser", "AssignCrewSectorRole", "RemoveCrewSectorRole", "RevokeCrewSectorUserTrustedDevices", "RemoveCrewSectorPassword",
+				// An invitation sent again, on each side.
+				"ResendCrewInvitation", "ResendCrewSectorInvitation",
 				// Served by the outlet and no part of the auth's management; the tenant record
 				// is named, since a page reads a tenant's name from it.
 				"Ships", "HailShip", "Sectors",
 				// The invitation that makes a tenant is no part of this auth's management:
-				// its people create no tenant, so the names are another declaration's.
-				"CrewInvitedSectors", "InviteCrewSector", "WithdrawCrewInvitedSector",
+				// its people create no tenant, so the names are another declaration's, and
+				// so is the list of tenants.
+				"CrewInvitedSectors", "InviteCrewSector", "WithdrawCrewInvitedSector", "CrewListedSectors",
 			},
 			want: []*tsAPIIdentity{{
 				Auth: "Crew", Label: "Crew", Tenant: "Sector", TenantResource: "Sectors",
@@ -74,17 +93,19 @@ func Test_identityOn(t *testing.T) {
 						Lists: []identityPart{
 							part("users", "CrewSessionUsers"), part("roles", "CrewUserRoles"), part("identities", "CrewSessionIdentities"),
 							part("signInWays", "CrewSignInWays"),
-							part("invitations", "CrewSessionMailLinks"), part("sessions", "CrewSessions"), part("signInAttempts", "CrewSessionSignInAttempts"),
+							part("invitations", "CrewListedMailLinks"), part("sessions", "CrewListedSessions"), part("signInAttempts", "CrewListedSignInAttempts"),
 							// The auth's sign-in methods, each open to sign-up or invite only. An
 							// application with tenants picks no default role, so it lists no roles
 							// to pick one from.
 							part("signInMethods", "CrewSignInMethods"),
 						},
 						Methods: []identityPart{
-							part("create", "CreateCrewUser"), part("disable", "DisableCrewUser"), part("endUserSessions", "EndCrewUserSessions"),
+							part("resendInvitation", "ResendCrewInvitation"), part("disable", "DisableCrewUser"),
+							part("sendPasswordResetLink", "SendCrewUserPasswordResetLink"), part("endUserSessions", "EndCrewUserSessions"),
 							part("unlinkIdentity", "UnlinkCrewSessionIdentity"), part("removePassword", "RemoveCrewPassword"),
 							part("endSession", "EndCrewSession"), part("unlockSignIn", "UnlockCrewSignIn"),
 							part("openSignUp", "OpenCrewSignUp"), part("makeInviteOnly", "MakeCrewInviteOnly"),
+							part("setSelfServiceReset", "SetCrewSelfServiceReset"),
 						},
 					},
 					{
@@ -92,13 +113,59 @@ func Test_identityOn(t *testing.T) {
 						// The outlet serves no list of the identities a tenant's people hold; how each
 						// signs in is a list of its own, named where the outlet serves it.
 						Lists: []identityPart{
-							part("users", "CrewSectorUsers"), part("roles", "CrewSectorUserRoles"), part("signInWays", "CrewSectorSignInWays"),
+							part("users", "CrewSectorUsers"), part("roles", "CrewSectorHeldRoles"), part("signInWays", "CrewSectorSignInWays"),
 							part("invitations", "CrewSectorInvitations"),
 						},
 						Methods: []identityPart{
+							part("resendInvitation", "ResendCrewSectorInvitation"),
 							part("assignRole", "AssignCrewSectorRole"), part("removeRole", "RemoveCrewSectorRole"), part("disable", "DisableCrewSectorUser"),
+							part("sendPasswordResetLink", "SendCrewSectorUserPasswordResetLink"),
 							part("revokeTrustedDevices", "RevokeCrewSectorUserTrustedDevices"), part("removePassword", "RemoveCrewSectorPassword"),
 						},
+					},
+				},
+			}},
+		},
+		{
+			name:      "each side names the list its methods that give a role pick it from, where the outlet serves it",
+			outlet:    "console",
+			instances: []*identityInstance{crew},
+			served:    []string{"CrewSessionUsers", "CrewGivableRoles", "AssignCrewRole", "CrewSectorUsers", "CrewSectorRoles", "AssignCrewSectorRole"},
+			want: []*tsAPIIdentity{{
+				Auth: "Crew", Label: "Crew", Tenant: "Sector",
+				Sides: []*tsAPIIdentitySide{
+					{
+						Scope:   accesstypes.GlobalPermissionScope,
+						Lists:   []identityPart{part("users", "CrewSessionUsers"), part("rolesToGive", "CrewGivableRoles")},
+						Methods: []identityPart{part("assignRole", "AssignCrewRole")},
+					},
+					{
+						Scope:   accesstypes.DomainPermissionScope,
+						Lists:   []identityPart{part("users", "CrewSectorUsers"), part("rolesToGive", "CrewSectorRoles")},
+						Methods: []identityPart{part("assignRole", "AssignCrewSectorRole")},
+					},
+				},
+			}},
+		},
+		{
+			name:      "the method that removes a person from a tenant is named on the tenant's side alone",
+			outlet:    "console",
+			instances: []*identityInstance{crew},
+			// RemoveCrewUser is a method by the name the whole application's side would give
+			// it, which that side does not name.
+			served: []string{"CrewSessionUsers", "DeleteCrewUser", "RemoveCrewUser", "CrewSectorUsers", "DeleteCrewSectorUser", "RemoveCrewSectorUser"},
+			want: []*tsAPIIdentity{{
+				Auth: "Crew", Label: "Crew", Tenant: "Sector",
+				Sides: []*tsAPIIdentitySide{
+					{
+						Scope:   accesstypes.GlobalPermissionScope,
+						Lists:   []identityPart{part("users", "CrewSessionUsers")},
+						Methods: []identityPart{part("delete", "DeleteCrewUser")},
+					},
+					{
+						Scope:   accesstypes.DomainPermissionScope,
+						Lists:   []identityPart{part("users", "CrewSectorUsers")},
+						Methods: []identityPart{part("delete", "DeleteCrewSectorUser"), part("removeFromTenant", "RemoveCrewSectorUser")},
 					},
 				},
 			}},
@@ -122,6 +189,99 @@ func Test_identityOn(t *testing.T) {
 			}},
 		},
 		{
+			name:      "the auth whose people make the tenants names the list of tenants on the whole application's side, after the invitations",
+			outlet:    "console",
+			instances: []*identityInstance{listing},
+			// The schema holds the accounts and the memberships, so the people are listed with
+			// what each holds.
+			served: []string{"CrewListedUsers", "CrewInvitedSectors", "CrewListedSectors", "CrewSectorUsers", "Sectors"},
+			want: []*tsAPIIdentity{{
+				Auth: "Crew", Label: "Crew", Tenant: "Sector", TenantResource: "Sectors",
+				Sides: []*tsAPIIdentitySide{
+					{
+						Scope: accesstypes.GlobalPermissionScope,
+						Lists: []identityPart{part("users", "CrewListedUsers"), part("invitedTenants", "CrewInvitedSectors"), part("tenants", "CrewListedSectors")},
+					},
+					// No tenant lists the tenants.
+					{Scope: accesstypes.DomainPermissionScope, Lists: []identityPart{part("users", "CrewSectorUsers")}},
+				},
+			}},
+		},
+		{
+			name:      "the list of tenants is not named where the outlet does not serve it",
+			outlet:    "console",
+			instances: []*identityInstance{listing},
+			served:    []string{"CrewListedUsers", "CrewInvitedSectors", "CrewSectorUsers", "Sectors"},
+			want: []*tsAPIIdentity{{
+				Auth: "Crew", Label: "Crew", Tenant: "Sector", TenantResource: "Sectors",
+				Sides: []*tsAPIIdentitySide{
+					{Scope: accesstypes.GlobalPermissionScope, Lists: []identityPart{part("users", "CrewListedUsers"), part("invitedTenants", "CrewInvitedSectors")}},
+					{Scope: accesstypes.DomainPermissionScope, Lists: []identityPart{part("users", "CrewSectorUsers")}},
+				},
+			}},
+		},
+		{
+			name:      "a tenant's side names the directories record, the method that takes it, the four methods that set how its people enter and the two of its word for its directory's second factor, and the whole application's side none",
+			outlet:    "console",
+			instances: []*identityInstance{directed},
+			served: []string{
+				"CrewSessionUsers", "CrewSectorUsers", "SectorDirectories", "TakeSectorDirectory",
+				"OpenSectorToDirectory", "MakeSectorInviteOnly", "MakeSectorDirectoryOnly", "EndSectorDirectoryOnly",
+				"VouchForSectorDirectorySecondFactor", "StopVouchingForSectorDirectorySecondFactor",
+			},
+			want: []*tsAPIIdentity{{
+				Auth: "Crew", Label: "Crew", Tenant: "Sector",
+				Sides: []*tsAPIIdentitySide{
+					{Scope: accesstypes.GlobalPermissionScope, Lists: []identityPart{part("users", "CrewSessionUsers")}},
+					{
+						Scope: accesstypes.DomainPermissionScope,
+						Lists: []identityPart{part("users", "CrewSectorUsers"), part("directories", "SectorDirectories")},
+						Methods: []identityPart{
+							part("takeDirectory", "TakeSectorDirectory"),
+							part("openToDirectory", "OpenSectorToDirectory"), part("makeDirectoryInviteOnly", "MakeSectorInviteOnly"),
+							part("makeDirectoryOnly", "MakeSectorDirectoryOnly"), part("endDirectoryOnly", "EndSectorDirectoryOnly"),
+							part("vouchForDirectorySecondFactor", "VouchForSectorDirectorySecondFactor"),
+							part("stopVouchingForDirectorySecondFactor", "StopVouchingForSectorDirectorySecondFactor"),
+						},
+					},
+				},
+			}},
+		},
+		{
+			name:      "a tenant's side names only the methods that set how its people enter that the outlet serves",
+			outlet:    "console",
+			instances: []*identityInstance{directed},
+			served:    []string{"CrewSessionUsers", "CrewSectorUsers", "SectorDirectories", "MakeSectorDirectoryOnly", "EndSectorDirectoryOnly"},
+			want: []*tsAPIIdentity{{
+				Auth: "Crew", Label: "Crew", Tenant: "Sector",
+				Sides: []*tsAPIIdentitySide{
+					{Scope: accesstypes.GlobalPermissionScope, Lists: []identityPart{part("users", "CrewSessionUsers")}},
+					{
+						Scope:   accesstypes.DomainPermissionScope,
+						Lists:   []identityPart{part("users", "CrewSectorUsers"), part("directories", "SectorDirectories")},
+						Methods: []identityPart{part("makeDirectoryOnly", "MakeSectorDirectoryOnly"), part("endDirectoryOnly", "EndSectorDirectoryOnly")},
+					},
+				},
+			}},
+		},
+		{
+			name:      "an application whose tenants have no directories names neither the record nor the methods",
+			outlet:    "console",
+			instances: []*identityInstance{crew},
+			served: []string{
+				"CrewSessionUsers", "CrewSectorUsers", "SectorDirectories", "TakeSectorDirectory",
+				"OpenSectorToDirectory", "MakeSectorInviteOnly", "MakeSectorDirectoryOnly", "EndSectorDirectoryOnly",
+				"VouchForSectorDirectorySecondFactor", "StopVouchingForSectorDirectorySecondFactor",
+			},
+			want: []*tsAPIIdentity{{
+				Auth: "Crew", Label: "Crew", Tenant: "Sector",
+				Sides: []*tsAPIIdentitySide{
+					{Scope: accesstypes.GlobalPermissionScope, Lists: []identityPart{part("users", "CrewSessionUsers")}},
+					{Scope: accesstypes.DomainPermissionScope, Lists: []identityPart{part("users", "CrewSectorUsers")}},
+				},
+			}},
+		},
+		{
 			name:      "an application with no tenant record has the whole application's side alone",
 			outlet:    "console",
 			instances: []*identityInstance{solo},
@@ -134,6 +294,43 @@ func Test_identityOn(t *testing.T) {
 					// roles the side lists for it.
 					Lists:   []identityPart{part("users", "StaffSessionUsers"), part("signInMethods", "StaffSignInMethods"), part("signUpRoles", "StaffSignUpRoles")},
 					Methods: []identityPart{part("disable", "DisableStaffUser"), part("openSignUp", "OpenStaffSignUp"), part("makeInviteOnly", "MakeStaffInviteOnly")},
+				}},
+			}},
+		},
+		{
+			name:      "an auth with a password and no choice of who may sign up has the Sign-in page for the reset switch alone",
+			outlet:    "console",
+			instances: []*identityInstance{crew},
+			served:    []string{"CrewSessionUsers", "CrewSignInMethods", "SetCrewSelfServiceReset"},
+			want: []*tsAPIIdentity{{
+				Auth: "Crew", Label: "Crew", Tenant: "Sector",
+				Sides: []*tsAPIIdentitySide{{
+					Scope:   accesstypes.GlobalPermissionScope,
+					Lists:   []identityPart{part("users", "CrewSessionUsers"), part("signInMethods", "CrewSignInMethods")},
+					Methods: []identityPart{part("setSelfServiceReset", "SetCrewSelfServiceReset")},
+				}},
+			}},
+		},
+		{
+			name:      "what every sign-in asks for is two lists after the sign-in methods and three methods after the reset switch",
+			outlet:    "console",
+			instances: []*identityInstance{crew},
+			served: []string{
+				"CrewSessionUsers", "CrewSignInMethods", "CrewSignInSettings", "CrewRememberLengths",
+				"SetCrewSelfServiceReset", "RequireCrewSecondFactor", "StopRequiringCrewSecondFactor", "SetCrewRememberedBrowsers",
+			},
+			want: []*tsAPIIdentity{{
+				Auth: "Crew", Label: "Crew", Tenant: "Sector",
+				Sides: []*tsAPIIdentitySide{{
+					Scope: accesstypes.GlobalPermissionScope,
+					Lists: []identityPart{
+						part("users", "CrewSessionUsers"), part("signInMethods", "CrewSignInMethods"),
+						part("signInSettings", "CrewSignInSettings"), part("rememberLengths", "CrewRememberLengths"),
+					},
+					Methods: []identityPart{
+						part("setSelfServiceReset", "SetCrewSelfServiceReset"), part("requireSecondFactor", "RequireCrewSecondFactor"),
+						part("stopRequiringSecondFactor", "StopRequiringCrewSecondFactor"), part("setRememberedBrowsers", "SetCrewRememberedBrowsers"),
+					},
 				}},
 			}},
 		},
@@ -177,16 +374,151 @@ func Test_identityOn(t *testing.T) {
 	}
 }
 
+// Test_identityOn_tenantDirectoryOnlyField pins the tenant record's directory-only field
+// in the identity block: named as the wire names it where the outlet serves the record
+// and the record declares the switch, and absent where the record declares none or the
+// outlet does not serve it.
+func Test_identityOn_tenantDirectoryOnlyField(t *testing.T) {
+	t.Parallel()
+
+	staff := &identityInstance{auth: "Staff", outlets: []string{"console"}, tenant: &identityTenant{name: "Harbor", table: "Harbors", key: "Id", directories: "HarborDirectory"}}
+	tests := []struct {
+		name         string
+		switched     bool
+		served       []string
+		wantResource string
+		wantField    string
+	}{
+		{name: "a record that declares the switch, on an outlet that serves it", switched: true, served: []string{"StaffHarborUsers", "Harbors"}, wantResource: "Harbors", wantField: "directoryOnly"},
+		{name: "a record that declares no switch", served: []string{"StaffHarborUsers", "Harbors"}, wantResource: "Harbors"},
+		{name: "an outlet that does not serve the record", switched: true, served: []string{"StaffHarborUsers"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			c := &client{tableMap: tenantFixtureTables(), identity: []*identityInstance{staff}}
+			resources, err := c.structsToResources(tenantFixtureStructs(t, fixtureStructs(loadFixture(t, "tenantfixture")), "Harbor", "HarborDirectory"))
+			if err != nil {
+				t.Fatalf("structsToResources() error = %v", err)
+			}
+			if !tt.switched {
+				for _, res := range resources {
+					res.DirectoryOnlyField = nil
+				}
+			}
+			c.resources = resources
+			data := &tsAPIData{}
+			for _, name := range tt.served {
+				data.Resources = append(data.Resources, &tsAPIResource{Name: name})
+			}
+			gen := &typescriptGenerator{client: c, outletName: "console"}
+
+			got := gen.identityOn(data)
+			if len(got) != 1 {
+				t.Fatalf("identityOn() = %d auths, want 1", len(got))
+			}
+			if got[0].TenantResource != tt.wantResource || got[0].TenantDirectoryOnlyField != tt.wantField {
+				t.Errorf("identityOn() TenantResource = %q, TenantDirectoryOnlyField = %q, want %q and %q", got[0].TenantResource, got[0].TenantDirectoryOnlyField, tt.wantResource, tt.wantField)
+			}
+		})
+	}
+}
+
+// Test_identityOn_tenantSinceField pins the tenant record's field that says when a tenant
+// was made in the identity block: named as the wire names it where the outlet serves the
+// record and the record marks one, and absent where the record marks none or the outlet
+// does not serve it; the template writes it after the directory-only field.
+func Test_identityOn_tenantSinceField(t *testing.T) {
+	t.Parallel()
+
+	staff := &identityInstance{auth: "Staff", outlets: []string{"console"}, tenant: &identityTenant{name: "Cove", table: "Coves", key: "Id"}}
+	tests := []struct {
+		name         string
+		marked       bool
+		served       []string
+		wantResource string
+		wantField    string
+	}{
+		{name: "a record that marks the field, on an outlet that serves it", marked: true, served: []string{"StaffCoveUsers", "Coves"}, wantResource: "Coves", wantField: "madeAt"},
+		{name: "a record that marks none", served: []string{"StaffCoveUsers", "Coves"}, wantResource: "Coves"},
+		{name: "an outlet that does not serve the record", marked: true, served: []string{"StaffCoveUsers"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			c := &client{tableMap: tenantFixtureTables(), identity: []*identityInstance{staff}}
+			resources, err := c.structsToResources(tenantFixtureStructs(t, fixtureStructs(loadFixture(t, "tenantfixture")), "Cove"))
+			if err != nil {
+				t.Fatalf("structsToResources() error = %v", err)
+			}
+			if !tt.marked {
+				for _, res := range resources {
+					res.TenantSinceField = nil
+				}
+			}
+			c.resources = resources
+			data := &tsAPIData{}
+			for _, name := range tt.served {
+				data.Resources = append(data.Resources, &tsAPIResource{Name: name})
+			}
+			gen := &typescriptGenerator{client: c, outletName: "console"}
+
+			got := gen.identityOn(data)
+			if len(got) != 1 {
+				t.Fatalf("identityOn() = %d auths, want 1", len(got))
+			}
+			if got[0].TenantResource != tt.wantResource || got[0].TenantSinceField != tt.wantField {
+				t.Errorf("identityOn() TenantResource = %q, TenantSinceField = %q, want %q and %q", got[0].TenantResource, got[0].TenantSinceField, tt.wantResource, tt.wantField)
+			}
+		})
+	}
+
+	written := []struct {
+		name    string
+		since   string
+		want    []string
+		notWant []string
+	}{
+		{
+			name:  "written after the directory-only field where the record marks one",
+			since: "chartedAt",
+			want:  []string{"      tenantDirectoryOnlyField: 'directoryOnly',\n      tenantSinceField: 'chartedAt',\n      sides: ["},
+		},
+		{
+			name:    "absent where it marks none",
+			want:    []string{"      tenantDirectoryOnlyField: 'directoryOnly',\n      sides: ["},
+			notWant: []string{"tenantSinceField"},
+		},
+	}
+	for _, tt := range written {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			data := &tsAPIData{Identity: []*tsAPIIdentity{{
+				Auth: "Crew", Label: "Crew", Tenant: "Sector", TenantResource: "Sectors", TenantDirectoryOnlyField: "directoryOnly", TenantSinceField: tt.since,
+				Sides: []*tsAPIIdentitySide{{Scope: accesstypes.GlobalPermissionScope, Lists: []identityPart{{Key: "users", Name: "CrewSessionUsers"}}}},
+			}}}
+			out, err := (&client{}).generateTemplateOutput("typescriptAPITemplate", typescriptAPITemplate, data)
+			if err != nil {
+				t.Fatalf("generateTemplateOutput() error = %v", err)
+			}
+			assertContains(t, "typescriptAPITemplate", string(out), tt.want, tt.notWant)
+		})
+	}
+}
+
 // Test_typescriptAPITemplate_identity pins the block as the template writes it.
 func Test_typescriptAPITemplate_identity(t *testing.T) {
 	t.Parallel()
 
 	data := &tsAPIData{Identity: []*tsAPIIdentity{{
-		Auth: "Crew", Label: "Crew", Tenant: "Sector", TenantResource: "Sectors",
+		Auth: "Crew", Label: "Crew", Tenant: "Sector", TenantResource: "Sectors", TenantDirectoryOnlyField: "directoryOnly",
 		Sides: []*tsAPIIdentitySide{
 			{
 				Scope:   accesstypes.GlobalPermissionScope,
-				Lists:   []identityPart{{Key: "users", Name: "CrewSessionUsers"}, {Key: "sessions", Name: "CrewSessions"}},
+				Lists:   []identityPart{{Key: "users", Name: "CrewSessionUsers"}, {Key: "sessions", Name: "CrewListedSessions"}},
 				Methods: []identityPart{{Key: "disable", Name: "DisableCrewUser"}},
 			},
 			{Scope: accesstypes.DomainPermissionScope, Lists: []identityPart{{Key: "users", Name: "CrewSectorUsers"}}},
@@ -198,8 +530,8 @@ func Test_typescriptAPITemplate_identity(t *testing.T) {
 		t.Fatalf("generateTemplateOutput() error = %v", err)
 	}
 	for _, want := range []string{
-		"  identity: [\n    {\n      auth: 'Crew',\n      label: 'Crew',\n      tenant: 'Sector',\n      tenantResource: Resources.Sectors,\n      sides: [",
-		"          scope: 'global',\n          lists: { users: Resources.CrewSessionUsers, sessions: Resources.CrewSessions },\n          methods: { disable: Methods.DisableCrewUser },",
+		"  identity: [\n    {\n      auth: 'Crew',\n      label: 'Crew',\n      tenant: 'Sector',\n      tenantResource: Resources.Sectors,\n      tenantDirectoryOnlyField: 'directoryOnly',\n      sides: [",
+		"          scope: 'global',\n          lists: { users: Resources.CrewSessionUsers, sessions: Resources.CrewListedSessions },\n          methods: { disable: Methods.DisableCrewUser },",
 		"          scope: 'domain',\n          lists: { users: Resources.CrewSectorUsers },\n          methods: {  },",
 	} {
 		if !strings.Contains(string(out), want) {

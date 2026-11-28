@@ -1,6 +1,7 @@
 package session
 
 import (
+	"cmp"
 	"context"
 	"math"
 	"net/http"
@@ -11,10 +12,13 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/securehash"
 	"github.com/impulseframework/impulse/session/internal/attempts"
+	"github.com/impulseframework/impulse/session/internal/dbtype"
+	"github.com/impulseframework/impulse/session/internal/sealed"
 	"github.com/impulseframework/impulse/session/internal/sessioncore"
 	"github.com/impulseframework/impulse/session/internal/signinflow"
 	"github.com/impulseframework/impulse/session/sessioninfo"
@@ -62,6 +66,31 @@ type signInAttempt struct {
 	// fromPending reports a completion of the browser's pending identity, consumed
 	// before the sign-in; only its cookie remains, to delete or replace.
 	fromPending bool
+	// codeInvitation is the invitation the code this sign-in entered was mailed for,
+	// null for a sign-in that entered none or the account's own code: what an
+	// invitation's acceptance rests on where the identity answers for no address,
+	// asserting none or one its method did not verify
+	// (sessioninfo.Invitation.AddressProven). It is set by the completion of a wait of
+	// an invitation's acceptance: one that named no user (signinflow's invitedCodeWait,
+	// a sign-up through an invitation), or one that named an account which holds no
+	// address (signinflow's namedCodeWait). The sign-in is that invitation's acceptance
+	// or it is nothing.
+	codeInvitation impulse.NullUUID
+	// codeAddress is the address the account's own mailed code confirms, for the
+	// completion of a wait that names its user with that code (attemptWithCode), and nil
+	// for every other attempt: the store writes it on the account, confirmed, in the
+	// transaction that inserts the session and only then.
+	codeAddress *sessionstorage.CodeAddress
+	// signUp is what a sign-up through an invitation keeps until its code is entered,
+	// for the attempt that holds it as a pending identity (invitationSignUp); nil for
+	// every other attempt.
+	signUp *heldSignUp
+	// newAccount is the account a sign-up through an invitation makes, for the attempt
+	// that completes its wait with the code (invitedSignUpAttempt); nil for every other
+	// attempt. The attempt names the account by the id the row carries, and the store
+	// writes the row with the invitation's acceptance
+	// (sessionstorage.SignInRules.NewAccount).
+	newAccount *sessionstorage.InsertSessionUser
 }
 
 // signInOutcome is a sign-in's result: a session, or a pending identity.
@@ -80,16 +109,17 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	// The name a directory gave is kept as a user's is, or not at all: one a row would
-	// not keep is dropped here, before anything of the sign-in is written, the pending
-	// identity among it, so it never fails the sign-in it came with. The identity is the
-	// caller's, who may hand one to several sign-ins at once, so it is never written:
-	// the attempt takes a copy that carries the name as kept.
-	if kept := sessioninfo.KeptName(at.identity.Name); kept != at.identity.Name {
-		identity := *at.identity
-		identity.Name = kept
-		at.identity = &identity
+	// A sign-in whose identity is under another method's name than its own is refused
+	// here, the one a callback verified and the one a pending row held, before the
+	// identity is read, stored or turned into the sign-in's auth event.
+	if err := a.ownMethod(at); err != nil {
+		return nil, err
 	}
+
+	// Every sign-in's identity is held to what the library keeps of it here, the one a
+	// callback verified and the one a pending row held, before anything reads the
+	// identity or stores it.
+	at.identity = a.keptIdentity(at)
 
 	// An identity whose connection attests to a second factor records the
 	// attestation after the sign-in's own event, so the policy and the session see it.
@@ -107,6 +137,7 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 		ProviderSessionIssuer: at.providerSessionIssuer,
 		RoleNames:             at.roleNames,
 		CustomData:            at.customData,
+		Browser:               browserFromCtx(ctx),
 	}
 
 	// A sign-in the directory's roles admit nowhere is refused here, before the store
@@ -118,34 +149,14 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 
 	// The invitation the browser opened, if any, goes with the sign-in: the store
 	// accepts it once the user is known.
-	inv, err := a.invitationOf(ctx)
+	inv, err := a.invitationCarried(ctx, at)
 	if err != nil {
 		return nil, err
 	}
 	req.Invitation = inv
 
-	// An external identity is decided by its registration's own account rule where it
-	// has one, and otherwise by what an administrator chose for the method, which the
-	// store reads by the registration's name; a password identity, or the
-	// application's own, names its user and needs neither.
-	var (
-		rule             signin.AccountRule[Tx]
-		method, audience string
-		seeded           bool
-		// oneOrganization says the registration admits exactly one organization and
-		// nobody else, counted as the registration listed them: the width at which the
-		// deployment's seeded account is linked on its name.
-		oneOrganization bool
-	)
-	if m, ok := a.registered().external[at.registration]; ok {
-		rule, method, audience, seeded, oneOrganization = m.rule, m.name, m.Audience.Key(), m.seededUsers, m.Audience.OneOrganization()
-	}
 	id, err := sessioncore.EstablishSession(ctx, w, a.baseSession, at.sameSite, func(ctx context.Context) (impulse.UUID, error) {
-		id, err := a.storage.SignIn(ctx, req, sessionstorage.SignInRules[Tx]{
-			Account: rule, Method: method, Audience: audience, SeededUsers: seeded, Policy: a.policy, Accept: a.acceptInvitation, SignUp: a.signUpSeated,
-			Directories: a.directories, Seat: a.directorySeated, OnlyIn: a.directoryOnlyIn, Seeded: a.directorySeeded, OneOrganization: oneOrganization,
-			TrustedDevice: a.trustedDeviceOf, Proven: at.proof,
-		})
+		id, err := a.storage.SignIn(ctx, req, a.signInRules(at))
 		if err != nil {
 			return impulse.NilUUID, errors.Wrap(err, "sessionstorage.AuthStore.SignIn()")
 		}
@@ -162,7 +173,7 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 		if err := a.storage.TouchUserSignIn(ctx, req.UserID); err != nil {
 			logger.FromCtx(ctx).Error(errors.Wrap(err, "sessionstorage.AuthStore.TouchUserSignIn()"))
 		}
-		a.claimVerifiedEmail(ctx, req.UserID, at.identity)
+		a.claimVerifiedEmail(ctx, req.UserID, req.Username, at.identity)
 		a.claimName(ctx, req.UserID, at.identity)
 
 		return id, nil
@@ -185,9 +196,14 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 		if wait.Reason == sessioninfo.PendingMFA {
 			a.dropTrustedEntry(ctx, w, wait.UserID)
 		}
+		// The store accepts an invitation before the policy decides, so a sign-in that
+		// waits may have accepted one already: the tenant it seated the person in is
+		// carried to the session the waiting step ends in.
+		a.noteSeated(w, wait.UserID.UUID, req.Invitation)
 
 		return &signInOutcome{pending: pending}, nil
 	}
+	logConfirmNobodyCanGive(ctx, at, err)
 	if err != nil {
 		return nil, passwordNoLongerHeld(err)
 	}
@@ -195,12 +211,85 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 	events := signedInEvents(at, req)
 	a.endPending(ctx, w, at)
 	a.endInvitation(ctx, w, req.Invitation)
+	a.noteSeated(w, req.UserID, req.Invitation)
 	a.touchTrustedDevice(ctx, req.UserID, events)
 	sessioncore.LogSessionStarted(ctx, req.Username, id)
 	a.notifySignedIn(ctx, &SignedIn{SessionID: id, UserID: req.UserID, Username: req.Username, Reason: at.reason, Events: events})
 
 	return &signInOutcome{sessionID: id, userID: req.UserID}, nil
 }
+
+// signInRules returns the rules the store holds the sign-in at to. An external identity
+// is decided by its registration's own account rule where it has one, and otherwise by
+// what an administrator chose for the method, which the store reads by the
+// registration's name; a password identity, or the application's own, names its user
+// and needs neither.
+func (a *Auth[S, U, Tx]) signInRules(at *signInAttempt) sessionstorage.SignInRules[Tx] {
+	var (
+		rule             signin.AccountRule[Tx]
+		method, audience string
+		seeded           bool
+	)
+	if m, ok := a.registered().external[at.registration]; ok {
+		rule, method, audience, seeded = m.rule, m.name, m.Audience.Key(), m.seededUsers
+	}
+
+	return sessionstorage.SignInRules[Tx]{
+		Account: rule, Method: method, Audience: audience, SeededUsers: seeded, Policy: a.policy, Accept: a.acceptInvitation, SignUp: a.signUpSeated,
+		Directories: a.directories, Seat: a.directorySeated, OnlyIn: a.directoryOnlyIn,
+		// The rule asks what the Auth registers: with no password method no sign-in
+		// can prove a password, so one an account holds holds no sign-in for it.
+		NoPassword:    !a.registered().passwordRegistered(),
+		TrustedDevice: a.trustedDeviceOf, Proven: at.proof, WaitedOn: at.expectUserID,
+		// A person who comes through a directory that does not vouch for their address
+		// confirms one by the mailed code before their first session; the accounts a
+		// deployment seeds for its own provider are given their address where they are
+		// seeded.
+		ConfirmAddress: method != "" && !seeded,
+		CodeAddress:    at.codeAddress,
+		NewAccount:     at.newAccount,
+	}
+}
+
+// invitationCarried returns the live invitation the browser carries as the sign-in at
+// takes it to the store, nil for none: told whether the person entered, in this
+// sign-in, the code mailed for that invitation (Invitation.AddressProven). A sign-in
+// that completes the wait of an invitation's acceptance and finds the invitation gone
+// is refused before anything is resolved or written.
+func (a *Auth[S, U, Tx]) invitationCarried(ctx context.Context, at *signInAttempt) (*sessioninfo.Invitation, error) {
+	inv, err := a.invitationOf(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if inv == nil {
+		if at.codeInvitation.Valid {
+			// The code was mailed for an invitation that no longer stands (used, withdrawn
+			// or run out since the wait began). It proves nothing else: not the address of
+			// an account the sign-in would otherwise make or find, and no second factor
+			// of one.
+			return nil, errInvitationEnded()
+		}
+
+		return nil, nil
+	}
+	// The code the person entered was mailed for this invitation, or it proves nothing
+	// about the invitation.
+	inv.AddressProven = at.codeInvitation.Valid && at.codeInvitation.UUID == inv.ID
+
+	return inv, nil
+}
+
+// errInvitationEnded is the refusal (invitation_expired) of a sign-in that is an
+// invitation's acceptance or nothing, where the invitation no longer stands.
+func errInvitationEnded() error {
+	return signinflow.Refusal("", sessioninfo.RefusedInvitationExpired, signin.ErrInvitationExpired, signinflow.InvitationEnded)
+}
+
+// wrongCredentials is what a sign-in is told when the name and the password entered are
+// no account's: one sentence whatever the cause (no user of the name, a user with no
+// password, a wrong password, a password the user no longer holds), so the answer never
+// says which.
+const wrongCredentials = "The username or password is wrong. Check what you entered and try again"
 
 // passwordNoLongerHeld answers a sign-in that rested on a password proof and found the
 // user holding another password, or none (sessionstorage.ErrPasswordChanged): the
@@ -209,10 +298,25 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 // other error is returned as it is.
 func passwordNoLongerHeld(err error) error {
 	if errors.Is(err, sessionstorage.ErrPasswordChanged) {
-		return httpio.NewUnauthorizedMessageWithError(err, "Invalid Credentials")
+		return httpio.NewUnauthorizedMessageWithError(err, wrongCredentials)
 	}
 
 	return err
+}
+
+// logConfirmNobodyCanGive says in one line of the server's log why a sign-in was refused
+// when the account rule of its sign-in method asked for a password confirmation on an Auth
+// that registers no password method. The person sees a refused sign-in; what is wrong is
+// the developer's to change, so the line says what to change. Any other error logs nothing.
+func logConfirmNobodyCanGive(ctx context.Context, at *signInAttempt, err error) {
+	if !errors.Is(err, signin.ErrConfirmNeedsPasswordMethod) {
+		return
+	}
+	logger.FromCtx(ctx).Errorf(
+		"the account rule of sign-in method %q answered signin.Confirm for %q, and this Auth registers no password method, "+
+			"so nobody could enter the password the sign-in would wait for: the sign-in was refused. "+
+			"Register the password method, or have the rule answer signin.Link or signin.Reject",
+		at.registration, at.identity.SignInName)
 }
 
 // signedInEvents are the auth events the session of at recorded: the events the
@@ -276,11 +380,31 @@ func (a *Auth[S, U, Tx]) afterInsert(ctx context.Context, at *signInAttempt, req
 	if !ok || m.SyncRoles == nil {
 		return nil
 	}
-	if err := m.SyncRoles(ctx, accesstypes.User(req.UserID.String()), at.roleNames); err != nil {
+	if err := m.SyncRoles(a.withDirectorySync(ctx, at, req), accesstypes.User(req.UserID.String()), at.roleNames); err != nil {
 		return errors.Wrap(err, "role synchronization")
 	}
 
 	return nil
+}
+
+// withDirectorySync answers ctx with what the sign-in tells the permission store about
+// the role changes SyncRoles asks for (auditlog.WithDirectorySync), so the store records
+// each role it gives or takes as the directory's act on the account: the directory the
+// attempt's identity came through, by the name the registrations give it, else the label
+// of the login page's button (directoryName), else the label of the attempt's own
+// registration, else the method's own name; the account by its id and its username at
+// the sign-in; and each tenant by the name the Auth gives it (tenantName).
+func (a *Auth[S, U, Tx]) withDirectorySync(ctx context.Context, at *signInAttempt, req *sessioninfo.NewSessionRequest) context.Context {
+	name, label := a.directoryName(at.identity.Method, at.identity.Connection)
+
+	return auditlog.WithDirectorySync(ctx, auditlog.DirectorySync{
+		Directory: cmp.Or(name, label, a.registered().labels[at.registration], string(at.identity.Method)),
+		UserID:    req.UserID.String(),
+		Username:  req.Username,
+		TenantName: func(tenant accesstypes.Domain) string {
+			return a.tenantName(string(tenant))
+		},
+	})
 }
 
 // notifyLinked calls the IdentityLinked hook. An error is logged, and the link stands.
@@ -317,17 +441,17 @@ func (a *Auth[S, U, Tx]) validate(ctx context.Context) (context.Context, error) 
 // user is missing or disabled, is unauthorized. A role-principal impersonation has
 // no user. A foreign actor's carries only its username. A local actor's is checked
 // against the actor's own user.
+//
+// The user of an impersonated session is read through the library's own store
+// (impersonatedSessionUser), never through the exported User of a store that wraps it:
+// which account a session that acts as someone else answers for is what the library's
+// own rows say. An ordinary session's user is the store's User, as the session is the
+// store's Session, held to the account the session names and to whether the library's
+// own row holds that account disabled (heldToTheAccountAsked), as the account of an
+// application token is (validateToken).
 func (a *Auth[S, U, Tx]) sessionUser(ctx context.Context, sessData *sessioninfo.SessionData) (*sessioninfo.UserInfo, error) {
-	if imp := sessData.Impersonation; imp != nil && imp.Principal.IsRole() {
-		if !imp.IsLocalActor() {
-			return &sessioninfo.UserInfo{Username: sessData.Username}, nil
-		}
-		user, err := a.storage.UserByUserName(ctx, sessData.Username)
-		if err != nil {
-			return nil, httpio.NewUnauthorizedMessageWithError(err, "invalid session")
-		}
-
-		return enabledUser(user)
+	if imp := sessData.Impersonation; imp != nil {
+		return a.impersonatedSessionUser(ctx, sessData, imp)
 	}
 
 	if !sessData.UserID.Valid {
@@ -340,6 +464,164 @@ func (a *Auth[S, U, Tx]) sessionUser(ctx context.Context, sessData *sessioninfo.
 		}
 
 		return nil, errors.Wrap(err, "sessionstorage.AuthStore.User()")
+	}
+	if err := a.heldToTheAccountAsked(ctx, accountOfSession, sessData.UserID.UUID, user); err != nil {
+		return nil, err
+	}
+
+	return enabledUser(user)
+}
+
+// accountOf names what a store's User was asked the account of: an ordinary session or
+// an application token. An answer that is not that account is refused as an invalid
+// one of these.
+type accountOf string
+
+const (
+	accountOfSession accountOf = "session"
+	accountOfToken   accountOf = "token"
+)
+
+// heldToTheAccountAsked refuses a store's answer for the account of an ordinary session
+// or of an application token that is not the account the session or the token names.
+// The answer carries the id that was asked for. And where the library's own store holds
+// the account, the answer carries the username that row does: the library's own read is
+// asked (sealed.User), which a store that wraps the library's cannot replace. An account
+// that row holds disabled is refused whatever the answer says of it, as an account the
+// answer holds disabled is refused next (enabledUser): the account is disabled if
+// either says so, so a store that keeps the accounts it has read cannot keep a disabled
+// one signed in, or keep its tokens working. A store the library made, handed over as
+// it is, answered from that very read and is not asked twice, and a store that holds no
+// read of the library's making (a mock, a store of an application's own) is held to the
+// id alone, as is an account the library's own store does not hold.
+//
+// Without this a store that wraps the library's, a read cache keyed by something other
+// than the account's id for one, could answer one person's session or token with
+// another person's account. The routes for a person's own account would then act on
+// that account (a token made for it, a device signed in as it, its password set), each
+// written to the library's store, so each would last after the cache was put right, and
+// a program's request under a token would run as the other person.
+//
+// The refusal is an invalid session or an invalid token, as one with no account is, and
+// for an account the row holds disabled the one a disabled account is given. A failure
+// of the library's own read that is not one of those is the request's failure.
+func (a *Auth[S, U, Tx]) heldToTheAccountAsked(
+	ctx context.Context, holder accountOf, id impulse.UUID, answered *sessionstorage.SessionUser,
+) error {
+	invalid := "invalid " + string(holder)
+	if answered == nil {
+		return httpio.NewUnauthorizedMessageWithError(
+			errors.Newf("the store's User answered the account %s with no account and no error", id), invalid,
+		)
+	}
+	if answered.ID != id {
+		return httpio.NewUnauthorizedMessageWithError(errors.Newf(
+			"the store's User answered the account %s with the account %s: the account of a %s is the one its row names, "+
+				"so a store that wraps the library's answers an account with that account",
+			id, answered.ID, holder,
+		), invalid)
+	}
+	if sealed.SessionIsOwn(a.storage) {
+		return nil
+	}
+
+	own, err := sealed.User(ctx, a.storage, id)
+	switch {
+	case err == nil:
+	case httpio.HasNotFound(err), errors.Is(err, sealed.ErrSealed):
+		return nil
+	default:
+		return errors.Wrap(err, "sealed.User()")
+	}
+	if answered.Username != own.Username {
+		return httpio.NewUnauthorizedMessageWithError(errors.Newf(
+			"the store's User answered the account %s under another username than the session library's own store holds it under: "+
+				"a store that wraps the library's adds to an account and does not change whose it is",
+			id,
+		), invalid)
+	}
+	if own.Disabled {
+		return httpio.NewUnauthorizedMessageWithError(errors.Newf(
+			"the session library's own store holds the account %s disabled, whatever the store's User answered: "+
+				"a store that wraps the library's cannot keep a disabled account's %s working",
+			id, holder,
+		), "Session Expired")
+	}
+
+	return nil
+}
+
+// disabledByEitherStore reports whether the account a store answered with is disabled,
+// where something new is made for the account on that answer: a sign-in, or an
+// application token. The answer says so, or the library's own row does, where the
+// library's own store holds the account (sealed.User, which a store that wraps the
+// library's cannot replace). The account is disabled if either says so, as it is for a
+// request under a session (heldToTheAccountAsked): a store that keeps the accounts it
+// has read cannot have a disabled account's password accepted, or have the account
+// issued a token. A store the library made, handed over as it is, answered from that
+// very read and is not asked twice, and an account the library's own store does not
+// hold is the answer's whole. A failure of the library's own read that is not one of
+// those is the caller's failure.
+//
+// The store's sign-in decides the same from the row it reads in its own transaction, so
+// no session was ever inserted for such an account. This check is what refuses before
+// that: the check of the credentials alone, which starts no session, and the password
+// confirmation of a pending identity, which links the identity before the session. The
+// issue of an application token (CreateApplicationToken) has no such transaction behind
+// it: this check is all that keeps a token from being stored for a disabled account,
+// which the token's first request would then refuse.
+func (a *Auth[S, U, Tx]) disabledByEitherStore(ctx context.Context, answered *sessionstorage.SessionUser) (bool, error) {
+	if answered.Disabled {
+		return true, nil
+	}
+	if sealed.SessionIsOwn(a.storage) {
+		return false, nil
+	}
+
+	own, err := sealed.User(ctx, a.storage, answered.ID)
+	switch {
+	case err == nil:
+		return own.Disabled, nil
+	case httpio.HasNotFound(err), errors.Is(err, sealed.ErrSealed):
+		return false, nil
+	default:
+		return false, errors.Wrap(err, "sealed.User()")
+	}
+}
+
+// impersonatedSessionUser is sessionUser for a session that acts as someone else: the
+// account acted as for a user principal, the actor's own for a role principal a person
+// of this application holds, and the actor's name alone for one an actor from another
+// application holds. Each account is read through the library's own store (sealed.User,
+// sealed.UserByUserName), so the User and UserByUserName of a store that wraps it are
+// never asked.
+func (a *Auth[S, U, Tx]) impersonatedSessionUser(ctx context.Context, sessData *sessioninfo.SessionData, imp *sessioninfo.Impersonation) (*sessioninfo.UserInfo, error) {
+	if imp.Principal.IsRole() {
+		if !imp.IsLocalActor() {
+			return &sessioninfo.UserInfo{Username: sessData.Username}, nil
+		}
+		user, err := sealed.UserByUserName(ctx, a.storage, sessData.Username)
+		if err != nil {
+			if errors.Is(err, sealed.ErrSealed) {
+				return nil, errors.Wrap(err, "sealed.UserByUserName()")
+			}
+
+			return nil, httpio.NewUnauthorizedMessageWithError(err, "invalid session")
+		}
+
+		return enabledUser(user)
+	}
+
+	if !sessData.UserID.Valid {
+		return nil, httpio.NewUnauthorizedMessage("invalid session")
+	}
+	user, err := sealed.User(ctx, a.storage, sessData.UserID.UUID)
+	if err != nil {
+		if httpio.HasNotFound(err) {
+			return nil, httpio.NewUnauthorizedMessageWithError(err, "invalid session")
+		}
+
+		return nil, errors.Wrap(err, "sealed.User()")
 	}
 
 	return enabledUser(user)
@@ -421,7 +703,8 @@ func (a *Auth[S, U, Tx]) passwordSignIn(ctx context.Context, w http.ResponseWrit
 // names the hash this sign-in compared against: a password changed, reset or removed
 // since the user was read is left as it is, and the password entered is then no longer
 // the user's, so the check fails as a wrong password does, counted the same. A disabled
-// user is refused after the match.
+// user is refused after the match: one the store's answer holds disabled, or one the
+// library's own row does where a store wraps the library's (disabledByEitherStore).
 //
 // The proof returned names the password that matched, by the hash the user's row holds
 // for it now (the upgraded one when the upgrade wrote): what the caller inserts on the
@@ -438,7 +721,7 @@ func (a *Auth[S, U, Tx]) checkCredentials(
 
 	user, lookupErr := a.storage.UserByUserName(ctx, username)
 	if lookupErr != nil && !httpio.HasNotFound(lookupErr) {
-		return nil, nil, httpio.NewUnauthorizedMessageWithError(lookupErr, "Invalid Credentials")
+		return nil, nil, httpio.NewUnauthorizedMessageWithError(lookupErr, wrongCredentials)
 	}
 	var hash *securehash.Hash
 	if lookupErr == nil {
@@ -452,7 +735,7 @@ func (a *Auth[S, U, Tx]) checkCredentials(
 			err = lookupErr
 		}
 
-		return nil, nil, httpio.NewUnauthorizedMessageWithError(err, "Invalid Credentials")
+		return nil, nil, httpio.NewUnauthorizedMessageWithError(err, wrongCredentials)
 	}
 	held := user.PasswordHash
 	if upgrade && methods.autoUpgrade {
@@ -463,7 +746,7 @@ func (a *Auth[S, U, Tx]) checkCredentials(
 			// the check fails as a wrong password does.
 			a.attemptFailed(ctx, username, taken)
 
-			return nil, nil, httpio.NewUnauthorizedMessageWithError(err, "Invalid Credentials")
+			return nil, nil, httpio.NewUnauthorizedMessageWithError(err, wrongCredentials)
 		case err != nil:
 			logger.FromCtx(ctx).Error(err)
 		default:
@@ -472,7 +755,11 @@ func (a *Auth[S, U, Tx]) checkCredentials(
 		}
 	}
 	a.attemptSucceeded(ctx, taken)
-	if user.Disabled {
+	disabled, err := a.disabledByEitherStore(ctx, user)
+	if err != nil {
+		return nil, nil, err
+	}
+	if disabled {
 		return nil, nil, signinflow.Refusal("", sessioninfo.RefusedUserDisabled, signin.ErrUserDisabled, "User disabled")
 	}
 	proof, err = sessionstorage.ProofOfPassword(held)
@@ -694,7 +981,7 @@ func (a *Auth[S, U, Tx]) changeUserPasswordHandler() http.HandlerFunc {
 // signed-in user removes their own password, proving it first as a change does. It
 // validates the session itself, and holds it to what every own-account route but the
 // change holds it to: a user who must change their password is refused
-// (password_change_required, Forbidden), since removing a temporary password would
+// (password_change_required, Forbidden), since removing a password under the mark would
 // clear the mark with it and leave the session standing with no change made. It is
 // refused in an impersonated session. The password is checked under the attempt
 // limiter, for the request's client, as the change checks the old one. The removal is
@@ -738,7 +1025,7 @@ func (a *Auth[S, U, Tx]) removeUserPasswordHandler() http.HandlerFunc {
 // the one userID holds (BadRequest otherwise, as a change answers a wrong old password),
 // checked under the attempt limiter for client (provePassword).
 // The store is handed the hash the password matched and removes the password only while
-// the user still holds it, so a password an operator set meanwhile is not removed on
+// the user still holds it, so a password written meanwhile is not removed on
 // proof of the one it replaced (a Conflict that says to try again). The removal does
 // what AuthAPI.RemoveSessionUserPassword does, under the same judgment of the links
 // that count as a means of sign-in (signsInThrough), and its refusal of the last means
@@ -757,7 +1044,8 @@ func (a *Auth[S, U, Tx]) removeOwnPassword(ctx context.Context, userID impulse.U
 	if err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.IdentitiesByUser()")
 	}
-	if err := a.storage.RemoveProvenUserPassword(ctx, user.ID, user.PasswordHash, a.linksThatSignIn(links)); err != nil {
+	removed := accountRecord(auditlog.ActPasswordRemoved, a.acting(ctx), user.ID, user.Username)
+	if err := a.storage.RemoveProvenUserPassword(ctx, user.ID, user.PasswordHash, a.linksThatSignIn(links), removed); err != nil {
 		switch {
 		case errors.Is(err, sessionstorage.ErrLastSignInMethod):
 			return httpio.NewConflictMessageWithError(err, "Your password is your only way to sign in: sign in through your directory first, which links it to your account, then remove the password")
@@ -767,6 +1055,7 @@ func (a *Auth[S, U, Tx]) removeOwnPassword(ctx context.Context, userID impulse.U
 
 		return errors.Wrap(err, "sessionstorage.AuthStore.RemoveProvenUserPassword()")
 	}
+	a.endResetLinks(ctx, user.ID)
 	a.clearAttempts(ctx, user.Username)
 
 	return nil
@@ -828,10 +1117,94 @@ func retryAfterSeconds(wait time.Duration) int {
 	return max(int(math.Ceil(wait.Seconds())), 1)
 }
 
+// keptIdentity returns the attempt's identity as the sign-in keeps it: without a word
+// for the address the library does not keep (onlyGoogleVouches), and with the name a
+// directory gave kept as a user's is, or not at all. A name a row would not keep is
+// dropped here, before anything of the sign-in is written, the pending identity among
+// it, so it never fails the sign-in it came with. The identity is the caller's, who may
+// hand one to several sign-ins at once, so it is never written: an identity that
+// changes is a copy.
+func (a *Auth[S, U, Tx]) keptIdentity(at *signInAttempt) *sessioninfo.Identity {
+	identity := a.onlyGoogleVouches(at.registration, at.identity)
+	if kept := sessioninfo.KeptName(identity.Name); kept != identity.Name {
+		named := *identity
+		named.Name = kept
+		identity = &named
+	}
+
+	return identity
+}
+
+// onlyGoogleVouches returns identity without the word of every method but Google's that
+// the address is verified (Identity.EmailVerified). The people who run an identity
+// provider can mark any address verified, so a provider's word confirms nothing: the
+// address is written on no account by it and finds no account by it, and the person's
+// first sign-in to an account with no confirmed address waits for the mailed code. It
+// holds for every method whatever it fills in, the library's own and one an application
+// registers. Google's method keeps its word, which it gives only for an address Google
+// is the authority for: a Gmail address and a Workspace account's (keepsWord).
+//
+// Every sign-in passes it where the sign-in starts (signIn, by keptIdentity), and a
+// pending sign-in where its row is read (pending). So the identity a callback verified
+// and the one a row held are held to the same answer, and a pending sign-in stored with
+// another provider's word, as a release that kept every provider's word stored one, is
+// reported and finished without it. The identity is the caller's, so it is never
+// written: one that loses the word is a copy.
+func (a *Auth[S, U, Tx]) onlyGoogleVouches(registration string, identity *sessioninfo.Identity) *sessioninfo.Identity {
+	if !identity.EmailVerified || a.keepsWord(registration, identity) {
+		return identity
+	}
+	kept := *identity
+	kept.EmailVerified = false
+
+	return &kept
+}
+
+// keepsWord reports whether the library keeps the word identity carries that its
+// address is verified, for a sign-in that came through the registration named
+// registration. It keeps the word of Google's method: the registration's method
+// carries the library's mark (signin.Method.AddressAuthority), which only
+// session/google sets and no application's method can carry, and the identity says it
+// came through Google. A method that takes Google's name is not Google's, and its word
+// is not kept. A sign-in through no registration is the library's own, a password's or
+// a session the application starts: its identity names its user, and its word is what
+// the user's own row says of the address.
+func (a *Auth[S, U, Tx]) keepsWord(registration string, identity *sessioninfo.Identity) bool {
+	if registration == "" {
+		return namesItsUser(identity)
+	}
+	m, ok := a.registered().external[registration]
+
+	return ok && m.AddressAuthority.IsGoogle() && identity.Method == sessioninfo.MethodGoogle
+}
+
 // namesItsUser reports whether identity names its user instead of being resolved to
 // one: a password identity, or the application's own (StartAuthenticatedSession).
 func namesItsUser(identity *sessioninfo.Identity) bool {
 	return identity.Method == sessioninfo.MethodPassword || identity.Method == sessioninfo.MethodApplication
+}
+
+// ownMethod refuses a sign-in whose identity is not under the method the sign-in came
+// through. The identity's method becomes the sign-in's first auth event (identityEvent),
+// which says how the person signed in, and the library's rules read some events as its
+// own proof. So an identity never carries the name of a step the library runs itself
+// (recordsTheLibrarysStep), whatever brought it, and an identity that came through a
+// registration carries that registration's method and no other: a method that
+// registers under one name verifies no identity under another. The refusal is the
+// server's error, since it is the method's code that is wrong, and nothing is resolved,
+// linked or held.
+func (a *Auth[S, U, Tx]) ownMethod(at *signInAttempt) error {
+	if recordsTheLibrarysStep(at.identity.Method) {
+		return sessioninfo.NewLoginRefusal(sessioninfo.RefusedInternalError, httpio.NewInternalServerErrorMessagef(
+			"the sign-in's identity is under the method %q, the name of a step the library runs and records itself: a sign-in method gives its identities the method's own name", at.identity.Method))
+	}
+	if m, ok := a.registered().external[at.registration]; ok && at.identity.Method != m.Name {
+		return sessioninfo.NewLoginRefusal(sessioninfo.RefusedInternalError, httpio.NewInternalServerErrorMessagef(
+			"the sign-in through the registration %q, a registration of the method %q, verified an identity under the method %q: a sign-in method gives its identities the name it is registered as",
+			at.registration, m.Name, at.identity.Method))
+	}
+
+	return nil
 }
 
 // identityEvent returns the auth event of a sign-in with identity. Its time is the
@@ -852,15 +1225,69 @@ func identityEvents(identity *sessioninfo.Identity) []sessioninfo.AuthEvent {
 	return events
 }
 
-// validateEvents refuses an auth event without a method.
+// validateEvents refuses an auth event an application may not report: one without a
+// method, and one under a method that records a step the library runs itself
+// (recordsTheLibrarysStep). An application reports its own step under a name of its
+// own.
 func validateEvents(events []sessioninfo.AuthEvent) error {
 	for _, e := range events {
 		if e.Method == "" {
-			return httpio.NewBadRequestMessage("an auth event needs a method")
+			return httpio.NewBadRequestMessage(dbtype.AuthEventNeedsMethodMessage)
+		}
+		if recordsTheLibrarysStep(e.Method) {
+			return httpio.NewBadRequestMessagef("an auth event under %q reports a step the library runs and records itself: "+
+				"report the application's own step under a name of its own, and have the mailed code entered through Pending().VerifyCode() or AuthAPI.VerifyEmailCode()", e.Method)
 		}
 	}
 
 	return nil
+}
+
+// recordsTheLibrarysStep reports whether an event under method records a step the
+// library runs itself: the mailed code, a remembered browser standing in for it, the
+// attestation of the sign-in's connection, or a tenant's word for its directory's
+// second factor. The library's rules read those events as its own proof: the mailed
+// code's event stands behind the link of a first sign-in made on a name alone, with the
+// address or the invitation the code was mailed for; the code, the browser and the
+// attestation each answer a sign-in policy's second factor; and a tenant's word stands
+// in for the hold of the Auth's sign-in settings. Only the library records them.
+func recordsTheLibrarysStep(method sessioninfo.AuthMethod) bool {
+	return method == sessioninfo.MethodEmailCode || method == sessioninfo.MethodTrustedDevice || method.Attests() ||
+		method == sessioninfo.MethodVouchedByTenant
+}
+
+// reportsNoSignIn refuses an auth event an application reports under the name of a
+// sign-in method the library runs (namesASignIn). A session's first auth event says how the
+// person signed in (sessioninfo.SessionData.EstablishedBy): a tenant's declaration, an
+// invitation's acceptance and the status answer read it as a sign-in through that
+// directory, which only a sign-in the library ran proves. An application reports its
+// own step under a name of its own.
+func (a *Auth[S, U, Tx]) reportsNoSignIn(events []sessioninfo.AuthEvent) error {
+	for _, e := range events {
+		if a.namesASignIn(e.Method) {
+			return httpio.NewBadRequestMessagef("an auth event under %q reports a sign-in the library runs and records itself: "+
+				"report the application's own step under a name of its own, and have the person sign in through the method to record its sign-in", e.Method)
+		}
+	}
+
+	return nil
+}
+
+// namesASignIn reports whether method names a sign-in the library runs: a password, a
+// directory's method the library ships (Microsoft Entra ID, Google, WorkOS, a generic
+// OpenID Connect provider), registered on this Auth or not, and the method of every
+// registration on this Auth, an application's own among them.
+func (a *Auth[S, U, Tx]) namesASignIn(method sessioninfo.AuthMethod) bool {
+	if method == sessioninfo.MethodPassword || method.ThroughDirectory() {
+		return true
+	}
+	for _, m := range a.registered().external {
+		if m.Name == method {
+			return true
+		}
+	}
+
+	return false
 }
 
 // shared returns the API methods every session type shares, over this session's fields.

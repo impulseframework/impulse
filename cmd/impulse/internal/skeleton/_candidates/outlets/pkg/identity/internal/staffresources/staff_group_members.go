@@ -19,8 +19,17 @@ type (
 	// subject.staffGroups is the ids of the groups the caller is in. A grant's
 	// condition tests a row's group against it, and a table of the application's own
 	// whose rows name a group follows a person through it in its own set's definition
-	// (who: GroupID IN subject.staffGroups). A group's id names one group in the whole
-	// application, so a row names a tenant's group only where the tenant's own rows do.
+	// (who: GroupID IN subject.staffGroups). The people are the Staff auth's, and the
+	// set says so (auth: staff): generation refuses a set that describes another
+	// auth's people and follows a person through this one.
+	//
+	// The table is no tenant's, and a group is kept in one tenant or for the whole
+	// application, so the set says where a row's tenant is found (domain:
+	// GroupID.DomainID). In a request that has a tenant the set holds the groups kept in
+	// that tenant alone: a row of the tenant's that named another tenant's group, or a
+	// group kept for the whole application, would give nobody anything through it, and
+	// the library refuses to write one. In a request that has no tenant the set holds
+	// every group the caller is in.
 	//
 	// StartsAt and EndsAt are the place's period: the first instant it counts and the
 	// first it no longer does, each empty for none. Outside its period a place gives the
@@ -35,10 +44,11 @@ type (
 	// @outlet(default)
 	// @order(UserID asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(group member)
 	StaffGroupMember struct {
 		// @attribute(group)
 		GroupID impulse.UUID `spanner:"GroupId"`
-		// @subjectSet(staffGroups, value: GroupID, where: (StartsAt IS NULL OR StartsAt <= now) AND (EndsAt IS NULL OR EndsAt > now))
+		// @subjectSet(staffGroups, value: GroupID, domain: GroupID.DomainID, auth: staff, where: (StartsAt IS NULL OR StartsAt <= now) AND (EndsAt IS NULL OR EndsAt > now))
 		UserID    string     `spanner:"UserId"`
 		CreatedAt time.Time  `spanner:"CreatedAt"`
 		StartsAt  *time.Time `spanner:"StartsAt"`

@@ -21,12 +21,11 @@ import (
 
 func (h *Handlers) AssignStaffRole() http.HandlerFunc {
 	type request struct {
-		UserID      impulse.UUID `json:"userId"`
-		Role        string       `json:"role"`
-		Domain      *string      `json:"domain"`
-		EveryDomain bool         `json:"everyDomain"`
-		StartsAt    *time.Time   `json:"startsAt"`
-		EndsAt      *time.Time   `json:"endsAt"`
+		UserID   impulse.UUID `json:"userId"`
+		Role     string       `json:"role"`
+		StartsAt *time.Time   `json:"startsAt"`
+		EndsAt   *time.Time   `json:"endsAt"`
+		Reason   *string      `json:"reason"`
 	}
 
 	decoder := NewRPCDecoder[staffidentity.AssignStaffRole, request](h, accesstypes.Execute)
@@ -47,6 +46,10 @@ func (h *Handlers) AssignStaffRole() http.HandlerFunc {
 		// write or a read against the caller (Enforce) evaluates the same checker,
 		// scope, and decision instant.
 		ctx = resource.WithCaller(ctx, caller)
+		// The method's name rides the context too: who made a change
+		// (eventsource.UserEvent) reads it there, so every change record the body writes
+		// names the method.
+		ctx = resource.WithRPC(ctx, "AssignStaffRole")
 
 		p := (*staffidentity.AssignStaffRole)(params)
 
@@ -89,7 +92,7 @@ func (h *Handlers) AssignStaffRole() http.HandlerFunc {
 				return httpio.NewEncoder(w).Ok(nil)
 			}
 
-			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "spanner.Client.ReadWriteTransaction()"))
+			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "resource.Client.ExecuteFunc()"))
 		}
 
 		live.Publish(ctx, w, h.LiveService(), h.liveDerivations, "", touched)

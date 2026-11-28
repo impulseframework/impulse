@@ -5,6 +5,7 @@ package staffidentity
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
@@ -13,32 +14,98 @@ import (
 
 // DeleteStaffTenantUser deletes a person of the Staff auth, in one transaction:
 // every session they hold is ended, and their identity links and every role they hold
-// go with the account. Nobody deletes themselves: the caller's own account is refused.
+// go with the account, and with it the application's rows that name the account in a
+// column that says so (@deletedWith). Asked without EverythingUnder of an account that
+// has such a row, it deletes nothing and answers the question a person is asked first,
+// with their counts; asked with it and the question's token, it takes them. Nobody
+// deletes themselves: the caller's own account is refused.
+//
+// The rows that go with the account go on this method's grant: no grant is asked on
+// their own tables. For a request made for the whole application every such row goes.
+// For one made under a tenant's address the rows of that tenant go, and those of each
+// other tenant in which the person holds the same permission; a row of any other
+// tenant, or of none, refuses the delete, with nothing gone, in a sentence that says
+// where it is.
+//
+// Before it runs on a tenant's side, the method says what it does (Warning): where the
+// tenant is open to its directory and the person signs in through it, that they can sign
+// in again and will get a new account.
 //
 // It is a tenant's method: served under the address of one Tenant, it names a
-// row of StaffTenantUser, the tenant's own list of the auth's people. A person who holds
-// no role in the tenant is not found there, and what the tenant may do to a person who
-// also holds a role outside it is the role file's to say, in a condition on the
-// method's grant that reads the facts of the row (heldElsewhere, heldGlobally).
+// row of StaffTenantUser, the tenant's own list of the auth's people. A person who is no
+// row of that list is not found there, and whether the tenant may do this to a person is
+// the role file's to say, in a condition on the method's grant that reads the facts of
+// the row: managedHere says this tenant manages the person's account.
+//
+// The person's own row does not offer it (@notOnOwnAccount): nobody disables or deletes
+// themselves, and the method refuses the call.
+//
+// A row offers it only to a caller whose session enters every tenant the person
+// administers (@callerEnters); the method refuses anyone else.
 //
 // @rpc
 // @permissionScope(domain)
+// @callerEnters
+// @notOnOwnAccount(ID)
 // @outlet(default)
-// @answers(204)
+// @answers(202, 204)
+// @warning
 type DeleteStaffTenantUser struct {
 	// @target(StaffTenantUser)
 	UserID impulse.UUID
+	// EverythingUnder says the person was asked what the account's delete takes and
+	// confirmed it, so the delete takes the application's rows that go with the account.
+	EverythingUnder bool
+	// Token is the token the delete's question gave (the 428's "token"): with
+	// EverythingUnder, the delete takes what is under the account only on it.
+	//
+	// @deleteToken
+	Token string
 }
 
-// Execute buffers the removal into the caller's transaction.
-func (m *DeleteStaffTenantUser) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error {
+// DeleteStaffTenantUserResult is what a delete of an account with more under it than
+// one save holds left (resource.DeleteLeft): the records this request deleted. The account
+// stands until a request takes the last of them.
+type DeleteStaffTenantUserResult struct {
+	Deleted int64 `json:"deleted"`
+}
+
+// HTTPStatus answers 202: the account still stands, and the same delete, sent again, goes on.
+func (*DeleteStaffTenantUserResult) HTTPStatus() int {
+	return http.StatusAccepted
+}
+
+// Warning says what deleting the person does before it runs, and, where the tenant is open
+// to its directory and the person signs in through it, that they can sign in again and will
+// get a new account. It writes nothing.
+func (m *DeleteStaffTenantUser) Warning(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*resource.Warning, error) {
 	// A tenant's method acts for a request made under the tenant's address.
-	if _, err := client.manager.Tenant(ctx); err != nil {
-		return errors.Wrap(err, "identity.Manager.Tenant()")
+	tenant, err := client.manager.Tenant(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "identity.Manager.Tenant()")
 	}
-	if err := client.manager.DeleteUser(ctx, txn, m.UserID); err != nil {
-		return errors.Wrap(err, "identity.Manager.DeleteUser()")
+	again, err := client.SeatedAgainBySignIn(ctx, txn, tenant.Domain(), m.UserID)
+	if err != nil {
+		return nil, errors.Wrap(err, "Client.SeatedAgainBySignIn()")
 	}
 
-	return nil
+	return tenant.DeletionWarning(again), nil
+}
+
+// Execute buffers the removal into the caller's transaction. It answers nothing (204)
+// once the account is gone, and the rows one save deleted (202) while it stands.
+func (m *DeleteStaffTenantUser) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*DeleteStaffTenantUserResult, error) {
+	// A tenant's method acts for a request made under the tenant's address.
+	if _, err := client.manager.Tenant(ctx); err != nil {
+		return nil, errors.Wrap(err, "identity.Manager.Tenant()")
+	}
+	left, err := client.manager.DeleteUser(ctx, txn, m.UserID, m.EverythingUnder)
+	if err != nil {
+		return nil, errors.Wrap(err, "identity.Manager.DeleteUser()")
+	}
+	if left == nil {
+		return nil, nil
+	}
+
+	return &DeleteStaffTenantUserResult{Deleted: left.Deleted}, nil
 }

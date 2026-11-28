@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse/session/internal/util"
 	"github.com/impulseframework/impulse/session/signin"
 )
 
@@ -21,8 +22,29 @@ const AnyAccountConnection = signin.GoogleAnyAccountConnection
 const anyWorkspaceAccount = "*"
 
 // personalDomains are the domains of Google accounts outside any Workspace, which
-// AnyWorkspace does not admit and only AnyGoogleAccount does.
+// AnyWorkspace does not admit and only AnyGoogleAccount does. They are Google's own
+// mail: the one kind of address outside a Workspace that Google answers for (vouchesFor).
 var personalDomains = []string{"gmail.com", "googlemail.com"}
+
+// vouchesFor reports whether Google's word that an address is verified (the token's
+// email_verified) confirms the address: it does only where Google is the address's own
+// authority. That is the address of a Workspace account, which the organization that
+// owns the domain gave the person (the token carries hd), and an address of Google's
+// own mail (personalDomains), told by its ASCII domain alone: a domain written with a
+// letter from outside ASCII is not Google's mail, whatever Unicode lowercases the letter
+// to (signin.AddressDomain). A Google account can also be made with an address from
+// anywhere else, and of that address Google says no more than any provider says of
+// one: its word confirms nothing and reaches no account. The account's sign-in name is
+// that address all the same, so a first sign-in under the name of an account created
+// ahead waits for the code mailed to the address that account holds, and a first
+// sign-in to any account with no confirmed address waits for the mailed code.
+func vouchesFor(emailVerified bool, email, hostedDomain string) bool {
+	if !emailVerified {
+		return false
+	}
+
+	return hostedDomain != "" || slices.Contains(personalDomains, signin.AddressDomain(email))
+}
 
 // WorkspaceSet is the organization slot of the Google method (Config.Workspaces): which
 // Google accounts a registration admits, and the connection each identity link carries.
@@ -88,7 +110,7 @@ func Workspaces(sets ...WorkspaceSet) WorkspaceSet {
 // Workspaces only: AnyWorkspace and AnyGoogleAccount admit organizations the
 // application does not administer, and a set holding either is refused at
 // registration; name the administered Workspace beside the open entry instead,
-// google.Workspaces(google.Workspace("ccc", "example.com").Attesting(), google.AnyGoogleAccount()).
+// google.Workspaces(google.Workspace("example", "example.com").Attesting(), google.AnyGoogleAccount()).
 func (s WorkspaceSet) Attesting() WorkspaceSet {
 	named := make([]namedWorkspace, len(s.named))
 	for i, w := range s.named {
@@ -151,7 +173,7 @@ func (s WorkspaceSet) audience() signin.Audience {
 		a.Identities = []string{identityAnyWorkspace}
 	default:
 		for _, domain := range a.Organizations {
-			a.Identities = append(a.Identities, identityWorkspaceDomain+strings.ToLower(domain))
+			a.Identities = append(a.Identities, identityWorkspaceDomain+util.LowerASCII(domain))
 		}
 	}
 
@@ -187,7 +209,7 @@ func (s WorkspaceSet) validate() error {
 			if !isDomainName(d) {
 				return errors.Newf("Workspaces: %q is not a domain name", d)
 			}
-			key := strings.ToLower(d)
+			key := util.LowerASCII(d)
 			if other, taken := domains[key]; taken {
 				return errors.Newf("Workspaces: the domain %q belongs to two Workspaces, %q and %q", d, other, w.name)
 			}
@@ -242,13 +264,13 @@ func (s WorkspaceSet) entryFor(hd string) (connection string, attests, ok bool) 
 	if hd != "" {
 		for _, w := range s.named {
 			for _, d := range w.domains {
-				if strings.EqualFold(hd, d) {
+				if util.EqualASCIIFold(hd, d) {
 					return w.name, w.attests, true
 				}
 			}
 		}
 		if s.anyWorkspace {
-			return strings.ToLower(hd), false, true
+			return util.LowerASCII(hd), false, true
 		}
 	}
 	if s.anyAccount {
@@ -297,7 +319,7 @@ func (s WorkspaceSet) admitsConnection(connection string) bool {
 		return false
 	}
 	for _, w := range s.named {
-		if slices.ContainsFunc(w.domains, func(d string) bool { return strings.EqualFold(d, connection) }) {
+		if slices.ContainsFunc(w.domains, func(d string) bool { return util.EqualASCIIFold(d, connection) }) {
 			return false
 		}
 	}
@@ -308,7 +330,8 @@ func (s WorkspaceSet) admitsConnection(connection string) bool {
 // admitsAddress reports whether the set could admit an account whose email address is
 // at domain, which the core asks before it sends an invitation there: a domain of a
 // named Workspace, any domain but a personal account's under AnyWorkspace, any domain
-// under AnyGoogleAccount. Domain names are compared without regard to case. Google
+// under AnyGoogleAccount. Domain names are compared without regard to the case of their
+// ASCII letters. Google
 // puts the Workspace's primary domain in the hd claim, so an operator who names the
 // primary domain only and invites an address at a secondary domain of the same
 // Workspace is refused here although Google would admit the sign-in: they add the
@@ -318,12 +341,12 @@ func (s WorkspaceSet) admitsAddress(domain string) bool {
 		return true
 	}
 	for _, w := range s.named {
-		if slices.ContainsFunc(w.domains, func(d string) bool { return strings.EqualFold(d, domain) }) {
+		if slices.ContainsFunc(w.domains, func(d string) bool { return util.EqualASCIIFold(d, domain) }) {
 			return true
 		}
 	}
 
-	return s.anyWorkspace && !slices.ContainsFunc(personalDomains, func(d string) bool { return strings.EqualFold(d, domain) })
+	return s.anyWorkspace && !slices.ContainsFunc(personalDomains, func(d string) bool { return util.EqualASCIIFold(d, domain) })
 }
 
 // hdHint is the hd parameter of the authorization request, and whether one is sent: the

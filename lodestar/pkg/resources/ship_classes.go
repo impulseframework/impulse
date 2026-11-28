@@ -1,12 +1,22 @@
 package resources
 
-import "github.com/impulseframework/impulse"
+import (
+	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/resource"
+)
 
 type (
 	// ShipClass is the hull catalog: a global resource with an immutable designation, an
 	// enum foreign key (RoleId to ShipRoles), an int tonnage, and a bool hardened flag. It
 	// is the target of a join-path attribute from a SECTOR-scoped table: Ship's shipRole
 	// attribute reaches ClassId.RoleId, a join path into a global table.
+	//
+	// InService is the yes or no whose column declares its own default: the table says
+	// NOT NULL DEFAULT (TRUE), so a create that names no value stores yes, the field is not
+	// one a create must be given, and the generated browser metadata carries the yes, which
+	// is where the console's form starts the box. Hardened declares nothing, so a create
+	// must be given it, and the console's form draws it as a choice of yes or no that
+	// starts at No.
 	//
 	// It declares no @order, the one listed table in the demo that does not, and no
 	// maximum, so the ship form's class picker reads the whole catalog with limit=all:
@@ -16,15 +26,26 @@ type (
 	// the resource and the two ways out (a sort, or limit=all), and the console's Ship
 	// Classes page names its sort; a requested sort pages it by cursor as any list.
 	//
-	// Demonstrates: immutable, @attribute.join-path-global, order.none, order.required.
+	// Change tracking is on: a class's history shows its yes-or-no fields and its tonnage
+	// changing, which the console's Ship classes page opens.
+	//
+	// Demonstrates: immutable, @attribute.join-path-global, order.none, order.required, change-tracking.
 	//
 	// @resource
 	// @page(default: 25)
 	ShipClass struct {
-		ID          impulse.UUID `spanner:"Id"`
-		Designation string       `spanner:"Designation" conditions:"immutable"`
-		RoleID      string       `spanner:"RoleId"`
-		Tonnage     int64        `spanner:"Tonnage"`
-		Hardened    bool         `spanner:"Hardened"`
+		ID impulse.UUID `spanner:"Id"`
+		// @name
+		Designation string `spanner:"Designation" conditions:"immutable"`
+		RoleID      string `spanner:"RoleId"`
+		Tonnage     int64  `spanner:"Tonnage"`
+		Hardened    bool   `spanner:"Hardened"`
+		InService   bool   `spanner:"InService"`
 	}
 )
+
+// Config enables change tracking: ShipClass mutations write DataChangeEvents rows in the
+// same transaction, which the class's history reads back.
+func (ShipClass) Config() resource.Config {
+	return defaultConfig().SetTrackChanges(true)
+}

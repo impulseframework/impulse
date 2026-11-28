@@ -6,6 +6,7 @@ package app
 import (
 	"net/http"
 	"slices"
+	"time"
 
 	"cloud.google.com/go/civil"
 	"github.com/impulseframework/impulse"
@@ -24,7 +25,9 @@ func (a *App) Sectors() http.HandlerFunc {
 		Name          string       `json:"name"          index:"true"`
 		Region        string       `json:"region"`
 		Established   civil.Date   `json:"established"`
+		ChartedAt     time.Time    `json:"chartedAt"`
 		DirectoryOnly bool         `json:"directoryOnly"`
+		Disabled      bool         `json:"disabled"`
 	}
 
 	type response []map[string]any
@@ -42,8 +45,9 @@ func (a *App) Sectors() http.HandlerFunc {
 		}
 
 		// A live list registers before the query runs, so a commit that lands during
-		// the query is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, a.LiveService(), querySet, live.ListSubscription(querySet.Resource(), ""))
+		// the query is not missed; a refused request registers nothing. With it the
+		// request registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, a.LiveService(), querySet, live.ListSubscription(querySet.Resource(), ""))
 
 		res := resources.NewSectorQueryFromQuerySet(querySet)
 
@@ -82,9 +86,17 @@ func (a *App) Sectors() http.HandlerFunc {
 					if !row.Masked("established") {
 						rmap["established"] = rec.Established
 					}
+				case "ChartedAt":
+					if !row.Masked("chartedAt") {
+						rmap["chartedAt"] = rec.ChartedAt
+					}
 				case "DirectoryOnly":
 					if !row.Masked("directoryOnly") {
 						rmap["directoryOnly"] = rec.DirectoryOnly
+					}
+				case "Disabled":
+					if !row.Masked("disabled") {
+						rmap["disabled"] = rec.Disabled
 					}
 				}
 			}
@@ -113,7 +125,9 @@ func (a *App) Sector() http.HandlerFunc {
 		Name          string       `json:"name"          index:"true"`
 		Region        string       `json:"region"`
 		Established   civil.Date   `json:"established"`
+		ChartedAt     time.Time    `json:"chartedAt"`
 		DirectoryOnly bool         `json:"directoryOnly"`
+		Disabled      bool         `json:"disabled"`
 	}
 
 	decoder := NewQueryDecoder[resources.Sector, response](a, accesstypes.Read)
@@ -130,8 +144,9 @@ func (a *App) Sector() http.HandlerFunc {
 		}
 
 		// A live row registers before the read runs, so a commit that lands during the
-		// read is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, a.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(id)))
+		// read is not missed; a refused request registers nothing. With it the request
+		// registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, a.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(id)))
 
 		res := resources.NewSectorQueryFromQuerySet(querySet).SetID(id)
 
@@ -159,9 +174,17 @@ func (a *App) Sector() http.HandlerFunc {
 				if !row.Masked("established") {
 					rmap["established"] = rec.Established
 				}
+			case "ChartedAt":
+				if !row.Masked("chartedAt") {
+					rmap["chartedAt"] = rec.ChartedAt
+				}
 			case "DirectoryOnly":
 				if !row.Masked("directoryOnly") {
 					rmap["directoryOnly"] = rec.DirectoryOnly
+				}
+			case "Disabled":
+				if !row.Masked("disabled") {
+					rmap["disabled"] = rec.Disabled
 				}
 			}
 		}
@@ -171,5 +194,41 @@ func (a *App) Sector() http.HandlerFunc {
 		live.SetCacheControl(w, r)
 
 		return httpio.NewEncoder(w).Ok(rmap)
+	})
+}
+
+// SectorChangeHistory answers a page of one sector's change records, newest first, to whoever may read the record, with the fields they may see on it. It answers 404 while the resource does not track its changes.
+func (a *App) SectorChangeHistory() http.HandlerFunc {
+	type response struct {
+		ID            impulse.UUID `json:"id"            index:"true" perm:"-"`
+		Name          string       `json:"name"          index:"true"`
+		Region        string       `json:"region"`
+		Established   civil.Date   `json:"established"`
+		ChartedAt     time.Time    `json:"chartedAt"`
+		DirectoryOnly bool         `json:"directoryOnly"`
+		Disabled      bool         `json:"disabled"`
+	}
+
+	decoder := NewQueryDecoder[resources.Sector, response](a, accesstypes.Read)
+
+	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := tracer.Start(r.Context())
+		defer span.End()
+
+		id := httpio.Param[impulse.UUID](r, router.SectorID)
+
+		history, err := decoder.DecodeChangeHistory(r, a.UserPermissions(r), accesstypes.GlobalScope())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		resources.NewSectorQueryFromQuerySet(history.QuerySet()).SetID(id)
+
+		page, err := history.Read(ctx, a.ResourceClient())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok(page)
 	})
 }

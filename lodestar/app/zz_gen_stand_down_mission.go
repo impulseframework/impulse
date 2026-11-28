@@ -10,6 +10,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/lodestar/pkg/resources"
 	"github.com/impulseframework/impulse/lodestar/pkg/router"
@@ -43,6 +44,10 @@ func (a *App) StandDownMission() http.HandlerFunc {
 		// write or a read against the caller (Enforce) evaluates the same checker,
 		// scope, and decision instant.
 		ctx = resource.WithCaller(ctx, gate.Caller())
+		// The method's name rides the context too: who made a change
+		// (eventsource.UserEvent) reads it there, so every change record the body writes
+		// names the method.
+		ctx = resource.WithRPC(ctx, "StandDownMission")
 
 		p := (*rpc.StandDownMission)(params)
 
@@ -79,22 +84,28 @@ func (a *App) StandDownMission() http.HandlerFunc {
 				SetID(p.MissionID).
 				Read(ctx, txn)
 			if err != nil {
+				if httpio.HasNotFound(err) {
+					// No row has the key. Every row the method cannot reach is
+					// answered alike, so the words never say a row is there.
+					return resource.TargetNotFound("Mission", p.MissionID)
+				}
+
 				return errors.Wrap(err, "resources.MissionQuery.Read()")
 			}
 			if row == nil {
-				return httpio.NewNotFoundMessagef("Mission %s does not exist", p.MissionID)
+				return resource.TargetNotFound("Mission", p.MissionID)
 			}
 			if ok, err := resource.TenantKeyEquals(row.Data.SectorID, domain); err != nil {
 				return errors.Wrap(err, "resource.TenantKeyEquals()")
 			} else if !ok {
-				return httpio.NewNotFoundMessagef("Mission %s does not exist", p.MissionID)
+				return resource.TargetNotFound("Mission", p.MissionID)
 			}
 			switch row.Data.StatusID {
 			case "open", "claimed", "on_hold":
 			default:
 				// One refusal for the state check and the grant condition
 				// alike: the wire never says which said no (§12).
-				return httpio.NewForbiddenMessagef("StandDownMission may not run against Mission %s", p.MissionID)
+				return resource.TargetRefused("StandDownMission", "Mission", p.MissionID)
 			}
 
 			// A row-referencing condition on the caller's Execute grant
@@ -107,7 +118,7 @@ func (a *App) StandDownMission() http.HandlerFunc {
 			}
 
 			// The framework stamps the declared target state as the last mutation.
-			if err := resources.NewMissionUpdatePatch(p.MissionID).SetStatusID("stood_down").Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+			if err := resources.NewMissionUpdatePatch(p.MissionID).SetStatusID("stood_down").Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 				return errors.Wrap(err, "resources.MissionUpdatePatch.Buffer()")
 			}
 			if dryRun {
@@ -120,7 +131,7 @@ func (a *App) StandDownMission() http.HandlerFunc {
 				return httpio.NewEncoder(w).Ok(nil)
 			}
 
-			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "spanner.Client.ReadWriteTransaction()"))
+			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "resource.Client.ExecuteFunc()"))
 		}
 
 		live.Publish(ctx, w, a.LiveService(), liveDerivations, domain, touched)

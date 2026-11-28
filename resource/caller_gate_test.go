@@ -1,6 +1,9 @@
 package resource
 
 import (
+	"net/http"
+	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -94,6 +97,67 @@ func TestCaller_ExecuteGate(t *testing.T) {
 	})
 }
 
+// entryAccessor hands a targeted method's decoder the checker and no validator.
+type entryAccessor struct {
+	perms UserPermissions
+}
+
+func (entryAccessor) Validator() ValidatorFunc {
+	return nil
+}
+
+func (a entryAccessor) UserPermissions(*http.Request) UserPermissions {
+	return a.perms
+}
+
+// TestCaller_entryCheck pins what the caller a method's frame stamps says of the check it
+// was let in by: the method and the permission, for a method that names no row
+// (RPCDecoder.DecodeCaller) and for one that names a row (the gate a TargetedRPCDecoder's
+// decode answers). The caller of a gate a body asks through Caller.ExecuteGate, the
+// caller As answers and the caller a query answers carry neither.
+func TestCaller_entryCheck(t *testing.T) {
+	t.Parallel()
+
+	perms := &fakeUserPermissions{granted: map[accesstypes.Permission][]accesstypes.Resource{accesstypes.Execute: {rpcEnforcedMethod, "TargetedMethod", "RateThing"}}}
+	request := func() *http.Request {
+		return httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/", strings.NewReader(`{"name":"n"}`))
+	}
+	carries := func(t *testing.T, of string, caller *Caller, method accesstypes.Resource, permission accesstypes.Permission) {
+		t.Helper()
+
+		if caller.method != method || caller.permission != permission {
+			t.Errorf("%s carries the method %q and the permission %q, want %q and %q", of, caller.method, caller.permission, method, permission)
+		}
+	}
+
+	decoder, err := NewRPCDecoder[rpcEnforcementRequest](func(*http.Request) UserPermissions { return perms }, rpcEnforcedMethod, accesstypes.Execute)
+	if err != nil {
+		t.Fatalf("NewRPCDecoder() error = %v", err)
+	}
+	_, caller, err := decoder.DecodeCaller(request(), testScope)
+	if err != nil {
+		t.Fatalf("RPCDecoder.DecodeCaller() error = %v", err)
+	}
+	carries(t, "the caller of a method that names no row", caller, rpcEnforcedMethod, accesstypes.Execute)
+
+	targeted := MustNewTargetedRPCDecoder[rpcEnforcementRequest](entryAccessor{perms: perms}, nil, "TargetedMethod", accesstypes.Execute)
+	_, gate, err := targeted.Decode(request(), testScope)
+	if err != nil {
+		t.Fatalf("TargetedRPCDecoder.Decode() error = %v", err)
+	}
+	stamped := gate.Caller()
+	carries(t, "the caller of a method that names a row", stamped, "TargetedMethod", accesstypes.Execute)
+
+	asked, err := stamped.ExecuteGate(t.Context(), "RateThing", &rateRequest{})
+	if err != nil {
+		t.Fatalf("Caller.ExecuteGate() error = %v", err)
+	}
+	carries(t, "the caller of a gate a body asks", asked.Caller(), "", "")
+	carries(t, "the caller As answers", stamped.As(perms), "", "")
+	query := &QuerySet[enforcementResource]{userPermissions: perms, scope: testScope, env: RequestEnvironment()}
+	carries(t, "the caller a query answers", query.Caller(), "", "")
+}
+
 // TestQuerySet_Caller pins the caller a query answers for the list read through it: the
 // checker, the scope and the environment the query was checked with, and the collection
 // its conditions resolve against. A list that asks the caller's grant on a method is
@@ -132,8 +196,9 @@ func TestQuerySet_Caller(t *testing.T) {
 // TestExecuteGate_EnforceProposed pins the judgment of a row the body proposes, one the
 // database does not hold: the grant's condition is read against the values handed, with
 // the caller the check folded with. A row the condition admits passes, one it does not is
-// the frame's refusal, and a condition that reads an attribute the row does not carry is
-// an error, never a pass.
+// the frame's refusal, which tells the caller the record in words and keeps the method's
+// name for the log, and a condition that reads an attribute the row does not carry is an
+// error, never a pass.
 func TestExecuteGate_EnforceProposed(t *testing.T) {
 	t.Parallel()
 
@@ -174,9 +239,7 @@ func TestExecuteGate_EnforceProposed(t *testing.T) {
 					t.Errorf("ExecuteGate.EnforceProposed() error = %v, want an error containing %q that is no refusal", err, tt.wantErr)
 				}
 			case tt.wantForbidden:
-				if err == nil || !httpio.HasForbidden(err) {
-					t.Errorf("ExecuteGate.EnforceProposed() error = %v, want Forbidden", err)
-				}
+				plainAnswer(t, err, httpio.HasForbidden, "You may not do this to this held role.", "TakeRole", "HeldRole", "TakeRole may not run against this HeldRole")
 			case err != nil:
 				t.Errorf("ExecuteGate.EnforceProposed() error = %v, want the row admitted", err)
 			}
@@ -204,4 +267,36 @@ func TestExecuteGate_EnforceProposed(t *testing.T) {
 			t.Errorf("ExecuteGate.EnforceProposed() error = %v, want Forbidden", err)
 		}
 	})
+}
+
+// TestSetCache_For pins the Set the cache builds for each operation of a generated patch
+// armed with Enforce. A create and an update ask their permission of every field a
+// request may address. A delete carries no field, so its Set asks Delete of the resource
+// and nothing of a field: a generated delete patch is armed with it, and so is the
+// delete of every row a record's declared cascade takes.
+func TestSetCache_For(t *testing.T) {
+	t.Parallel()
+
+	var cache SetCache[tenancyResource, tenancyCreateRequest]
+
+	for _, perm := range []accesstypes.Permission{accesstypes.Create, accesstypes.Update} {
+		set := cache.For(perm)
+		if !set.PermissionRequired("Name", perm) {
+			t.Errorf("For(%s): the field Name does not require %s", perm, perm)
+		}
+	}
+
+	forDelete := cache.For(accesstypes.Delete)
+	if got, want := forDelete.Permissions(), []accesstypes.Permission{accesstypes.Delete}; !slices.Equal(got, want) {
+		t.Errorf("For(Delete).Permissions() = %v, want %v", got, want)
+	}
+	if got := forDelete.TagPermissions(); len(got) != 0 {
+		t.Errorf("For(Delete) asks a permission of the fields %v, want of none", got)
+	}
+	if got := forDelete.BaseResource(); got != tenancyTestResource {
+		t.Errorf("For(Delete).BaseResource() = %q, want %q", got, tenancyTestResource)
+	}
+	if cache.For(accesstypes.Delete) != forDelete {
+		t.Error("For(Delete) built a second Set, want the one the cache holds")
+	}
 }

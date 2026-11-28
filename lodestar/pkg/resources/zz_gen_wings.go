@@ -11,6 +11,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -20,6 +21,142 @@ func (Wing) Resource() accesstypes.Resource {
 
 func (Wing) DefaultConfig() resource.Config {
 	return defaultConfig()
+}
+
+// TenantBinding is the row's way to its tenant: the library writes the tenant on every
+// change record of the row, whoever writes the row.
+func (Wing) TenantBinding() resource.TenantBinding {
+	return resource.TenantBinding{Field: "SectorID"}
+}
+
+// DeleteTree describes what a delete of a Wing takes with it and what refuses
+// it (@deleteCascade). The kinds taken are in the order their rows are deleted, deepest
+// first, each with its ways up to the Wing and what the delete of one of its
+// rows costs. The kinds under Under are the ones with a row directly under a Wing
+// that the database does not remove with it.
+func (Wing) DeleteTree() *resource.DeleteTree {
+	return &resource.DeleteTree{
+		Record: "Wings",
+		Words:  resource.DeleteWords{One: "wing", Many: "wings"},
+		Key:    []string{"Id"},
+		Cost:   resource.DeleteCost{IndexEntries: 3, Files: 0},
+		Tenant: &resource.DomainBindingData{Column: "SectorId"},
+		Taken: []resource.DeleteKind{
+			{
+				Resource: "SquadronMemberships",
+				Words:    resource.DeleteWords{One: "squadron membership", Many: "squadron memberships"},
+				Key:      []string{"SquadronId", "UserId"},
+				Cost:     resource.DeleteCost{IndexEntries: 1, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SquadronId", Path: []resource.BindingHop{{Table: "Squadrons", JoinColumn: "Id", Column: "WingId"}, {Table: "Wings", JoinColumn: "Id", Column: "SectorId"}}},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"SquadronId"}, Table: "Squadrons", References: []string{"Id"}},
+						{Columns: []string{"WingId"}, Table: "Wings", References: []string{"Id"}},
+					},
+				},
+				Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[SquadronMembership], caller *resource.Caller) {
+					patch := &SquadronMembershipDeletePatch{patchSet: patchSet}
+					if !caller.IsZero() {
+						patch.Enforce(caller)
+						patchSet.RegisterDeleteCheckFunc(func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+							return RefuseImpersonatorAsSquadronMembershipSubject(ctx, txn, resource.OperationDelete, patchSet.PrimaryKey(), patchSet)
+						})
+					}
+				}),
+			},
+			{
+				Resource: "HangarPasses",
+				Words:    resource.DeleteWords{One: "hangar pass", Many: "hangar passes"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 9, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"SquadronId"}, Table: "Squadrons", References: []string{"Id"}, MayBeEmpty: true},
+						{Columns: []string{"WingId"}, Table: "Wings", References: []string{"Id"}},
+					},
+				},
+				Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[HangarPass], caller *resource.Caller) {
+					patch := &HangarPassDeletePatch{patchSet: patchSet}
+					if !caller.IsZero() {
+						patch.Enforce(caller)
+						patchSet.RegisterDeleteCheckFunc(func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+							return RefuseImpersonatorAsHangarPassSubject(ctx, txn, resource.OperationDelete, patchSet.PrimaryKey(), patchSet)
+						})
+					}
+				}),
+			},
+			{
+				Resource: "Squadrons",
+				Words:    resource.DeleteWords{One: "squadron", Many: "squadrons"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 3, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "WingId", Path: []resource.BindingHop{{Table: "Wings", JoinColumn: "Id", Column: "SectorId"}}},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"WingId"}, Table: "Wings", References: []string{"Id"}},
+					},
+				},
+				Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[Squadron], caller *resource.Caller) {
+					patch := &SquadronDeletePatch{patchSet: patchSet}
+					if !caller.IsZero() {
+						patch.Enforce(caller)
+						patchSet.RegisterDeleteCheckFunc(func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+							return RefuseImpersonatorAsSquadronSubject(ctx, txn, resource.OperationDelete, patchSet.PrimaryKey(), patchSet)
+						})
+					}
+				}),
+			},
+		},
+		RefusedBy: []resource.DeleteKind{
+			{
+				Resource: "Missions",
+				Words:    resource.DeleteWords{One: "mission", Many: "missions"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 10, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"AssignedSquadronId"}, Table: "Squadrons", References: []string{"Id"}, MayBeEmpty: true},
+						{Columns: []string{"WingId"}, Table: "Wings", References: []string{"Id"}},
+					},
+				},
+			},
+		},
+		Under: []resource.DeleteKind{
+			{
+				Resource: "Squadrons",
+				Words:    resource.DeleteWords{One: "squadron", Many: "squadrons"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 3, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "WingId", Path: []resource.BindingHop{{Table: "Wings", JoinColumn: "Id", Column: "SectorId"}}},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"WingId"}, Table: "Wings", References: []string{"Id"}},
+					},
+				},
+			},
+		},
+	}
+}
+
+// NameFields names the resource's name fields: beside each id that points to a row with
+// a name, the name of that row, which a list shows, sorts by and filters by. A name is
+// looked up in the pointed-to table by the id; it is no column of this resource.
+func (Wing) NameFields() []resource.NameField {
+	return []resource.NameField{
+		{Field: "SectorName", Key: "SectorID", Resource: "Sectors", Tag: "name", Table: "Sectors", KeyColumn: "Id", NameColumn: "Name", TenantColumn: ""},
+	}
+}
+
+// RecordedNames names the rows a change record of the resource keeps the name of:
+// for each field that points at a row with a name, where the name is read. A
+// tracked write that changes such a field reads the name in its own transaction,
+// and the change record keeps it beside the id.
+func (Wing) RecordedNames() []resource.NameField {
+	return []resource.NameField{
+		{Field: "", Key: "SectorID", Resource: "Sectors", Tag: "name", Table: "Sectors", KeyColumn: "Id", NameColumn: "Name", TenantColumn: ""},
+	}
 }
 
 // wingRead mirrors the wire shape the resource routes list
@@ -334,11 +471,11 @@ func (p *WingCreatePatch) ToStruct() *Wing {
 	return p.patchSet.ToStruct()
 }
 
-func (p *WingCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *WingCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *WingCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *WingCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -434,11 +571,11 @@ func (p *WingUpdatePatch) ToStruct() *Wing {
 	return p.patchSet.ToStruct()
 }
 
-func (p *WingUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *WingUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *WingUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *WingUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -544,11 +681,54 @@ func NewWingDeletePatch(id impulse.UUID) *WingDeletePatch {
 	return &WingDeletePatch{patchSet: patchSet}
 }
 
-func (p *WingDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+// WithEverythingUnder says the delete takes the rows under the Wing with it:
+// every row of the kinds its @deleteCascade lists as taken, each deleted as its own
+// delete would delete it. It takes the kinds handed to the delete as well (DeleteAlso).
+// Without it, a delete of a Wing that has such rows
+// deletes nothing and is answered with the question a person is asked first
+// (httpio.HasPreconditionRequired). Where the rows cost more than one save takes, the
+// delete takes what fits, deepest first, and Left answers the rows that save deleted:
+// buffer the delete again, in a transaction of its own, until Left answers nil.
+// It is for code that deletes outside a request, and every save of such a delete asks
+// everything again before it takes a row: a request's delete goes on the token its
+// question gave (WithDeleteToken).
+func (p *WingDeletePatch) WithEverythingUnder() *WingDeletePatch {
+	p.patchSet.DeleteEverythingUnder()
+
+	return p
+}
+
+// WithDeleteToken says the delete takes the rows under the Wing on the token
+// its question gave (resource.PatchSet.DeleteWithToken): it takes them only where the
+// token holds, and is answered with the question again where it does not.
+func (p *WingDeletePatch) WithDeleteToken(token string) *WingDeletePatch {
+	p.patchSet.DeleteWithToken(token)
+
+	return p
+}
+
+// Left is what the delete says once it is buffered (resource.DeleteLeft): the rows the
+// save deleted where rows are left under the Wing, which stands until a save
+// takes the last of them; nil where the delete finished, the Wing with it.
+func (p *WingDeletePatch) Left() *resource.DeleteLeft {
+	return p.patchSet.DeleteLeft()
+}
+
+// DeleteAlso hands the delete kinds of row it takes with the Wing that its
+// description does not list (resource.TakenKind): the question counts them, the check
+// before the delete asks them, and each round takes what fits of them after the kinds
+// the description lists and before the Wing.
+func (p *WingDeletePatch) DeleteAlso(kinds ...resource.TakenKind) *WingDeletePatch {
+	p.patchSet.DeleteAlso(kinds...)
+
+	return p
+}
+
+func (p *WingDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *WingDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *WingDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

@@ -2,7 +2,10 @@ package runner
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -10,20 +13,33 @@ import (
 	database "cloud.google.com/go/spanner/admin/database/apiv1"
 	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse/internal/spannertxn"
 	ccclogger "github.com/impulseframework/impulse/logger"
 	"google.golang.org/api/iterator"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // Spanner applies migrations to one Spanner database and keeps one version table. A DDL
 // group goes up as one batch, which Spanner validates whole before applying anything and
 // then applies in order; a DML group runs in one read-write transaction. The version row
 // records how far a file got, so a failed file resumes from its failed statement.
+//
+// Two runs on one database apply every statement once between them. A run writes the
+// version row only through Commit, which refuses when the row is not the one the run last
+// read or wrote, so of two runs started together one takes each file and the other stops
+// with ErrAnotherRun.
 type Spanner struct {
 	admin    *database.DatabaseAdminClient
 	client   *spanner.Client
 	database string
 	table    string
 }
+
+// ErrAnotherRun is returned by a run that finds the version row is not the one it last read
+// or wrote: another run took the file, or the version was forced. The run stops before
+// applying anything more. Test for it with errors.Is.
+var ErrAnotherRun = errors.New("another run, or a forced version, changed the version row under this run; it stops here and applies nothing more. Run it again when the other run has finished")
 
 // NewSpanner returns a runner for the database at databasePath
 // (projects/<p>/instances/<i>/databases/<d>) keeping its versions in table.
@@ -55,17 +71,17 @@ func (s *Spanner) Up(ctx context.Context, src *Source) error {
 		return err
 	}
 
-	v, err := s.read(ctx)
+	held, err := s.read(ctx)
 	if err != nil {
 		return err
 	}
 
 	current, resumed := -1, false
-	if v.Known {
-		current = v.Number
+	if held.Known {
+		current = held.Number
 		switch {
-		case v.Dirty:
-			if err := s.resume(ctx, src, v); err != nil {
+		case held.Dirty:
+			if err := s.resume(ctx, &held, src); err != nil {
 				return err
 			}
 			resumed = true
@@ -76,7 +92,7 @@ func (s *Spanner) Up(ctx context.Context, src *Source) error {
 
 	pending := src.Pending(current)
 	if len(pending) == 0 && !resumed {
-		ccclogger.FromCtx(ctx).Infof("No change: the database is at %s and the source has nothing above it", v)
+		ccclogger.FromCtx(ctx).Infof("No change: the database is at %s and the source has nothing above it", held)
 
 		return nil
 	}
@@ -86,7 +102,7 @@ func (s *Spanner) Up(ctx context.Context, src *Source) error {
 		if err != nil {
 			return errors.Wrapf(err, "splitting %s", m.File)
 		}
-		if err := s.apply(ctx, m, stmts, 0); err != nil {
+		if err := s.apply(ctx, &held, m, stmts, 0); err != nil {
 			return err
 		}
 	}
@@ -94,12 +110,13 @@ func (s *Spanner) Up(ctx context.Context, src *Source) error {
 	return nil
 }
 
-// resume continues the dirty version's file: an in-flight DDL operation is resolved into
-// applied statements first, then the file's applied part is checked against the checkpoint.
-func (s *Spanner) resume(ctx context.Context, src *Source, v Version) error {
-	file, ok := src.Up(v.Number)
+// resume continues the dirty version's file: a DDL operation named on the row is settled into
+// applied statements first, then the file goes on from the first statement still to run. The
+// file's applied part is checked against the recorded checkpoint before anything is sent.
+func (s *Spanner) resume(ctx context.Context, held *Version, src *Source) error {
+	file, ok := src.Up(held.Number)
 	if !ok {
-		_, err := Resume(v, nil, nil)
+		_, err := Resume(*held, nil, nil)
 
 		return err
 	}
@@ -109,63 +126,114 @@ func (s *Spanner) resume(ctx context.Context, src *Source, v Version) error {
 		return errors.Wrapf(err, "splitting %s", file.File)
 	}
 
-	if v.Progress && v.Operation != "" {
-		v, err = s.resolveOperation(ctx, v, file, stmts)
-		if err != nil {
+	if held.Progress && held.Operation != "" {
+		if err := s.resolveOperation(ctx, held, file, stmts); err != nil {
 			return err
 		}
 	}
 
-	start, err := Resume(v, file, stmts)
+	start, err := Resume(*held, file, stmts)
 	if err != nil {
 		return err
 	}
 
-	return s.apply(ctx, file, stmts, start)
+	return s.apply(ctx, held, file, stmts, start)
 }
 
-// resolveOperation fetches the DDL operation a stopped run left in flight and counts its
-// committed statements into Applied: all of them when it succeeded, its commit timestamps
-// when it failed. The operation's statements must be the file's from Applied on; otherwise
-// the file changed in its applied part.
-func (s *Spanner) resolveOperation(ctx context.Context, v Version, file *Migration, stmts []string) (Version, error) {
+// resolveOperation settles the DDL operation a stopped run left named on the version row.
+// The row's checkpoint covers the file through the operation's batch, and the file is checked
+// against it first: nothing is sent or settled for a file that changed in its applied part or
+// in that batch, nor for a row whose checkpoint does not cover the batch. When the name is one
+// the runner makes, the batch is then sent under it: Spanner accepts it if the stopped run
+// never sent it, and answers that the operation exists if it did, so the batch is sent once
+// either way. Under a name the runner did not make nothing is sent; the operation is only
+// fetched. The run waits for the operation and counts the batch's applied statements into
+// Applied: all of them when it succeeded, as many as it holds commit timestamps when it
+// failed. It reads none of the statements Spanner holds for the operation: Spanner keeps its
+// own rewritten text of each, not the text it was sent. A wait that does not finish leaves
+// the operation named on the row for the next run; only for a name the runner did not make,
+// with the run's context still live, does the run say the operation cannot be fetched.
+func (s *Spanner) resolveOperation(ctx context.Context, held *Version, file *Migration, stmts []string) error {
+	g, err := inFlight(*held, file, stmts)
+	if err != nil {
+		return err
+	}
+	id, own := s.ownOperationID(held.Operation)
+	if own {
+		if err := s.sendRecorded(ctx, held, file, stmts, g, id); err != nil {
+			return err
+		}
+	}
+
+	v := *held
 	op := s.admin.UpdateDatabaseDdlOperation(v.Operation)
 	waitErr := op.Wait(ctx)
-	if !op.Done() {
-		return v, errors.Wrapf(waitErr, "DDL operation %s, recorded for version %d, cannot be fetched; force the version that matches the database's real state", v.Operation, v.Number)
+	switch {
+	case !op.Done() && (own || ctx.Err() != nil):
+		return errors.Wrapf(waitErr, "waiting for DDL operation %s of %s; the next run resolves it", v.Operation, file.File)
+	case !op.Done():
+		return errors.Wrapf(waitErr, "DDL operation %s, recorded for version %d, cannot be fetched; force the version that matches the database's real state", v.Operation, v.Number)
 	}
 
-	md, err := op.Metadata()
-	if err != nil {
-		return v, errors.Wrapf(err, "metadata of DDL operation %s", v.Operation)
+	n := len(g.Statements)
+	if waitErr != nil {
+		md, err := op.Metadata()
+		if err != nil {
+			return errors.Wrapf(err, "metadata of DDL operation %s", v.Operation)
+		}
+		n = len(md.GetCommitTimestamps())
 	}
-
-	n := len(md.GetCommitTimestamps())
-	if waitErr == nil {
-		n = len(md.GetStatements())
-	}
-	if v.Applied+n > len(stmts) || !slices.Equal(stmts[v.Applied:v.Applied+n], md.GetStatements()[:n]) {
-		return v, errors.Newf("%s changed in the part already applied: DDL operation %s applied %s the file no longer carries at that place; restore the file or force a version",
+	if v.Applied+n > len(stmts) {
+		return errors.Newf("%s changed in the part already applied: DDL operation %s applied %s the file no longer carries at that place; restore the file or force a version",
 			file.File, v.Operation, plural(n, "statement"))
 	}
 
 	v.Applied += n
 	v.Checkpoint = Checkpoint(stmts[:v.Applied])
 	v.Operation = ""
-	if err := s.write(ctx, v); err != nil {
-		return v, err
+	if _, err := s.Commit(ctx, held, v, nil); err != nil {
+		return err
 	}
 	ccclogger.FromCtx(ctx).Infof("DDL operation %s of %s had finished with %s applied", op.Name(), file.File, plural(n, "statement"))
 
-	return v, nil
+	return nil
+}
+
+// sendRecorded sends the batch a stopped run named on the version row, under the recorded
+// operation ID. A refusal of Spanner's own applied nothing: the name comes off the row, the
+// row's checkpoint goes back to the applied part, and the run stops with a DirtyError. Any
+// other failure does not say whether Spanner took the batch: the name stays on the row and
+// the run stops.
+func (s *Spanner) sendRecorded(ctx context.Context, held *Version, file *Migration, stmts []string, g Group, id string) error {
+	_, err := s.ddlBatch(ctx, g.Statements, id)
+	switch {
+	case err == nil:
+		ccclogger.FromCtx(ctx).Infof("DDL operation %s of %s was recorded and never sent; it is sent now", held.Operation, file.File)
+
+		return nil
+	case status.Code(err) == codes.AlreadyExists:
+		return nil
+	case !spannerRefused(err):
+		return errors.Wrapf(
+			err,
+			"sending DDL operation %s of %s: the answer does not say whether Spanner took the batch; its name stays on the version row and the next run resolves it",
+			held.Operation, file.File,
+		)
+	}
+
+	if _, commitErr := s.Commit(ctx, held, s.progress(file, stmts, held.Applied, ""), nil); commitErr != nil {
+		return commitErr
+	}
+
+	return refused(file, stmts, g, err)
 }
 
 // apply runs a file's statements from index start, group by group, recording progress on
 // the version row, and marks the version clean at the end.
-func (s *Spanner) apply(ctx context.Context, m *Migration, stmts []string, start int) error {
+func (s *Spanner) apply(ctx context.Context, held *Version, m *Migration, stmts []string, start int) error {
 	log := ccclogger.FromCtx(ctx)
 
-	if err := s.write(ctx, s.progress(m, stmts, start, "")); err != nil {
+	if _, err := s.Commit(ctx, held, s.progress(m, stmts, start, ""), nil); err != nil {
 		return err
 	}
 	switch {
@@ -179,16 +247,16 @@ func (s *Spanner) apply(ctx context.Context, m *Migration, stmts []string, start
 		var err error
 		switch g.Kind {
 		case DDL:
-			err = s.applyDDL(ctx, m, stmts, g)
+			err = s.applyDDL(ctx, held, m, stmts, g)
 		case DML:
-			err = s.applyDML(ctx, m, stmts, g)
+			err = s.applyDML(ctx, held, m, stmts, g)
 		}
 		if err != nil {
 			return err
 		}
 	}
 
-	if err := s.write(ctx, Version{Number: m.Version, Known: true}); err != nil {
+	if _, err := s.Commit(ctx, held, Version{Number: m.Version, Known: true}, nil); err != nil {
 		return err
 	}
 	log.Infof("Applied %s (%s)", m.File, plural(len(stmts), "statement"))
@@ -209,25 +277,49 @@ func (s *Spanner) progress(m *Migration, stmts []string, applied int, operation 
 	}
 }
 
-// applyDDL sends a DDL group as one batch. A synchronous refusal applied nothing. Once the
-// operation is accepted its name goes on the version row, so a run that dies while waiting
-// can be resolved later; on failure the operation's commit timestamps say how many
-// statements applied.
-func (s *Spanner) applyDDL(ctx context.Context, m *Migration, stmts []string, g Group) error {
-	op, err := s.ddlBatch(ctx, g.Statements)
+// claim is the version row that names the operation of a DDL group before its batch is sent:
+// the statements applied before the group, and a checkpoint of the file through the group,
+// which the run that takes the file up checks its own file against.
+func (s *Spanner) claim(m *Migration, stmts []string, g Group, operation string) Version {
+	v := s.progress(m, stmts, g.Start, operation)
+	v.Checkpoint = Checkpoint(stmts[:g.Start+len(g.Statements)])
+
+	return v
+}
+
+// applyDDL sends a DDL group as one batch under an operation ID of the run's own. Before it
+// sends, it records on the version row the operation's name and a checkpoint of the file
+// through the group. Spanner accepts an operation ID once, so a batch whose name is on the row
+// is sent once, whoever sends it. When Spanner answers that the operation exists, the batch
+// was taken before: by this call's own earlier attempt whose answer was lost, or by a run that
+// took this file up, which sends under the name only when its file carries the same batch
+// (resolveOperation). The run waits for that operation as for one it sent. A refusal of
+// Spanner's own applied nothing, and the name comes off the row. Any other failure of the
+// send does not say whether Spanner took the batch: the name stays on the row and the next
+// run resolves it. When the operation fails, its commit timestamps say how many statements
+// applied.
+func (s *Spanner) applyDDL(ctx context.Context, held *Version, m *Migration, stmts []string, g Group) error {
+	id, err := newOperationID()
 	if err != nil {
-		return &DirtyError{
-			Version:   m.Version,
-			File:      m.File,
-			Applied:   g.Start,
-			Total:     len(stmts),
-			Statement: g.Statements[0],
-			Cause:     errors.Wrapf(err, "Spanner refused the batch of %s, nothing applied", plural(len(g.Statements), "DDL statement")),
-		}
+		return err
+	}
+	name := s.operationName(id)
+	if _, err := s.Commit(ctx, held, s.claim(m, stmts, g, name), nil); err != nil {
+		return err
 	}
 
-	if err := s.write(ctx, s.progress(m, stmts, g.Start, op.Name())); err != nil {
-		return err
+	op, err := s.ddlBatch(ctx, g.Statements, id)
+	switch {
+	case status.Code(err) == codes.AlreadyExists:
+		op = s.admin.UpdateDatabaseDdlOperation(name)
+	case spannerRefused(err):
+		if _, commitErr := s.Commit(ctx, held, s.progress(m, stmts, g.Start, ""), nil); commitErr != nil {
+			return commitErr
+		}
+
+		return refused(m, stmts, g, err)
+	case err != nil:
+		return errors.Wrapf(err, "sending DDL operation %s of %s: the answer does not say whether Spanner took the batch; its name stays on the version row and the next run resolves it", name, m.File)
 	}
 
 	waitErr := op.Wait(ctx)
@@ -240,7 +332,7 @@ func (s *Spanner) applyDDL(ctx context.Context, m *Migration, stmts []string, g 
 			return errors.Wrapf(err, "metadata of DDL operation %s", op.Name())
 		}
 		applied := g.Start + len(md.GetCommitTimestamps())
-		if err := s.write(ctx, s.progress(m, stmts, applied, "")); err != nil {
+		if _, err := s.Commit(ctx, held, s.progress(m, stmts, applied, ""), nil); err != nil {
 			return err
 		}
 
@@ -254,12 +346,43 @@ func (s *Spanner) applyDDL(ctx context.Context, m *Migration, stmts []string, g 
 		}
 	}
 
-	return s.write(ctx, s.progress(m, stmts, g.Start+len(g.Statements), ""))
+	_, err = s.Commit(ctx, held, s.progress(m, stmts, g.Start+len(g.Statements), ""), nil)
+
+	return err
 }
 
-// applyDML runs a DML group in one read-write transaction: all of it applies, or none.
-func (s *Spanner) applyDML(ctx context.Context, m *Migration, stmts []string, g Group) error {
-	failed, err := s.dmlBatch(ctx, g.Statements)
+// spannerRefused reports whether a send's error is Spanner's own refusal of the batch: its
+// code is one the gRPC framework never generates itself, so Spanner took the request and
+// answered it. Any other code can come back for a request Spanner took.
+func spannerRefused(err error) bool {
+	switch status.Code(err) {
+	case codes.InvalidArgument, codes.NotFound, codes.PermissionDenied, codes.FailedPrecondition, codes.Aborted, codes.OutOfRange, codes.DataLoss:
+		return true
+	default:
+		return false
+	}
+}
+
+// refused is the error of a DDL group's batch Spanner refused when it was sent: nothing of
+// it applied.
+func refused(m *Migration, stmts []string, g Group, err error) *DirtyError {
+	return &DirtyError{
+		Version:   m.Version,
+		File:      m.File,
+		Applied:   g.Start,
+		Total:     len(stmts),
+		Statement: g.Statements[0],
+		Cause:     errors.Wrapf(err, "Spanner refused the batch of %s, nothing applied", plural(len(g.Statements), "DDL statement")),
+	}
+}
+
+// applyDML runs a DML group and records it on the version row in one read-write
+// transaction: all of it applies and is recorded, or none.
+func (s *Spanner) applyDML(ctx context.Context, held *Version, m *Migration, stmts []string, g Group) error {
+	failed, err := s.Commit(ctx, held, s.progress(m, stmts, g.Start+len(g.Statements), ""), g.Statements)
+	if errors.Is(err, ErrAnotherRun) {
+		return err
+	}
 	if err != nil {
 		return &DirtyError{
 			Version:    m.Version,
@@ -272,7 +395,7 @@ func (s *Spanner) applyDML(ctx context.Context, m *Migration, stmts []string, g 
 		}
 	}
 
-	return s.write(ctx, s.progress(m, stmts, g.Start+len(g.Statements), ""))
+	return nil
 }
 
 // Down reverts versions from the current one to no version, running each version's down
@@ -285,26 +408,26 @@ func (s *Spanner) Down(ctx context.Context, src *Source) error {
 		return err
 	}
 
-	v, err := s.read(ctx)
+	held, err := s.read(ctx)
 	if err != nil {
 		return err
 	}
-	if !v.Known {
+	if !held.Known {
 		log.Info("No change: the database has no version to revert")
 
 		return nil
 	}
-	if v.Dirty {
-		return errors.Newf("the database is at %s; force the version that matches its real state before migrating down", v)
+	if held.Dirty {
+		return errors.Newf("the database is at %s; force the version that matches its real state before migrating down", held)
 	}
-	if !src.Has(v.Number) {
-		return errors.Newf("the database is at version %d, which this build does not carry", v.Number)
+	if !src.Has(held.Number) {
+		return errors.Newf("the database is at version %d, which this build does not carry", held.Number)
 	}
 
-	current := v.Number
+	current := held.Number
 	for {
 		if m, ok := src.Down(current); ok {
-			if err := s.revert(ctx, m); err != nil {
+			if err := s.revert(ctx, &held, m); err != nil {
 				return err
 			}
 			log.Infof("Reverted %s", m.File)
@@ -312,28 +435,36 @@ func (s *Spanner) Down(ctx context.Context, src *Source) error {
 
 		prev, ok := src.Prev(current)
 		if !ok {
-			return s.write(ctx, Version{})
+			_, err := s.Commit(ctx, &held, Version{}, nil)
+
+			return err
 		}
-		if err := s.write(ctx, Version{Number: prev, Known: true}); err != nil {
+		if _, err := s.Commit(ctx, &held, Version{Number: prev, Known: true}, nil); err != nil {
 			return err
 		}
 		current = prev
 	}
 }
 
-// revert runs a down file with the version marked dirty and no progress recorded.
-func (s *Spanner) revert(ctx context.Context, m *Migration) error {
+// revert runs a down file with the version marked dirty and no progress recorded. A run
+// that lost the version row stops with ErrAnotherRun as it is: the row is another run's or a
+// forced one, and the way out is to run it again, not to force a version.
+func (s *Spanner) revert(ctx context.Context, held *Version, m *Migration) error {
 	stmts, err := Split(m.SQL)
 	if err != nil {
 		return errors.Wrapf(err, "splitting %s", m.File)
 	}
 
-	if err := s.write(ctx, Version{Number: m.Version, Known: true, Dirty: true}); err != nil {
+	if _, err := s.Commit(ctx, held, Version{Number: m.Version, Known: true, Dirty: true}, nil); err != nil {
 		return err
 	}
 
 	for _, g := range Groups(stmts, 0) {
-		if err := s.runGroup(ctx, g); err != nil {
+		err := s.runGroup(ctx, held, g)
+		if errors.Is(err, ErrAnotherRun) {
+			return err
+		}
+		if err != nil {
 			return errors.Wrapf(err, "%s failed; the database is dirty at version %d, force the version that matches its real state", m.File, m.Version)
 		}
 	}
@@ -342,10 +473,10 @@ func (s *Spanner) revert(ctx context.Context, m *Migration) error {
 }
 
 // runGroup runs a group without recording progress.
-func (s *Spanner) runGroup(ctx context.Context, g Group) error {
+func (s *Spanner) runGroup(ctx context.Context, held *Version, g Group) error {
 	switch g.Kind {
 	case DDL:
-		op, err := s.ddlBatch(ctx, g.Statements)
+		op, err := s.ddlBatch(ctx, g.Statements, "")
 		if err != nil {
 			return err
 		}
@@ -353,7 +484,7 @@ func (s *Spanner) runGroup(ctx context.Context, g Group) error {
 			return errors.Wrapf(err, "DDL operation %s", op.Name())
 		}
 	case DML:
-		if _, err := s.dmlBatch(ctx, g.Statements); err != nil {
+		if _, err := s.Commit(ctx, held, *held, g.Statements); err != nil {
 			return err
 		}
 	}
@@ -362,10 +493,12 @@ func (s *Spanner) runGroup(ctx context.Context, g Group) error {
 }
 
 // ddlBatch sends DDL statements as one batch and returns the accepted operation.
-func (s *Spanner) ddlBatch(ctx context.Context, stmts []string) (*database.UpdateDatabaseDdlOperation, error) {
+// operationID names the operation; empty leaves the name to Spanner.
+func (s *Spanner) ddlBatch(ctx context.Context, stmts []string, operationID string) (*database.UpdateDatabaseDdlOperation, error) {
 	op, err := s.admin.UpdateDatabaseDdl(ctx, &databasepb.UpdateDatabaseDdlRequest{
-		Database:   s.database,
-		Statements: stmts,
+		Database:    s.database,
+		Statements:  stmts,
+		OperationId: operationID,
 	})
 	if err != nil {
 		return nil, errors.Wrap(err, "DatabaseAdminClient.UpdateDatabaseDdl()")
@@ -374,28 +507,84 @@ func (s *Spanner) ddlBatch(ctx context.Context, stmts []string) (*database.Updat
 	return op, nil
 }
 
-// dmlBatch runs DML statements in one read-write transaction. On failure nothing is
-// applied, and the index of the statement that failed comes back with the error.
-func (s *Spanner) dmlBatch(ctx context.Context, stmts []string) (int, error) {
+// operationIDPrefix begins every operation ID the runner makes. Spanner's own IDs begin
+// with an underscore, and an ID must match [a-z][a-z0-9_]*.
+const operationIDPrefix = "migrate_"
+
+// ownOperationIDPattern is the form of an operation ID the runner makes: the prefix and 32
+// lower-case hex digits.
+var ownOperationIDPattern = regexp.MustCompile(`^` + operationIDPrefix + `[0-9a-f]{32}$`)
+
+// newOperationID makes an operation ID of the runner's own form from 16 random bytes.
+func newOperationID() (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", errors.Wrap(err, "rand.Read()")
+	}
+
+	return operationIDPrefix + hex.EncodeToString(b), nil
+}
+
+// operationName is the name Spanner gives the operation of a batch sent under id.
+func (s *Spanner) operationName(id string) string {
+	return s.database + "/operations/" + id
+}
+
+// ownOperationID returns the operation ID of a recorded name when the name is one the
+// runner makes for this database. Any other text in the column is not the runner's: a name
+// Spanner made, or whatever a person forced into it.
+func (s *Spanner) ownOperationID(name string) (string, bool) {
+	id, ok := strings.CutPrefix(name, s.operationName(""))
+	if !ok || !ownOperationIDPattern.MatchString(id) {
+		return "", false
+	}
+
+	return id, true
+}
+
+// Commit runs the DML statements, if any, and replaces the version row with next, in one
+// read-write transaction at the serializable isolation level (spannertxn.Serializable),
+// provided the row is still held: the row as this run last read or wrote it. The
+// transaction reads the row first; when it is not held, nothing is run or written and the
+// error is ErrAnotherRun. So every write of a run is decided by a read in its own
+// transaction, and of two runs that hold the same row one commits and the other stops. On
+// success held becomes next. When a statement fails nothing is applied, the row stays, and
+// the number of statements that ran before it comes back with the error.
+func (s *Spanner) Commit(ctx context.Context, held *Version, next Version, stmts []string) (failed int, err error) {
 	batch := make([]spanner.Statement, len(stmts))
 	for i, sql := range stmts {
 		batch[i] = spanner.Statement{SQL: sql}
 	}
 
-	failed := 0
-	_, err := s.client.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
-		counts, err := txn.BatchUpdate(ctx, batch)
+	_, err = spannertxn.Serializable(ctx, s.client, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		failed = 0
+		row, err := s.readWith(ctx, txn)
 		if err != nil {
-			failed = len(counts)
-
-			return errors.Wrap(err, "spanner.ReadWriteTransaction.BatchUpdate()")
+			return err
+		}
+		if row != *held {
+			return ErrAnotherRun
 		}
 
-		return nil
+		if len(batch) > 0 {
+			counts, err := txn.BatchUpdate(ctx, batch)
+			if err != nil {
+				failed = len(counts)
+
+				return errors.Wrap(err, "spanner.ReadWriteTransaction.BatchUpdate()")
+			}
+		}
+
+		return txn.BufferWrite(s.mutations(next))
 	})
 	if err != nil {
-		return failed, errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		if errors.Is(err, ErrAnotherRun) {
+			return 0, errors.Wrapf(ErrAnotherRun, "version table %s", s.table)
+		}
+
+		return failed, errors.Wrap(err, "spannertxn.Serializable()")
 	}
+	*held = next
 
 	return 0, nil
 }
@@ -410,7 +599,9 @@ func (s *Spanner) Version(ctx context.Context) (Version, error) {
 }
 
 // Force sets the version clean, with no progress recorded. Version -1 deletes the row, so
-// the database has no version.
+// the database has no version. It writes whatever the row holds: forcing is the operator's
+// word on the database's real state. A run in progress stops with ErrAnotherRun at its next
+// write.
 func (s *Spanner) Force(ctx context.Context, version int) error {
 	if version < -1 {
 		return errors.Newf("version %d cannot be forced: versions are 0 or above, and -1 means no version", version)
@@ -464,7 +655,7 @@ func (s *Spanner) ensureTable(ctx context.Context) error {
 		return nil
 	}
 
-	op, err := s.ddlBatch(ctx, ddl)
+	op, err := s.ddlBatch(ctx, ddl, "")
 	if err != nil {
 		return errors.Wrapf(err, "creating the version table %s", s.table)
 	}
@@ -500,8 +691,18 @@ func (s *Spanner) columns(ctx context.Context) ([]string, error) {
 
 // read returns the version row. No row, or the old library's -1 row, is no version.
 func (s *Spanner) read(ctx context.Context) (Version, error) {
+	return s.readWith(ctx, s.client.Single())
+}
+
+// querier runs a query: a single-use read, or a read-write transaction.
+type querier interface {
+	Query(ctx context.Context, statement spanner.Statement) *spanner.RowIterator
+}
+
+// readWith reads the version row with q, as read describes it.
+func (s *Spanner) readWith(ctx context.Context, q querier) (Version, error) {
 	stmt := spanner.Statement{SQL: fmt.Sprintf("SELECT %s FROM %#q LIMIT 1", strings.Join([]string{columnVersion, columnDirty, columnApplied, columnCheckpoint, columnOperation}, ", "), s.table)}
-	iter := s.client.Single().Query(ctx, stmt)
+	iter := q.Query(ctx, stmt)
 	defer iter.Stop()
 
 	row, err := iter.Next()
@@ -538,8 +739,19 @@ func (s *Spanner) read(ctx context.Context) (Version, error) {
 }
 
 // write replaces the version row: every row is deleted and, for a known version, one is
-// inserted, in one commit.
+// inserted, in one commit. Only Force writes this way, whatever the row holds; a run writes
+// through Commit.
 func (s *Spanner) write(ctx context.Context, v Version) error {
+	if _, err := s.client.Apply(ctx, s.mutations(v)); err != nil {
+		return errors.Wrapf(err, "writing %s to %s", v, s.table)
+	}
+
+	return nil
+}
+
+// mutations replace the version row with v: every row is deleted and, for a known version,
+// one is inserted.
+func (s *Spanner) mutations(v Version) []*spanner.Mutation {
 	mutations := []*spanner.Mutation{spanner.Delete(s.table, spanner.AllKeys())}
 	if v.Known {
 		mutations = append(mutations, spanner.Insert(s.table,
@@ -554,9 +766,5 @@ func (s *Spanner) write(ctx context.Context, v Version) error {
 		))
 	}
 
-	if _, err := s.client.Apply(ctx, mutations); err != nil {
-		return errors.Wrapf(err, "writing %s to %s", v, s.table)
-	}
-
-	return nil
+	return mutations
 }

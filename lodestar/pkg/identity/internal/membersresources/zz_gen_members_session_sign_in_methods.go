@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -25,11 +26,12 @@ func (MembersSessionSignInMethod) DefaultConfig() resource.Config {
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; membersSessionSignInMethodReadSets holds one Set per read operation.
 type membersSessionSignInMethodRead struct {
-	Name        string    `json:"name"        perm:"-"`
-	OpenSignUp  bool      `json:"openSignUp"`
-	OpenedFor   *string   `json:"openedFor"`
-	DefaultRole *string   `json:"defaultRole"`
-	UpdatedAt   time.Time `json:"updatedAt"`
+	Name             string    `json:"name"             perm:"-"`
+	OpenSignUp       bool      `json:"openSignUp"`
+	OpenedFor        *string   `json:"openedFor"`
+	DefaultRole      *string   `json:"defaultRole"`
+	SelfServiceReset bool      `json:"selfServiceReset"`
+	UpdatedAt        time.Time `json:"updatedAt"`
 }
 
 var membersSessionSignInMethodReadSets resource.SetCache[MembersSessionSignInMethod, membersSessionSignInMethodRead]
@@ -38,11 +40,12 @@ var membersSessionSignInMethodReadSets resource.SetCache[MembersSessionSignInMet
 // accept on a mutation, so a patch armed with Enforce meets the field permissions the
 // routes enforce; membersSessionSignInMethodWriteSets holds one Set per mutation.
 type membersSessionSignInMethodWrite struct {
-	Name        string    `json:"-"`
-	OpenSignUp  bool      `json:"openSignUp"`
-	OpenedFor   *string   `json:"openedFor"`
-	DefaultRole *string   `json:"defaultRole"`
-	UpdatedAt   time.Time `json:"updatedAt"`
+	Name             string    `json:"-"`
+	OpenSignUp       bool      `json:"openSignUp"`
+	OpenedFor        *string   `json:"openedFor"`
+	DefaultRole      *string   `json:"defaultRole"`
+	SelfServiceReset bool      `json:"selfServiceReset"`
+	UpdatedAt        time.Time `json:"updatedAt"`
 }
 
 var membersSessionSignInMethodWriteSets resource.SetCache[MembersSessionSignInMethod, membersSessionSignInMethodWrite]
@@ -155,6 +158,7 @@ func (c *MembersSessionSignInMethodColumns) All() *MembersSessionSignInMethodCol
 		"OpenSignUp",
 		"OpenedFor",
 		"DefaultRole",
+		"SelfServiceReset",
 		"UpdatedAt",
 	}
 
@@ -181,6 +185,12 @@ func (c *MembersSessionSignInMethodColumns) OpenedFor() *MembersSessionSignInMet
 
 func (c *MembersSessionSignInMethodColumns) DefaultRole() *MembersSessionSignInMethodColumns {
 	c.fields = append(c.fields, "DefaultRole")
+
+	return c
+}
+
+func (c *MembersSessionSignInMethodColumns) SelfServiceReset() *MembersSessionSignInMethodColumns {
+	c.fields = append(c.fields, "SelfServiceReset")
 
 	return c
 }
@@ -289,6 +299,10 @@ func (c *membersSessionSignInMethodSort) DefaultRole() *MembersSessionSignInMeth
 	return c.addField("DefaultRole")
 }
 
+func (c *membersSessionSignInMethodSort) SelfServiceReset() *MembersSessionSignInMethodSort {
+	return c.addField("SelfServiceReset")
+}
+
 func (c *membersSessionSignInMethodSort) UpdatedAt() *MembersSessionSignInMethodSort {
 	return c.addField("UpdatedAt")
 }
@@ -341,11 +355,11 @@ func (p *MembersSessionSignInMethodCreatePatch) ToStruct() *MembersSessionSignIn
 	return p.patchSet.ToStruct()
 }
 
-func (p *MembersSessionSignInMethodCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *MembersSessionSignInMethodCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *MembersSessionSignInMethodCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *MembersSessionSignInMethodCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -446,6 +460,22 @@ func (p *MembersSessionSignInMethodCreatePatch) DefaultRoleIsSet() bool {
 	return p.patchSet.IsSet("DefaultRole")
 }
 
+func (p *MembersSessionSignInMethodCreatePatch) SetSelfServiceReset(v bool) *MembersSessionSignInMethodCreatePatch {
+	p.patchSet.Set("SelfServiceReset", v)
+
+	return p
+}
+
+func (p *MembersSessionSignInMethodCreatePatch) SelfServiceReset() bool {
+	v, _ := p.patchSet.Get("SelfServiceReset").(bool)
+
+	return v
+}
+
+func (p *MembersSessionSignInMethodCreatePatch) SelfServiceResetIsSet() bool {
+	return p.patchSet.IsSet("SelfServiceReset")
+}
+
 func (p *MembersSessionSignInMethodCreatePatch) SetUpdatedAt(v time.Time) *MembersSessionSignInMethodCreatePatch {
 	p.patchSet.Set("UpdatedAt", v)
 
@@ -501,11 +531,11 @@ func (p *MembersSessionSignInMethodUpdatePatch) ToStruct() *MembersSessionSignIn
 	return p.patchSet.ToStruct()
 }
 
-func (p *MembersSessionSignInMethodUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *MembersSessionSignInMethodUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *MembersSessionSignInMethodUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *MembersSessionSignInMethodUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -610,6 +640,22 @@ func (p *MembersSessionSignInMethodUpdatePatch) DefaultRoleIsSet() bool {
 	return p.patchSet.IsSet("DefaultRole")
 }
 
+func (p *MembersSessionSignInMethodUpdatePatch) SetSelfServiceReset(v bool) *MembersSessionSignInMethodUpdatePatch {
+	p.patchSet.Set("SelfServiceReset", v)
+
+	return p
+}
+
+func (p *MembersSessionSignInMethodUpdatePatch) SelfServiceReset() bool {
+	v, _ := p.patchSet.Get("SelfServiceReset").(bool)
+
+	return v
+}
+
+func (p *MembersSessionSignInMethodUpdatePatch) SelfServiceResetIsSet() bool {
+	return p.patchSet.IsSet("SelfServiceReset")
+}
+
 func (p *MembersSessionSignInMethodUpdatePatch) SetUpdatedAt(v time.Time) *MembersSessionSignInMethodUpdatePatch {
 	p.patchSet.Set("UpdatedAt", v)
 
@@ -651,11 +697,11 @@ func NewMembersSessionSignInMethodDeletePatch(name string) *MembersSessionSignIn
 	return &MembersSessionSignInMethodDeletePatch{patchSet: patchSet}
 }
 
-func (p *MembersSessionSignInMethodDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *MembersSessionSignInMethodDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *MembersSessionSignInMethodDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *MembersSessionSignInMethodDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

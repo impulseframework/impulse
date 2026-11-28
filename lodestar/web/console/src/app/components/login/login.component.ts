@@ -16,7 +16,7 @@ interface Persona {
 }
 
 /** The demo password every persona shares (seeded by cmd/bootstrap, committed deliberately). */
-export const DEMO_PASSWORD = 'lodestar';
+export const DEMO_PASSWORD = 'follow-the-lodestar-home';
 
 /**
  * The crew manifest, grouped by deck. Every persona in design plan §4 except the
@@ -132,7 +132,7 @@ export const CREW_MANIFEST: Persona[] = [
     login: 'archivist',
     name: 'Archivist Ada',
     deck: 'Archive',
-    proves: 'Finished missions everywhere; fees redacted until completed; the ship’s log.',
+    proves: 'Finished missions everywhere; fees redacted until completed.',
   },
   {
     login: 'assessor',
@@ -171,6 +171,13 @@ export const CREW_MANIFEST: Persona[] = [
     deck: 'Hangar deck',
     proves:
       'Sees the hangars a pass opens to his squadron and re-zones the one it runs: a subject set with a who: that follows the squadron set and a where: on the level and the expiry.',
+  },
+  {
+    login: 'sentry',
+    name: 'Sentry Sol',
+    deck: 'Hangar deck',
+    proves:
+      'Holds no pass and flies with no squadron: the Bay keepers, a group kept in Anvil, hold a pass to run the Quarantine Bay, and the sentry is in the group, so the bay is the one hangar on his list and his to re-zone.',
   },
   {
     login: 'deckhand',

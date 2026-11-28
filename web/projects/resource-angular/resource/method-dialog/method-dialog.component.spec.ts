@@ -1,7 +1,8 @@
 import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideNativeDateAdapter } from '@angular/material/core';
-import { MAT_DIALOG_DATA, MatDialogRef } from '@angular/material/dialog';
+import { MAT_DIALOG_DATA, MatDialog, MatDialogRef } from '@angular/material/dialog';
+import { By } from '@angular/platform-browser';
 import { provideRouter } from '@angular/router';
 import {
   ApiDescriptor,
@@ -16,13 +17,17 @@ import {
 } from '@impulseframework/resource';
 import { scriptedTransport, ScriptedTransport } from '@impulseframework/resource/testing';
 import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
-import { METHOD_META, RESOURCE_DOMAIN } from '@impulseframework/resource-angular/types';
+import { METHOD_META, RecordData, RESOURCE_DOMAIN, roleInWords } from '@impulseframework/resource-angular/types';
+import { EMPTY } from 'rxjs';
+import { EnumeratedFieldComponent } from '../resource-field/fields/enumerated-field/enumerated-field.component';
+import { offered } from '../row-methods/row-methods';
 import {
   declaredRefusal,
   MethodDialogComponent,
   MethodDialogData,
   MethodDialogResult,
 } from './method-dialog.component';
+import { openMethodDialog } from './open-method-dialog';
 
 // The dialog a page runs a generated method through: drawn from the method's metadata,
 // it calls the method itself in the selected tenant, shows a refusal in the server's
@@ -47,6 +52,13 @@ const descriptor: ApiDescriptor = {
       property: 'renameCrewSectorUser',
       route: 'rename-crew-sector-user',
       scope: 'domain',
+    },
+    RemoveCrewSectorRole: {
+      method: 'RemoveCrewSectorRole' as Method,
+      property: 'removeCrewSectorRole',
+      route: 'remove-crew-sector-role',
+      scope: 'domain',
+      statuses: [204],
     },
     SettleAccount: {
       method: 'SettleAccount' as Method,
@@ -85,6 +97,13 @@ const descriptor: ApiDescriptor = {
       statuses: [204],
     },
     AddPerson: { method: 'AddPerson' as Method, property: 'addPerson', route: 'add-person', scope: 'domain' },
+    InviteSomewhere: {
+      method: 'InviteSomewhere' as Method,
+      property: 'inviteSomewhere',
+      route: 'invite-somewhere',
+      scope: 'global',
+      answers: true,
+    },
     SendNotice: { method: 'SendNotice' as Method, property: 'sendNotice', route: 'send-notice', scope: 'domain' },
     OpenSignUp: {
       method: 'OpenSignUp' as Method,
@@ -93,10 +112,24 @@ const descriptor: ApiDescriptor = {
       scope: 'global',
       statuses: [204],
     },
+    TakeDirectory: {
+      method: 'TakeDirectory' as Method,
+      property: 'takeDirectory',
+      route: 'take-directory',
+      scope: 'global',
+      statuses: [204],
+    },
     DeleteArchive: {
       method: 'DeleteArchive' as Method,
       property: 'deleteArchive',
       route: 'delete-archive',
+      scope: 'global',
+      statuses: [204],
+    },
+    TakeRoleAway: {
+      method: 'TakeRoleAway' as Method,
+      property: 'takeRoleAway',
+      route: 'take-role-away',
       scope: 'global',
       statuses: [204],
     },
@@ -111,8 +144,24 @@ const descriptor: ApiDescriptor = {
 };
 
 const people = 'CrewSectorUsers' as Resource;
+const heldRoles = 'CrewSectorHeldRoles' as Resource;
 const documents = 'MissionDocuments' as Resource;
 const methodMeta: Record<string, MethodMeta> = {
+  // Runs against a role a person holds, whose key names the group the role comes through:
+  // the empty text on a role held directly, which the method says the part may be.
+  RemoveCrewSectorRole: {
+    route: 'remove-crew-sector-role',
+    target: {
+      resource: heldRoles,
+      key: { userId: 'userId', role: 'role', groupId: 'groupId' },
+      mayBeEmpty: ['groupId'],
+    },
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+      { fieldName: 'role', displayType: 'string', required: true },
+      { fieldName: 'groupId', displayType: 'string' },
+    ],
+  },
   DisableCrewSectorUser: {
     route: 'disable-crew-sector-user',
     target: { resource: people, key: { userId: 'id' } },
@@ -187,12 +236,39 @@ const methodMeta: Record<string, MethodMeta> = {
       { fieldName: 'defaultRole', displayType: 'string' },
     ],
   },
+  // Asks where the roles are held, then the roles, picked from a list.
+  InviteSomewhere: {
+    route: 'invite-somewhere',
+    answers: true,
+    fields: [
+      { fieldName: 'email', displayType: 'string', required: true },
+      { fieldName: 'domain', displayType: 'enumerated', enumeratedResource: 'Sectors' as Resource, optional: true },
+      { fieldName: 'everyDomain', displayType: 'boolean' },
+      { fieldName: 'roles', displayType: 'enumerated[]', enumeratedResource: 'CrewGivableRoles' as Resource },
+    ],
+  },
+  // Warns before it runs, and the confirmation is a phrase with a capital in it.
+  TakeDirectory: {
+    route: 'take-directory',
+    warning: { typed: 'I am authorized' },
+    fields: [],
+  },
   // Warns before it runs, and requires an input the row does not carry.
   DeleteArchive: {
     route: 'delete-archive',
     dryRun: true,
     warning: { typed: 'delete' },
     fields: [{ fieldName: 'year', displayType: 'string', required: true }],
+  },
+  // Warns before it runs with no word to type: the server's words are the question.
+  TakeRoleAway: {
+    route: 'take-role-away',
+    dryRun: true,
+    warning: {},
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid', required: true },
+      { fieldName: 'role', displayType: 'string', required: true },
+    ],
   },
   // Runs outside a transaction: the server refuses a dry run of it.
   SendNotice: {
@@ -230,6 +306,26 @@ async function open(data: MethodDialogData, transport: ScriptedTransport): Promi
 const text = (o: Opened, selector: string): string =>
   (o.fixture.nativeElement as HTMLElement).querySelector(selector)?.textContent?.trim() ?? '';
 
+/**
+ * What a row's action hands the dialog: the page's own call (openMethodDialog) for the
+ * method on the row, with the dialog it would open kept from opening.
+ */
+function fromRow(method: string, row: RecordData, confirm?: string): MethodDialogData {
+  let handed: MethodDialogData | undefined;
+  const dialog = {
+    open: (_: unknown, config: { data: MethodDialogData }) => {
+      handed = config.data;
+      return { afterClosed: () => EMPTY };
+    },
+  } as unknown as MatDialog;
+  const presented = confirm ? [{ method: method as Method, confirm }] : [];
+  openMethodDialog(dialog, offered(method as Method, methodMeta[method], presented), row);
+  if (!handed) {
+    throw new Error(`${method}: the row's action opened no dialog`);
+  }
+  return handed;
+}
+
 describe('MethodDialogComponent', () => {
   it('asks before a method that takes nothing but the row, runs it in the selected tenant, and closes with its answer', async () => {
     const o = await open(
@@ -247,6 +343,71 @@ describe('MethodDialogComponent', () => {
     expect(o.transport.requests[0].body).toEqual({ userId: 'u-1' });
     expect(o.closed).toEqual([{ answer: undefined }]);
     expect(o.component.busy()).toBe(false);
+  });
+
+  it('runs a row action whose key holds a part that is empty on the row, and sends the part as the empty text it is', async () => {
+    // A role held directly comes through no group: the row's group is the empty text.
+    const own = { userId: 'u-1', role: 'Pilot', groupId: '', username: 'ada' };
+    const o = await open(
+      fromRow('RemoveCrewSectorRole', own, 'Take Pilot away from ada?'),
+      scriptedTransport({ status: 204, body: undefined }),
+    );
+    expect(text(o, '.question')).toBe('Take Pilot away from ada?');
+    expect(o.component.asked).toEqual([]);
+
+    await o.component.run();
+
+    expect(o.transport.requests.map((r) => `${r.method} ${r.url}`)).toEqual([
+      'POST /api/sectors/anvil/remove-crew-sector-role',
+    ]);
+    expect(o.transport.requests[0].body).toEqual({ userId: 'u-1', role: 'Pilot', groupId: '' });
+    expect(o.closed).toEqual([{ answer: undefined }]);
+  });
+
+  it('opens no dialog on a row whose key is empty in a part that must hold a value', () => {
+    expect(() => fromRow('RemoveCrewSectorRole', { userId: 'u-1', role: '', groupId: '' })).toThrow(
+      'RemoveCrewSectorRole names its target row by role, which is empty on this row',
+    );
+    expect(() => fromRow('DisableCrewSectorUser', { id: '' })).toThrow(
+      'DisableCrewSectorUser names its target row by id, which is empty on this row',
+    );
+  });
+
+  it('says what the method does at the top of the dialog, above its first input, where the page gives a line', async () => {
+    const o = await open(
+      {
+        method: 'RenameCrewSectorUser',
+        label: 'Rename',
+        preset: { userId: 'u-1' },
+        says: 'The person signs in under the new username.',
+      },
+      scriptedTransport(),
+    );
+    const content = (o.fixture.nativeElement as HTMLElement).querySelector('mat-dialog-content');
+    const says = content?.firstElementChild;
+    expect(says?.classList.contains('says')).toBe(true);
+    expect(says?.textContent?.trim()).toBe('The person signs in under the new username.');
+    const input = content?.querySelector('impulse-resource-layout-template');
+    expect(input).toBeTruthy();
+    expect(says!.compareDocumentPosition(input!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('draws no line of what the method does where the page gives none', async () => {
+    const o = await open(
+      { method: 'RenameCrewSectorUser', label: 'Rename', preset: { userId: 'u-1' } },
+      scriptedTransport(),
+    );
+    expect((o.fixture.nativeElement as HTMLElement).querySelector('.says')).toBeNull();
+  });
+
+  it("draws each input in the field's own frame, with no section's box around it", async () => {
+    const o = await open(
+      { method: 'RenameCrewSectorUser', label: 'Rename', preset: { userId: 'u-1' } },
+      scriptedTransport(),
+    );
+    const inputs = [...(o.fixture.nativeElement as HTMLElement).querySelectorAll('impulse-resource-field')];
+    expect(inputs).toHaveLength(3);
+    expect(inputs.filter((input) => input.closest('.resource-layout-container'))).toEqual([]);
   });
 
   it('asks the question from the label where the page gives none', async () => {
@@ -362,6 +523,96 @@ describe('MethodDialogComponent', () => {
     ]);
     // An input the page did not name keeps the default: the source's own name.
     expect([config('username').listDisplay, config('username').viewDisplay]).toEqual([[], []]);
+  });
+
+  it('narrows a picker by what the dialog holds, as the page says: the filter is read from the inputs as they stand', async () => {
+    const asked: Record<string, unknown>[] = [];
+    const o = await open(
+      {
+        method: 'InviteSomewhere',
+        label: 'Invite',
+        preset: {},
+        narrows: {
+          roles: (values) => {
+            asked.push(values);
+            return typeof values['domain'] === 'string' && values['domain'] !== ''
+              ? `domain:eq:${values['domain']}`
+              : '';
+          },
+        },
+      },
+      scriptedTransport({ status: 200, body: undefined }),
+    );
+    const roles = o.component.elements.find((element) => element.name === 'roles');
+    const domain = o.component.elements.find((element) => element.name === 'domain');
+    // The narrowed picker reads its filter from the dialog's values, which every input is handed.
+    expect(roles?.enumeratedConfig.filterType).toBe('parentResource');
+    expect(roles?.enumeratedConfig.filter(o.component.values())).toBe('');
+    o.component.form.controls['domain'].setValue('anvil');
+    expect(o.component.values()['domain']).toBe('anvil');
+    expect(roles?.enumeratedConfig.filter(o.component.values())).toBe('domain:eq:anvil');
+    expect(asked.at(-1)).toEqual({ email: '', domain: 'anvil', everyDomain: '', roles: [] });
+    // The picker drawn for the field is handed those values, which its filter is read from.
+    o.fixture.detectChanges();
+    const drawn = o.fixture.debugElement
+      .queryAll(By.directive(EnumeratedFieldComponent))
+      .map((found) => found.componentInstance as EnumeratedFieldComponent)
+      .find((picker) => picker.fieldConfig().name === 'roles');
+    expect(drawn?.relatedData()?.['domain']).toBe('anvil');
+    // An input the page does not narrow lists every option.
+    expect(domain?.enumeratedConfig.filter({ domain: 'anvil' })).toBe('');
+  });
+
+  it('hands a narrowing what the dialog was opened with beside its inputs: a value the page filled narrows as one a person picked', async () => {
+    const asked: Record<string, unknown>[] = [];
+    const o = await open(
+      {
+        method: 'InviteSomewhere',
+        label: 'Invite',
+        preset: { domain: 'anvil' },
+        narrows: {
+          roles: (values) => {
+            asked.push(values);
+            return `domain:eq:${String(values['domain'])}`;
+          },
+        },
+      },
+      scriptedTransport({ status: 200, body: undefined }),
+    );
+    const roles = o.component.elements.find((element) => element.name === 'roles');
+    // The tenant was filled and is not asked, so no input holds it: the filter reads it
+    // from what the dialog was opened with.
+    expect(o.component.elements.some((element) => element.name === 'domain')).toBe(false);
+    expect(roles?.enumeratedConfig.filter(o.component.values())).toBe('domain:eq:anvil');
+    expect(asked.at(-1)?.['domain']).toBe('anvil');
+    // An input's own value stands over one the dialog was opened with.
+    expect(roles?.enumeratedConfig.filter({ domain: 'bastion' })).toBe('domain:eq:bastion');
+  });
+
+  it('clears a narrowed choice when its filter changes, and keeps it while the filter stands', async () => {
+    const o = await open(
+      {
+        method: 'InviteSomewhere',
+        label: 'Invite',
+        preset: {},
+        narrows: { roles: (values) => (values['domain'] ? `domain:eq:${String(values['domain'])}` : '') },
+      },
+      scriptedTransport({ status: 200, body: { id: 'i-1', sent: true } }),
+    );
+    o.component.form.controls['roles'].setValue(['Dispatcher']);
+    o.component.form.controls['email'].setValue('pat@lakeside.example');
+    // Typing elsewhere keeps the choice: the roles listed are the same.
+    expect(o.component.form.controls['roles'].value).toEqual(['Dispatcher']);
+    // A role was chosen among the whole application's: a tenant chosen now lists others.
+    o.component.form.controls['domain'].setValue('anvil');
+    expect(o.component.form.controls['roles'].value).toEqual([]);
+    o.component.form.controls['roles'].setValue(['SectorCrew']);
+    await o.component.run();
+    expect(o.transport.requests[0].body).toEqual({
+      email: 'pat@lakeside.example',
+      domain: 'anvil',
+      roles: ['SectorCrew'],
+    });
   });
 
   it('sends a day the page says is the last of a period as the first instant of the day after it', async () => {
@@ -561,7 +812,7 @@ describe('MethodDialogComponent with a method that takes files', () => {
 // each change; a refusal as not permitted turns the inputs a condition may read red and
 // holds the button until a marked input changes.
 describe('MethodDialogComponent rehearsing a method whose grant is conditional', () => {
-  const notPermitted = 'user ada, scope anvil, does not have Execute on [GiveRole]';
+  const notPermitted = 'You may not do this here.';
   /** What the server answers a dry run with, by the role it names; a test replaces it. */
   let dryRun: (body: Record<string, unknown>) => TransportResponse | Promise<TransportResponse>;
   let digest: PermissionDigest;
@@ -908,7 +1159,7 @@ describe('MethodDialogComponent running a method that warns', () => {
       body: {
         consequence:
           'Anyone with a Google account will be able to sign in without an invitation.' +
-          (body['defaultRole'] ? ` Each of them gets the role ${String(body['defaultRole'])}.` : ''),
+          (body['defaultRole'] ? ` Each of them gets the role ${roleInWords(String(body['defaultRole']))}.` : ''),
         confirm: 'Open to anyone with a Google account',
       },
     });
@@ -951,6 +1202,47 @@ describe('MethodDialogComponent running a method that warns', () => {
     expect(names.map((li) => li.textContent?.trim())).toEqual(['Bosun Bram (bosun)', 'Rigger Rook (rigger)']);
   });
 
+  it("draws the server's further notes under the first sentence, in order, each with its own list, and none where it gives none", async () => {
+    const o = await open({ method: 'OpenSignUp', label: 'Open sign-up', preset: { method: 'google' } }, server());
+    await settle(o);
+    expect((o.fixture.nativeElement as HTMLElement).querySelector('.warning .warning-note')).toBeNull();
+
+    warning = () => ({
+      status: 200,
+      body: {
+        consequence: '2 people seated here sign in another way and will lose access.',
+        names: ['Bosun Bram (bosun)', 'Rigger Rook (rigger)'],
+        also: [
+          {
+            says: '2 administrators of this sector have a password and can still enter without the directory.',
+            names: ['Ines Okoro (ines)', 'wren'],
+          },
+          { says: '3 invitations that have not been accepted give a role that administers this sector.' },
+        ],
+        confirm: 'Admit only people who sign in through the directory',
+      },
+    });
+    await o.component.askWarning();
+    await settle(o);
+
+    const root = o.fixture.nativeElement as HTMLElement;
+    const notes = Array.from(root.querySelectorAll('.warning .warning-note'));
+    expect(notes.map((p) => p.textContent?.trim())).toEqual([
+      '2 administrators of this sector have a password and can still enter without the directory.',
+      '3 invitations that have not been accepted give a role that administers this sector.',
+    ]);
+    // The first sentence's list, then the first note's: the second note names nobody.
+    const lists = Array.from(root.querySelectorAll('.warning .warning-names'));
+    expect(lists.length).toBe(2);
+    expect(Array.from(lists[1].querySelectorAll('li')).map((li) => li.textContent?.trim())).toEqual([
+      'Ines Okoro (ines)',
+      'wren',
+    ]);
+    // Each note follows the list before it, in the order the server gave them.
+    const words = Array.from(root.querySelectorAll('.warning .warning-words > *')).map((e) => e.className);
+    expect(words).toEqual(['warning-consequence', 'warning-names', 'warning-note', 'warning-names', 'warning-note']);
+  });
+
   it("puts the server's words on the confirm button and holds it until the word is typed", async () => {
     const o = await open({ method: 'OpenSignUp', label: 'Open sign-up', preset: { method: 'google' } }, server());
     await settle(o);
@@ -979,6 +1271,39 @@ describe('MethodDialogComponent running a method that warns', () => {
       ['real', { method: 'google' }],
     ]);
     expect(o.closed).toEqual([{ answer: undefined }]);
+  });
+
+  it('holds the button until a declared phrase is typed, in any case and with spaces around it', async () => {
+    warning = () => ({
+      status: 200,
+      body: {
+        consequence: 'You are stating that you are authorized to act on behalf of lakeside.edu.',
+        confirm: "Make lakeside.edu this sector's directory",
+      },
+    });
+    const o = await open({ method: 'TakeDirectory', label: 'Take the directory', preset: {} }, server());
+    await settle(o);
+
+    expect(text(o, '.typed-word mat-label')).toBe('Type I am authorized to confirm');
+    for (const held of ['', 'i am', 'I am authorize']) {
+      o.component.typed.setValue(held);
+      o.fixture.detectChanges();
+      expect(runButton(o).disabled).toBe(true);
+    }
+    for (const freed of ['I am authorized', 'i am authorized', ' I AM AUTHORIZED ']) {
+      o.component.typed.setValue(freed);
+      o.fixture.detectChanges();
+      expect(runButton(o).disabled).toBe(false);
+    }
+  });
+
+  it('frees a word declared in lower case by the word as declared', async () => {
+    const o = await open({ method: 'OpenSignUp', label: 'Open sign-up', preset: { method: 'google' } }, server());
+    await settle(o);
+
+    o.component.typed.setValue('open');
+    o.fixture.detectChanges();
+    expect(runButton(o).disabled).toBe(false);
   });
 
   it('asks again after a change, for the request as filled, and shows the newer answer', async () => {
@@ -1025,12 +1350,12 @@ describe('MethodDialogComponent running a method that warns', () => {
   it("shows a refusal of the question in the server's words, and holds the button though the word is typed", async () => {
     warning = () => ({
       status: 403,
-      body: { message: 'user ada, scope global, does not have Execute on [OpenSignUp]' },
+      body: { message: 'You may not do this here.' },
     });
     const o = await open({ method: 'OpenSignUp', label: 'Open sign-up', preset: { method: 'google' } }, server());
     await settle(o);
 
-    expect(text(o, '.refusal')).toBe('user ada, scope global, does not have Execute on [OpenSignUp]');
+    expect(text(o, '.refusal')).toBe('You may not do this here.');
     expect((o.fixture.nativeElement as HTMLElement).querySelector('.warning')).toBeNull();
 
     o.component.typed.setValue('open');
@@ -1055,6 +1380,125 @@ describe('MethodDialogComponent running a method that warns', () => {
 
     expect(calls(o)).toEqual([['warning', { year: '2019' }]]);
     expect(runButton(o).disabled).toBe(false);
+  });
+
+  it("asks a warning with no word to type as the dialog's question, and holds the button only until the server has answered", async () => {
+    const release: (() => void)[] = [];
+    warning = () =>
+      new Promise<TransportResponse>((resolve) => {
+        release.push(() =>
+          resolve({
+            status: 200,
+            body: {
+              consequence: 'ada loses the role Auditor.',
+              names: ['ada'],
+              also: [
+                {
+                  says: "They remain one of this customer's people through a role held outside it, which this does not take away.",
+                  names: ['ada (Ada Byron)'],
+                },
+              ],
+              confirm: 'Take the role away',
+            },
+          }),
+        );
+      });
+    const o = await open(
+      { method: 'TakeRoleAway', label: 'Remove the role', preset: { userId: 'u-1', role: 'Auditor' } },
+      server(),
+    );
+    const root = o.fixture.nativeElement as HTMLElement;
+
+    // Asked as it opens, and held until the server has answered: nobody confirms words they were not shown.
+    expect(calls(o)).toEqual([['warning', { userId: 'u-1', role: 'Auditor' }]]);
+    expect(runButton(o).disabled).toBe(true);
+    expect(root.querySelector('.typed-word')).toBeNull();
+    await o.component.run();
+    expect(calls(o)).toHaveLength(1);
+
+    release[0]();
+    await settle(o);
+
+    expect(runButton(o).disabled).toBe(false);
+    expect(runButton(o).textContent?.trim()).toBe('Take the role away');
+    expect(runButton(o).classList.contains('warns')).toBe(false);
+    expect(root.querySelector('.typed-word')).toBeNull();
+    // The server's words are the question: no warning icon, no alert.
+    const block = root.querySelector('.warning');
+    expect(block?.classList.contains('asks')).toBe(true);
+    expect(block?.getAttribute('role')).toBeNull();
+    expect(root.querySelector('.warning-icon')).toBeNull();
+    expect(text(o, '.warning.asks .warning-consequence')).toBe('ada loses the role Auditor.');
+    expect(
+      Array.from(root.querySelectorAll('.warning.asks .warning-names li')).map((li) => li.textContent?.trim()),
+    ).toEqual(['ada', 'ada (Ada Byron)']);
+    expect(text(o, '.warning.asks .warning-note')).toBe(
+      "They remain one of this customer's people through a role held outside it, which this does not take away.",
+    );
+    expect(text(o, '.question')).toBe('');
+
+    await o.component.run();
+    expect(calls(o)).toEqual([
+      ['warning', { userId: 'u-1', role: 'Auditor' }],
+      ['real', { userId: 'u-1', role: 'Auditor' }],
+    ]);
+    expect(o.closed).toEqual([{ answer: undefined }]);
+  });
+
+  it("draws the page's question of a method that warns with no word to type, and the server's words after it", async () => {
+    warning = () => ({
+      status: 200,
+      body: { consequence: 'ada loses the role Auditor.', confirm: 'Take the role away' },
+    });
+    const o = await open(
+      {
+        method: 'TakeRoleAway',
+        label: 'Take the role away',
+        preset: { userId: 'u-1', role: 'Auditor' },
+        confirm: 'Take Auditor away from ada?',
+      },
+      server(),
+    );
+    await settle(o);
+    const root = o.fixture.nativeElement as HTMLElement;
+
+    expect(text(o, '.question')).toBe('Take Auditor away from ada?');
+    expect(text(o, '.warning.asks .warning-consequence')).toBe('ada loses the role Auditor.');
+    const question = root.querySelector('.question');
+    const consequence = root.querySelector('.warning.asks .warning-consequence');
+    expect(question && consequence && question.compareDocumentPosition(consequence)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(runButton(o).textContent?.trim()).toBe('Take the role away');
+  });
+
+  it('shows a refusal of a question with no word to type, and holds the button', async () => {
+    warning = () => ({
+      status: 404,
+      body: { message: 'This person no longer holds that role. Refresh the page to see what they hold.' },
+    });
+    const o = await open(
+      { method: 'TakeRoleAway', label: 'Take the role away', preset: { userId: 'u-1', role: 'Auditor' } },
+      server(),
+    );
+    await settle(o);
+
+    expect(text(o, '.refusal')).toBe('This person no longer holds that role. Refresh the page to see what they hold.');
+    expect((o.fixture.nativeElement as HTMLElement).querySelector('.warning')).toBeNull();
+    expect(runButton(o).disabled).toBe(true);
+    expect(runButton(o).textContent?.trim()).toBe('Take the role away');
+    await o.component.run();
+    expect(calls(o).filter(([kind]) => kind === 'real')).toEqual([]);
+  });
+
+  it('draws a warning with a word to type in the warning style, under a warning icon, as an alert', async () => {
+    const o = await open({ method: 'OpenSignUp', label: 'Open sign-up', preset: { method: 'google' } }, server());
+    await settle(o);
+
+    const block = (o.fixture.nativeElement as HTMLElement).querySelector('.warning');
+    expect(block?.classList.contains('asks')).toBe(false);
+    expect(block?.getAttribute('role')).toBe('alert');
+    expect(text(o, '.warning .warning-icon')).toBe('warning');
   });
 
   it('draws no warning and asks for no word on a method that declares none', async () => {

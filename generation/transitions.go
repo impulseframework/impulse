@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/ettle/strcase"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/generation/parser"
@@ -91,6 +92,13 @@ type rpcTarget struct {
 	// holds the row to the request's tenant by the view's @domain column,
 	// which the collection carries.
 	ViewPackage string
+
+	// RootPackage names the package a table's root is declared in where it is
+	// not the method's home's resources package: a method of an auth's
+	// generated management that names a record of the application's (a
+	// record's sharing, identity_record_roles.go). The frame reads the row
+	// from there. Empty otherwise, and for a view (ViewPackage).
+	RootPackage string
 }
 
 // rpcTargetKey is one column of a target row's key and the RPC field that
@@ -106,6 +114,27 @@ type rpcTargetKey struct {
 	// RootPKColumn is the key field's database column — the Execute-condition
 	// check-SELECT locates the row by it.
 	RootPKColumn string
+
+	// MayBeEmpty marks a column whose empty text is a value of the key, as the
+	// group of a role held directly is: the RPC field is of text and does not
+	// declare validate:"required" (keyMayBeEmpty). The TypeScript metadata
+	// says so, and a page sends the empty text a row holds there; every other
+	// column holds a value on every row a method can name.
+	MayBeEmpty bool
+}
+
+// MayBeEmptyFields renders the RPC fields whose part of the key may be empty as
+// the TypeScript metadata lists them: quoted wire names, in the key's order.
+// Empty when every part of the key holds a value.
+func (t *rpcTarget) MayBeEmptyFields() string {
+	var names []string
+	for _, key := range t.Keys {
+		if key.MayBeEmpty {
+			names = append(names, "'"+strcase.ToCamel(key.TargetField)+"'")
+		}
+	}
+
+	return strings.Join(names, ", ")
 }
 
 // LocateColumnCalls renders the located-row read's column accessors: the
@@ -136,17 +165,6 @@ func (t *rpcTarget) KeyArgs(receiver string) string {
 	}
 
 	return strings.Join(args, ", ")
-}
-
-// KeyVerbs renders the format verbs a message names the row with: one %s for
-// each key value, as the gate's own messages join them.
-func (t *rpcTarget) KeyVerbs() string {
-	verbs := make([]string, 0, len(t.Keys))
-	for range t.Keys {
-		verbs = append(verbs, "%s")
-	}
-
-	return strings.Join(verbs, ", ")
 }
 
 // PKColumns renders the target's key columns as the Go literal the gate's
@@ -423,13 +441,28 @@ func targetKeys(pStruct *parser.Struct, rootName string, rootKeys []*resourceFie
 		if targetField.Type() != pk.Type() {
 			return nil, errors.Newf("struct %s field %s: @%s type %s does not match the root key %s.%s (%s)", pStruct.Name(), targetField.Name(), targetKeyword, targetField.Type(), rootName, pk.Name(), pk.Type())
 		}
-		keys = append(keys, rpcTargetKey{TargetField: targetField.Name(), RootPKField: pk.Name(), RootPKColumn: fieldColumn(pk)})
+		keys = append(keys, rpcTargetKey{TargetField: targetField.Name(), RootPKField: pk.Name(), RootPKColumn: fieldColumn(pk), MayBeEmpty: keyMayBeEmpty(targetField)})
 	}
 	if len(missing) != 0 {
 		return nil, errors.Newf("struct %s: @%s(%s): no field carries %s — a method names its target row by the whole key (%s), one @%s(%s, %s: Field) field for each column", pStruct.Name(), targetKeyword, rootName, strings.Join(missing, ", "), strings.Join(keyNames, ", "), targetKeyword, rootName, targetKeyArgKey)
 	}
 
 	return keys, nil
+}
+
+// keyMayBeEmpty reports whether the empty text is a value of the part of the key
+// a @target field carries. The method's own declaration says so: a field of text
+// (a string, or a named type over one) that does not declare validate:"required"
+// is one the method takes empty, and the row it names holds the empty text there.
+// A field declared required, and a field of any other type (an id, a number),
+// holds a value on every row, so an empty one names no row.
+func keyMayBeEmpty(field *parser.Field) bool {
+	if field.UnderlyingType() != stringGoType {
+		return false
+	}
+	tag, ok := field.LookupTag(validateTagKey)
+
+	return !ok || !validateRequires(tag)
 }
 
 // validateTransitionStates checks every from/to value against the root's
@@ -461,10 +494,8 @@ func (c *client) validateTransitionStates(pStruct *parser.Struct, rootName strin
 // to the request's tenant already, so a method names a row within one.
 func targetRootKeys(pStruct *parser.Struct, rootName string, root *resourceInfo, declKeyword string) ([]*resourceField, error) {
 	var keys []*resourceField
-	for _, f := range root.Fields {
-		if f.IsPrimaryKey {
-			keys = append(keys, f)
-		}
+	for _, f := range root.PrimaryKeys() {
+		keys = append(keys, f)
 	}
 
 	switch {
@@ -488,8 +519,9 @@ func targetRootKeys(pStruct *parser.Struct, rootName string, root *resourceInfo,
 }
 
 // rejectRPCOnlyAnnotations fails a struct of another kind that carries an annotation
-// only an @rpc struct may: @transition and @schedule on the struct, and @target on a
-// field. A resource declares no handler to frame and no method to call.
+// only an @rpc struct may: @transition, @schedule, @callerEnters and @notOnOwnAccount on
+// the struct, and @target and @deleteToken on a field. A resource declares no handler to
+// frame and no method to call.
 func rejectRPCOnlyAnnotations(pStruct *parser.Struct, annotations genlang.StructAnnotations, kind string) error {
 	var errs []error
 	if annotations.Struct.Has(transitionKeyword) {
@@ -498,9 +530,18 @@ func rejectRPCOnlyAnnotations(pStruct *parser.Struct, annotations genlang.Struct
 	if annotations.Struct.Has(scheduleKeyword) {
 		errs = append(errs, errors.Newf("struct %s: @%s is only valid on @%s structs; a %s declares no method for Cloud Scheduler to call", pStruct.Name(), scheduleKeyword, rpcKeyword, kind))
 	}
+	if annotations.Struct.Has(callerEntersKeyword) {
+		errs = append(errs, errors.Newf("struct %s: @%s is only valid on @%s structs; a %s declares no method to offer", pStruct.Name(), callerEntersKeyword, rpcKeyword, kind))
+	}
+	if annotations.Struct.Has(notOnOwnAccountKeyword) {
+		errs = append(errs, errors.Newf("struct %s: @%s is only valid on @%s structs; a %s declares no method to offer", pStruct.Name(), notOnOwnAccountKeyword, rpcKeyword, kind))
+	}
 	for i, field := range pStruct.Fields() {
 		if annotations.Fields[i].Has(targetKeyword) {
 			errs = append(errs, errors.Newf("struct %s field %s: @%s is only valid on @%s structs; a %s declares no handler to frame", pStruct.Name(), field.Name(), targetKeyword, rpcKeyword, kind))
+		}
+		if annotations.Fields[i].Has(deleteTokenKeyword) {
+			errs = append(errs, errors.Newf("struct %s field %s: @%s is only valid on @%s structs; a %s declares no handler to frame", pStruct.Name(), field.Name(), deleteTokenKeyword, rpcKeyword, kind))
 		}
 	}
 	if len(errs) > 0 {

@@ -85,6 +85,10 @@ func (s *SessionStorageDriver) RecordSignInFailure(ctx context.Context, name str
 	if err != nil {
 		return nil, err
 	}
+	// The rows that stopped counting more than a day before now go with a recorded
+	// failure, the write that makes the table grow, in a statement of their own once the
+	// failure is committed: no lock and no count that still holds is among them.
+	attemptsRemoval.remove(ctx, s.conn, s.attemptsTable(), now.Add(-24*time.Hour))
 
 	return record, nil
 }

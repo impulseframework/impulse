@@ -1,4 +1,5 @@
 {
+  "auth": "members",
   "roles": {
     "global": [],
     "domain": [
@@ -37,39 +38,42 @@
             },
             {
               "resource": "DisableMembersTenantUser",
-              "condition": "heldElsewhere = false AND heldGlobally = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "EnableMembersTenantUser",
-              "condition": "heldElsewhere = false AND heldGlobally = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "DeleteMembersTenantUser",
-              "condition": "heldElsewhere = false AND heldGlobally = false"
+              "condition": "managedHere = true"
+            },
+            {
+              "resource": "RemoveMembersTenantUser"
             },
             {
               "resource": "RenameMembersTenantUser",
-              "condition": "heldElsewhere = false AND heldGlobally = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "SetMembersTenantUserEmail",
-              "condition": "heldElsewhere = false AND heldGlobally = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "SetMembersTenantUserName",
-              "condition": "heldElsewhere = false AND heldGlobally = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "RevokeMembersTenantUserTrustedDevices",
-              "condition": "heldElsewhere = false AND heldGlobally = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "EndMembersTenantUserSessions",
-              "condition": "heldElsewhere = false AND heldGlobally = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "UnlinkMembersTenantSessionIdentity",
-              "condition": "heldElsewhere = false AND heldGlobally = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "CreateMembersTenantGroup"
@@ -107,22 +111,29 @@
               "fields": [
                 "username",
                 "name",
+                "email",
                 "disabled",
-                "createdAt",
-                "lastSignInAt",
                 "heldElsewhere",
                 "heldGlobally",
-                "cannotEnter"
+                "heldHere",
+                "heldInEveryTenant",
+                "managedHere",
+                "managedByAnotherDirectory",
+                "outsideDirectory",
+                "cannotEnter",
+                "roles",
+                "lockedUntil"
               ]
             },
             {
               "resource": "MembersTenantUsers",
               "fields": [
-                "email",
                 "emailVerifiedAt",
-                "passwordChangeRequired"
+                "passwordChangeRequired",
+                "createdAt",
+                "lastSignInAt"
               ],
-              "condition": "heldElsewhere = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "MembersTenantUserRoles",
@@ -131,7 +142,22 @@
                 "everyDomain",
                 "createdAt",
                 "startsAt",
-                "endsAt"
+                "endsAt",
+                "reason"
+              ]
+            },
+            {
+              "resource": "MembersTenantHeldRoles",
+              "fields": [
+                "username",
+                "everyDomain",
+                "groupName",
+                "globalGroup",
+                "groupPage",
+                "createdAt",
+                "startsAt",
+                "endsAt",
+                "reason"
               ]
             },
             {
@@ -141,9 +167,12 @@
                 "name",
                 "roleNames",
                 "invitedByUserId",
+                "sentBy",
                 "createdAt",
                 "expiresAt",
                 "consumedAt",
+                "withdrawnAt",
+                "state",
                 "pending"
               ]
             },
@@ -154,25 +183,23 @@
                 "username",
                 "method",
                 "connection",
+                "subject",
                 "tenant",
+                "emailAtLink",
                 "createdAt",
                 "lastUsedAt",
                 "heldElsewhere",
-                "heldGlobally"
-              ]
-            },
-            {
-              "resource": "MembersTenantIdentities",
-              "fields": [
-                "subject",
-                "emailAtLink"
+                "heldGlobally",
+                "managedHere",
+                "managedByAnotherDirectory"
               ],
-              "condition": "heldElsewhere = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "MembersTenantRoles",
               "fields": [
-                "description"
+                "description",
+                "method"
               ]
             },
             {
@@ -180,7 +207,9 @@
               "fields": [
                 "name",
                 "description",
-                "updatedAt"
+                "updatedAt",
+                "people",
+                "roles"
               ]
             },
             {
@@ -200,7 +229,8 @@
                 "groupName",
                 "createdAt",
                 "startsAt",
-                "endsAt"
+                "endsAt",
+                "losing"
               ]
             },
             {
@@ -229,22 +259,28 @@
               "fields": [
                 "username",
                 "name",
+                "email",
                 "disabled",
-                "createdAt",
-                "lastSignInAt",
                 "heldElsewhere",
                 "heldGlobally",
-                "cannotEnter"
+                "heldHere",
+                "heldInEveryTenant",
+                "managedHere",
+                "managedByAnotherDirectory",
+                "cannotEnter",
+                "roles",
+                "lockedUntil"
               ]
             },
             {
               "resource": "MembersTenantUsers",
               "fields": [
-                "email",
                 "emailVerifiedAt",
-                "passwordChangeRequired"
+                "passwordChangeRequired",
+                "createdAt",
+                "lastSignInAt"
               ],
-              "condition": "heldElsewhere = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "MembersTenantUserRoles",
@@ -253,7 +289,8 @@
                 "everyDomain",
                 "createdAt",
                 "startsAt",
-                "endsAt"
+                "endsAt",
+                "reason"
               ]
             },
             {
@@ -263,9 +300,12 @@
                 "name",
                 "roleNames",
                 "invitedByUserId",
+                "sentBy",
                 "createdAt",
                 "expiresAt",
                 "consumedAt",
+                "withdrawnAt",
+                "state",
                 "pending"
               ]
             },
@@ -276,27 +316,26 @@
                 "username",
                 "method",
                 "connection",
+                "subject",
                 "tenant",
+                "emailAtLink",
                 "createdAt",
                 "lastUsedAt",
                 "heldElsewhere",
-                "heldGlobally"
-              ]
-            },
-            {
-              "resource": "MembersTenantIdentities",
-              "fields": [
-                "subject",
-                "emailAtLink"
+                "heldGlobally",
+                "managedHere",
+                "managedByAnotherDirectory"
               ],
-              "condition": "heldElsewhere = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "MembersTenantGroups",
               "fields": [
                 "name",
                 "description",
-                "updatedAt"
+                "updatedAt",
+                "people",
+                "roles"
               ]
             }
           ],

@@ -20,7 +20,7 @@ import (
 
 func (h *Handlers) StaffSessionIdentities() http.HandlerFunc {
 	type staffSessionIdentity struct {
-		ID          impulse.UUID `json:"id"          index:"true" perm:"-"`
+		ID          impulse.UUID `json:"id"          index:"true"    perm:"-"`
 		UserID      impulse.UUID `json:"userId"      index:"true"`
 		Method      string       `json:"method"      index:"true"`
 		Connection  string       `json:"connection"`
@@ -29,6 +29,7 @@ func (h *Handlers) StaffSessionIdentities() http.HandlerFunc {
 		EmailAtLink *string      `json:"emailAtLink"`
 		CreatedAt   time.Time    `json:"createdAt"`
 		LastUsedAt  time.Time    `json:"lastUsedAt"`
+		UserName    *string      `json:"userName"    nameof:"UserID" index:"true"`
 	}
 
 	type response []map[string]any
@@ -46,8 +47,9 @@ func (h *Handlers) StaffSessionIdentities() http.HandlerFunc {
 		}
 
 		// A live list registers before the query runs, so a commit that lands during
-		// the query is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, h.LiveService(), querySet, live.ListSubscription(querySet.Resource(), ""))
+		// the query is not missed; a refused request registers nothing. With it the
+		// request registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, h.LiveService(), querySet, live.ListSubscription(querySet.Resource(), ""))
 
 		res := staffresources.NewStaffSessionIdentityQueryFromQuerySet(querySet)
 
@@ -66,7 +68,7 @@ func (h *Handlers) StaffSessionIdentities() http.HandlerFunc {
 			if !page.Add(row) {
 				break
 			}
-			rec := (*staffSessionIdentity)(&row.Data)
+			rec := &row.Data
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
@@ -108,6 +110,11 @@ func (h *Handlers) StaffSessionIdentities() http.HandlerFunc {
 					}
 				}
 			}
+			for _, name := range querySet.Names() {
+				if looked := row.Name(name.Field); looked != nil {
+					rmap[name.JSONName] = *looked
+				}
+			}
 			if capabilities := row.Capabilities(); capabilities != nil {
 				rmap[resource.CapabilitiesProperty] = capabilities
 			}
@@ -129,7 +136,7 @@ func (h *Handlers) StaffSessionIdentities() http.HandlerFunc {
 
 func (h *Handlers) StaffSessionIdentity() http.HandlerFunc {
 	type response struct {
-		ID          impulse.UUID `json:"id"          index:"true" perm:"-"`
+		ID          impulse.UUID `json:"id"          index:"true"    perm:"-"`
 		UserID      impulse.UUID `json:"userId"`
 		Method      string       `json:"method"`
 		Connection  string       `json:"connection"`
@@ -138,6 +145,7 @@ func (h *Handlers) StaffSessionIdentity() http.HandlerFunc {
 		EmailAtLink *string      `json:"emailAtLink"`
 		CreatedAt   time.Time    `json:"createdAt"`
 		LastUsedAt  time.Time    `json:"lastUsedAt"`
+		UserName    *string      `json:"userName"    nameof:"UserID"`
 	}
 
 	decoder := NewQueryDecoder[staffresources.StaffSessionIdentity, response](h, accesstypes.Read)
@@ -154,8 +162,9 @@ func (h *Handlers) StaffSessionIdentity() http.HandlerFunc {
 		}
 
 		// A live row registers before the read runs, so a commit that lands during the
-		// read is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, h.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(id)))
+		// read is not missed; a refused request registers nothing. With it the request
+		// registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, h.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(id)))
 
 		res := staffresources.NewStaffSessionIdentityQueryFromQuerySet(querySet).SetID(id)
 
@@ -163,7 +172,7 @@ func (h *Handlers) StaffSessionIdentity() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		rec := (*response)(&row.Data)
+		rec := &row.Data
 		rmap := make(map[string]any)
 		for _, field := range querySet.Fields() {
 			switch string(field) {
@@ -205,11 +214,55 @@ func (h *Handlers) StaffSessionIdentity() http.HandlerFunc {
 				}
 			}
 		}
+		for _, name := range querySet.Names() {
+			if looked := row.Name(name.Field); looked != nil {
+				rmap[name.JSONName] = *looked
+			}
+		}
 		if capabilities := row.Capabilities(); capabilities != nil {
 			rmap[resource.CapabilitiesProperty] = capabilities
 		}
 		live.SetCacheControl(w, r)
 
 		return httpio.NewEncoder(w).Ok(rmap)
+	})
+}
+
+// StaffSessionIdentityChangeHistory answers a page of one staff session identity's change records, newest first, to whoever may read the record, with the fields they may see on it. It answers 404 while the resource does not track its changes.
+func (h *Handlers) StaffSessionIdentityChangeHistory() http.HandlerFunc {
+	type response struct {
+		ID          impulse.UUID `json:"id"          index:"true"    perm:"-"`
+		UserID      impulse.UUID `json:"userId"`
+		Method      string       `json:"method"`
+		Connection  string       `json:"connection"`
+		Subject     string       `json:"subject"`
+		Tenant      *string      `json:"tenant"`
+		EmailAtLink *string      `json:"emailAtLink"`
+		CreatedAt   time.Time    `json:"createdAt"`
+		LastUsedAt  time.Time    `json:"lastUsedAt"`
+		UserName    *string      `json:"userName"    nameof:"UserID"`
+	}
+
+	decoder := NewQueryDecoder[staffresources.StaffSessionIdentity, response](h, accesstypes.Read)
+
+	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := tracer.Start(r.Context())
+		defer span.End()
+
+		id := httpio.Param[impulse.UUID](r, router.StaffSessionIdentityID)
+
+		history, err := decoder.DecodeChangeHistory(r, h.UserPermissions(r), accesstypes.GlobalScope())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		staffresources.NewStaffSessionIdentityQueryFromQuerySet(history.QuerySet()).SetID(id)
+
+		page, err := history.Read(ctx, h.ResourceClient())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok(page)
 	})
 }

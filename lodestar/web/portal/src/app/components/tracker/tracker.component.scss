@@ -1,3 +1,12 @@
+// The tracker's own content: a column no wider than is easy to read, in the middle of the
+// page. The rule is the tracker's, on the tracker's element, and reaches nothing of the
+// frame around it.
+.page-content {
+  padding: 16px 24px;
+  max-width: 960px;
+  margin: 0 auto;
+}
+
 .sheets {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
@@ -49,4 +58,9 @@
 .pager-total {
   font-size: 0.85rem;
   opacity: 0.8;
+}
+
+// What the server refused of a list, said in the list's place.
+.refusal {
+  color: var(--mat-sys-error);
 }

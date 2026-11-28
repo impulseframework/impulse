@@ -64,6 +64,9 @@ type resourceGenerator struct {
 	mountedRoutes       []mountedRoutes
 	typescriptTargets   []typescriptTarget
 	manualRegistrations []ManualRegistration
+	// manualPermissions are the permissions declared with no resource
+	// (@manualAddPermission), in the constants' order.
+	manualPermissions []accesstypes.Permission
 	// warnings are the schema findings the last Generate raised (Warnings).
 	warnings []Warning
 	// findings are the advisory findings the last Generate raised (Audit).
@@ -111,6 +114,31 @@ func (r *resourceGenerator) allOutlets() []*routerOutlet {
 	}
 
 	return outlets
+}
+
+// authNames lists the application's auths by name, as their packages name them and in
+// name order: every auth package in the application's tree (treeAuthNames), and each
+// auth an outlet of the run declares. The tree is what tells the run of one site's
+// generate program about another site's auth: a program declares its own outlets alone,
+// and a set is held to the application's auths, whichever program reads it. Nothing is
+// declared for it, so no program can be left out of step with the others.
+func (r *resourceGenerator) authNames() ([]string, error) {
+	tree, err := r.treeAuthNames()
+	if err != nil {
+		return nil, err
+	}
+	names := slices.Clone(tree)
+	for _, outlet := range r.allOutlets() {
+		if outlet.auth == nil {
+			continue
+		}
+		if name := outlet.auth.packageName(); !slices.Contains(names, name) {
+			names = append(names, name)
+		}
+	}
+	slices.Sort(names)
+
+	return names, nil
 }
 
 // memberOutlets returns the declared outlets the membership joins, in declaration order.
@@ -316,11 +344,9 @@ func (r *resourceGenerator) Generate() error {
 		return err
 	}
 
-	annotatedRegistrations, err := manualRegistrationsFromConstants(resourcesPkg.Constants)
-	if err != nil {
+	if err := r.readResourcesPackageAnnotations(pkg, resourcesPkg.Constants); err != nil {
 		return err
 	}
-	r.manualRegistrations = append(r.manualRegistrations, annotatedRegistrations...)
 
 	if err := r.extractResourcesBesideTheApplications(packageMap, pkg); err != nil {
 		return err
@@ -424,6 +450,19 @@ func (r *resourceGenerator) Generate() error {
 	return nil
 }
 
+// readResourcesPackageAnnotations reads what the resources package's constants declare
+// by hand (readManualDeclarations), after refusing an @manualAddResource or
+// @manualAddPermission in a comment of the package that is no constant's: one there would
+// be read by nothing, and the route it was written for would be denied to every role
+// without a word.
+func (r *resourceGenerator) readResourcesPackageAnnotations(pkg *packages.Package, constants []*parser.Constant) error {
+	if err := annotationInLooseComment(parser.LooseComments(pkg)); err != nil {
+		return err
+	}
+
+	return r.readManualDeclarations(constants)
+}
+
 // resolveCrossKindDeclarations resolves the declarations that read across the table,
 // view and computed kinds, so they run once every one of those is extracted and before
 // anything renders: a field-scope @enumerate may name a computed resource; a picker
@@ -440,6 +479,9 @@ func (r *resourceGenerator) resolveCrossKindDeclarations() error {
 	if err := r.resolveFieldEnumerations(r.resources, r.computedResources); err != nil {
 		return err
 	}
+	if err := r.resolveRoleFields(r.resources, r.computedResources); err != nil {
+		return err
+	}
 	if err := r.validatePickerSources(r.resources, r.computedResources); err != nil {
 		return err
 	}
@@ -449,6 +491,12 @@ func (r *resourceGenerator) resolveCrossKindDeclarations() error {
 	if err := r.resolveTenantRecord(); err != nil {
 		return err
 	}
+	// A name field reads the enumerations and the tenant record's name resolved above.
+	if err := r.resolveNameFields(r.resources); err != nil {
+		return err
+	}
+	r.resolveRecordedNames(r.resources)
+	r.resolveNamedRows(r.resources)
 
 	if err := r.holdIdentityTenantDirectory(); err != nil {
 		return err
@@ -581,8 +629,31 @@ func (r *resourceGenerator) extractResourcesBesideTheApplications(packageMap map
 		r.resources = append(r.resources, beside...)
 		sortResources(r.resources)
 	}
+	// A column of the application's that names a group or an account of an auth's says
+	// whether its row goes with it: the group's and the account's descriptions are
+	// written again over the application's records, once both are known.
+	if err := r.resolveLibraryDeleteTrees(r.resources); err != nil {
+		return err
+	}
 
-	return r.resolveRunSubjectSets(r.resources)
+	if err := r.resolveRunSubjectSets(r.resources); err != nil {
+		return err
+	}
+	auths, err := r.authNames()
+	if err != nil {
+		return err
+	}
+	if err := resolveSubjectSetAuths(r.resources, auths); err != nil {
+		return err
+	}
+	// A role file's heldOn is held to the records the run marks, which are known now.
+	if err := r.refuseUnmarkedHeldOn(); err != nil {
+		return err
+	}
+	r.attachSubjectReadThroughs()
+	r.attachSubjectKinds()
+
+	return nil
 }
 
 // extractAndGenerateRPC parses the RPC package into rpcMethods, the scheduled methods
@@ -616,6 +687,11 @@ func (r *resourceGenerator) extractAndGenerateRPC(packageMap map[string]*package
 		methods = append(methods, own...)
 	}
 	sortMethods(methods)
+	// A role file is judged against every method of the run, the application's own
+	// among them, so the grants of a retired method are read here and not sooner.
+	if err := r.refuseRetiredGrants(methods); err != nil {
+		return err
+	}
 	r.rpcMethods, r.scheduledMethods = splitScheduled(methods)
 	if err := r.requireRouterForSchedules(); err != nil {
 		return err
@@ -627,6 +703,7 @@ func (r *resourceGenerator) extractAndGenerateRPC(packageMap map[string]*package
 	if err := r.validateRPCPickerSources(r.rpcMethods); err != nil {
 		return err
 	}
+	r.resolvePickedRows(r.rpcMethods)
 	// A tenant-scoped method is served under the tenant record's segment, so the
 	// record must exist; the methods are extracted after the record resolved.
 	if err := r.requireTenantRecordForMethods(); err != nil {
@@ -667,7 +744,7 @@ func (r *resourceGenerator) runCollectionGeneration() error {
 	// generated routes register is emitted next to them for deployment tooling to
 	// consume.
 	if r.genRoutes {
-		if err := r.generateCollectionFile(collectionData); err != nil {
+		if err := r.generateCollectionFile(&collectionData); err != nil {
 			return err
 		}
 	}
@@ -684,14 +761,14 @@ func (r *resourceGenerator) runCollectionGeneration() error {
 // generateCollectionFile emits the application's permission collection as a generated
 // file in the router package, exposing Collection() for deployment tooling (role
 // migration, bootstrap) to consume in place of runtime registration.
-func (r *resourceGenerator) generateCollectionFile(data resource.CollectionData) error {
+func (r *resourceGenerator) generateCollectionFile(data *resource.CollectionData) error {
 	begin := time.Now()
 	destinationFilePath := filepath.Join(r.router.Dir(), generatedGoFileName(collectionOutputName))
 
 	if err := r.writeFormattedGoFile(destinationFilePath, "collectionTemplate", collectionTemplate, &collectionFileData{
 		Source:  r.resource.Dir(),
 		Package: r.router.Package(),
-		Data:    data,
+		Data:    *data,
 	}); err != nil {
 		return errors.Wrap(err, "writeFormattedGoFile()")
 	}

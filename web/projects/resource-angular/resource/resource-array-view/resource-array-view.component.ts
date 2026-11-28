@@ -18,15 +18,24 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatExpansionModule, MatExpansionPanel } from '@angular/material/expansion';
 import { MatIconModule } from '@angular/material/icon';
 import { MatTooltipModule } from '@angular/material/tooltip';
-import { ArrayConfig, ColumnConfig, RecordData, RESOURCE_META, ViewConfig } from '@impulseframework/resource-angular/types';
-import { readMode } from '@impulseframework/resource';
+import { AuthService } from '@impulseframework/resource-angular/auth-service';
+import {
+  ArrayConfig,
+  ColumnConfig,
+  RecordData,
+  RESOURCE_META,
+  ViewConfig,
+} from '@impulseframework/resource-angular/types';
+import { ListPermission, readMode } from '@impulseframework/resource';
 import {
   ActionAccessControlWrapperComponent,
   ActionButtonContext,
 } from '../actions/action-button-smart/action-access-control-wrapper.component';
 import { ResourceCreateComponent } from '../resource-create/resource-create.component';
-import { listEmptyMessage, pageLabel } from '../resource-list/list-request';
+import { listEmptyMessage, listSorts, pageLabel, sameSorts } from '../resource-list/list-request';
+import { listableNames, namesListableOf } from '../resource-list/name-columns';
 import { ResourceStore } from '../resource-store.service';
+import { listableFieldsOf } from '../search-box/search-fields';
 
 /**
  * The children of one row, each drawn as a form. How the children are read is the
@@ -56,6 +65,15 @@ export class ResourceArrayViewComponent implements OnInit {
   /** The store of the row page the children sit under: the count of the methods that ran against the row or under it. */
   private pageStore = inject(ResourceStore, { skipSelf: true, optional: true });
   injector = inject(Injector);
+  private auth = inject(AuthService);
+  /** The digest's List field set for any resource (listableFieldsOf): the children's own. */
+  private readonly listableOf = listableFieldsOf(this.auth);
+  /**
+   * The digest's List field set for a resource an id of the children points to, as its
+   * name is judged (namesListableOf): the empty set once a digest has answered and names
+   * no field.
+   */
+  private readonly namesOf = namesListableOf(this.auth);
 
   resourceConfig = input.required<ArrayConfig>();
   /**
@@ -78,6 +96,28 @@ export class ResourceArrayViewComponent implements OnInit {
     return this.store.client.descriptor.resources[config.connectorResource || config.primaryResource];
   });
 
+  /**
+   * The sorts the children are asked in (listSorts): the config's sorts as the server
+   * answers them for this caller, following the digest. A sort by a name field is asked
+   * only where the person may list the name (listableNames), as the list asks it.
+   */
+  private askedSorts = computed(
+    () => {
+      const config = this.resourceConfig();
+      const listed = config.connectorResource || config.primaryResource;
+      const meta = this.resourceMeta(listed);
+      return listSorts(
+        config.sorts,
+        meta,
+        this.auth.fieldPermissionStates({ resource: listed, permission: ListPermission }),
+        this.descriptor(),
+        this.listableOf(listed),
+        listableNames(meta, this.namesOf, this.resourceMeta),
+      );
+    },
+    { equal: sameSorts },
+  );
+
   /** Whether the children are paged: the listed resource declares a maximum page size. */
   paged = computed(() => {
     const descriptor = this.descriptor();
@@ -88,10 +128,20 @@ export class ResourceArrayViewComponent implements OnInit {
   rows = computed<RecordData[]>(() => (this.paged() ? this.store.page().rows : this.store.listData()));
 
   /** Whether the children have arrived. */
-  resolved = computed(() => (this.paged() ? this.store.pageStatus() === 'resolved' : this.store.listStatus() === 'resolved'));
+  resolved = computed(() =>
+    this.paged() ? this.store.pageStatus() === 'resolved' : this.store.listStatus() === 'resolved',
+  );
 
-  /** What an empty view says: the server's refusal in its own words, else the plain text. */
-  emptyMessage = computed(() => listEmptyMessage(this.paged() ? this.store.pageError() : this.store.listError(), false));
+  /** What the read of the children ended in when the server refused it or it failed, else undefined. */
+  private unreadError = computed<unknown>(() => (this.paged() ? this.store.pageError() : this.store.listError()));
+
+  /**
+   * What an empty view says: in the page's own words, that the person may not see the
+   * children or that they could not be loaded, when the server refused the read or it
+   * failed; else the plain text. What the server said is written to the console, never to
+   * the screen.
+   */
+  emptyMessage = computed(() => listEmptyMessage(this.unreadError(), false));
 
   /** The pager's label under a paged view: this page's range of the total. */
   pagerLabel = computed(() => {
@@ -167,10 +217,22 @@ export class ResourceArrayViewComponent implements OnInit {
       columnArray.push({ id: 'id' } as ColumnConfig);
     }
     this.store.listColumns.set(columnArray);
-    this.store.sorts.set(this.resourceConfig().sorts);
+    this.store.sorts.set(this.askedSorts());
   }
 
   constructor() {
+    // What the server said of children it refused, or how the read failed, is for whoever
+    // looks into it: it is written to the console, once, with the resource it belongs to.
+    // The line's words are a constant, and the console puts the resource's name where they
+    // keep its place (%s): a name is never itself read as words to print.
+    effect(() => {
+      const error = this.unreadError();
+      if (error) {
+        const resource = untracked(() => this.resourceConfig().primaryResource);
+        console.error('%s: the list could not be loaded:', resource, error);
+      }
+    });
+
     // A method that ran against the page's row, or from one of its lists, may have
     // changed these children: they are read again. The first run only notes the count
     // the view opened on.
@@ -188,6 +250,11 @@ export class ResourceArrayViewComponent implements OnInit {
           this.store.reloadListData();
         }
       });
+    });
+
+    // The store asks what the children are asked in now: the sorts follow the digest (askedSorts).
+    effect(() => {
+      this.store.sorts.set(this.askedSorts());
     });
 
     // The filter follows the parent row: nothing until the row is on hand, then the

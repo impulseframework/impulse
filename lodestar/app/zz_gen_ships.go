@@ -20,7 +20,7 @@ import (
 
 func (a *App) Ships() http.HandlerFunc {
 	type ship struct {
-		ID             impulse.UUID     `json:"id"          index:"true" perm:"-"`
+		ID             impulse.UUID     `json:"id"          index:"true"      perm:"-"`
 		HangarID       impulse.UUID     `json:"hangarId"    index:"true"`
 		ClassID        impulse.UUID     `json:"classId"     index:"true"`
 		Registry       string           `json:"registry"    index:"true"`
@@ -29,6 +29,8 @@ func (a *App) Ships() http.HandlerFunc {
 		UpdatedAt      *time.Time       `json:"updatedAt"`
 		CargoBays      []int64          `json:"cargoBays"`
 		TransponderKey *resource.Secret `json:"-"`
+		HangarName     *string          `json:"hangarName"  nameof:"HangarID" index:"true" search:"lower=Name_Lower"`
+		ClassName      *string          `json:"className"   nameof:"ClassID"  index:"true"`
 	}
 
 	type response []map[string]any
@@ -47,8 +49,9 @@ func (a *App) Ships() http.HandlerFunc {
 		}
 
 		// A live list registers before the query runs, so a commit that lands during
-		// the query is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, a.LiveService(), querySet, live.ListSubscription(querySet.Resource(), domain))
+		// the query is not missed; a refused request registers nothing. With it the
+		// request registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, a.LiveService(), querySet, live.ListSubscription(querySet.Resource(), domain))
 
 		res := resources.NewShipQueryFromQuerySet(querySet)
 
@@ -67,7 +70,7 @@ func (a *App) Ships() http.HandlerFunc {
 			if !page.Add(row) {
 				break
 			}
-			rec := (*ship)(&row.Data)
+			rec := &row.Data
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
@@ -105,6 +108,11 @@ func (a *App) Ships() http.HandlerFunc {
 					}
 				}
 			}
+			for _, name := range querySet.Names() {
+				if looked := row.Name(name.Field); looked != nil {
+					rmap[name.JSONName] = *looked
+				}
+			}
 			if capabilities := row.Capabilities(); capabilities != nil {
 				rmap[resource.CapabilitiesProperty] = capabilities
 			}
@@ -126,7 +134,7 @@ func (a *App) Ships() http.HandlerFunc {
 
 func (a *App) Ship() http.HandlerFunc {
 	type response struct {
-		ID             impulse.UUID     `json:"id"          index:"true" perm:"-"`
+		ID             impulse.UUID     `json:"id"          index:"true"      perm:"-"`
 		HangarID       impulse.UUID     `json:"hangarId"`
 		ClassID        impulse.UUID     `json:"classId"`
 		Registry       string           `json:"registry"    index:"true"`
@@ -135,6 +143,8 @@ func (a *App) Ship() http.HandlerFunc {
 		UpdatedAt      *time.Time       `json:"updatedAt"`
 		CargoBays      []int64          `json:"cargoBays"`
 		TransponderKey *resource.Secret `json:"-"`
+		HangarName     *string          `json:"hangarName"  nameof:"HangarID"`
+		ClassName      *string          `json:"className"   nameof:"ClassID"`
 	}
 
 	decoder := NewQueryDecoder[resources.Ship, response](a, accesstypes.Read)
@@ -152,8 +162,9 @@ func (a *App) Ship() http.HandlerFunc {
 		}
 
 		// A live row registers before the read runs, so a commit that lands during the
-		// read is not missed; a refused request registers nothing.
-		live.Subscribe(ctx, r, a.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(id)))
+		// read is not missed; a refused request registers nothing. With it the request
+		// registers the lists the names it shows are read from.
+		live.Subscribe(ctx, w, r, a.LiveService(), querySet, live.RowSubscription(querySet.Resource(), resource.RowKey(id)))
 
 		res := resources.NewShipQueryFromQuerySet(querySet).SetID(id)
 
@@ -161,7 +172,7 @@ func (a *App) Ship() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		rec := (*response)(&row.Data)
+		rec := &row.Data
 		rmap := make(map[string]any)
 		for _, field := range querySet.Fields() {
 			switch string(field) {
@@ -199,11 +210,57 @@ func (a *App) Ship() http.HandlerFunc {
 				}
 			}
 		}
+		for _, name := range querySet.Names() {
+			if looked := row.Name(name.Field); looked != nil {
+				rmap[name.JSONName] = *looked
+			}
+		}
 		if capabilities := row.Capabilities(); capabilities != nil {
 			rmap[resource.CapabilitiesProperty] = capabilities
 		}
 		live.SetCacheControl(w, r)
 
 		return httpio.NewEncoder(w).Ok(rmap)
+	})
+}
+
+// ShipChangeHistory answers a page of one ship's change records, newest first, to whoever may read the record, with the fields they may see on it. It answers 404 while the resource does not track its changes.
+func (a *App) ShipChangeHistory() http.HandlerFunc {
+	type response struct {
+		ID             impulse.UUID     `json:"id"          index:"true"      perm:"-"`
+		HangarID       impulse.UUID     `json:"hangarId"`
+		ClassID        impulse.UUID     `json:"classId"`
+		Registry       string           `json:"registry"    index:"true"`
+		Name           string           `json:"name"`
+		LastRefitAt    *time.Time       `json:"lastRefitAt"`
+		UpdatedAt      *time.Time       `json:"updatedAt"`
+		CargoBays      []int64          `json:"cargoBays"`
+		TransponderKey *resource.Secret `json:"-"`
+		HangarName     *string          `json:"hangarName"  nameof:"HangarID"`
+		ClassName      *string          `json:"className"   nameof:"ClassID"`
+	}
+
+	decoder := NewQueryDecoder[resources.Ship, response](a, accesstypes.Read)
+
+	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := tracer.Start(r.Context())
+		defer span.End()
+
+		id := httpio.Param[impulse.UUID](r, router.ShipID)
+
+		domain := httpio.Param[accesstypes.Domain](r, router.Domain)
+		history, err := decoder.DecodeChangeHistory(r, a.UserPermissions(r), accesstypes.DomainScope(domain), "TransponderKey")
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		resources.NewShipQueryFromQuerySet(history.QuerySet()).SetID(id)
+
+		page, err := history.Read(ctx, a.ResourceClient())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok(page)
 	})
 }

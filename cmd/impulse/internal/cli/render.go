@@ -15,6 +15,7 @@ import (
 	"github.com/impulseframework/impulse/app"
 	"github.com/impulseframework/impulse/ci"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/check"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/ledger"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/names"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton"
 )
@@ -46,12 +47,12 @@ With a candidate and a directory, render copies one of the embedded skeleton tem
 a new or empty directory under the module path --module names, rewriting every import and
 go.mod to it, and pins the framework as impulse new does: go.mod requires the framework
 module at the running impulse's version and the web roots pin the browser packages at it
-(an impulse installed from a commit pins them at the latest release's, since a commit
-publishes none), resolved with go get -tool and settled with go mod tidy. It is the
-primitive impulse new builds on, and the way the templates are validated: render one, then
-build, test, and check the result. The placeholder auth (staff) is kept; new renames it.
-The application is named after the module path's last segment unless --name says
-otherwise.
+(an impulse installed from a commit pins them at the release named by the last step of the
+upgrade ledger, since a commit publishes none), resolved with go get -tool and settled with
+go mod tidy. It is the primitive impulse new builds on, and the way the templates are
+validated: render one, then build, test, and check the result. The placeholder auth (staff)
+is kept; new renames it. The application is named after the module path's last segment
+unless --name says otherwise.
 
 With --dev-root, go.mod requires the framework at a placeholder version and replaces the
 module with that checkout, so the application builds against local framework work instead
@@ -192,8 +193,19 @@ type renderReport struct {
 	goProcs []string
 	// web lists the browser workspaces and the ng serve ports of their projects.
 	web []webWorkspace
+	// signIn is how a development run signs a person in where the application starts
+	// with no password sign-in; nil for an application whose development login is the
+	// base's, admin with a password.
+	signIn *developmentSignIn
 	// styled turns on ANSI bold for the heading and step numbers.
 	styled bool
+}
+
+// developmentSignIn is how a development run signs a person in where the application
+// starts with no password sign-in: the registration of the sign-in method the person
+// goes through, and who the run answers that sign-in as.
+type developmentSignIn struct {
+	method, as string
 }
 
 // webWorkspace is one Angular workspace in the rendered tree.
@@ -230,7 +242,7 @@ func (r *renderReport) write(w io.Writer) {
 		fmt.Fprintf(w, "Named %s: the web package, APP_SERVICE_NAME, and the development database carry it.\n", r.name)
 	}
 	if r.pin != "" {
-		fmt.Fprintf(w, "Pinned the framework in go.mod at %s, the impulse that rendered the application, so CI's go tool impulse check runs the same code; the web roots pin the browser packages to match.\n", r.pin)
+		fmt.Fprintf(w, "Pinned the framework in go.mod at %s, the impulse that rendered the application, so CI's go tool impulse check runs the same code; %s.\n", r.pin, r.webPins())
 	}
 	if r.gitNote != "" {
 		fmt.Fprintln(w, r.gitNote)
@@ -253,9 +265,13 @@ func (r *renderReport) write(w io.Writer) {
 	next("cd %s", r.dir)
 	next("cp .envrc.template .envrc && direnv allow")
 	if len(r.web) == 0 || len(r.goProcs) == 0 {
+		// No process runs apart from the browser apps, so their packages come first.
+		if len(r.web) > 0 {
+			r.installSteps(next, note)
+		}
 		next("overmind start")
 		note("The first run compiles and bootstraps before it listens. Wait for \"Starting Server\",")
-		note("then sign in as admin with the password \"password\".")
+		r.signInNotes(note, "", "")
 		if len(r.web) > 0 {
 			r.formatStep(next, note)
 		}
@@ -266,13 +282,8 @@ func (r *renderReport) write(w io.Writer) {
 
 	next("overmind start -l %s", strings.Join(r.goProcs, ","))
 	note("The Go side alone. The first run compiles and bootstraps before it listens; wait for")
-	note("\"Starting Server\", then sign in against the API as admin with the password \"password\".")
-	for _, ws := range r.web {
-		next("(cd %s && ./weblib.sh local)", ws.Dir)
-	}
-	note("Once, for the browser apps: builds the framework's web packages, publishes them to the local")
-	note("yalc store, links them, and runs bun install. weblib.sh expects the framework checkout beside")
-	note("this application as impulse; set IMPULSE otherwise.")
+	r.signInNotes(note, "\"Starting Server\", ", " against the API")
+	r.installSteps(next, note)
 	r.formatStep(next, note)
 	next("overmind start")
 	var urls []string
@@ -289,6 +300,21 @@ func (r *renderReport) write(w io.Writer) {
 	r.optionsStep(next, note)
 }
 
+// signInNotes ends the note of the step that starts the server with how a person signs
+// in once it listens: lead is what the line opens with, and where says what the person
+// signs in against. The base's development login is admin with a password; an
+// application that starts with no password sign-in names the method a person goes
+// through and who a development run answers it as (signIn).
+func (r *renderReport) signInNotes(note func(format string, args ...any), lead, where string) {
+	if r.signIn == nil {
+		note("%sthen sign in%s as admin with the password \"open-the-console-first\".", lead, where)
+
+		return
+	}
+	note("%sthen sign in%s through the %s method.", lead, where, r.signIn.method)
+	note("A development run answers that sign-in as %s.", r.signIn.as)
+}
+
 // writePorts states the development ports the environment template names: the server's
 // and the Spanner emulator's, and the Firestore emulator's when the template starts one.
 // Nothing is written for a template that names no server port.
@@ -303,15 +329,55 @@ func (r *renderReport) writePorts(w io.Writer, bold func(string) string) {
 	}
 }
 
-// formatStep says to format the browser files once the web roots' packages are installed.
-// The rendering wrote them under the application's own names and could not wrap the lines
-// again, since the formatter is the prettier each web root pins and exists only after the
-// install, which no rendering does; impulse check holds the files to it from then on.
+// webPins says what the web roots pin beside a framework pin resolved through the proxy:
+// a release's own browser packages, or, under a commit, which publishes none, those of the
+// release the upgrade ledger's last step names (ledger.Latest, as frameworkPins takes it).
+func (r *renderReport) webPins() string {
+	if ledger.IsRelease(r.pin) {
+		return "the web roots pin the browser packages to match"
+	}
+
+	return "a commit publishes no browser packages, so the web roots pin them at the release the upgrade ledger's last step names, and weblib.sh local attaches a framework checkout's own"
+}
+
+// installSteps says how the browser apps' packages are installed, once, in each web
+// root. An application rendered against a framework checkout links the browser packages
+// built from that checkout (weblib.sh, which needs it). Every other application installs
+// the published packages its web roots pin, and that install writes the lockfile the
+// workflows install from: no rendering carries one, since the pins it would lock are the
+// release's own, written into package.json by the rendering. The lockfile is the
+// application's to commit, and impulse check fails while a web root has none
+// (package-manager).
+func (r *renderReport) installSteps(next, note func(format string, args ...any)) {
+	if r.devRoot != "" || r.rendered.Replace != "" {
+		for _, ws := range r.web {
+			next("(cd %s && ./weblib.sh local)", ws.Dir)
+		}
+		note("Once, for the browser apps: builds the framework's web packages, publishes them to the local")
+		note("yalc store, links them, and runs bun install. weblib.sh expects the framework checkout beside")
+		note("this application as impulse; set IMPULSE otherwise.")
+
+		return
+	}
+	for _, ws := range r.web {
+		next("(cd %s && bun install)", ws.Dir)
+	}
+	note("Once, for the browser apps: installs the packages each web root pins and writes its bun.lock,")
+	note("which the workflows install from (bun ci, with bun %s). Commit bun.lock: impulse check fails", ci.Bun)
+	note("while a web root has none.")
+}
+
+// formatStep says to hold the browser files to the formatter once the web roots'
+// packages are installed. The rendering wrote them under the application's own names and
+// could not wrap the lines again, since the formatter is the prettier each web root pins
+// and exists only after the install, which no rendering does. Whether a file needs it
+// depends on the names: ones as long as the skeleton's own leave every line as it was,
+// so the step says what it does and claims nothing about what it will find.
 func (r *renderReport) formatStep(next, note func(format string, args ...any)) {
 	next("impulse check --only prettier --fix")
-	note("Once, after the install: formats the browser files with the prettier each web root pins,")
-	note("which the install brings. They were written under your names and are not wrapped yet, and")
-	note("impulse check fails on the ones it names until this has run.")
+	note("Once, after the install: holds the browser files to the prettier each web root pins, which")
+	note("the install brings, and wraps again any line your names made longer or shorter. Where they")
+	note("left every line as it was, it changes nothing; impulse check fails on a file that needs it.")
 }
 
 // optionsStep names the options an application takes on afterwards, when the report is

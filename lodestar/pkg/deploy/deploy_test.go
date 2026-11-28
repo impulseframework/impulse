@@ -8,6 +8,7 @@ import (
 
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/crew"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/members"
 	"github.com/impulseframework/impulse/lodestar/pkg/router"
@@ -40,7 +41,11 @@ var archivistFee = access.ConcealingKeyWarning{
 // through the validation the permission engine performs when the auth opens:
 // the grammar holds, every condition resolves against the generated
 // collection, and the warnings the deploy's role check would print are exactly
-// the ones pinned here. No role holds a conditional write on a row it can
+// the ones pinned here. Every subject set the application declares describes the crew's
+// people (auth: crew), the set of a person's groups that the generator declares among them,
+// and is read by a role of the crew, so no set is flagged as unread,
+// and the members' check looks at none of them: each auth's file is validated with its
+// auth's name. No role holds a conditional write on a row it can
 // neither Read nor List, and no role may create a resource without a field every
 // create of it must be given. The archivist's Missions grants raise the concealing-key warning on
 // the fee filter key alone: her completed grant implies her closed-states
@@ -50,7 +55,7 @@ var archivistFee = access.ConcealingKeyWarning{
 // the default order, is declared positional and raises nothing: her every
 // page orders on the real column.
 //
-// Demonstrates: warning.concealing-key, masking.positional, warning.required-field.
+// Demonstrates: warning.concealing-key, masking.positional, warning.required-field, @subjectSet.auth.
 func TestRoles_validateAgainstTheCollection(t *testing.T) {
 	t.Parallel()
 
@@ -59,8 +64,8 @@ func TestRoles_validateAgainstTheCollection(t *testing.T) {
 		roles        access.RoleFile
 		wantWarnings []access.Warning
 	}{
-		{name: "crew", roles: crew.Roles(), wantWarnings: []access.Warning{archivistFee}},
-		{name: "members", roles: members.Roles()},
+		{name: crew.Name, roles: crew.Roles(), wantWarnings: []access.Warning{archivistFee}},
+		{name: members.Name, roles: members.Roles()},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -71,7 +76,9 @@ func TestRoles_validateAgainstTheCollection(t *testing.T) {
 				t.Fatalf("access.RoleFile.Parse() error = %v", err)
 			}
 
-			warnings, err := access.ValidateRoles(router.Collection(), roles)
+			// The file is validated as its auth's: the check looks at the subject sets
+			// that describe that auth's people, and at no other auth's.
+			warnings, err := access.ValidateRoles(router.Collection(), roles, tt.name)
 			if err != nil {
 				t.Fatalf("access.ValidateRoles() error = %v", err)
 			}
@@ -91,6 +98,31 @@ func TestRoles_validateAgainstTheCollection(t *testing.T) {
 	}
 }
 
+// TestRoles_theAuthsTheCollectionKnows pins that the generated collection names the
+// application's two auths, and that a role file handed over under any other name is
+// refused: the name of the auth's cookie where an application gives it another, and the
+// auth's name in another case. The role-file check ties a file to its auth's subject sets
+// by this name, so under a name no set is labeled for it would look at none of them.
+func TestRoles_theAuthsTheCollectionKnows(t *testing.T) {
+	t.Parallel()
+
+	collection := router.Collection()
+	if got, want := collection.Auths(), []string{crew.Name, members.Name}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("router.Collection().Auths() = %v, want %v", got, want)
+	}
+	roles, err := crew.Roles().Parse()
+	if err != nil {
+		t.Fatalf("access.RoleFile.Parse() error = %v", err)
+	}
+	for _, name := range []string{"__Host-" + crew.Name, crew.TablePrefix} {
+		_, err := access.ValidateRoles(collection, roles, name)
+		want := "the role file is handed over as the roles of \"" + name + "\", and the application's generation knew no auth of that name: the auths it knew are crew, members."
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("access.ValidateRoles() under the name %q: error = %v, want it to contain %q", name, err, want)
+		}
+	}
+}
+
 // TestFeatureFlagsMigration pins the schema's feature flags tables to the library's statements:
 // the tables the deploy's MigrateFeatures and the generated handlers read are the ones
 // resource.FeatureFlagsDDL declares, copied into the schema as every application copies
@@ -107,6 +139,98 @@ func TestFeatureFlagsMigration(t *testing.T) {
 		t.Fatal("resource.FeatureFlagsDDL(SpannerDBType) declares no statement")
 	}
 	for _, stmt := range statements {
+		if !strings.Contains(string(migration), stmt+";") {
+			t.Errorf("the migration does not carry the statement:\n%s", stmt)
+		}
+	}
+}
+
+// TestDeleteTokensMigration pins the schema's delete tokens table to the library's
+// statements.
+func TestDeleteTokensMigration(t *testing.T) {
+	t.Parallel()
+
+	migration, err := os.ReadFile("../../schema/migrations/000001_Baseline.up.sql")
+	if err != nil {
+		t.Fatalf("os.ReadFile() error = %v", err)
+	}
+	statements := resource.DeleteTokensDDL(resource.SpannerDBType)
+	if len(statements) == 0 {
+		t.Fatal("resource.DeleteTokensDDL(SpannerDBType) declares no statement")
+	}
+	for _, stmt := range statements {
+		if !strings.Contains(string(migration), stmt+";") {
+			t.Errorf("the migration does not carry the statement:\n%s", stmt)
+		}
+	}
+}
+
+// TestChangeHistoryMigration pins the schema's change history table to the library's
+// statements, with the period Lodestar keeps its change records for: 365 days.
+func TestChangeHistoryMigration(t *testing.T) {
+	t.Parallel()
+
+	migration, err := os.ReadFile("../../schema/migrations/000001_Baseline.up.sql")
+	if err != nil {
+		t.Fatalf("os.ReadFile() error = %v", err)
+	}
+	statements := resource.DataChangeEventsDDL(resource.SpannerDBType, resource.KeepChangeHistoryDays(365))
+	if len(statements) != 2 {
+		t.Fatalf("resource.DataChangeEventsDDL(SpannerDBType, KeepChangeHistoryDays(365)) declares %d statements, want 2", len(statements))
+	}
+	for _, stmt := range statements {
+		if !strings.Contains(string(migration), stmt+";") {
+			t.Errorf("the migration does not carry the statement:\n%s", stmt)
+		}
+	}
+}
+
+// TestAuditRecordsMigration pins the audit records table of each of Lodestar's two auths
+// to the library's statements for it, under the auth's prefix, kept forever.
+func TestAuditRecordsMigration(t *testing.T) {
+	t.Parallel()
+
+	migration, err := os.ReadFile("../../schema/migrations/000001_Baseline.up.sql")
+	if err != nil {
+		t.Fatalf("os.ReadFile() error = %v", err)
+	}
+	for _, prefix := range []string{"Crew", "Members"} {
+		statements := auditlog.SpannerDDL(prefix+"SessionAuditRecords", auditlog.KeepForever())
+		if len(statements) != 3 {
+			t.Fatalf("auditlog.SpannerDDL(%sSessionAuditRecords, KeepForever()) declares %d statements, want 3", prefix, len(statements))
+		}
+		for _, stmt := range statements {
+			if !strings.Contains(string(migration), stmt+";") {
+				t.Errorf("the migration does not carry the statement:\n%s", stmt)
+			}
+		}
+	}
+}
+
+// TestSessionRowDeletionPolicies pins the row deletion policy of each session table of
+// Lodestar's two auths that would otherwise keep every row ever written, as the generator
+// writes them for an auth.
+func TestSessionRowDeletionPolicies(t *testing.T) {
+	t.Parallel()
+
+	migration, err := os.ReadFile("../../schema/migrations/000001_Baseline.up.sql")
+	if err != nil {
+		t.Fatalf("os.ReadFile() error = %v", err)
+	}
+	for _, stmt := range []string{
+		"ALTER TABLE CrewSessions ADD ROW DELETION POLICY (OLDER_THAN(UpdatedAt, INTERVAL 30 DAY))",
+		"ALTER TABLE CrewSessionSignInAttempts ADD ROW DELETION POLICY (OLDER_THAN(EndsAt, INTERVAL 1 DAY))",
+		"ALTER TABLE CrewSessionMailLinks ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY))",
+		"ALTER TABLE CrewSessionTokens ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY))",
+		"ALTER TABLE CrewSessionTrustedDevices ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY))",
+		"ALTER TABLE CrewSessionDeviceCodes ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 1 DAY))",
+		"ALTER TABLE CrewSessionPendingSignIns ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 1 DAY))",
+		"ALTER TABLE MembersSessions ADD ROW DELETION POLICY (OLDER_THAN(UpdatedAt, INTERVAL 30 DAY))",
+		"ALTER TABLE MembersSessionSignInAttempts ADD ROW DELETION POLICY (OLDER_THAN(EndsAt, INTERVAL 1 DAY))",
+		"ALTER TABLE MembersSessionMailLinks ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY))",
+		"ALTER TABLE MembersSessionTrustedDevices ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY))",
+		"ALTER TABLE MembersSessionPendingSignIns ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 1 DAY))",
+	} {
 		if !strings.Contains(string(migration), stmt+";") {
 			t.Errorf("the migration does not carry the statement:\n%s", stmt)
 		}

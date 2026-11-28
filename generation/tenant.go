@@ -4,6 +4,7 @@ import (
 	"go/types"
 	"log"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/generation/parser"
 	"github.com/impulseframework/impulse/generation/parser/genlang"
+	"github.com/impulseframework/impulse/internal/words"
 )
 
 // The tenant record (@tenant) is the global, table-backed resource whose rows are the
@@ -133,7 +135,9 @@ const tenantNeeded = "a tenant-scoped resource needs a tenant record; annotate i
 // record known, the domain route segment is its route name and the domain route
 // parameter its key's route parameter (ToGoCamel(name+key)), the one chi wildcard name
 // the record's read route and the segment pair share at that tree position. The RPC
-// methods are extracted later and checked by requireTenantRecordForMethods.
+// methods are extracted later and checked by requireTenantRecordForMethods. A record
+// that marks no column saying a tenant is disabled (@tenantDisabled) is refused: every
+// tenant record carries one.
 func (r *resourceGenerator) resolveTenantRecord() error {
 	tenant := r.tenantRecord()
 	if tenant == nil {
@@ -153,6 +157,9 @@ func (r *resourceGenerator) resolveTenantRecord() error {
 		}
 
 		return nil
+	}
+	if tenant.TenantDisabledField == nil {
+		return errors.Newf("struct %s: the tenant record has no @%s column, and every tenant record carries one: a disabled tenant's people are shut out while its records stay, and a tenant is disabled before it is deleted. Add the column to the table (ALTER TABLE %s ADD COLUMN Disabled BOOL NOT NULL DEFAULT (FALSE)) and its field to the struct, annotated @%s (Disabled bool `spanner:\"Disabled\"`)", tenant.Name(), tenantDisabledKeyword, r.pluralize(tenant.Name()), tenantDisabledKeyword)
 	}
 
 	r.domainRouteSegment = strcase.ToKebab(r.pluralize(tenant.Name()))
@@ -190,14 +197,14 @@ func (r *resourceGenerator) tenantWord(tenant *resourceInfo) tenantWordData {
 }
 
 // screenWords spells a Go name as words with the first one capitalized: "ShipClass" is
-// "Ship class".
+// "Ship class". A plural acronym keeps its letters: "PilotIDs" is "Pilot IDs".
 func screenWords(name string) string {
-	words := strcase.ToCase(name, strcase.LowerCase, ' ')
-	if words == "" {
+	spelled := words.InWords(name)
+	if spelled == "" {
 		return ""
 	}
 
-	return strings.ToUpper(words[:1]) + words[1:]
+	return strings.ToUpper(spelled[:1]) + spelled[1:]
 }
 
 // requireTenantRecordForMethods is resolveTenantRecord's rule for the RPC methods, which
@@ -221,9 +228,20 @@ func (r *resourceGenerator) requireTenantRecordForMethods() error {
 	return nil
 }
 
+// declaresNoDirectories reports a tenant record of an application whose tenants have no
+// directories, as one package can know it: the record declares none (declaration is
+// nil) and its rows are made here, its patch handler not suppressed. A package that
+// declares the record another site serves suppresses the handler, and says nothing of
+// the application's directories, which are that site's to declare.
+func declaresNoDirectories(tenant *resourceInfo, declaration *tenantDeclarationColumns) bool {
+	return declaration == nil && !slices.Contains(tenant.SuppressedHandlers, PatchHandler)
+}
+
 // tenantsData feeds the handler package's tenants file: the record's roster constructor
-// and, where the record declares who may enter a tenant, the declaration's columns and
-// the sign-in policy's reader constructor.
+// and the sign-in policy's reader constructor, over the declaration's columns: the
+// directory-only switch and the directories where the record declares who may enter a
+// tenant, and the column that says a tenant is disabled, which every tenant record
+// carries, alone where the application's tenants have no directories (NoDirectories).
 type tenantsData struct {
 	Source  string
 	Package string
@@ -235,9 +253,12 @@ type tenantsData struct {
 	// RecordLower is the word for one of the record's rows in prose.
 	RecordLower string
 	// NameColumn is the record's @tenantName column the roster reads names from, and
-	// NameField its field; both empty where the record marks none.
-	NameColumn string
-	NameField  string
+	// NameField its field; both empty where the record marks none. NameNullable says the
+	// field is a pointer. The maker writes the name converted to a string: the field's
+	// type may be one named over a string.
+	NameColumn   string
+	NameField    string
+	NameNullable bool
 	// Declaration is the declaration's columns (resource.TenantDeclarationColumns), nil
 	// where the record declares none; Directories names the directories record and
 	// DefaultSeat its default seat field, empty where it carries none. Directory is the
@@ -245,9 +266,21 @@ type tenantsData struct {
 	// refusal of the directory's rules calls one tenant, and ResourcePackage the
 	// package of the record's create patch; all three are empty where the record
 	// declares none.
-	Declaration         *tenantDeclarationColumns
+	Declaration *tenantDeclarationColumns
+	// Disabled is the record's @tenantDisabled column and DisabledField its field. Where
+	// the record declares no directories, the declaration's variable names it alone, the
+	// roster reads it and, where the rows are made here, the reader reads it.
+	Disabled      string
+	DisabledField string
+	// NoDirectories reports a record that declares no directories and whose rows are
+	// made in this package (its patch handler is not suppressed): the application's
+	// tenants have no directories, and the file carries the reader that reads whether
+	// each tenant is disabled and nothing else. It is false for a record another site
+	// serves, declared here for its segment and its roster alone, which gets no reader.
+	NoDirectories       bool
 	Directories         string
 	DefaultSeat         string
+	SecondFactor        string
 	Directory           *tenantDirectoryWrite
 	Word                string
 	ResourcePackage     string
@@ -324,9 +357,15 @@ func (r *resourceGenerator) tenantMakerData(record *resourceInfo) *tenantMakerDa
 }
 
 // generateTenants emits the tenant record's roster constructor, New<Record>Roster, into
-// the handler package whenever the package declares a tenant record, and beside it,
-// when the record declares who may enter a tenant, New<Record>DeclarationReader, the
-// sign-in policy's reader of the declaration.
+// the handler package whenever the package declares a tenant record, and beside it
+// New<Record>DeclarationReader, the sign-in policy's reader of what a tenant declares
+// about who may enter it: the reader of the declaration when the record declares one,
+// and a reader of whether each tenant is disabled when it declares no directories and
+// its rows are made here, so every application with tenants hands its auths the same
+// constructor. A package that declares the record another site serves (its patch
+// handler suppressed) and no directories record gets no reader: the directories, where
+// the application has them, are that site's to declare, and its reader is the one the
+// auths are handed.
 func (r *resourceGenerator) generateTenants() error {
 	tenant := r.tenantRecord()
 	if tenant == nil {
@@ -337,14 +376,16 @@ func (r *resourceGenerator) generateTenants() error {
 	destinationFilePath := filepath.Join(r.handler.Dir(), generatedGoFileName(tenantRosterOutputName))
 
 	keyColumn, _ := tenant.PrimaryKey().LookupTag(spannerTagKey)
+	declaration := r.declarationColumns(tenant)
 	data := &tenantsData{
 		Source:              r.resource.Dir(),
 		Package:             r.handler.Package(),
 		Name:                tenant.Name(),
 		Table:               r.pluralize(tenant.Name()),
 		KeyColumn:           keyColumn,
-		RecordLower:         strings.ToLower(strcase.ToCase(tenant.Name(), strcase.LowerCase, ' ')),
-		Declaration:         r.declarationColumns(tenant),
+		RecordLower:         words.InWords(tenant.Name()),
+		Declaration:         declaration,
+		NoDirectories:       declaresNoDirectories(tenant, declaration),
 		LocalPackageImports: r.localPackageImports(),
 		RouterPackage:       r.router.Package(),
 		ApplicationName:     r.applicationName,
@@ -356,11 +397,17 @@ func (r *resourceGenerator) generateTenants() error {
 	if field := tenant.TenantNameField; field != nil {
 		data.NameColumn, _ = field.LookupTag(spannerTagKey)
 		data.NameField = field.Name()
+		data.NameNullable = strings.HasPrefix(field.Type(), "*")
 	}
+	data.Disabled = spannerColumn(tenant.TenantDisabledField)
+	data.DisabledField = tenant.TenantDisabledField.Name()
 	if tenant.HasDeclaration() {
 		data.Directories = tenant.declaration.Directories.Name()
 		if field := tenant.declaration.Directories.DirectoryDefaultSeatField; field != nil {
 			data.DefaultSeat = field.Name()
+		}
+		if field := tenant.declaration.Directories.DirectorySecondFactorField; field != nil {
+			data.SecondFactor = field.Name()
 		}
 		data.Directory = tenantDirectoryWriteData(tenant)
 		data.Word = r.directoryTenantWord(tenant)

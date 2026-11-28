@@ -15,6 +15,7 @@ CREATE TABLE "SessionImpersonations"
     "SourceSessionId" UUID,
     "PrincipalKind" character varying(16) NOT NULL,
     "PrincipalUserId" character varying,
+    "PrincipalUsername" character varying,
     "PrincipalRole" character varying,
     "Mask" character varying,
     "Reason" character varying,
@@ -33,5 +34,11 @@ CREATE INDEX "SessionImpersonations_ActorUsername_idx"
 CREATE INDEX "SessionImpersonations_PrincipalUserId_idx"
     ON "SessionImpersonations" USING btree
     ("PrincipalUserId" ASC, "StartedAt" DESC);
+
+-- Nothing in the session library reads this index. It is what lets a list of the records
+-- be filtered by the username of the person a session is held as.
+CREATE INDEX "SessionImpersonations_PrincipalUsername_idx"
+    ON "SessionImpersonations" USING btree
+    ("PrincipalUsername" ASC, "StartedAt" DESC);
 
 COMMIT;

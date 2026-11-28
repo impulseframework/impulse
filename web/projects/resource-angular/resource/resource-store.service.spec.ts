@@ -3,15 +3,14 @@ import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
 import { ColumnConfig, FieldName, RESOURCE_DOMAIN, rpcConfig } from '@impulseframework/resource-angular/types';
-import { ApiDescriptor, ApiError, createClient, Domain, Method, Resource, Transport, TransportRequest } from '@impulseframework/resource';
+import { ApiDescriptor, ApiError, createClient, Domain, Method, Resource, ResourceMeta, Transport, TransportRequest } from '@impulseframework/resource';
 import { firstValueFrom } from 'rxjs';
 import { ResourceStore } from './resource-store.service';
 
 // The store's whole-set funnel and the paged reader, on the read mode the descriptor's
 // maximum page size decides: a source with no maximum is read whole in one limit=all
-// request; a source with a maximum is read one server page at a time, looked up by
-// key in `in` batches no larger than its maximum, and never read whole. The requests
-// are pinned by URL against a scripted client.
+// request; a source with a maximum is read one server page at a time and never read
+// whole. The requests are pinned by URL against a scripted client.
 
 const descriptor: ApiDescriptor = {
   permissionDigestRoute: 'permission-digest',
@@ -171,45 +170,6 @@ describe('ResourceStore whole-set funnel', () => {
   }
 });
 
-describe('ResourceStore key lookup', () => {
-  it('reads a source with no maximum whole once and ignores the keys', async () => {
-    const script = scripted({ '/api/ship-classes?columns=id%2Cdesignation&limit=all': { rows: [{ id: 'c1', designation: 'Cutter' }, { id: 'c2', designation: 'Tug' }] } });
-    const store = storeOver(script);
-    const keys = signal(['c1']);
-    const ref = store.resourceListByKeys(signal('ship-classes'), signal('id'), keys, signal(['id', 'designation']));
-    await settle(() => ref.status() === 'resolved');
-    expect(ref.value()).toEqual([{ id: 'c1', designation: 'Cutter' }, { id: 'c2', designation: 'Tug' }] as never);
-
-    // Another page's keys ask nothing more: the whole list is already held.
-    keys.set(['c2']);
-    await settle(() => ref.status() === 'resolved');
-    expect(script.requests.map((r) => r.url)).toEqual(['/api/ship-classes?columns=id%2Cdesignation&limit=all']);
-  });
-
-  it('asks a source with a maximum for one in page per batch no larger than the maximum, never a whole read', async () => {
-    const first = '/api/sectors/anvil/hangars?filter=id%3Ain%3A%28h1%2Ch2%29&columns=id%2Cname&limit=2';
-    const second = '/api/sectors/anvil/hangars?filter=id%3Ain%3A%28h3%29&columns=id%2Cname&limit=1';
-    const script = scripted({
-      [first]: { rows: [{ id: 'h1', name: 'Anvil Dock One' }, { id: 'h2', name: 'Quarantine Bay' }] },
-      [second]: { rows: [{ id: 'h3', name: 'Bastion Slip' }] },
-    });
-    const store = storeOver(script);
-    const ref = store.resourceListByKeys(signal('sectors/{sectorID}/hangars'), signal('id'), signal(['h1', 'h2', 'h3']), signal(['id', 'name']), 200);
-    await settle(() => ref.status() === 'resolved');
-    expect(script.requests.map((r) => r.url).sort()).toEqual([first, second].sort());
-    expect((ref.value() as { id: string }[]).map((row) => row.id).sort()).toEqual(['h1', 'h2', 'h3']);
-  });
-
-  it('sorts a bounded source with no order by the key field, which its index serves', async () => {
-    const url = '/api/berths?filter=id%3Ain%3A%28b1%29&sort=id%3Aasc&columns=id%2Cname&limit=1';
-    const script = scripted({ [url]: { rows: [{ id: 'b1', name: 'Berth 1' }] } });
-    const store = storeOver(script);
-    const ref = store.resourceListByKeys(signal('berths'), signal('id'), signal(['b1']), signal(['id', 'name']));
-    await settle(() => ref.status() === 'resolved');
-    expect(script.requests.map((r) => r.url)).toEqual([url]);
-  });
-});
-
 describe('ResourceStore paged reader', () => {
   it('asks for the first page with its count and turns it by the server\'s relations', async () => {
     const first = '/api/sectors/anvil/hangars?columns=id%2Cname&count=true';
@@ -246,6 +206,60 @@ describe('ResourceStore paged reader', () => {
     expect(error instanceof ApiError && error.message).toBe('Berths serves at most 50 rows per page and declares no order; add a sort');
     expect(pager.rows()).toEqual([]);
     pager.destroy();
+  });
+});
+
+describe('ResourceStore list page', () => {
+  // A ship class's builder is a person, whose name the metadata marks PII; its yard's is not.
+  const shipClasses = {
+    route: 'ship-classes',
+    fields: [
+      { fieldName: 'id', displayType: 'uuid', required: false, isIndex: true, primaryKey: { ordinalPosition: 0 } },
+      { fieldName: 'builderId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'yardId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always' },
+    ],
+    nameFields: [
+      { fieldName: 'builderName', of: 'builderId', filterable: 'always', pii: true },
+      { fieldName: 'yardName', of: 'yardId', filterable: 'always' },
+    ],
+  } as ResourceMeta;
+
+  it('posts a column filter by a name field the metadata marks PII, and sends one by any other name field in the address', async () => {
+    const script = scripted({});
+    const store = storeOver(script);
+    store.resourceMeta.set(shipClasses);
+    store.resourceName.set('ShipClasses' as Resource);
+    store.listColumns.set([{ id: 'builderId' as FieldName }, { id: 'builderName' as FieldName, hidden: true }]);
+    store.buildStorePage();
+    await settle(() => script.requests.length > 0);
+
+    store.columnFilters.set([{ field: 'yardName', operator: 'eq', value: 'Clyde' }]);
+    await settle(() => script.requests.length > 1);
+    expect(`${script.requests.at(-1)?.method} ${script.requests.at(-1)?.url}`).toBe(
+      'GET /api/ship-classes?filter=yardName%3Aeq%3AClyde&columns=builderId%2CbuilderName%2Cid&count=true',
+    );
+
+    store.columnFilters.set([{ field: 'builderName', operator: 'eq', value: 'Ada' }]);
+    await settle(() => script.requests.length > 2);
+    expect(`${script.requests.at(-1)?.method} ${script.requests.at(-1)?.url}`).toBe(
+      'POST /api/ship-classes?columns=builderId%2CbuilderName%2Cid&count=true',
+    );
+    expect(script.requests.at(-1)?.body).toEqual({ filter: 'builderName:eq:Ada' });
+  });
+
+  it('posts a read beside the page whose filter names a name field the metadata marks PII', async () => {
+    const script = scripted({});
+    const store = storeOver(script);
+    store.resourceMeta.set(shipClasses);
+    store.resourceName.set('ShipClasses' as Resource);
+
+    await store
+      .rowsBesidePage({ condition: 'builderName:eq:Ada', columns: ['id'], sorts: [], limit: 5 })
+      .catch(() => undefined);
+    expect(`${script.requests.at(-1)?.method} ${script.requests.at(-1)?.url}`).toBe(
+      'POST /api/ship-classes?columns=id&limit=5',
+    );
+    expect(script.requests.at(-1)?.body).toEqual({ filter: 'builderName:eq:Ada' });
   });
 });
 
@@ -376,8 +390,6 @@ describe('ResourceStore tenant scoping', () => {
   const shipClassPaged = '/api/ship-classes?columns=id%2Cdesignation&count=true';
   const anvilHangarPaged = '/api/sectors/anvil/hangars?columns=id%2Cname&count=true';
   const bastionHangarPaged = '/api/sectors/bastion/hangars?columns=id%2Cname&count=true';
-  const anvilHangarKeys = '/api/sectors/anvil/hangars?filter=id%3Ain%3A%28h1%29&columns=id%2Cname&limit=1';
-  const bastionHangarKeys = '/api/sectors/bastion/hangars?filter=id%3Ain%3A%28h1%29&columns=id%2Cname&limit=1';
 
   /** The store's list page over one resource, as the list component wires it. */
   const listPage = (store: ResourceStore, name: string, route: string, column: string): (() => boolean) => {
@@ -471,26 +483,6 @@ describe('ResourceStore tenant scoping', () => {
       },
       wantFirst: [anvilHangarPaged],
       wantAfter: [anvilHangarPaged, bastionHangarPaged],
-    },
-    {
-      name: 'the key lookup over a global resource reads once across a change of the tenant',
-      script: { [shipClassList]: [] },
-      build: (store) => {
-        const ref = store.resourceListByKeys(signal('ship-classes'), signal('id'), signal(['c1']), signal(['id', 'designation']));
-        return { settled: () => ref.status() === 'resolved' };
-      },
-      wantFirst: [shipClassList],
-      wantAfter: [shipClassList],
-    },
-    {
-      name: 'the key lookup over a domain-scoped resource reads again, naming the new tenant',
-      script: { [anvilHangarKeys]: [], [bastionHangarKeys]: [] },
-      build: (store) => {
-        const ref = store.resourceListByKeys(signal(hangars), signal('id'), signal(['h1']), signal(['id', 'name']));
-        return { settled: () => ref.status() === 'resolved' };
-      },
-      wantFirst: [anvilHangarKeys],
-      wantAfter: [anvilHangarKeys, bastionHangarKeys],
     },
   ];
 

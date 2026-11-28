@@ -11,14 +11,17 @@ import (
 
 type (
 	// MembersSession is one session of the Members auth: a row of
-	// MembersSessions, the session library's sessions table. A session ends by
-	// its Expired column; the rows are never deleted.
+	// MembersSessions, the session library's sessions table. A session is ended by
+	// its Expired column, and the session library removes a row 30 days after the session
+	// was last used. A page lists the sessions from MembersListedSession, which also says
+	// whether each is live.
 	//
 	// @resource
 	// @suppress(patchHandler)
 	// @outlet(portal)
 	// @order(CreatedAt desc)
 	// @page(default: 25, max: 200)
+	// @rowWord(session)
 	MembersSession struct {
 		ID              impulse.UUID  `spanner:"Id"`
 		UserID          *impulse.UUID `spanner:"UserId"`

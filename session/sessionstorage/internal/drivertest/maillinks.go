@@ -13,6 +13,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/session/sessioninfo"
@@ -47,7 +48,7 @@ func insertInvitation(ctx context.Context, t *testing.T, d AuthDriver, email, te
 
 	link := newMailLink(dbtype.MailLinkInvitation, email, hash)
 	link.TenantID, link.RoleNames = tenant, roles
-	if err := d.InsertMailLink(ctx, link); err != nil {
+	if err := d.InsertMailLink(ctx, link, nil); err != nil {
 		t.Fatalf("InsertMailLink() error = %v", err)
 	}
 
@@ -56,7 +57,59 @@ func insertInvitation(ctx context.Context, t *testing.T, d AuthDriver, email, te
 
 // invitationOf is the invitation a sign-in carries for link.
 func invitationOf(link *dbtype.MailLink) *sessioninfo.Invitation {
-	return &sessioninfo.Invitation{ID: link.ID, Email: link.Email, TenantID: link.TenantID, RoleNames: link.RoleNames, InvitedByUserID: link.InvitedByUserID, ExpiresAt: link.ExpiresAt, NewTenant: link.NewTenant}
+	return &sessioninfo.Invitation{
+		ID: link.ID, Email: link.Email, TenantID: link.TenantID, EveryTenant: link.EveryTenant, RoleNames: link.RoleNames, InvitedByUserID: link.InvitedByUserID,
+		ExpiresAt: link.ExpiresAt, NewTenant: link.NewTenant,
+	}
+}
+
+// testInvitationPlaceRoundTrip pins, on every backend, that an invitation's row keeps
+// the place its roles are held in: one tenant, every tenant, or neither, which is the
+// application's global surface. The acceptance gives each role in that place and
+// nowhere else, so a backend that dropped the mark for every tenant would turn such an
+// invitation into one for the global surface. Every other kind of link reads false.
+func testInvitationPlaceRoundTrip(ctx context.Context, t *testing.T, h *AuthHarness) {
+	in := h.New(ctx, t, Auth, AuthConfig{Auth: true})
+
+	inTenant := insertInvitation(ctx, t, in.Driver, "alex@lakeside.edu", "lakeside", []string{"Teacher"}, tokenHash(1))
+	everyTenant := newMailLink(dbtype.MailLinkInvitation, "sam@lakeside.edu", tokenHash(2))
+	everyTenant.EveryTenant, everyTenant.RoleNames = true, []string{"Reader"}
+	if err := in.Driver.InsertMailLink(ctx, everyTenant, nil); err != nil {
+		t.Fatalf("InsertMailLink() error = %v", err)
+	}
+	global := insertInvitation(ctx, t, in.Driver, "pat@lakeside.edu", "", []string{"Reader"}, tokenHash(3))
+	signUp := newMailLink(dbtype.MailLinkSignUp, "lee@lakeside.edu", tokenHash(4))
+	if err := in.Driver.InsertMailLink(ctx, signUp, nil); err != nil {
+		t.Fatalf("InsertMailLink() error = %v", err)
+	}
+
+	places := []struct {
+		link        *dbtype.MailLink
+		tenantID    string
+		everyTenant bool
+	}{
+		{link: inTenant, tenantID: "lakeside"},
+		{link: everyTenant, everyTenant: true},
+		{link: global},
+		{link: signUp},
+	}
+	for _, tt := range places {
+		got, err := in.Driver.MailLinkByToken(ctx, tt.link.TokenHash, time.Now())
+		if err != nil {
+			t.Fatalf("MailLinkByToken(%s) error = %v", tt.link.Email, err)
+		}
+		if got.TenantID != tt.tenantID || got.EveryTenant != tt.everyTenant {
+			t.Errorf("MailLinkByToken(%s) holds its roles in tenant %q, every tenant %t; want tenant %q, every tenant %t", tt.link.Email, got.TenantID, got.EveryTenant, tt.tenantID, tt.everyTenant)
+		}
+	}
+
+	live, err := in.Driver.LiveMailLinks(ctx, dbtype.MailLinkInvitation, time.Now())
+	if err != nil {
+		t.Fatalf("LiveMailLinks() error = %v", err)
+	}
+	if diff := cmp.Diff([]*dbtype.MailLink{inTenant, everyTenant, global}, live, mailLinkOpts); diff != "" {
+		t.Errorf("LiveMailLinks() mismatch (-want +got):\n%s", diff)
+	}
 }
 
 // acceptances records what the invitation acceptor was handed, the way an application
@@ -166,18 +219,18 @@ func testUserEmail(ctx context.Context, t *testing.T, h *AuthHarness) {
 
 	// An entry by hand reserves an address, unverified; one another user holds is
 	// refused; nil takes it off; an unknown user is NotFound.
-	if err := in.Driver.SetUserEmail(ctx, alex.ID, strPtr("alex@lakeside.edu")); err != nil {
+	if err := in.Driver.SetUserEmail(ctx, alex.ID, strPtr("alex@lakeside.edu"), nil); err != nil {
 		t.Fatalf("SetUserEmail() error = %v", err)
 	}
 	assertEmail(t, "User() after SetUserEmail()", mustUser(ctx, t, in.Driver, alex.ID), strPtr("alex@lakeside.edu"), false)
-	if err := in.Driver.SetUserEmail(ctx, alex.ID, strPtr("pat.lee@lakeside.edu")); !httpio.HasConflict(err) {
+	if err := in.Driver.SetUserEmail(ctx, alex.ID, strPtr("pat.lee@lakeside.edu"), nil); !httpio.HasConflict(err) {
 		t.Errorf("SetUserEmail() to an address another user holds error = %v, want Conflict", err)
 	}
-	if err := in.Driver.SetUserEmail(ctx, alex.ID, nil); err != nil {
+	if err := in.Driver.SetUserEmail(ctx, alex.ID, nil, nil); err != nil {
 		t.Fatalf("SetUserEmail(nil) error = %v", err)
 	}
 	assertEmail(t, "User() after SetUserEmail(nil)", mustUser(ctx, t, in.Driver, alex.ID), nil, false)
-	if err := in.Driver.SetUserEmail(ctx, impulse.Must(impulse.NewUUID()), strPtr("x@lakeside.edu")); !httpio.HasNotFound(err) {
+	if err := in.Driver.SetUserEmail(ctx, impulse.Must(impulse.NewUUID()), strPtr("x@lakeside.edu"), nil); !httpio.HasNotFound(err) {
 		t.Errorf("SetUserEmail() of an unknown user error = %v, want NotFound", err)
 	}
 
@@ -244,7 +297,7 @@ func testUserEmailVerified(ctx context.Context, t *testing.T, h *AuthHarness) {
 	}
 
 	// An entry by hand over a verified address leaves it unverified: the operator typed it.
-	if err := in.Driver.SetUserEmail(ctx, alex.ID, strPtr("alex.new@lakeside.edu")); err != nil {
+	if err := in.Driver.SetUserEmail(ctx, alex.ID, strPtr("alex.new@lakeside.edu"), nil); err != nil {
 		t.Fatalf("SetUserEmail() error = %v", err)
 	}
 	assertEmail(t, "User() after SetUserEmail() over a verified address", mustUser(ctx, t, in.Driver, alex.ID), strPtr("alex.new@lakeside.edu"), false)
@@ -260,30 +313,30 @@ func testClaimVerifiedEmail(ctx context.Context, t *testing.T, h *AuthHarness) {
 	sam := createUser(ctx, t, in.Driver, "sam")
 
 	// A user without an address takes the method's verified one.
-	if claimed, err := in.Driver.ClaimVerifiedEmail(ctx, pat.ID, "pat@lakeside.edu"); err != nil || !claimed {
+	if claimed, err := in.Driver.ClaimVerifiedEmail(ctx, pat.ID, "pat@lakeside.edu", nil); err != nil || !claimed {
 		t.Fatalf("ClaimVerifiedEmail() = %v, %v; want claimed", claimed, err)
 	}
 	assertEmail(t, "User() after the claim", mustUser(ctx, t, in.Driver, pat.ID), strPtr("pat@lakeside.edu"), true)
 
 	// A verified address stays: another claim changes nothing.
-	if claimed, err := in.Driver.ClaimVerifiedEmail(ctx, pat.ID, "other@lakeside.edu"); err != nil || claimed {
+	if claimed, err := in.Driver.ClaimVerifiedEmail(ctx, pat.ID, "other@lakeside.edu", nil); err != nil || claimed {
 		t.Errorf("ClaimVerifiedEmail() over a verified address = %v, %v; want not claimed", claimed, err)
 	}
 	assertEmail(t, "User() after the second claim", mustUser(ctx, t, in.Driver, pat.ID), strPtr("pat@lakeside.edu"), true)
 
 	// An address another user holds, even unverified, is never taken.
-	if claimed, err := in.Driver.ClaimVerifiedEmail(ctx, sam.ID, "ALEX@lakeside.edu"); err != nil || claimed {
+	if claimed, err := in.Driver.ClaimVerifiedEmail(ctx, sam.ID, "ALEX@lakeside.edu", nil); err != nil || claimed {
 		t.Errorf("ClaimVerifiedEmail() of another user's address = %v, %v; want not claimed", claimed, err)
 	}
 	assertEmail(t, "User() of the claimer", mustUser(ctx, t, in.Driver, sam.ID), nil, false)
 	assertEmail(t, "User() of the holder", mustUser(ctx, t, in.Driver, alex.ID), strPtr("alex@lakeside.edu"), false)
 
 	// The holder's own unverified address is verified by the claim.
-	if claimed, err := in.Driver.ClaimVerifiedEmail(ctx, alex.ID, "alex@lakeside.edu"); err != nil || !claimed {
+	if claimed, err := in.Driver.ClaimVerifiedEmail(ctx, alex.ID, "alex@lakeside.edu", nil); err != nil || !claimed {
 		t.Errorf("ClaimVerifiedEmail() of the user's own reserved address = %v, %v; want claimed", claimed, err)
 	}
 	assertEmail(t, "User() after the holder's claim", mustUser(ctx, t, in.Driver, alex.ID), strPtr("alex@lakeside.edu"), true)
-	if claimed, err := in.Driver.ClaimVerifiedEmail(ctx, impulse.Must(impulse.NewUUID()), "x@lakeside.edu"); err != nil || claimed {
+	if claimed, err := in.Driver.ClaimVerifiedEmail(ctx, impulse.Must(impulse.NewUUID()), "x@lakeside.edu", nil); err != nil || claimed {
 		t.Errorf("ClaimVerifiedEmail() of an unknown user = %v, %v; want not claimed and no error", claimed, err)
 	}
 }
@@ -307,10 +360,10 @@ func testUsernameIsEmail(ctx context.Context, t *testing.T, h *AuthHarness) {
 	assertEmail(t, "CreateUser() verified", alex, strPtr("alex@lakeside.edu"), true)
 
 	// A rename and an entry by hand are refused: the address changes through a link.
-	if err := in.Driver.SetUserUsername(ctx, pat.ID, "patricia@lakeside.edu"); !httpio.HasConflict(err) {
+	if err := in.Driver.SetUserUsername(ctx, pat.ID, "patricia@lakeside.edu", nil); !httpio.HasConflict(err) {
 		t.Errorf("SetUserUsername() error = %v, want Conflict", err)
 	}
-	if err := in.Driver.SetUserEmail(ctx, pat.ID, strPtr("patricia@lakeside.edu")); !httpio.HasConflict(err) {
+	if err := in.Driver.SetUserEmail(ctx, pat.ID, strPtr("patricia@lakeside.edu"), nil); !httpio.HasConflict(err) {
 		t.Errorf("SetUserEmail() error = %v, want Conflict", err)
 	}
 
@@ -339,13 +392,21 @@ func testUsernameIsEmail(ctx context.Context, t *testing.T, h *AuthHarness) {
 
 	// A method's verified address is claimed only when it is the username.
 	sam := createUser(ctx, t, in.Driver, "sam@lakeside.edu")
-	if claimed, err := in.Driver.ClaimVerifiedEmail(ctx, sam.ID, "other@lakeside.edu"); err != nil || claimed {
+	if claimed, err := in.Driver.ClaimVerifiedEmail(ctx, sam.ID, "other@lakeside.edu", nil); err != nil || claimed {
 		t.Errorf("ClaimVerifiedEmail() of an address that is not the username = %v, %v; want not claimed", claimed, err)
 	}
-	if claimed, err := in.Driver.ClaimVerifiedEmail(ctx, sam.ID, "SAM@lakeside.edu"); err != nil || !claimed {
+	// The claim writes only that the address is confirmed, so the account keeps its own
+	// spelling, and the claim's row says the address confirmed, not changed, whatever the
+	// case the method spelled it in.
+	vouched := accountRow(auditlog.ActAddressChanged, sam)
+	vouched.NewValue = "SAM@lakeside.edu"
+	if claimed, err := in.Driver.ClaimVerifiedEmail(ctx, sam.ID, "SAM@lakeside.edu", vouched); err != nil || !claimed {
 		t.Errorf("ClaimVerifiedEmail() of the username = %v, %v; want claimed", claimed, err)
 	}
 	assertEmail(t, "User() after the claim", mustUser(ctx, t, in.Driver, sam.ID), strPtr("sam@lakeside.edu"), true)
+	confirmed := *vouched
+	confirmed.OldValue, confirmed.NewValue = "sam@lakeside.edu", "sam@lakeside.edu"
+	wantAuditRows(ctx, t, h, in, "ClaimVerifiedEmail() of the username spelled otherwise", &confirmed)
 }
 
 func testMailLinkRoundTrip(ctx context.Context, t *testing.T, h *AuthHarness) {
@@ -361,6 +422,10 @@ func testMailLinkRoundTrip(ctx context.Context, t *testing.T, h *AuthHarness) {
 	signUp := newMailLink(dbtype.MailLinkSignUp, "someone@example.com", tokenHash(3))
 	firstPassword := newMailLink(dbtype.MailLinkFirstPassword, "pat@lakeside.edu", tokenHash(5))
 	firstPassword.UserID = impulse.NullUUIDFromUUID(user.ID)
+	passwordReset := newMailLink(dbtype.MailLinkPasswordReset, "pat@lakeside.edu", tokenHash(6))
+	passwordReset.UserID = impulse.NullUUIDFromUUID(user.ID)
+	addressChange := newMailLink(dbtype.MailLinkAddressChange, "pat.new@lakeside.edu", tokenHash(7))
+	addressChange.UserID = impulse.NullUUIDFromUUID(user.ID)
 
 	for _, tt := range []struct {
 		name string
@@ -370,10 +435,12 @@ func testMailLinkRoundTrip(ctx context.Context, t *testing.T, h *AuthHarness) {
 		{name: "a verification of an address for a user", link: verification},
 		{name: "a sign-up", link: signUp},
 		{name: "the code of a first password for a user", link: firstPassword},
+		{name: "a password reset for a user, at the address it was mailed to", link: passwordReset},
+		{name: "an address an administrator asked to put on a user", link: addressChange},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			w := startWindow(h.ClockLead)
-			if err := in.Driver.InsertMailLink(ctx, tt.link); err != nil {
+			if err := in.Driver.InsertMailLink(ctx, tt.link, nil); err != nil {
 				t.Fatalf("InsertMailLink() error = %v", err)
 			}
 			w.done()
@@ -394,7 +461,7 @@ func testMailLinkRoundTrip(ctx context.Context, t *testing.T, h *AuthHarness) {
 	if _, err := in.Driver.MailLinkByToken(ctx, tokenHash(9), time.Now()); !httpio.HasNotFound(err) {
 		t.Errorf("MailLinkByToken() of an unknown token error = %v, want NotFound", err)
 	}
-	if err := in.Driver.InsertMailLink(ctx, newMailLink("reminder", "x@lakeside.edu", tokenHash(4))); err == nil {
+	if err := in.Driver.InsertMailLink(ctx, newMailLink("reminder", "x@lakeside.edu", tokenHash(4)), nil); err == nil {
 		t.Error("InsertMailLink() of an unknown kind error = nil, want a refusal")
 	}
 }
@@ -405,7 +472,7 @@ func testMailLinkConsumedOnce(ctx context.Context, t *testing.T, h *AuthHarness)
 	second := insertInvitation(ctx, t, in.Driver, "second@lakeside.edu", "", []string{"Admin"}, tokenHash(2))
 	verification := newMailLink(dbtype.MailLinkVerification, "pat@lakeside.edu", tokenHash(3))
 	verification.UserID = impulse.NullUUIDFromUUID(createUser(ctx, t, in.Driver, "pat").ID)
-	if err := in.Driver.InsertMailLink(ctx, verification); err != nil {
+	if err := in.Driver.InsertMailLink(ctx, verification, nil); err != nil {
 		t.Fatalf("InsertMailLink() error = %v", err)
 	}
 
@@ -434,13 +501,13 @@ func testMailLinkConsumedOnce(ctx context.Context, t *testing.T, h *AuthHarness)
 	}
 
 	// Revoked by id, once.
-	if err := in.Driver.RevokeMailLink(ctx, second.ID, time.Now()); err != nil {
+	if err := in.Driver.RevokeMailLink(ctx, second.ID, time.Now(), nil); err != nil {
 		t.Fatalf("RevokeMailLink() error = %v", err)
 	}
-	if err := in.Driver.RevokeMailLink(ctx, second.ID, time.Now()); !httpio.HasNotFound(err) {
+	if err := in.Driver.RevokeMailLink(ctx, second.ID, time.Now(), nil); !httpio.HasNotFound(err) {
 		t.Errorf("second RevokeMailLink() error = %v, want NotFound", err)
 	}
-	if err := in.Driver.RevokeMailLink(ctx, impulse.Must(impulse.NewUUID()), time.Now()); !httpio.HasNotFound(err) {
+	if err := in.Driver.RevokeMailLink(ctx, impulse.Must(impulse.NewUUID()), time.Now(), nil); !httpio.HasNotFound(err) {
 		t.Errorf("RevokeMailLink() of an unknown id error = %v, want NotFound", err)
 	}
 	if live, err := in.Driver.LiveMailLinks(ctx, dbtype.MailLinkInvitation, time.Now()); err != nil || len(live) != 0 {
@@ -448,6 +515,123 @@ func testMailLinkConsumedOnce(ctx context.Context, t *testing.T, h *AuthHarness)
 	}
 	if live, err := in.Driver.LiveMailLinks(ctx, dbtype.MailLinkVerification, time.Now()); err != nil || len(live) != 1 {
 		t.Errorf("LiveMailLinks() of verifications = %v, %v; want the one", live, err)
+	}
+}
+
+func testMailLinkMailFailed(ctx context.Context, t *testing.T, h *AuthHarness) {
+	in := h.New(ctx, t, Auth, AuthConfig{Auth: true})
+	unmailed := insertInvitation(ctx, t, in.Driver, "unmailed@lakeside.edu", "lakeside", nil, tokenHash(1))
+	withdrawn := insertInvitation(ctx, t, in.Driver, "withdrawn@lakeside.edu", "lakeside", nil, tokenHash(2))
+	followed := insertInvitation(ctx, t, in.Driver, "followed@lakeside.edu", "lakeside", nil, tokenHash(3))
+	expired := insertInvitation(ctx, t, in.Driver, "expired@lakeside.edu", "lakeside", nil, tokenHash(4))
+
+	// A standing link says nothing of its mail.
+	if failedAt := h.MailLinkMailFailedAt(ctx, t, in.Raw, unmailed.TokenHash); failedAt != nil {
+		t.Errorf("MailFailedAt of a standing link = %v, want nil", failedAt)
+	}
+
+	// The link whose message could not be mailed is ended and says so, in one write at
+	// the database's time.
+	w := startWindow(h.ClockLead)
+	if err := in.Driver.FailMailLink(ctx, unmailed.ID, time.Now()); err != nil {
+		t.Fatalf("FailMailLink() error = %v", err)
+	}
+	w.done()
+	failedAt, consumedAt := h.MailLinkMailFailedAt(ctx, t, in.Raw, unmailed.TokenHash), h.MailLinkConsumedAt(ctx, t, in.Raw, unmailed.TokenHash)
+	if failedAt == nil || consumedAt == nil {
+		t.Fatalf("MailFailedAt, ConsumedAt after FailMailLink() = %v, %v; want the database's time in both", failedAt, consumedAt)
+	}
+	w.assertStamped(t, "MailFailedAt", *failedAt)
+	if !failedAt.Equal(*consumedAt) {
+		t.Errorf("MailFailedAt = %v and ConsumedAt = %v, want one time: one write stamps both", failedAt, consumedAt)
+	}
+	if _, err := in.Driver.MailLinkByToken(ctx, unmailed.TokenHash, time.Now()); !httpio.HasNotFound(err) {
+		t.Errorf("MailLinkByToken() of a link that could not be mailed error = %v, want NotFound", err)
+	}
+
+	// Once: a link that ended is not ended again, and neither is one nobody stored or
+	// one that has expired.
+	if err := in.Driver.FailMailLink(ctx, unmailed.ID, time.Now()); !httpio.HasNotFound(err) {
+		t.Errorf("second FailMailLink() error = %v, want NotFound", err)
+	}
+	if err := in.Driver.FailMailLink(ctx, impulse.Must(impulse.NewUUID()), time.Now()); !httpio.HasNotFound(err) {
+		t.Errorf("FailMailLink() of an unknown id error = %v, want NotFound", err)
+	}
+	if err := in.Driver.FailMailLink(ctx, expired.ID, expired.ExpiresAt.Add(time.Second)); !httpio.HasNotFound(err) {
+		t.Errorf("FailMailLink() after expiry error = %v, want NotFound", err)
+	}
+
+	// A link withdrawn by hand and one that was followed are consumed and say nothing
+	// of their mail, and neither is marked afterwards.
+	if err := in.Driver.RevokeMailLink(ctx, withdrawn.ID, time.Now(), nil); err != nil {
+		t.Fatalf("RevokeMailLink() error = %v", err)
+	}
+	if err := in.Driver.ConsumeMailLink(ctx, followed.TokenHash, time.Now()); err != nil {
+		t.Fatalf("ConsumeMailLink() error = %v", err)
+	}
+	for _, link := range []*dbtype.MailLink{withdrawn, followed, expired} {
+		if err := in.Driver.FailMailLink(ctx, link.ID, time.Now().Add(365*24*time.Hour)); !httpio.HasNotFound(err) {
+			t.Errorf("FailMailLink() of the link to %s, which is not live, error = %v, want NotFound", link.Email, err)
+		}
+		if failedAt := h.MailLinkMailFailedAt(ctx, t, in.Raw, link.TokenHash); failedAt != nil {
+			t.Errorf("MailFailedAt of the link to %s = %v, want nil: its mail did not fail", link.Email, failedAt)
+		}
+	}
+}
+
+func testMailLinkWithdrawn(ctx context.Context, t *testing.T, h *AuthHarness) {
+	in := h.New(ctx, t, Auth, AuthConfig{Auth: true})
+	withdrawn := insertInvitation(ctx, t, in.Driver, "withdrawn@lakeside.edu", "lakeside", nil, tokenHash(1))
+	followed := insertInvitation(ctx, t, in.Driver, "followed@lakeside.edu", "lakeside", nil, tokenHash(2))
+	unmailed := insertInvitation(ctx, t, in.Driver, "unmailed@lakeside.edu", "lakeside", nil, tokenHash(3))
+
+	// A standing link says nothing of a withdrawal.
+	if withdrawnAt := h.MailLinkWithdrawnAt(ctx, t, in.Raw, withdrawn.TokenHash); withdrawnAt != nil {
+		t.Errorf("WithdrawnAt of a standing link = %v, want nil", withdrawnAt)
+	}
+
+	// The link taken back is consumed and marked withdrawn, in one write at the
+	// database's time.
+	w := startWindow(h.ClockLead)
+	if err := in.Driver.RevokeMailLink(ctx, withdrawn.ID, time.Now(), nil); err != nil {
+		t.Fatalf("RevokeMailLink() error = %v", err)
+	}
+	w.done()
+	withdrawnAt, consumedAt := h.MailLinkWithdrawnAt(ctx, t, in.Raw, withdrawn.TokenHash), h.MailLinkConsumedAt(ctx, t, in.Raw, withdrawn.TokenHash)
+	if withdrawnAt == nil || consumedAt == nil {
+		t.Fatalf("WithdrawnAt, ConsumedAt after RevokeMailLink() = %v, %v; want the database's time in both", withdrawnAt, consumedAt)
+	}
+	w.assertStamped(t, "WithdrawnAt", *withdrawnAt)
+	if !withdrawnAt.Equal(*consumedAt) {
+		t.Errorf("WithdrawnAt = %v and ConsumedAt = %v, want one time: one write stamps both", withdrawnAt, consumedAt)
+	}
+
+	// Once: a second withdrawal is NotFound and moves neither time.
+	if err := in.Driver.RevokeMailLink(ctx, withdrawn.ID, time.Now(), nil); !httpio.HasNotFound(err) {
+		t.Errorf("second RevokeMailLink() error = %v, want NotFound", err)
+	}
+	if again := h.MailLinkWithdrawnAt(ctx, t, in.Raw, withdrawn.TokenHash); again == nil || !again.Equal(*withdrawnAt) {
+		t.Errorf("WithdrawnAt after a second RevokeMailLink() = %v, want %v unchanged", again, withdrawnAt)
+	}
+	if again := h.MailLinkConsumedAt(ctx, t, in.Raw, withdrawn.TokenHash); again == nil || !again.Equal(*consumedAt) {
+		t.Errorf("ConsumedAt after a second RevokeMailLink() = %v, want %v unchanged", again, consumedAt)
+	}
+
+	// A link that was followed and one whose message could not be mailed are ended and
+	// say nothing of a withdrawal.
+	if err := in.Driver.ConsumeMailLink(ctx, followed.TokenHash, time.Now()); err != nil {
+		t.Fatalf("ConsumeMailLink() error = %v", err)
+	}
+	if err := in.Driver.FailMailLink(ctx, unmailed.ID, time.Now()); err != nil {
+		t.Fatalf("FailMailLink() error = %v", err)
+	}
+	for _, link := range []*dbtype.MailLink{followed, unmailed} {
+		if h.MailLinkConsumedAt(ctx, t, in.Raw, link.TokenHash) == nil {
+			t.Errorf("ConsumedAt of the link to %s = nil, want the time it ended", link.Email)
+		}
+		if withdrawnAt := h.MailLinkWithdrawnAt(ctx, t, in.Raw, link.TokenHash); withdrawnAt != nil {
+			t.Errorf("WithdrawnAt of the link to %s = %v, want nil: it was not taken back", link.Email, withdrawnAt)
+		}
 	}
 }
 
@@ -462,7 +646,7 @@ func testMailLinkExpired(ctx context.Context, t *testing.T, h *AuthHarness) {
 	if err := in.Driver.ConsumeMailLink(ctx, link.TokenHash, later); !httpio.HasNotFound(err) {
 		t.Errorf("ConsumeMailLink() after expiry error = %v, want NotFound", err)
 	}
-	if err := in.Driver.RevokeMailLink(ctx, link.ID, later); !httpio.HasNotFound(err) {
+	if err := in.Driver.RevokeMailLink(ctx, link.ID, later, nil); !httpio.HasNotFound(err) {
 		t.Errorf("RevokeMailLink() after expiry error = %v, want NotFound", err)
 	}
 	if live, err := in.Driver.LiveMailLinks(ctx, dbtype.MailLinkInvitation, later); err != nil || len(live) != 0 {
@@ -479,12 +663,12 @@ func testMailLinkCascade(ctx context.Context, t *testing.T, h *AuthHarness) {
 	gone := createUser(ctx, t, in.Driver, "gone@lakeside.edu")
 	verification := newMailLink(dbtype.MailLinkVerification, "gone.new@lakeside.edu", tokenHash(1))
 	verification.UserID = impulse.NullUUIDFromUUID(gone.ID)
-	if err := in.Driver.InsertMailLink(ctx, verification); err != nil {
+	if err := in.Driver.InsertMailLink(ctx, verification, nil); err != nil {
 		t.Fatalf("InsertMailLink() error = %v", err)
 	}
 	invitation := insertInvitation(ctx, t, in.Driver, "other@lakeside.edu", "", nil, tokenHash(2))
 
-	if err := in.Driver.DeleteUser(ctx, gone.ID); err != nil {
+	if err := in.Driver.DeleteUser(ctx, gone.ID, nil); err != nil {
 		t.Fatalf("DeleteUser() error = %v", err)
 	}
 	if _, err := in.Driver.MailLinkByToken(ctx, verification.TokenHash, time.Now()); !httpio.HasNotFound(err) {
@@ -662,7 +846,7 @@ func testInvitationKeptOnRefusal(ctx context.Context, t *testing.T, h *AuthHarne
 	gone := createUser(ctx, t, disabled.Driver, "gone@lakeside.edu")
 	goneIdentity := entra("oid-gone", "gone@lakeside.edu")
 	mustLink(ctx, t, disabled.Driver, gone.ID, goneIdentity)
-	if err := disabled.Driver.DeactivateUser(ctx, gone.ID); err != nil {
+	if err := disabled.Driver.DeactivateUser(ctx, gone.ID, nil); err != nil {
 		t.Fatalf("DeactivateUser() error = %v", err)
 	}
 	link = insertInvitation(ctx, t, disabled.Driver, "gone@lakeside.edu", "", []string{"Admin"}, tokenHash(4))
@@ -788,22 +972,22 @@ func testInvitationHookFails(ctx context.Context, t *testing.T, h *AuthHarness) 
 	assertNothingGiven(ctx, t, h, in, acceptor, err, failure, alexLink, alexReq.Invitation)
 	assertEmail(t, "the linked user after the acceptor failed", mustUser(ctx, t, in.Driver, alex.ID), nil, false)
 
-	// A password sign-in, whose acceptance has a transaction of its own: the sign-in
-	// ends with the acceptor's error instead of going on as it does past a dead
-	// invitation, and the same by hand, for a person already signed in.
+	// A password sign-in that carries the code mailed to the invited address, whose
+	// acceptance has a transaction of its own: the sign-in ends with the acceptor's
+	// error instead of going on as it does past a dead invitation, and the address the
+	// acceptance would have written on the account is not written. The same by hand,
+	// for a person signed in whose account holds the invited address confirmed.
 	sam := passwordUser(ctx, t, in.Driver, "sam")
 	samLink := insertInvitation(ctx, t, in.Driver, "sam@lakeside.edu", "lakeside", []string{"Coach"}, tokenHash(3))
-	samReq := &sessioninfo.NewSessionRequest{
-		Reason: sessioninfo.ReasonLogin, Username: sam.Username, UserID: sam.ID,
-		Identity: &sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: sam.ID.String()}, Invitation: invitationOf(samLink),
-	}
+	samReq := invitedPasswordSignIn(sam, samLink, true)
 	err = signInRequest(ctx, in, samReq)
 	assertNothingGiven(ctx, t, h, in, acceptor, err, failure, samLink, samReq.Invitation)
 	assertEmail(t, "the password user after the acceptor failed", mustUser(ctx, t, in.Driver, sam.ID), nil, false)
-	byHand := invitationOf(samLink)
-	err = in.Accept(ctx, sam.ID, sam.Username, "", byHand)
-	assertNothingGiven(ctx, t, h, in, acceptor, err, failure, samLink, byHand)
-	assertEmail(t, "the user who accepted by hand after the acceptor failed", mustUser(ctx, t, in.Driver, sam.ID), nil, false)
+	kim := userHolding(ctx, t, in.Driver, "kim", "kim@lakeside.edu", true)
+	kimLink := insertInvitation(ctx, t, in.Driver, "kim@lakeside.edu", "lakeside", []string{"Coach"}, tokenHash(4))
+	byHand := invitationOf(kimLink)
+	err = in.Accept(ctx, kim.ID, kim.Username, "kim@lakeside.edu", byHand)
+	assertNothingGiven(ctx, t, h, in, acceptor, err, failure, kimLink, byHand)
 
 	// The invitation stood through all of it: once the acceptor works, the stranger's
 	// next attempt at the same link is provisioned, the invitation consumed, the
@@ -911,14 +1095,12 @@ func testInvitationHookCommitted(ctx context.Context, t *testing.T, h *AuthHarne
 		t.Errorf("the committed function ran %d time(s), want exactly 1", n)
 	}
 
-	// A password sign-in's acceptance, in its own transaction, and one by hand: the
-	// same, once each.
+	// The acceptance of a password sign-in that carries the code mailed to the invited
+	// address, in its own transaction, and one by hand by the account that then holds
+	// the address confirmed: the same, once each.
 	sam := passwordUser(ctx, t, in.Driver, "sam")
 	link = insertInvitation(ctx, t, in.Driver, "sam@lakeside.edu", "lakeside", []string{"Coach"}, tokenHash(2))
-	samReq := &sessioninfo.NewSessionRequest{
-		Reason: sessioninfo.ReasonLogin, Username: sam.Username, UserID: sam.ID,
-		Identity: &sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: sam.ID.String()}, Invitation: invitationOf(link),
-	}
+	samReq := invitedPasswordSignIn(sam, link, true)
 	if err := signInRequest(ctx, in, samReq); err != nil {
 		t.Fatalf("password sign-in with an invitation error = %v", err)
 	}
@@ -939,22 +1121,62 @@ func testInvitationHookCommitted(ctx context.Context, t *testing.T, h *AuthHarne
 	}
 }
 
+// invitedPasswordSignIn is the password sign-in of user that carries the invitation link:
+// the first step, with nothing proven of the invited address, or, when proven says so,
+// the sign-in that completes the wait with the code mailed to that address.
+func invitedPasswordSignIn(user *dbtype.SessionUser, link *dbtype.MailLink, proven bool) *sessioninfo.NewSessionRequest {
+	identity := &sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: user.ID.String()}
+	if user.Email != nil {
+		identity.Email = *user.Email
+	}
+	req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: user.Username, UserID: user.ID, Identity: identity, Invitation: invitationOf(link)}
+	req.Invitation.AddressProven = proven
+
+	return req
+}
+
+// assertWaitsForCodeAs fails unless err is the wait of an account that named itself and
+// has not shown the invited address to be its own: held for the mailed code alone,
+// naming the account.
+func assertWaitsForCodeAs(t *testing.T, what string, err error, user *dbtype.SessionUser) {
+	t.Helper()
+
+	var wait *signin.PendingSignInError
+	if !errors.As(err, &wait) || wait.Reason != sessioninfo.PendingMFA || !wait.UserID.Valid || wait.UserID.UUID != user.ID || wait.Username != user.Username {
+		t.Fatalf("%s: sign-in error = %v, want the sign-in held for the code, naming the account", what, err)
+	}
+	if len(wait.Factors) != 1 || wait.Factors[0] != sessioninfo.MethodEmailCode {
+		t.Errorf("%s: the wait accepts %v, want the mailed code alone", what, wait.Factors)
+	}
+}
+
+// testInvitationAcceptedByHand holds the acceptance of an invitation by an account that
+// names itself, with its password or by hand in its session, to the invited address.
+// The link proves nothing, since a mailed link can be forwarded: the account accepts at
+// once only where it holds the invited address confirmed, and otherwise by the code
+// mailed to that address, which a sign-in waits for and an acceptance by hand, which
+// cannot wait, is refused for.
 func testInvitationAcceptedByHand(ctx context.Context, t *testing.T, h *AuthHarness) {
 	rec := newAcceptances()
 	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accept: rec.hook})
 
-	// A password sign-in accepts the invitation it carries, in a transaction of its own.
+	// A password sign-in by an account with no address accepts nothing on the link
+	// alone: it waits for the code, the invitation standing and no address written.
 	pat := passwordUser(ctx, t, in.Driver, "pat")
 	link := insertInvitation(ctx, t, in.Driver, "pat@lakeside.edu", "lakeside", []string{"Teacher"}, tokenHash(1))
-	req := &sessioninfo.NewSessionRequest{
-		Reason: sessioninfo.ReasonLogin, Username: pat.Username, UserID: pat.ID,
-		Identity: &sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: pat.ID.String()}, Invitation: invitationOf(link),
-	}
+	req := invitedPasswordSignIn(pat, link, false)
+	assertWaitsForCodeAs(t, "a password sign-in by an account with no address", signInRequest(ctx, in, req), pat)
+	assertInvitationKept(ctx, t, in, rec, link, req.Invitation)
+	assertEmail(t, "the password user held for the code", mustUser(ctx, t, in.Driver, pat.ID), nil, false)
+
+	// The sign-in that carries the code accepts the invitation, in a transaction of its
+	// own, and the account takes the invited address, confirmed.
+	req = invitedPasswordSignIn(pat, link, true)
 	if err := signInRequest(ctx, in, req); err != nil {
-		t.Fatalf("password sign-in with an invitation error = %v", err)
+		t.Fatalf("password sign-in that carries the code error = %v", err)
 	}
 	if !req.Invitation.Accepted {
-		t.Error("Invitation.Accepted = false after the password sign-in, want accepted")
+		t.Error("Invitation.Accepted = false after the password sign-in that carries the code, want accepted")
 	}
 	assertEmail(t, "the password user", mustUser(ctx, t, in.Driver, pat.ID), strPtr("pat@lakeside.edu"), true)
 	assertAccepted(t, rec, "accepted:pat@lakeside.edu", pat.ID.String()+" pat lakeside Teacher")
@@ -962,11 +1184,33 @@ func testInvitationAcceptedByHand(ctx context.Context, t *testing.T, h *AuthHarn
 		t.Errorf("MailLinkByToken() after the acceptance error = %v, want NotFound", err)
 	}
 
-	// An acceptance by hand, for a person already signed in, does the same, once.
-	alex := createUser(ctx, t, in.Driver, "alex")
+	// An account that holds the invited address and has not confirmed it waits for the
+	// code as well, by its password; by hand, where a session cannot wait, it is refused
+	// with the cause that says to sign in again from the invitation. So is an account
+	// with no address. Nothing is consumed, nothing granted and no address written.
+	lee := userHolding(ctx, t, in.Driver, "lee", "lee@lakeside.edu", false)
+	leeLink := insertInvitation(ctx, t, in.Driver, "lee@lakeside.edu", "", []string{"Admin"}, tokenHash(5))
+	req = invitedPasswordSignIn(lee, leeLink, false)
+	assertWaitsForCodeAs(t, "a password sign-in by an account that has not confirmed the invited address", signInRequest(ctx, in, req), lee)
+	assertInvitationKept(ctx, t, in, rec, leeLink, req.Invitation)
+	unconfirmed := invitationOf(leeLink)
+	err := in.Accept(ctx, lee.ID, lee.Username, "lee@lakeside.edu", unconfirmed)
+	assertRefused(t, err, sessioninfo.RefusedInvitationAddress, signin.ErrInvitationCode)
+	assertInvitationKept(ctx, t, in, rec, leeLink, unconfirmed)
+	assertEmail(t, "the user who has not confirmed the invited address", mustUser(ctx, t, in.Driver, lee.ID), strPtr("lee@lakeside.edu"), false)
+	dana := createUser(ctx, t, in.Driver, "dana")
+	danaLink := insertInvitation(ctx, t, in.Driver, "dana@lakeside.edu", "", []string{"Admin"}, tokenHash(6))
+	none := invitationOf(danaLink)
+	assertRefused(t, in.Accept(ctx, dana.ID, dana.Username, "", none), sessioninfo.RefusedInvitationAddress, signin.ErrInvitationCode)
+	assertInvitationKept(ctx, t, in, rec, danaLink, none)
+	assertEmail(t, "the user with no address refused by hand", mustUser(ctx, t, in.Driver, dana.ID), nil, false)
+
+	// An acceptance by hand, for a person signed in whose account holds the invited
+	// address confirmed, accepts in a transaction of its own, once.
+	alex := userHolding(ctx, t, in.Driver, "alex", "alex@lakeside.edu", true)
 	alexLink := insertInvitation(ctx, t, in.Driver, "alex@lakeside.edu", "", []string{"Admin"}, tokenHash(2))
 	inv := invitationOf(alexLink)
-	if err := in.Accept(ctx, alex.ID, alex.Username, "", inv); err != nil {
+	if err := in.Accept(ctx, alex.ID, alex.Username, "alex@lakeside.edu", inv); err != nil {
 		t.Fatalf("Accept() error = %v", err)
 	}
 	if !inv.Accepted {
@@ -974,30 +1218,27 @@ func testInvitationAcceptedByHand(ctx context.Context, t *testing.T, h *AuthHarn
 	}
 	assertEmail(t, "the user who accepted by hand", mustUser(ctx, t, in.Driver, alex.ID), strPtr("alex@lakeside.edu"), true)
 	assertAccepted(t, rec, "accepted:alex@lakeside.edu", alex.ID.String()+" alex  Admin")
-	if err := in.Accept(ctx, alex.ID, alex.Username, "", invitationOf(alexLink)); !httpio.HasNotFound(err) {
+	if err := in.Accept(ctx, alex.ID, alex.Username, "alex@lakeside.edu", invitationOf(alexLink)); !httpio.HasNotFound(err) {
 		t.Errorf("second Accept() error = %v, want NotFound: an invitation is accepted once", err)
 	}
 
 	// An account that holds an address accepts only an invitation to that address, by
 	// hand and by a password sign-in alike: one mailed to another address is refused
-	// (invitation_address), nothing consumed and nothing granted; the account's own
-	// address, in any letter case, is accepted. An account with no address accepts by
-	// the link, as alex did.
-	kim, err := in.Driver.CreateUser(ctx, &dbtype.InsertSessionUser{Username: "kim", Email: strPtr("kim@lakeside.edu")}, nil)
-	if err != nil {
-		t.Fatalf("CreateUser() error = %v", err)
-	}
+	// (invitation_address) with no word of a code, nothing consumed and nothing
+	// granted; the account's own confirmed address, in any letter case, is accepted.
+	kim := userHolding(ctx, t, in.Driver, "kim", "kim@lakeside.edu", true)
 	otherLink := insertInvitation(ctx, t, in.Driver, "sam@lakeside.edu", "", []string{"Admin"}, tokenHash(3))
 	other := invitationOf(otherLink)
-	assertRefused(t, in.Accept(ctx, kim.ID, kim.Username, "kim@lakeside.edu", other), sessioninfo.RefusedInvitationAddress, signin.ErrInvitationAddress)
-	assertInvitationKept(ctx, t, in, rec, otherLink, other)
-	req = &sessioninfo.NewSessionRequest{
-		Reason: sessioninfo.ReasonLogin, Username: kim.Username, UserID: kim.ID,
-		Identity: &sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: kim.ID.String(), Email: "kim@lakeside.edu"}, Invitation: invitationOf(otherLink),
+	err = in.Accept(ctx, kim.ID, kim.Username, "kim@lakeside.edu", other)
+	assertRefused(t, err, sessioninfo.RefusedInvitationAddress, signin.ErrInvitationAddress)
+	if errors.Is(err, signin.ErrInvitationCode) {
+		t.Errorf("Accept() of an invitation to another address error = %v, want no word of a code: no code would make this account the invited one", err)
 	}
+	assertInvitationKept(ctx, t, in, rec, otherLink, other)
+	req = invitedPasswordSignIn(kim, otherLink, false)
 	assertRefused(t, signInRequest(ctx, in, req), sessioninfo.RefusedInvitationAddress, signin.ErrInvitationAddress)
 	assertInvitationKept(ctx, t, in, rec, otherLink, req.Invitation)
-	assertEmail(t, "the user refused for another address", mustUser(ctx, t, in.Driver, kim.ID), strPtr("kim@lakeside.edu"), false)
+	assertEmail(t, "the user refused for another address", mustUser(ctx, t, in.Driver, kim.ID), strPtr("kim@lakeside.edu"), true)
 	ownLink := insertInvitation(ctx, t, in.Driver, "Kim@Lakeside.edu", "", []string{"Admin"}, tokenHash(4))
 	own := invitationOf(ownLink)
 	if err := in.Accept(ctx, kim.ID, kim.Username, "kim@lakeside.edu", own); err != nil {
