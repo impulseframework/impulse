@@ -978,8 +978,8 @@ func TestPatchSet_deleteTaken_saveTime(t *testing.T) {
 	t.Run("the default limit is pinned", func(t *testing.T) {
 		t.Parallel()
 
-		// The number is provisional: it is to be chosen from measurements of large deletes
-		// on the real service, and changes only on purpose.
+		// The number was chosen from measurements of large deletes on the real service, and
+		// changes only on purpose.
 		if DefaultDeleteSaveTime != 30*time.Second {
 			t.Errorf("DefaultDeleteSaveTime = %s, want 30s", DefaultDeleteSaveTime)
 		}

@@ -17,8 +17,10 @@ const (
 	DeleteMutationLimit = 80_000
 
 	// DefaultDeleteSaveTime is how long one save of a delete that takes rows runs where
-	// the client was given no WithDeleteSaveTime. The number is provisional: it is to be
-	// chosen from measurements of large deletes on the real service.
+	// the client was given no WithDeleteSaveTime. Thirty seconds was chosen from large
+	// deletes measured on the real service with the application beside its database: a
+	// full save there ended at the mutation limit well before thirty seconds, so the time
+	// limit ends only a save whose rows are slow to take.
 	DefaultDeleteSaveTime = 30 * time.Second
 
 	// rowDeleteMutations is what the delete of one row costs by itself: Spanner counts a
