@@ -921,6 +921,23 @@ func TestTakingDelete_nestedToAnyDepth(t *testing.T) { //nolint:tparallel // the
 			wantAsked: "deep",
 		},
 		{
+			// The question asks no row, so it reads each page of the record's frontier once,
+			// where it counts what is under it, and not again.
+			name: "a chain of tasks that hold no project, of kinds that ask nothing of their rows, is counted to its end reading each frontier page once", tree: projectTree(), key: project("deep"), rows: cascadeRows{},
+			limitOnly:  true,
+			wantStatus: http.StatusPreconditionRequired, wantMessage: "Delete this project and everything under it: 25 tasks, 4 comments. This can't be undone.",
+			check: func(t *testing.T, run *cascadeRun, _ bool) {
+				t.Helper()
+
+				if len(run.asked) > 0 {
+					t.Errorf("the rows asked about = %v, want none", run.asked)
+				}
+				if run.pages != 6 {
+					t.Errorf("the question read %d page(s), want %d: each page of the frontier once", run.pages, 6)
+				}
+			},
+		},
+		{
 			name: "a chain of tasks that hold no project is deleted, every row once and the deepest first", unasked: true, tree: projectTree(), key: project("deep"), everythingUnder: true,
 			wantMade: "deep",
 		},

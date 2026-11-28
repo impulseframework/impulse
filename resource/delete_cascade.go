@@ -1485,9 +1485,12 @@ func (d *takingDelete) walk(ctx context.Context, start *takenStart, each func(st
 // that asks anything of its rows, start by start, deepest level first and in the
 // description's order within a level (rowsAt, checkTaken); the count of each kind code
 // handed the delete (countAlso); and, where anything is under the record, each handed
-// kind's own check (TakenKind.Check), in the order handed. It answers how many rows are
-// under the record, the handed kinds' among them, and each handed kind's count. Both the
-// question and a save of a delete code told to take the rows ask it all.
+// kind's own check (TakenKind.Check), in the order handed. The rows are asked by the
+// second walk (walk), which reads a cut record's frontier pages again; it is made only
+// where a taken kind with rows under the record asks its rows anything, and with none
+// that does askAll goes from the grants to the handed kinds' counts. It answers how many
+// rows are under the record, the handed kinds' among them, and each handed kind's count.
+// Both the question and a save of a delete code told to take the rows ask it all.
 func (d *takingDelete) askAll(ctx context.Context, start *takenStart) (counted int64, handed []int64, err error) {
 	tree := d.query.tree
 	asks := make(map[*DeleteKind]*takenAsks, len(tree.Taken))
@@ -1508,23 +1511,25 @@ func (d *takingDelete) askAll(ctx context.Context, start *takenStart) (counted i
 		}
 		asks[kind] = kindAsks
 	}
-	if _, err := d.walk(ctx, start, func(at *takenStart) (bool, error) {
-		return false, d.eachLevel(at.levels, func(kind *DeleteKind, level int) error {
-			if !asks[kind].asksRows() {
-				return nil
-			}
-
-			return d.rowsAt(ctx, at.query, kind, level, at.levels.below(), asks[kind], func(taken takenDelete, answers []spanner.NullBool) error {
-				byRule, err := taken.row.checkTaken(ctx, d.txn, asks[kind], answers)
-				if err != nil {
-					return d.asked.refuseRow(ctx, kind, byRule, err)
+	if slices.ContainsFunc(slices.Collect(maps.Values(asks)), (*takenAsks).asksRows) {
+		if _, err := d.walk(ctx, start, func(at *takenStart) (bool, error) {
+			return false, d.eachLevel(at.levels, func(kind *DeleteKind, level int) error {
+				if !asks[kind].asksRows() {
+					return nil
 				}
 
-				return nil
+				return d.rowsAt(ctx, at.query, kind, level, at.levels.below(), asks[kind], func(taken takenDelete, answers []spanner.NullBool) error {
+					byRule, err := taken.row.checkTaken(ctx, d.txn, asks[kind], answers)
+					if err != nil {
+						return d.asked.refuseRow(ctx, kind, byRule, err)
+					}
+
+					return nil
+				})
 			})
-		})
-	}); err != nil {
-		return 0, nil, err
+		}); err != nil {
+			return 0, nil, err
+		}
 	}
 	handed, err = d.countAlso(ctx)
 	if err != nil {
