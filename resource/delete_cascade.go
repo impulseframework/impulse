@@ -409,9 +409,9 @@ func (u *takenUnder) withoutKeys() *takenUnder {
 	return &takenUnder{table: u.table, key: u.key, ids: nil, crossed: u.crossed, rows: nil}
 }
 
-// pageKeys are the keys of a page's rows as a statement binds them: for a key of one
-// column, an array of the column's values; for a key of several, an array of rows, each
-// holding the row's key columns in key order. Each value is encoded as the Spanner client
+// pageKeys are the keys of a page's rows as a statement binds them: an array of rows,
+// each holding the row's key columns in key order in the fields C1, C2 and on
+// (pageKeyField), for a key of one column too. Each value is encoded as the Spanner client
 // encodes it in any statement (spanner.Encoder), and a value of a type of the
 // application's own over a plain one is the plain value.
 func pageKeys(rows []takenPageRow) (any, error) {
@@ -429,14 +429,6 @@ func pageKeys(rows []takenPageRow) (any, error) {
 			values = append(values, reflect.ValueOf(plain))
 		}
 		encoded = append(encoded, values)
-	}
-	if len(encoded[0]) == 1 {
-		ids := reflect.MakeSlice(reflect.SliceOf(encoded[0][0].Type()), 0, len(encoded))
-		for _, values := range encoded {
-			ids = reflect.Append(ids, values[0])
-		}
-
-		return ids.Interface(), nil
 	}
 	fields := make([]reflect.StructField, 0, len(encoded[0]))
 	for i, value := range encoded[0] {
@@ -457,7 +449,7 @@ func pageKeys(rows []takenPageRow) (any, error) {
 }
 
 // pageKeyField is the name of the field of a page's key that holds its key column at the
-// index, in key order, where the key has several columns: C1, C2 and on.
+// index, in key order: C1, C2 and on.
 func pageKeyField(index int) string {
 	return "C" + strconv.Itoa(index+1)
 }
@@ -510,56 +502,57 @@ func (q *takenQuery) ways(kind *DeleteKind, level int) []DeletePath {
 	return q.tree.waysUnder(kind, q.under.table, q.under.crossed, level)
 }
 
-// anyWay is the condition that a row of the kind, read under the name outer, is where the
-// query starts by one of the ways: under the record (rowsUnderWriter.anyWay), or under a
-// row of its page (rowsUnderWriter.wayUnder).
-func (q *takenQuery) anyWay(w *rowsUnderWriter, ways []DeletePath, outer string) string {
-	if q.under == nil {
-		return w.anyWay(ways, q.key, outer)
-	}
-	conditions := make([]string, 0, len(ways))
-	for _, path := range ways {
-		conditions = append(conditions, w.wayUnder(path, q.under, outer))
-	}
-
-	return "(" + strings.Join(conditions, " OR ") + ")"
-}
-
-// condition is the condition that a row of the kind, read under its table's name, is
-// at the level under the record, below the deepest level that finds a row (countLevels):
-// the level finds it, by one of the kind's ways at the level (DeleteTree.waysAt), in the
-// record's tenant. A row that more than one level finds belongs to the deepest: below
-// the deepest level, a level's condition leaves out the rows the next level finds. A row
-// that two levels find, with a level between them that does not, is at both: it is
-// counted twice, and deleted at the deeper level first. ok is false where the kind has
+// rows writes the kind's rows at the level under where the query starts, below the
+// deepest level that finds a row (countLevels): one SELECT for each of the kind's ways at
+// the level (takenQuery.ways), each row read as columns writes its list, in the record's
+// tenant, the SELECTs joined by a union that holds each row once (all: by one that may
+// hold a row more than once, for a read that stops at the first). A row that more than
+// one level finds belongs to the deepest: below the deepest level, the rows the next
+// level's ways find are taken out (EXCEPT DISTINCT). A row that two levels find, with a
+// level between them that does not, is at both: it is counted twice, and deleted at the
+// deeper level first. columns is called once for each SELECT, so a list that reads a
+// row's tenant (rowTenant) names its steps anew in each. ok is false where the kind has
 // no way at the level.
-func (q *takenQuery) condition(w *rowsUnderWriter, kind *DeleteKind, level, deepest int) (string, bool) {
+func (q *takenQuery) rows(w *rowsUnderWriter, kind *DeleteKind, level, deepest int, columns func() []string, all bool) (string, bool) {
 	ways := q.ways(kind, level)
 	if len(ways) == 0 {
 		return "", false
 	}
-	outer := w.quote(string(kind.Resource))
-	condition := q.anyWay(w, ways, outer)
+	union := " UNION DISTINCT "
+	if all {
+		union = " UNION ALL "
+	}
+	rows := strings.Join(q.selects(w, kind, ways, columns, true), union)
 	if next := q.ways(kind, level+1); level < deepest && len(next) > 0 {
-		// A way that compares an empty column is NULL, not false: COALESCE makes it false,
-		// so a row the next level does not find is kept.
-		condition += " AND NOT COALESCE(" + q.anyWay(w, next, outer) + ", FALSE)"
+		rows = "(" + rows + ") EXCEPT DISTINCT (" + strings.Join(q.selects(w, kind, next, columns, false), " UNION ALL ") + ")"
 	}
 
-	return condition + w.ofRecordsTenant(outer+".", kind, q.tree, q.key), true
+	return rows, true
+}
+
+// selects writes one SELECT of the kind's rows for each way, from the record's key or the
+// query's page down to the kind (rowsUnderWriter.wayRows), each with the list columns
+// writes and, where tenant is set, the condition that the row is of the record's tenant.
+func (q *takenQuery) selects(w *rowsUnderWriter, kind *DeleteKind, ways []DeletePath, columns func() []string, tenant bool) []string {
+	selects := make([]string, 0, len(ways))
+	for _, path := range ways {
+		selects = append(selects, w.wayRows(strings.Join(columns(), ", "), kind, path, q.tree, q.key, q.under, tenant))
+	}
+
+	return selects
 }
 
 // count is the count of the kind's rows at the level, below the deepest level; ok is
-// false where the kind is not counted there (condition). With the deepest level the
-// level itself, it is the count of the rows the level finds.
+// false where the kind is not counted there (rows). With the deepest level the level
+// itself, it is the count of the rows the level finds.
 func (q *takenQuery) count(kind *DeleteKind, level, deepest int) (rowsUnderStatement, bool) {
 	w := &rowsUnderWriter{dbType: SpannerDBType}
-	condition, ok := q.condition(w, kind, level, deepest)
+	rows, ok := q.rows(w, kind, level, deepest, func() []string { return w.keyColumns(kind) }, false)
 	if !ok {
 		return rowsUnderStatement{}, false
 	}
 
-	return rowsUnderStatement{SQL: fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE %s", w.quote(string(kind.Resource)), condition), Args: w.args, Named: w.named()}, true
+	return rowsUnderStatement{SQL: "SELECT COUNT(*) FROM (" + rows + ") AS u", Args: w.args, Named: w.named()}, true
 }
 
 // page is the read of one page of at most limit of the kind's rows at the level, below
@@ -570,22 +563,31 @@ func (q *takenQuery) page(kind *DeleteKind, level, deepest int, asks *takenAsks,
 	if asks != nil {
 		w.given = asks.params
 	}
-	condition, ok := q.condition(w, kind, level, deepest)
+	columns := func() []string {
+		list := w.keyColumns(kind)
+		if asks != nil {
+			for i, term := range asks.terms {
+				list = append(list, fmt.Sprintf("%s AS a%d", term, i+1))
+			}
+		}
+
+		return list
+	}
+	rows, ok := q.rows(w, kind, level, deepest, columns, false)
 	if !ok {
 		return rowsUnderStatement{}, false
 	}
-	outer := w.quote(string(kind.Resource))
 	key := make([]string, 0, len(kind.Key))
-	for _, column := range kind.Key {
-		key = append(key, outer+"."+w.quote(column))
+	for i := range kind.Key {
+		key = append(key, fmt.Sprintf("u.k%d", i+1))
 	}
-	columns := slices.Clone(key)
+	read := slices.Clone(key)
 	if asks != nil {
-		for i, term := range asks.terms {
-			columns = append(columns, fmt.Sprintf("%s AS a%d", term, i+1))
+		for i := range asks.terms {
+			read = append(read, fmt.Sprintf("u.a%d", i+1))
 		}
 	}
-	sql := fmt.Sprintf("SELECT %s FROM %s WHERE %s ORDER BY %s LIMIT %d", strings.Join(columns, ", "), outer, condition, strings.Join(key, ", "), limit)
+	sql := fmt.Sprintf("SELECT %s FROM (%s) AS u ORDER BY %s LIMIT %d", strings.Join(read, ", "), rows, strings.Join(key, ", "), limit)
 	if offset > 0 {
 		sql += fmt.Sprintf(" OFFSET %d", offset)
 	}
@@ -597,15 +599,15 @@ func (q *takenQuery) page(kind *DeleteKind, level, deepest int, asks *takenAsks,
 // level: the count of the first such row alone, 0 or 1, at which the database stops. With
 // the deepest level the level itself it reads whether the level finds a row of the kind.
 // A save that asks nothing finds its deepest level by it, and tries its widest statement
-// by it (takingDelete.bottom). ok is false where the kind is not read there (condition).
+// by it (takingDelete.bottom). ok is false where the kind is not read there (rows).
 func (q *takenQuery) exists(kind *DeleteKind, level, deepest int) (rowsUnderStatement, bool) {
 	w := &rowsUnderWriter{dbType: SpannerDBType}
-	condition, ok := q.condition(w, kind, level, deepest)
+	rows, ok := q.rows(w, kind, level, deepest, func() []string { return w.keyColumns(kind) }, true)
 	if !ok {
 		return rowsUnderStatement{}, false
 	}
 
-	return rowsUnderStatement{SQL: fmt.Sprintf("SELECT COUNT(*) FROM (SELECT 1 FROM %s WHERE %s LIMIT 1)", w.quote(string(kind.Resource)), condition), Args: w.args, Named: w.named()}, true
+	return rowsUnderStatement{SQL: "SELECT COUNT(*) FROM (SELECT 1 FROM (" + rows + ") AS u LIMIT 1)", Args: w.args, Named: w.named()}, true
 }
 
 // countedKind is a kind a delete counts, with the query its statements are written by.
@@ -630,7 +632,7 @@ type takenLevels struct {
 // each kind with a place on a way for a link to a row of the same table
 // (takenQuery.ways), until a level finds no row of any of them: the deepest is the
 // level before it. Then it counts each kind's rows at each level from 0 to the deepest
-// (takenQuery.condition): the deepest level's count is the one that found it, and a
+// (takenQuery.rows): the deepest level's count is the one that found it, and a
 // level that found no row of the kind holds none without a second count. A kind with no
 // place has rows at level 0 alone. A kind's count is the sum of its levels (total).
 //
@@ -668,7 +670,7 @@ func countLevels(ctx context.Context, count rowCounter, kinds []countedKind, rea
 	return levels, nil
 }
 
-// below is the level each statement of the start is written below (takenQuery.condition):
+// below is the level each statement of the start is written below (takenQuery.rows):
 // one past the deepest for a cut start, whose deepest level leaves out what the next level
 // finds, and the deepest itself for a whole one.
 func (l *takenLevels) below() int {
@@ -1174,7 +1176,7 @@ func (d *takingDelete) count(ctx context.Context, count rowCounter, reach int) (
 // themselves, whose descent would never end, and the delete fails, as it did when the
 // levels of such rows never ended. A row a page shares with a page it is inside is no
 // ring: a row two levels find is read at both. A ring every level finds whole reaches
-// no page, as it reaches no level (takenQuery.condition): it is left out.
+// no page, as it reaches no level (takenQuery.rows): it is left out.
 func (d *takingDelete) countFrom(ctx context.Context, count rowCounter, query *takenQuery, reach int, inside []*takenUnder) (*takenStart, error) {
 	tree := query.tree
 	kinds := make([]countedKind, 0, len(tree.RefusedBy)+len(tree.Taken))

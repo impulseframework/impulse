@@ -802,6 +802,46 @@ func TestTakingDelete_nestedToAnyDepth(t *testing.T) { //nolint:tparallel // the
 		under[named(x)], under[named(y)] = named(task("wide", 3)), named(x)
 		rows["wide"] = append(rows["wide"], named(x), named(y))
 	}
+	// section stages a section of the record being staged, under the section parent where
+	// it names one and under the project alone where it does not.
+	section := func(id, parent string) {
+		row := map[string]any{"ProjectId": record, "Id": id}
+		name := fmt.Sprintf("ProjectID=%s,ID=%s trusted", record, id)
+		if parent != "" {
+			row["ParentId"] = parent
+			under[name] = fmt.Sprintf("ProjectID=%s,ID=%s trusted", record, parent)
+		}
+		insert("CascadeSections", row)
+		rows[record] = append(rows[record], name)
+	}
+	// sectionChain stages six sections of the record being staged, each under the one
+	// before it.
+	sectionChain := func() {
+		insert("CascadeProjects", map[string]any{"Id": record})
+		for i := 1; i <= 6; i++ {
+			parent := ""
+			if i > 1 {
+				parent = fmt.Sprintf("s%02d", i-1)
+			}
+			section(fmt.Sprintf("s%02d", i), parent)
+		}
+	}
+	// Sections as the wide tasks are, a key of two columns: six in a chain, two more under
+	// the third and one under each of those, so the record reads four levels at the limit
+	// and its frontier is the fourth section and the two beside it.
+	record = "wide-sectioned"
+	sectionChain()
+	for _, i := range []string{"1", "2"} {
+		section("x"+i, "s03")
+		section("y"+i, "x"+i)
+	}
+	// Six sections in a chain and a thousand more under the third: a frontier of 1,001
+	// sections, read in two pages of the delete's own size.
+	record = "broad-sectioned"
+	sectionChain()
+	for i := 1; i <= 1000; i++ {
+		section(fmt.Sprintf("x%04d", i), "s03")
+	}
 	databases := make(map[string]*spanner.Client, len(staged))
 	for _, key := range slices.Sorted(maps.Keys(staged)) {
 		databases[key] = cascadeDatabase(t, "deep-"+key)
@@ -827,6 +867,17 @@ func TestTakingDelete_nestedToAnyDepth(t *testing.T) { //nolint:tparallel // the
 
 		if !slices.ContainsFunc(run.statements, func(sql string) bool { return strings.HasSuffix(sql, "LIMIT 2 OFFSET 2") }) {
 			t.Errorf("no statement read a frontier's second page of two rows (LIMIT 2 OFFSET 2):\n%s", strings.Join(run.statements, "\n"))
+		}
+	}
+
+	pagedByThousand := func(t *testing.T, run *cascadeRun, _ bool) {
+		t.Helper()
+
+		second := fmt.Sprintf("LIMIT %d OFFSET %d", takenPageRows, takenPageRows)
+		if !slices.ContainsFunc(run.statements, func(sql string) bool {
+			return strings.HasSuffix(sql, second) && !strings.Contains(sql, "UNNEST") && strings.Contains(sql, "`CascadeSections`")
+		}) {
+			t.Errorf("no statement read the sections' second page of %d rows from the record (%s)", takenPageRows, second)
 		}
 	}
 
@@ -970,6 +1021,28 @@ func TestTakingDelete_nestedToAnyDepth(t *testing.T) { //nolint:tparallel // the
 			wantMade: "wide", check: pagedByTwo,
 		},
 		{
+			name: "a frontier of sections, keyed by two columns, wider than one page is counted to its end and each row asked about once", tree: deepSectionsTree(), key: project("wide-sectioned"), rows: cascadeRows{asks: asksEveryRow},
+			limitOnly: true, pageRows: 2,
+			wantStatus: http.StatusPreconditionRequired, wantMessage: "Delete this project and everything under it: 10 sections. This can't be undone.",
+			wantAsked: "wide-sectioned", check: pagedByTwo,
+		},
+		{
+			name: "a frontier of sections, keyed by two columns, wider than one page is deleted, every row once and the deepest first", unasked: true, tree: deepSectionsTree(), key: project("wide-sectioned"), everythingUnder: true,
+			limitOnly: true, pageRows: 2,
+			wantMade: "wide-sectioned", check: pagedByTwo,
+		},
+		{
+			name: "a frontier of 1,001 sections, keyed by two columns, is counted to its end in pages of the delete's own size", tree: deepSectionsTree(), key: project("broad-sectioned"), rows: cascadeRows{asks: asksEveryRow},
+			limitOnly:  true,
+			wantStatus: http.StatusPreconditionRequired, wantMessage: "Delete this project and everything under it: 1,006 sections. This can't be undone.",
+			wantAsked: "broad-sectioned", check: pagedByThousand,
+		},
+		{
+			name: "a frontier of 1,001 sections, keyed by two columns, is deleted, every row once and the deepest first", unasked: true, tree: deepSectionsTree(), key: project("broad-sectioned"), everythingUnder: true,
+			limitOnly: true,
+			wantMade:  "broad-sectioned", check: pagedByThousand,
+		},
+		{
 			name: "a ring the walk goes down through fails the delete", unasked: true, tree: projectTree(), key: project("ring"), rows: cascadeRows{asks: asksEveryRow},
 			wantError: "a task under the project is nested under itself",
 		},
@@ -996,8 +1069,11 @@ func TestTakingDelete_nestedToAnyDepth(t *testing.T) { //nolint:tparallel // the
 		},
 		{
 			name: "a page refused where its count was not starts the run again, and the question answers its counts", tree: projectTree(), key: project("deep"),
-			rows:      cascadeRows{asks: &takenAsks{terms: []string{"(TRUE)", "(TRUE)", "(TRUE)", "(TRUE)"}}},
-			limitOnly: true, limit: joinLimit(8, true),
+			rows: cascadeRows{asks: &takenAsks{terms: []string{"(TRUE)", "(TRUE)", "(TRUE)", "(TRUE)"}}},
+			// Twelve: a page below its deepest level names its four terms twice, on each side
+			// of what it leaves out, so the pages are refused at the levels they were at eight
+			// when each named them once.
+			limitOnly: true, limit: joinLimit(12, true),
 			wantStatus: http.StatusPreconditionRequired, wantMessage: "Delete this project and everything under it: 25 tasks, 4 comments. This can't be undone.",
 			// The run that started again asks again the rows the first had asked.
 			check: func(t *testing.T, run *cascadeRun, _ bool) {
@@ -1038,7 +1114,7 @@ func TestTakingDelete_nestedToAnyDepth(t *testing.T) { //nolint:tparallel // the
 				if len(run.asked) > 0 {
 					t.Errorf("the rows the unasked save asked about = %v, want none", run.asked)
 				}
-				if fromIDs := slices.DeleteFunc(slices.Clone(run.statements), func(sql string) bool { return !strings.Contains(sql, "IN UNNEST(@ids)") }); len(fromIDs) < 3 {
+				if fromIDs := slices.DeleteFunc(slices.Clone(run.statements), func(sql string) bool { return !strings.Contains(sql, "FROM UNNEST(@ids) AS pg") }); len(fromIDs) < 3 {
 					t.Errorf("%d statements of the unasked save started from a page's ids, want at least 3", len(fromIDs))
 				}
 			})
@@ -1121,7 +1197,7 @@ func TestTakingDelete_nestedToAnyDepth(t *testing.T) { //nolint:tparallel // the
 				case len(run.made) > 0:
 					t.Errorf("the rows deleted = %v, want none", run.made)
 				}
-				if fromIDs := slices.DeleteFunc(slices.Clone(run.statements), func(sql string) bool { return !strings.Contains(sql, "IN UNNEST(@ids)") }); len(fromIDs) < 3 && !tt.shallow {
+				if fromIDs := slices.DeleteFunc(slices.Clone(run.statements), func(sql string) bool { return !strings.Contains(sql, "FROM UNNEST(@ids) AS pg") }); len(fromIDs) < 3 && !tt.shallow {
 					t.Errorf("%d statements started from a page's ids, want at least 3", len(fromIDs))
 				}
 				if tt.check != nil {

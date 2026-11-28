@@ -130,7 +130,8 @@ type DeleteKind struct {
 	Resource accesstypes.Resource
 	// Words are what a sentence calls the kind's rows.
 	Words DeleteWords
-	// Key is the kind's primary key columns, in key order.
+	// Key is the kind's primary key columns, in key order. Every statement a delete writes
+	// about the kind's rows names them.
 	Key []string
 	// Paths are the ways from a row of the kind up to the record.
 	Paths []DeletePath

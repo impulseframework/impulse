@@ -616,7 +616,8 @@ func TestPatchSet_deleteTaken_roundsNestedToAnyDepth(t *testing.T) {
 			if err := limit(sql); err != nil {
 				return err
 			}
-			if strings.HasPrefix(sql, "SELECT `CascadeTasks`.`Id` FROM") && !strings.Contains(sql, "UNNEST") && !strings.HasSuffix(sql, fmt.Sprintf("LIMIT %d", takenPageRows)) {
+			tasksPage := strings.HasPrefix(sql, "SELECT u.k1 FROM (SELECT `CascadeTasks`.`Id` AS k1 FROM") || strings.HasPrefix(sql, "SELECT u.k1 FROM ((SELECT `CascadeTasks`.`Id` AS k1 FROM")
+			if tasksPage && !strings.Contains(sql, "UNNEST") && !strings.HasSuffix(sql, fmt.Sprintf("LIMIT %d", takenPageRows)) {
 				return limit(strings.Repeat(" AS w", 9))
 			}
 

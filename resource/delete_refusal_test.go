@@ -116,7 +116,7 @@ type tableCounts struct {
 }
 
 func (c *tableCounts) count(_ context.Context, statement rowsUnderStatement) (int64, error) {
-	table, _, _ := strings.Cut(strings.TrimPrefix(statement.SQL, "SELECT COUNT(*) FROM `"), "`")
+	table, _, _ := strings.Cut(strings.TrimPrefix(statement.SQL, "SELECT COUNT(*) FROM (SELECT `"), "`")
 	c.asked = append(c.asked, table)
 
 	return c.rows[table], nil
@@ -609,10 +609,12 @@ func TestRecordedDelete_seen(t *testing.T) {
 }
 
 // Test_newRowsUnderStatement pins the count of a kind's rows under a record as each
-// database takes it: the kind's rows read under their table's name, the kind's own
-// columns against the record's key, by any of its ways; a way of more than one step
-// through the rows between, nothing left out; and a way that ends on a column the
-// record's key does not hold through the record's own row. Where the kind's rows and the record are a tenant's, the count is of
+// database takes it: the keys of the kind's rows, read under their table's name, one
+// SELECT for each of its ways joined by a union that holds each row once, each way
+// written from the record's key down: the kind's own columns against the record's key; a
+// way of more than one step from the table its last step leaves, held to the key, joined
+// down through the rows between, nothing left out; and a way that ends on a column the
+// record's key does not hold from the record's own row. Where the kind's rows and the record are a tenant's, the count is of
 // the rows of the record's own tenant: the tenant its key holds, or the one its row
 // resolves to, against the tenant each row resolves to, by its column or through other
 // rows. A record or a kind that is no tenant's counts every row its ways put there.
@@ -640,99 +642,97 @@ func Test_newRowsUnderStatement(t *testing.T) {
 			dbType:    SpannerDBType,
 			kind:      under("Missions", "mission", "missions", "AssignedSquadronId", "Squadrons"),
 			recordKey: map[string]any{"Id": "s1"},
-			wantSQL:   "SELECT COUNT(*) FROM `Missions` WHERE ((`Missions`.`AssignedSquadronId` = @d1))",
+			wantSQL:   "SELECT COUNT(*) FROM (SELECT `Missions`.`Id` AS k1 FROM `Missions` WHERE `Missions`.`AssignedSquadronId` = @d1) AS u",
 			wantArgs:  []any{"s1"},
 		},
 		{
 			name:   "two ways",
 			dbType: SpannerDBType,
-			kind: DeleteKind{Resource: "Transfers", Paths: []DeletePath{
+			kind: DeleteKind{Resource: "Transfers", Key: []string{"Id"}, Paths: []DeletePath{
 				{{Columns: []string{"FromHangarId"}, Table: "Hangars", References: []string{"Id"}}},
 				{{Columns: []string{"ToHangarId"}, Table: "Hangars", References: []string{"Id"}}},
 			}},
 			recordKey: map[string]any{"Id": "h1"},
-			wantSQL:   "SELECT COUNT(*) FROM `Transfers` WHERE ((`Transfers`.`FromHangarId` = @d1) OR (`Transfers`.`ToHangarId` = @d2))",
-			wantArgs:  []any{"h1", "h1"},
+			wantSQL: "SELECT COUNT(*) FROM (SELECT `Transfers`.`Id` AS k1 FROM `Transfers` WHERE `Transfers`.`FromHangarId` = @d1" +
+				" UNION DISTINCT SELECT `Transfers`.`Id` AS k1 FROM `Transfers` WHERE `Transfers`.`ToHangarId` = @d2) AS u",
+			wantArgs: []any{"h1", "h1"},
 		},
 		{
 			name:   "a key of two columns, on PostgreSQL",
 			dbType: PostgresDBType,
-			kind: DeleteKind{Resource: "Ships", Paths: []DeletePath{
+			kind: DeleteKind{Resource: "Ships", Key: []string{"Id"}, Paths: []DeletePath{
 				{{Columns: []string{"TenantId", "HomeHangarId"}, Table: "Hangars", References: []string{"TenantId", "Id"}}},
 			}},
 			recordKey: map[string]any{"TenantId": "anvil", "Id": "h1"},
-			wantSQL:   `SELECT COUNT(*) FROM "Ships" WHERE (("Ships"."TenantId" = $1 AND "Ships"."HomeHangarId" = $2))`,
+			wantSQL:   `SELECT COUNT(*) FROM (SELECT "Ships"."Id" AS k1 FROM "Ships" WHERE "Ships"."TenantId" = $1 AND "Ships"."HomeHangarId" = $2) AS u`,
 			wantArgs:  []any{"anvil", "h1"},
 		},
 		{
 			name:   "a way of two steps",
 			dbType: SpannerDBType,
-			kind: DeleteKind{Resource: "Sorties", Paths: []DeletePath{
+			kind: DeleteKind{Resource: "Sorties", Key: []string{"Id"}, Paths: []DeletePath{
 				{
 					{Columns: []string{"MissionId"}, Table: "Missions", References: []string{"Id"}},
 					{Columns: []string{"ClientId"}, Table: "Clients", References: []string{"Id"}},
 				},
 			}},
 			recordKey: map[string]any{"Id": "c1"},
-			wantSQL: "SELECT COUNT(*) FROM `Sorties` WHERE (EXISTS (SELECT 1 FROM `Missions` AS w0_1" +
-				" WHERE w0_1.`Id` = `Sorties`.`MissionId` AND w0_1.`ClientId` = @d1))",
-			wantArgs: []any{"c1"},
+			wantSQL:   "SELECT COUNT(*) FROM (SELECT `Sorties`.`Id` AS k1 FROM `Missions` AS w0_1 JOIN `Sorties` ON `Sorties`.`MissionId` = w0_1.`Id` WHERE w0_1.`ClientId` = @d1) AS u",
+			wantArgs:  []any{"c1"},
 		},
 		{
 			// A foreign key to columns that are not the other table's key: the record's
 			// row is read for the column, found by its key.
 			name:      "a way that ends on a column the record's key does not hold",
 			dbType:    SpannerDBType,
-			kind:      DeleteKind{Resource: "Missions", Paths: []DeletePath{{{Columns: []string{"SquadronCode"}, Table: "Squadrons", References: []string{"Code"}}}}},
+			kind:      DeleteKind{Resource: "Missions", Key: []string{"Id"}, Paths: []DeletePath{{{Columns: []string{"SquadronCode"}, Table: "Squadrons", References: []string{"Code"}}}}},
 			recordKey: map[string]any{"Id": "s1"},
-			wantSQL: "SELECT COUNT(*) FROM `Missions` WHERE (EXISTS (SELECT 1 FROM `Squadrons` AS w0_r" +
-				" WHERE `Missions`.`SquadronCode` = w0_r.`Code` AND w0_r.`Id` = @d1))",
-			wantArgs: []any{"s1"},
+			wantSQL:   "SELECT COUNT(*) FROM (SELECT `Missions`.`Id` AS k1 FROM `Squadrons` AS w0_r JOIN `Missions` ON `Missions`.`SquadronCode` = w0_r.`Code` WHERE w0_r.`Id` = @d1) AS u",
+			wantArgs:  []any{"s1"},
 		},
 		{
 			name:   "a way of two steps that ends on such a column",
 			dbType: SpannerDBType,
-			kind: DeleteKind{Resource: "Sorties", Paths: []DeletePath{
+			kind: DeleteKind{Resource: "Sorties", Key: []string{"Id"}, Paths: []DeletePath{
 				{
 					{Columns: []string{"MissionId"}, Table: "Missions", References: []string{"Id"}},
 					{Columns: []string{"TenantId", "SquadronCode"}, Table: "Squadrons", References: []string{"TenantId", "Code"}},
 				},
 			}},
 			recordKey: map[string]any{"TenantId": "anvil", "Id": "s1"},
-			wantSQL: "SELECT COUNT(*) FROM `Sorties` WHERE (EXISTS (SELECT 1 FROM `Missions` AS w0_1, `Squadrons` AS w0_r" +
-				" WHERE w0_1.`Id` = `Sorties`.`MissionId` AND w0_1.`TenantId` = w0_r.`TenantId` AND w0_1.`SquadronCode` = w0_r.`Code`" +
-				" AND w0_r.`Id` = @d1 AND w0_r.`TenantId` = @d2))",
+			wantSQL: "SELECT COUNT(*) FROM (SELECT `Sorties`.`Id` AS k1 FROM `Squadrons` AS w0_r" +
+				" JOIN `Missions` AS w0_1 ON w0_1.`TenantId` = w0_r.`TenantId` AND w0_1.`SquadronCode` = w0_r.`Code`" +
+				" JOIN `Sorties` ON `Sorties`.`MissionId` = w0_1.`Id` WHERE w0_r.`Id` = @d1 AND w0_r.`TenantId` = @d2) AS u",
 			wantArgs: []any{"s1", "anvil"},
 		},
 		{
 			name:      "the tenant record: a kind of a tenant's rows, by a way of two steps",
 			dbType:    SpannerDBType,
 			tree:      sectors,
-			kind:      DeleteKind{Resource: "Relays", Tenant: bySector, Paths: []DeletePath{{byCaseNumber, {Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}}}}},
+			kind:      DeleteKind{Resource: "Relays", Key: []string{"Id"}, Tenant: bySector, Paths: []DeletePath{{byCaseNumber, {Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}}}}},
 			recordKey: map[string]any{"Id": "anvil"},
-			wantSQL: "SELECT COUNT(*) FROM `Relays` WHERE (EXISTS (SELECT 1 FROM `Calls` AS w0_1" +
-				" WHERE w0_1.`CaseNumber` = `Relays`.`CaseNumber` AND w0_1.`SectorId` = @d1)) AND `Relays`.`SectorId` = @d2",
+			wantSQL: "SELECT COUNT(*) FROM (SELECT `Relays`.`Id` AS k1 FROM `Calls` AS w0_1 JOIN `Relays` ON `Relays`.`CaseNumber` = w0_1.`CaseNumber`" +
+				" WHERE w0_1.`SectorId` = @d1 AND `Relays`.`SectorId` = @d2) AS u",
 			wantArgs: []any{"anvil", "anvil"},
 		},
 		{
 			name:      "a record under a tenant: its tenant read from its row by its key",
 			dbType:    SpannerDBType,
 			tree:      calls,
-			kind:      DeleteKind{Resource: "Relays", Tenant: bySector, Paths: []DeletePath{{byCaseNumber}}},
+			kind:      DeleteKind{Resource: "Relays", Key: []string{"Id"}, Tenant: bySector, Paths: []DeletePath{{byCaseNumber}}},
 			recordKey: map[string]any{"Id": "c1"},
-			wantSQL: "SELECT COUNT(*) FROM `Relays` WHERE (EXISTS (SELECT 1 FROM `Calls` AS w0_r" +
-				" WHERE `Relays`.`CaseNumber` = w0_r.`CaseNumber` AND w0_r.`Id` = @d1))" +
-				" AND `Relays`.`SectorId` = (SELECT tr.`SectorId` FROM `Calls` AS tr WHERE tr.`Id` = @d2)",
+			wantSQL: "SELECT COUNT(*) FROM (SELECT `Relays`.`Id` AS k1 FROM `Calls` AS w0_r JOIN `Relays` ON `Relays`.`CaseNumber` = w0_r.`CaseNumber`" +
+				" WHERE w0_r.`Id` = @d1 AND `Relays`.`SectorId` = (SELECT tr.`SectorId` FROM `Calls` AS tr WHERE tr.`Id` = @d2)) AS u",
 			wantArgs: []any{"c1", "c1"},
 		},
 		{
 			name:      "a kind whose rows reach their tenant through another table",
 			dbType:    SpannerDBType,
 			tree:      wings,
-			kind:      DeleteKind{Resource: "Squadrons", Tenant: byWing, Paths: []DeletePath{{{Columns: []string{"PatrolWingId"}, Table: "Wings", References: []string{"Id"}}}}},
+			kind:      DeleteKind{Resource: "Squadrons", Key: []string{"Id"}, Tenant: byWing, Paths: []DeletePath{{{Columns: []string{"PatrolWingId"}, Table: "Wings", References: []string{"Id"}}}}},
 			recordKey: map[string]any{"Id": "w1"},
-			wantSQL: "SELECT COUNT(*) FROM `Squadrons` WHERE ((`Squadrons`.`PatrolWingId` = @d1))" +
-				" AND (SELECT n1.`SectorId` FROM `Wings` AS n1 WHERE n1.`Id` = `Squadrons`.`WingId`) = (SELECT tr.`SectorId` FROM `Wings` AS tr WHERE tr.`Id` = @d2)",
+			wantSQL: "SELECT COUNT(*) FROM (SELECT `Squadrons`.`Id` AS k1 FROM `Squadrons` WHERE `Squadrons`.`PatrolWingId` = @d1" +
+				" AND (SELECT n1.`SectorId` FROM `Wings` AS n1 WHERE n1.`Id` = `Squadrons`.`WingId`) = (SELECT tr.`SectorId` FROM `Wings` AS tr WHERE tr.`Id` = @d2)) AS u",
 			wantArgs: []any{"w1", "w1"},
 		},
 		{
@@ -741,52 +741,49 @@ func Test_newRowsUnderStatement(t *testing.T) {
 			name:      "a record whose own tenant is through another table, keyed by two columns",
 			dbType:    SpannerDBType,
 			tree:      &DeleteTree{Record: "Squadrons", Key: []string{"WingId", "Id"}, Tenant: byWing},
-			kind:      DeleteKind{Resource: "Missions", Tenant: bySector, Paths: []DeletePath{{{Columns: []string{"WingId", "SquadronId"}, Table: "Squadrons", References: []string{"WingId", "Id"}}}}},
+			kind:      DeleteKind{Resource: "Missions", Key: []string{"Id"}, Tenant: bySector, Paths: []DeletePath{{{Columns: []string{"WingId", "SquadronId"}, Table: "Squadrons", References: []string{"WingId", "Id"}}}}},
 			recordKey: map[string]any{"WingId": "w1", "Id": "q1"},
-			wantSQL: "SELECT COUNT(*) FROM `Missions` WHERE ((`Missions`.`WingId` = @d1 AND `Missions`.`SquadronId` = @d2))" +
+			wantSQL: "SELECT COUNT(*) FROM (SELECT `Missions`.`Id` AS k1 FROM `Missions` WHERE `Missions`.`WingId` = @d1 AND `Missions`.`SquadronId` = @d2" +
 				" AND `Missions`.`SectorId` = (SELECT (SELECT n1.`SectorId` FROM `Wings` AS n1 WHERE n1.`Id` = tr.`WingId`)" +
-				" FROM `Squadrons` AS tr WHERE tr.`Id` = @d3 AND tr.`WingId` = @d4)",
+				" FROM `Squadrons` AS tr WHERE tr.`Id` = @d3 AND tr.`WingId` = @d4)) AS u",
 			wantArgs: []any{"w1", "q1", "q1", "w1"},
 		},
 		{
 			name:      "the values in the order the text names them",
 			dbType:    SpannerDBType,
 			tree:      calls,
-			kind:      DeleteKind{Resource: "Relays", Tenant: bySector, Paths: []DeletePath{{byCaseNumber}}},
+			kind:      DeleteKind{Resource: "Relays", Key: []string{"Id"}, Tenant: bySector, Paths: []DeletePath{{byCaseNumber}}},
 			recordKey: map[string]any{"Id": "c1"},
-			wantSQL: "SELECT COUNT(*) FROM `Relays` WHERE (EXISTS (SELECT 1 FROM `Calls` AS w0_r" +
-				" WHERE `Relays`.`CaseNumber` = w0_r.`CaseNumber` AND w0_r.`Id` = @d1))" +
-				" AND `Relays`.`SectorId` = (SELECT tr.`SectorId` FROM `Calls` AS tr WHERE tr.`Id` = @d2)",
+			wantSQL: "SELECT COUNT(*) FROM (SELECT `Relays`.`Id` AS k1 FROM `Calls` AS w0_r JOIN `Relays` ON `Relays`.`CaseNumber` = w0_r.`CaseNumber`" +
+				" WHERE w0_r.`Id` = @d1 AND `Relays`.`SectorId` = (SELECT tr.`SectorId` FROM `Calls` AS tr WHERE tr.`Id` = @d2)) AS u",
 			wantArgs: []any{"c1", "c1"},
 		},
 		{
 			name:      "the tenant record, on PostgreSQL",
 			dbType:    PostgresDBType,
 			tree:      sectors,
-			kind:      DeleteKind{Resource: "Missions", Tenant: bySector, Paths: []DeletePath{{{Columns: []string{"HostSectorId"}, Table: "Sectors", References: []string{"Id"}}}}},
+			kind:      DeleteKind{Resource: "Missions", Key: []string{"Id"}, Tenant: bySector, Paths: []DeletePath{{{Columns: []string{"HostSectorId"}, Table: "Sectors", References: []string{"Id"}}}}},
 			recordKey: map[string]any{"Id": "anvil"},
-			wantSQL:   `SELECT COUNT(*) FROM "Missions" WHERE (("Missions"."HostSectorId" = $1)) AND "Missions"."SectorId" = $2`,
+			wantSQL:   `SELECT COUNT(*) FROM (SELECT "Missions"."Id" AS k1 FROM "Missions" WHERE "Missions"."HostSectorId" = $1 AND "Missions"."SectorId" = $2) AS u`,
 			wantArgs:  []any{"anvil", "anvil"},
 		},
 		{
 			name:      "a record that is no tenant's",
 			dbType:    SpannerDBType,
 			tree:      &DeleteTree{Record: "Calls", Key: []string{"Id"}},
-			kind:      DeleteKind{Resource: "Relays", Tenant: bySector, Paths: []DeletePath{{byCaseNumber}}},
+			kind:      DeleteKind{Resource: "Relays", Key: []string{"Id"}, Tenant: bySector, Paths: []DeletePath{{byCaseNumber}}},
 			recordKey: map[string]any{"Id": "c1"},
-			wantSQL: "SELECT COUNT(*) FROM `Relays` WHERE (EXISTS (SELECT 1 FROM `Calls` AS w0_r" +
-				" WHERE `Relays`.`CaseNumber` = w0_r.`CaseNumber` AND w0_r.`Id` = @d1))",
-			wantArgs: []any{"c1"},
+			wantSQL:   "SELECT COUNT(*) FROM (SELECT `Relays`.`Id` AS k1 FROM `Calls` AS w0_r JOIN `Relays` ON `Relays`.`CaseNumber` = w0_r.`CaseNumber` WHERE w0_r.`Id` = @d1) AS u",
+			wantArgs:  []any{"c1"},
 		},
 		{
 			name:      "a kind whose rows are no tenant's",
 			dbType:    SpannerDBType,
 			tree:      calls,
-			kind:      DeleteKind{Resource: "Relays", Paths: []DeletePath{{byCaseNumber}}},
+			kind:      DeleteKind{Resource: "Relays", Key: []string{"Id"}, Paths: []DeletePath{{byCaseNumber}}},
 			recordKey: map[string]any{"Id": "c1"},
-			wantSQL: "SELECT COUNT(*) FROM `Relays` WHERE (EXISTS (SELECT 1 FROM `Calls` AS w0_r" +
-				" WHERE `Relays`.`CaseNumber` = w0_r.`CaseNumber` AND w0_r.`Id` = @d1))",
-			wantArgs: []any{"c1"},
+			wantSQL:   "SELECT COUNT(*) FROM (SELECT `Relays`.`Id` AS k1 FROM `Calls` AS w0_r JOIN `Relays` ON `Relays`.`CaseNumber` = w0_r.`CaseNumber` WHERE w0_r.`Id` = @d1) AS u",
+			wantArgs:  []any{"c1"},
 		},
 	}
 
