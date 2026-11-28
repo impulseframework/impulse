@@ -78,8 +78,8 @@ func (fakeDatabase) ExecuteFunc(ctx context.Context, f func(ctx context.Context,
 	return nil
 }
 
-// ExecuteDeleteFunc is ExecuteFunc whatever asks says, as the mock client's is.
-func (d fakeDatabase) ExecuteDeleteFunc(ctx context.Context, _ bool, f func(ctx context.Context, txn resource.ReadWriteTransaction) error) error {
+// ExecuteDeleteFunc is ExecuteFunc whatever run says, as the mock client's is.
+func (d fakeDatabase) ExecuteDeleteFunc(ctx context.Context, _ resource.DeleteRun, f func(ctx context.Context, txn resource.ReadWriteTransaction) error) error {
 	return d.ExecuteFunc(ctx, f)
 }
 

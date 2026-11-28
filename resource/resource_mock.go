@@ -106,9 +106,9 @@ func (c *MockClient) ExecuteFunc(ctx context.Context, f func(ctx context.Context
 	return nil
 }
 
-// ExecuteDeleteFunc is ExecuteFunc whatever asks says: a mock holds no rows to ask
-// about.
-func (c *MockClient) ExecuteDeleteFunc(ctx context.Context, _ bool, f func(ctx context.Context, txn ReadWriteTransaction) error) error {
+// ExecuteDeleteFunc is ExecuteFunc whatever run says: a mock holds no rows to ask about,
+// and no isolation level.
+func (c *MockClient) ExecuteDeleteFunc(ctx context.Context, _ DeleteRun, f func(ctx context.Context, txn ReadWriteTransaction) error) error {
 	return c.ExecuteFunc(ctx, f)
 }
 

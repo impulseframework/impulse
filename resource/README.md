@@ -2069,9 +2069,19 @@ with nothing gone where it cannot be made whole:
   what is deleted in real use: a record is closed long before it is deleted, or was made
   by mistake and never used. A delete rule (`@validateDeleteType`) the question asks of
   a row is handed a transaction that reads at the question's moment, and nothing it
-  buffers is written. In code, `Client.ExecuteDeleteFunc` runs a function this way; a
-  delete buffered in a transaction opened another way (`ExecuteFunc`, `Apply`,
-  `resource.NewSpannerReadWriteTransaction`) asks inside that transaction.
+  buffers is written. In code, `Client.ExecuteDeleteFunc` with `resource.DeleteRunAsks`
+  runs a function this way; a delete buffered in a transaction opened another way
+  (`ExecuteFunc`, `Apply`, `resource.NewSpannerReadWriteTransaction`) asks inside that
+  transaction.
+- A save on a token runs at Spanner's repeatable read isolation level. A request that
+  holds nothing but removes that bring their tokens is opened that way
+  (`resource.DeleteRunOf` reads it from the body, and `Client.ExecuteDeleteFunc` takes
+  it). What the save reads is then not locked: a write anywhere else in the application,
+  in another tenant or in a table the delete also reads, does not wait for the save.
+  Spanner still aborts the save where another transaction wrote a row the save writes,
+  and a foreign key still refuses a commit that would leave a row naming a deleted one.
+  Every other transaction of the library stays serializable, a delete of a record with
+  nothing under it among them.
 
 The delete in code is Spanner's write path. The mock client holds no rows and takes none,
 and PostgreSQL has no write path.

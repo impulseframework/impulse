@@ -97,7 +97,7 @@ func Test_rpcHandlerTemplate_deleteToken(t *testing.T) {
 			method: inspect("Token"),
 			wantContains: []string{
 				"ctx = resource.WithDeleteToken(ctx, p.Token)",
-				`a.ResourceClient().ExecuteDeleteFunc(ctx, p.Token == "", func(ctx context.Context, txn resource.ReadWriteTransaction) error {`,
+				`a.ResourceClient().ExecuteDeleteFunc(ctx, resource.DeleteRunOfToken(p.Token), func(ctx context.Context, txn resource.ReadWriteTransaction) error {`,
 			},
 			wantNotContains: []string{"ExecuteFunc(ctx, func("},
 			wantOrder:       []string{"p := ", "ctx = resource.WithDeleteToken(ctx, p.Token)", "ExecuteDeleteFunc(", "p.Execute(ctx, txn, a.RPCClient())"},

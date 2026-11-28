@@ -244,17 +244,20 @@ type ReadOnlyTransactionCloser interface {
 type Executor interface {
 	ExecuteFunc(ctx context.Context, f func(ctx context.Context, txn ReadWriteTransaction) error) error
 	// ExecuteDeleteFunc is ExecuteFunc for a request that may hold the delete of a record
-	// with rows under it. Where asks is true, f is first run on a question transaction:
-	// every read made through it goes to one read-only transaction, which reads the
-	// database as it stood at one moment and locks nothing; nothing buffered through it is
-	// written; and of the patches f buffers only a delete that asks first is run
-	// (PatchSet.Buffer does nothing there for any other). An error f returns there, a
+	// with rows under it. Where run is DeleteRunAsks, f is first run on a question
+	// transaction: every read made through it goes to one read-only transaction, which
+	// reads the database as it stood at one moment and locks nothing; nothing buffered
+	// through it is written; and of the patches f buffers only a delete that asks first is
+	// run (PatchSet.Buffer does nothing there for any other). An error f returns there, a
 	// refusal or the question a person is asked first, is the answer, and no read-write
 	// transaction was opened. Where f returns none, nothing was asked, and f is run again
 	// as ExecuteFunc runs it: the delete then reads and checks inside its own transaction.
-	// Where asks is false it is ExecuteFunc. f must start each run from nothing, as it
-	// must for ExecuteFunc, which runs it again when Spanner aborts the transaction.
-	ExecuteDeleteFunc(ctx context.Context, asks bool, f func(ctx context.Context, txn ReadWriteTransaction) error) error
+	// Where run is DeleteRunPlain it is ExecuteFunc. Where run is DeleteRunSave it is
+	// ExecuteFunc with the transaction opened at the repeatable read isolation level (the
+	// request is a save of a delete): its reads lock nothing, and Spanner aborts it only
+	// where another transaction wrote a row it writes. f must start each run from nothing,
+	// as it must for ExecuteFunc, which runs it again when Spanner aborts the transaction.
+	ExecuteDeleteFunc(ctx context.Context, run DeleteRun, f func(ctx context.Context, txn ReadWriteTransaction) error) error
 }
 
 // Reader is an interface that wraps methods for reading resources from a database.

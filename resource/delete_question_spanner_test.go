@@ -232,8 +232,8 @@ func TestExecuteDeleteFunc_asksFirst(t *testing.T) {
 	}
 	// deleteThrough runs deleteOf through ExecuteDeleteFunc, and answers where each run of
 	// the function read.
-	deleteThrough := func(asks bool, id string, kind *notingKind, everythingUnder bool, created string) (runs []string, err error) {
-		err = NewSpannerClient(db).ExecuteDeleteFunc(t.Context(), asks, func(ctx context.Context, txn ReadWriteTransaction) error {
+	deleteThrough := func(run DeleteRun, id string, kind *notingKind, everythingUnder bool, created string) (runs []string, err error) {
+		err = NewSpannerClient(db).ExecuteDeleteFunc(t.Context(), run, func(ctx context.Context, txn ReadWriteTransaction) error {
 			at, _ := readsAt(t, txn.SpannerReadOnlyTransaction())
 			runs = append(runs, at)
 
@@ -289,7 +289,7 @@ func TestExecuteDeleteFunc_asksFirst(t *testing.T) {
 	name := "a delete that asks of a project with rows under it"
 	questionRule.reset(false)
 	kind := &notingKind{rows: 1, calls: nil}
-	runs, err := deleteThrough(true, "asks", kind, false, "")
+	runs, err := deleteThrough(DeleteRunAsks, "asks", kind, false, "")
 	asked(name, err)
 	rule, calls, snapshots := where(kind)
 	check(name, runs, []string{"read-only"}, "where each run of the function read")
@@ -304,7 +304,7 @@ func TestExecuteDeleteFunc_asksFirst(t *testing.T) {
 	name = "a delete that asks of a project with nothing under it"
 	questionRule.reset(false)
 	kind = &notingKind{rows: 0, calls: nil}
-	runs, err = deleteThrough(true, "empty", kind, false, "")
+	runs, err = deleteThrough(DeleteRunAsks, "empty", kind, false, "")
 	if err != nil {
 		t.Errorf("%s error = %v, want the project deleted", name, err)
 	}
@@ -319,7 +319,7 @@ func TestExecuteDeleteFunc_asksFirst(t *testing.T) {
 	questionRule.reset(true)
 	kind = &notingKind{rows: 1, calls: nil}
 	const refusal = "A task that is being worked on can't be deleted."
-	runs, err = deleteThrough(true, "refused", kind, false, "")
+	runs, err = deleteThrough(DeleteRunAsks, "refused", kind, false, "")
 	if statusOf(err) != http.StatusBadRequest || httpio.Message(err) != refusal {
 		t.Errorf("%s = %v (%q), want a 400 saying %q", name, err, httpio.Message(err), refusal)
 	}
@@ -334,7 +334,7 @@ func TestExecuteDeleteFunc_asksFirst(t *testing.T) {
 	name = "a delete told to take the rows, run asking"
 	questionRule.reset(false)
 	kind = &notingKind{rows: 1, calls: nil}
-	runs, err = deleteThrough(true, "takes", kind, true, "")
+	runs, err = deleteThrough(DeleteRunAsks, "takes", kind, true, "")
 	if err != nil {
 		t.Errorf("%s error = %v, want the rows taken", name, err)
 	}
@@ -348,7 +348,7 @@ func TestExecuteDeleteFunc_asksFirst(t *testing.T) {
 	name = "a create beside a delete that asks of a project with rows under it"
 	questionRule.reset(false)
 	besideRule.reset(false)
-	runs, err = deleteThrough(true, "beside", &notingKind{rows: 1, calls: nil}, false, "beside-new")
+	runs, err = deleteThrough(DeleteRunAsks, "beside", &notingKind{rows: 1, calls: nil}, false, "beside-new")
 	asked(name, err)
 	check(name, runs, []string{"read-only"}, "where each run of the function read")
 	if at := readAt(besideRule); len(at) != 0 {
@@ -360,7 +360,7 @@ func TestExecuteDeleteFunc_asksFirst(t *testing.T) {
 	}
 	name = "a create beside a delete that asks of a project with nothing under it"
 	besideRule.reset(false)
-	runs, err = deleteThrough(true, "beside-empty", &notingKind{rows: 0, calls: nil}, false, "beside-empty-new")
+	runs, err = deleteThrough(DeleteRunAsks, "beside-empty", &notingKind{rows: 0, calls: nil}, false, "beside-empty-new")
 	if err != nil {
 		t.Errorf("%s error = %v, want the project deleted and the other made", name, err)
 	}
@@ -375,7 +375,7 @@ func TestExecuteDeleteFunc_asksFirst(t *testing.T) {
 	name = "a delete that asks of a project with rows under it, run without asking first"
 	questionRule.reset(false)
 	kind = &notingKind{rows: 1, calls: nil}
-	runs, err = deleteThrough(false, "inside", kind, false, "")
+	runs, err = deleteThrough(DeleteRunPlain, "inside", kind, false, "")
 	asked(name, err)
 	rule, calls, _ = where(kind)
 	check(name, runs, []string{"in the save"}, "where each run of the function read")
@@ -400,7 +400,7 @@ func TestExecuteDeleteFunc_asksFirst(t *testing.T) {
 	name = "a delete of a task, which takes nothing with it, run asking"
 	plainRule := &questionRuleNotes{}
 	runs = nil
-	err = NewSpannerClient(db).ExecuteDeleteFunc(t.Context(), true, func(ctx context.Context, txn ReadWriteTransaction) error {
+	err = NewSpannerClient(db).ExecuteDeleteFunc(t.Context(), DeleteRunAsks, func(ctx context.Context, txn ReadWriteTransaction) error {
 		at, _ := readsAt(t, txn.SpannerReadOnlyTransaction())
 		runs = append(runs, at)
 		task := NewPatchSet(NewMetadata[roundTask]()).SetPatchType(DeletePatchType)
@@ -420,7 +420,7 @@ func TestExecuteDeleteFunc_asksFirst(t *testing.T) {
 
 	// 9. A write buffered straight on the transaction of the first run.
 	name = "a write buffered straight on the transaction of the first run"
-	err = NewSpannerClient(db).ExecuteDeleteFunc(t.Context(), true, func(_ context.Context, txn ReadWriteTransaction) error {
+	err = NewSpannerClient(db).ExecuteDeleteFunc(t.Context(), DeleteRunAsks, func(_ context.Context, txn ReadWriteTransaction) error {
 		direct := NewPatchSet(NewMetadata[questionProject]()).SetPatchType(CreatePatchType)
 		direct.SetKey("ID", "direct-new")
 		if err := txn.BufferMap(direct, map[string]any{"Id": "direct-new"}); err != nil {
@@ -503,13 +503,13 @@ type tokenRun struct {
 }
 
 // runTokenDeletes runs the deletes in one function through ExecuteDeleteFunc on the
-// context, asking first where asks says so, as RemovesAsk would; dryRun ends the function
-// with ErrDryRun once it buffered them.
-func runTokenDeletes[R Resourcer](t *testing.T, db *spanner.Client, ctx context.Context, asks, dryRun bool, deletes ...tokenDelete) *tokenRun {
+// context, run as how says (DeleteRunOf); dryRun ends the function with ErrDryRun once it
+// buffered them.
+func runTokenDeletes[R Resourcer](t *testing.T, db *spanner.Client, ctx context.Context, how DeleteRun, dryRun bool, deletes ...tokenDelete) *tokenRun {
 	t.Helper()
 
 	run := &tokenRun{runs: nil, lefts: nil, err: nil}
-	run.err = NewSpannerClient(db).ExecuteDeleteFunc(ctx, asks, func(ctx context.Context, txn ReadWriteTransaction) error {
+	run.err = NewSpannerClient(db).ExecuteDeleteFunc(ctx, how, func(ctx context.Context, txn ReadWriteTransaction) error {
 		at, _ := readsAt(t, txn.SpannerReadOnlyTransaction())
 		run.runs = append(run.runs, at)
 		run.lefts = nil
@@ -665,7 +665,7 @@ func TestExecuteDeleteFunc_token(t *testing.T) { //nolint:maintidx // one case a
 	}
 	ask := func(ctx context.Context, project string, kind TakenKind) string {
 		t.Helper()
-		run := runTokenDeletes[tokenProject](t, db, ctx, true, false, tokenDelete{id: project, kind: kind})
+		run := runTokenDeletes[tokenProject](t, db, ctx, DeleteRunAsks, false, tokenDelete{id: project, kind: kind})
 		notes := 0
 		if kind != nil {
 			notes = 1
@@ -688,7 +688,7 @@ func TestExecuteDeleteFunc_token(t *testing.T) { //nolint:maintidx // one case a
 	name := "the question"
 	tokenRule.reset(false)
 	kind := &notingKind{rows: 1, calls: nil}
-	run := runTokenDeletes[tokenProject](t, db, ada, true, false, tokenDelete{id: "asked", kind: kind})
+	run := runTokenDeletes[tokenProject](t, db, ada, DeleteRunAsks, false, tokenDelete{id: "asked", kind: kind})
 	token := asked(name, question(2, 1), run.err)
 	check(name, questionRecords(t, run.err), int64(3), "the records the question counted")
 	check(name, run.runs, []string{"read-only"}, "where each run of the function read")
@@ -709,7 +709,7 @@ func TestExecuteDeleteFunc_token(t *testing.T) { //nolint:maintidx // one case a
 	name = "a delete on the token"
 	tokenRule.reset(false)
 	kind.calls = nil
-	run = runTokenDeletes[tokenProject](t, db, ada, false, false, tokenDelete{id: "asked", token: token, kind: kind})
+	run = runTokenDeletes[tokenProject](t, db, ada, DeleteRunSave, false, tokenDelete{id: "asked", token: token, kind: kind})
 	if run.err != nil {
 		t.Fatalf("%s: error = %v", name, run.err)
 	}
@@ -729,7 +729,7 @@ func TestExecuteDeleteFunc_token(t *testing.T) { //nolint:maintidx // one case a
 	// 3. No token.
 	name = "a delete with no token"
 	tokenRule.reset(false)
-	run = runTokenDeletes[tokenProject](t, db, ada, true, false, tokenDelete{id: "none"})
+	run = runTokenDeletes[tokenProject](t, db, ada, DeleteRunAsks, false, tokenDelete{id: "none"})
 	asked(name, question(2, 0), run.err)
 	check(name, run.runs, []string{"read-only"}, "where each run of the function read")
 	rule := tokenRule.noted()
@@ -762,7 +762,7 @@ func TestExecuteDeleteFunc_token(t *testing.T) { //nolint:maintidx // one case a
 		{name: "an id no row has", token: "no-such-token"},
 	} {
 		name = "a delete on " + tt.name + " token"
-		run = runTokenDeletes[tokenProject](t, db, ada, false, false, tokenDelete{id: "four", token: tt.token})
+		run = runTokenDeletes[tokenProject](t, db, ada, DeleteRunSave, false, tokenDelete{id: "four", token: tt.token})
 		if next := asked(name, question(2, 0), run.err); next == tt.token {
 			t.Errorf("%s: the question gave the token again, want a new one", name)
 		}
@@ -773,7 +773,7 @@ func TestExecuteDeleteFunc_token(t *testing.T) { //nolint:maintidx // one case a
 	// 5. A token that does not hold, while the rule refuses.
 	name = "a delete on a token that does not hold, refused by its rule"
 	tokenRule.reset(true)
-	run = runTokenDeletes[tokenProject](t, db, ada, false, false, tokenDelete{id: "refused", token: "no-such-token"})
+	run = runTokenDeletes[tokenProject](t, db, ada, DeleteRunSave, false, tokenDelete{id: "refused", token: "no-such-token"})
 	if want := "A task that is being worked on can't be deleted."; statusOf(run.err) != http.StatusBadRequest || httpio.Message(run.err) != want {
 		t.Errorf("%s = %v (%q), want a 400 saying %q", name, run.err, httpio.Message(run.err), want)
 	}
@@ -788,7 +788,7 @@ func TestExecuteDeleteFunc_token(t *testing.T) { //nolint:maintidx // one case a
 	size := tokenWriteMutations + recordCost + 3*taskCost - 1
 	expires := readToken(t, db, token).ExpiresAt
 	for save, want := range []*DeleteLeft{{Deleted: 2}, {Deleted: 2}, nil} {
-		run = runTokenDeletes[tokenProject](t, db, ada, false, false, tokenDelete{id: "several", token: token, size: size})
+		run = runTokenDeletes[tokenProject](t, db, ada, DeleteRunSave, false, tokenDelete{id: "several", token: token, size: size})
 		if run.err != nil {
 			t.Fatalf("%s: save %d: error = %v", name, save+1, run.err)
 		}
@@ -814,11 +814,11 @@ func TestExecuteDeleteFunc_token(t *testing.T) { //nolint:maintidx // one case a
 	name = "a save that fails"
 	token = ask(ada, "fails", failingKind{})
 	size = tokenWriteMutations + recordCost + 2*taskCost
-	run = runTokenDeletes[tokenProject](t, db, ada, false, false, tokenDelete{id: "fails", token: token, kind: failingKind{}, size: size})
+	run = runTokenDeletes[tokenProject](t, db, ada, DeleteRunSave, false, tokenDelete{id: "fails", token: token, kind: failingKind{}, size: size})
 	if run.err != nil {
 		t.Fatalf("%s: the first save: error = %v", name, run.err)
 	}
-	run = runTokenDeletes[tokenProject](t, db, ada, false, false, tokenDelete{id: "fails", token: token, kind: failingKind{}, size: size})
+	run = runTokenDeletes[tokenProject](t, db, ada, DeleteRunSave, false, tokenDelete{id: "fails", token: token, kind: failingKind{}, size: size})
 	if run.err == nil || !strings.Contains(run.err.Error(), "the notes cannot be taken") {
 		t.Errorf("%s: the second save's error = %v, want the kind's", name, run.err)
 	}
@@ -826,13 +826,13 @@ func TestExecuteDeleteFunc_token(t *testing.T) { //nolint:maintidx // one case a
 	if readToken(t, db, token) != nil {
 		t.Errorf("%s: the token's row is there, want it deleted after the failed save", name)
 	}
-	run = runTokenDeletes[tokenProject](t, db, ada, false, false, tokenDelete{id: "fails", token: token, kind: failingKind{}, size: size})
+	run = runTokenDeletes[tokenProject](t, db, ada, DeleteRunSave, false, tokenDelete{id: "fails", token: token, kind: failingKind{}, size: size})
 	asked(name+", sent again", "Delete this project and everything under it: 1 task, 1 note. This can't be undone.", run.err)
 
 	// 8. A dry run.
 	name = "a dry run on a token"
 	token = ask(ada, "dry", nil)
-	run = runTokenDeletes[tokenProject](t, db, ada, false, true, tokenDelete{id: "dry", token: token})
+	run = runTokenDeletes[tokenProject](t, db, ada, DeleteRunSave, true, tokenDelete{id: "dry", token: token})
 	if !errors.Is(run.err, ErrDryRun) {
 		t.Errorf("%s: error = %v, want ErrDryRun", name, run.err)
 	}
@@ -843,7 +843,7 @@ func TestExecuteDeleteFunc_token(t *testing.T) { //nolint:maintidx // one case a
 
 	// A dry run of a request that asks and has nothing to ask runs in the save too.
 	name = "a dry run that asks about a project with nothing under it"
-	run = runTokenDeletes[tokenProject](t, db, ada, true, true, tokenDelete{id: "bare"})
+	run = runTokenDeletes[tokenProject](t, db, ada, DeleteRunAsks, true, tokenDelete{id: "bare"})
 	if !errors.Is(run.err, ErrDryRun) {
 		t.Errorf("%s: error = %v, want ErrDryRun", name, run.err)
 	}
@@ -853,12 +853,12 @@ func TestExecuteDeleteFunc_token(t *testing.T) { //nolint:maintidx // one case a
 	// 9. No session.
 	name = "a question with no session"
 	before := tokenRows(t, db)
-	run = runTokenDeletes[tokenProject](t, db, t.Context(), true, false, tokenDelete{id: "nosession"})
+	run = runTokenDeletes[tokenProject](t, db, t.Context(), DeleteRunAsks, false, tokenDelete{id: "nosession"})
 	if statusOf(run.err) != http.StatusPreconditionRequired || tokenOf(t, run.err) != "" {
 		t.Errorf("%s = %v with the token %q, want a 428 with none", name, run.err, tokenOf(t, run.err))
 	}
 	check(name, tokenRows(t, db), before, "the rows of DeleteTokens")
-	run = runTokenDeletes[tokenProject](t, db, t.Context(), false, false, tokenDelete{id: "nosession", token: ask(ada, "nosession", nil)})
+	run = runTokenDeletes[tokenProject](t, db, t.Context(), DeleteRunSave, false, tokenDelete{id: "nosession", token: ask(ada, "nosession", nil)})
 	if statusOf(run.err) != http.StatusPreconditionRequired || tokenOf(t, run.err) != "" {
 		t.Errorf("%s, a delete on a token = %v with the token %q, want a 428 with none", name, run.err, tokenOf(t, run.err))
 	}
@@ -885,7 +885,7 @@ func TestExecuteDeleteFunc_token(t *testing.T) { //nolint:maintidx // one case a
 					counted++
 				}
 			}
-			run = runTokenDeletes[tokenProject](t, db, tt.ctx, false, false, tokenDelete{id: tt.project, code: true, kind: kind, size: size})
+			run = runTokenDeletes[tokenProject](t, db, tt.ctx, DeleteRunPlain, false, tokenDelete{id: tt.project, code: true, kind: kind, size: size})
 			if run.err != nil {
 				t.Fatalf("%s: save %d: error = %v", name, save, run.err)
 			}
@@ -904,7 +904,7 @@ func TestExecuteDeleteFunc_token(t *testing.T) { //nolint:maintidx // one case a
 		check(name, tokenRows(t, db), before, "the rows of DeleteTokens")
 	}
 	name = "code's word, with an invoice under the project"
-	run = runTokenDeletes[invoicedRoundProject](t, db, ada, false, false, tokenDelete{id: "invoiced", code: true})
+	run = runTokenDeletes[invoicedRoundProject](t, db, ada, DeleteRunPlain, false, tokenDelete{id: "invoiced", code: true})
 	if want := "This project has 1 invoice, so it can't be deleted."; statusOf(run.err) != http.StatusConflict || httpio.Message(run.err) != want {
 		t.Errorf("%s = %v (%q), want a 409 saying %q", name, run.err, httpio.Message(run.err), want)
 	}
@@ -914,7 +914,7 @@ func TestExecuteDeleteFunc_token(t *testing.T) { //nolint:maintidx // one case a
 	name = "a delete on its token beside one that asks"
 	token = ask(ada, "pair-a", nil)
 	tokenRule.reset(false)
-	run = runTokenDeletes[tokenProject](t, db, ada, true, false, tokenDelete{id: "pair-a", token: token}, tokenDelete{id: "pair-b"})
+	run = runTokenDeletes[tokenProject](t, db, ada, DeleteRunAsks, false, tokenDelete{id: "pair-a", token: token}, tokenDelete{id: "pair-b"})
 	given := asked(name, question(3, 0), run.err)
 	if stored := readToken(t, db, given); stored == nil || stored.RowKey != rowMatchKey(KeySet{}.Add("ID", "pair-b")) {
 		t.Errorf("%s: the token given is %+v, want one for the project that asks", name, stored)
@@ -930,7 +930,7 @@ func TestExecuteDeleteFunc_token(t *testing.T) { //nolint:maintidx // one case a
 	expires = readToken(t, db, token).ExpiresAt
 	for i, want := range []*DeleteLeft{{Deleted: 2}, {Deleted: 3}, nil} {
 		save := i + 1
-		run = runTokenDeletes[tokenProject](t, db, ada, false, false, tokenDelete{id: "timed", token: token, saveTime: time.Nanosecond})
+		run = runTokenDeletes[tokenProject](t, db, ada, DeleteRunSave, false, tokenDelete{id: "timed", token: token, saveTime: time.Nanosecond})
 		if run.err != nil {
 			t.Fatalf("%s: save %d: error = %v", name, save, run.err)
 		}
@@ -978,7 +978,7 @@ func TestExecuteDeleteFunc_tokenAcrossDescents(t *testing.T) {
 	})
 	limit := joinLimit(8, false)
 
-	run := runTokenDeletes[roundProject](t, db, ctx, true, false, tokenDelete{id: "tall", refuses: limit})
+	run := runTokenDeletes[roundProject](t, db, ctx, DeleteRunAsks, false, tokenDelete{id: "tall", refuses: limit})
 	if want := "Delete this project and everything under it: 75 tasks. This can't be undone."; statusOf(run.err) != http.StatusPreconditionRequired || httpio.Message(run.err) != want {
 		t.Fatalf("the question = %v (%q), want a 428 saying %q", run.err, httpio.Message(run.err), want)
 	}
@@ -988,7 +988,7 @@ func TestExecuteDeleteFunc_tokenAcrossDescents(t *testing.T) {
 	// The token's write, the record and ten tasks.
 	size := tokenWriteMutations + 1 + 10*(rowDeleteMutations+ChangeRecordMutations(eventsource.ProcessEvent("test")))
 	for save := 1; save <= 20; save++ {
-		run = runTokenDeletes[roundProject](t, db, ctx, false, false, tokenDelete{id: "tall", token: token, size: size, refuses: limit})
+		run = runTokenDeletes[roundProject](t, db, ctx, DeleteRunSave, false, tokenDelete{id: "tall", token: token, size: size, refuses: limit})
 		if run.err != nil {
 			t.Fatalf("save %d: error = %v", save, run.err)
 		}
