@@ -1929,17 +1929,20 @@ with nothing gone where it cannot be made whole:
   refuses a level's statement because it joins too many tables, the delete takes the rows
   of the last level it could read, a page of them at a time, and follows what is under
   them from their keys as it follows what is under the record from the record's, as often
-  as it must. The library holds no number of its own for it. The question counts
-  everything under the record before anything goes, however deep, and a save deletes the
-  deepest rows first, as everywhere. Rows of a kind that sit under each other in a ring
-  are never found to end: the delete fails until the ring is broken. One ring is not
-  found at all: where every row of the ring also holds the record's own key, its rows are
-  at no level, so the question does not count them and the delete does not take them. The
-  save that takes the record is then refused by their foreign key to it, or, where they
-  have none, leaves them naming a record that is gone. A row belongs to the deepest level
-  that finds it, so a row is deleted before the row it is under. A row that two levels
-  find, with a level between them that does not find it, is counted at both, and the
-  question's count comes out high by it.
+  as it must. The library holds no number of its own for it. What that costs grows with
+  the depth faster than with the rows: a level's statement follows every level above it
+  again, so a record whose rows sit twenty deep is asked about and deleted many times
+  slower than one with as many rows three deep. The question counts everything under the
+  record before anything goes, however deep, and a save deletes the deepest rows first,
+  as everywhere. Rows of a kind that sit under each other in a ring are never found to
+  end: the delete fails until the ring is broken. One ring is not found at all: where
+  every row of the ring also holds the record's own key, its rows are at no level, so the
+  question does not count them and the delete does not take them. The save that takes
+  the record is then refused by their foreign key to it, or, where they have none, leaves
+  them naming a record that is gone. A row belongs to the deepest level that finds it, so
+  a row is deleted before the row it is under. A row that two levels find, with a level
+  between them that does not find it, is counted at both, and the question's count comes
+  out high by it.
 - A save is filled to Spanner's 80,000 mutations by what each row costs as the service
   counts it: one for the delete and one for each index of the row's table; for a kind that
   keeps a change history, one more for each column its change record sets (eleven for a
