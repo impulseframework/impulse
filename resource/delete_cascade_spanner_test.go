@@ -1518,30 +1518,12 @@ func TestTakingDelete_anotherTenantsRow(t *testing.T) {
 
 	db := forkDatabase(t, "another-tenants-row")
 	ctx := context.Background()
-	if _, err := db.Apply(ctx, []*spanner.Mutation{
-		// The record whose row is read for its tenant, and what is under it.
-		spanner.InsertMap("ForkRows", map[string]any{"Id": "f1", "Title": "record", "CreatedBy": "anvil"}),
-		spanner.InsertMap("SealedPairRows", map[string]any{"Vault": "anvil", "Shelf": "f1"}),
-		spanner.InsertMap("SealedPairRows", map[string]any{"Vault": "bastion", "Shelf": "f1"}),
-		spanner.InsertMap("TrackedForkRows", map[string]any{"Id": "ta", "Title": "f1"}),
-		spanner.InsertMap("TrackedForkRows", map[string]any{"Id": "tb", "Title": "f1"}),
-		// What is under the tenant record anvil.
-		spanner.InsertMap("ForkRows", map[string]any{"Id": "k1", "Title": "anvil", "CreatedBy": "anvil"}),
-		spanner.InsertMap("ForkRows", map[string]any{"Id": "k2", "Title": "anvil", "CreatedBy": "bastion"}),
-		spanner.InsertMap("TrackedForkRows", map[string]any{"Id": "va", "Title": "anvil"}),
-		spanner.InsertMap("TrackedForkRows", map[string]any{"Id": "vb", "Title": "anvil"}),
-		// The rows a tracked row reaches its tenant through, by its own key.
-		spanner.InsertMap("ForkRows", map[string]any{"Id": "ta", "Title": "way", "CreatedBy": "anvil"}),
-		spanner.InsertMap("ForkRows", map[string]any{"Id": "tb", "Title": "way", "CreatedBy": "bastion"}),
-		spanner.InsertMap("ForkRows", map[string]any{"Id": "va", "Title": "way", "CreatedBy": "anvil"}),
-		spanner.InsertMap("ForkRows", map[string]any{"Id": "vb", "Title": "way", "CreatedBy": "bastion"}),
-	}); err != nil {
+	if _, err := db.Apply(ctx, anotherTenantsRows()); err != nil {
 		t.Fatalf("spanner.Client.Apply() error = %v", err)
 	}
 
 	byCreator := &DomainBindingData{Column: "CreatedBy"}
 	throughForkRows := &DomainBindingData{Column: "Id", Path: []BindingHop{{Table: "ForkRows", JoinColumn: "Id", Column: "CreatedBy"}}}
-	text := reflect.TypeFor[string]()
 
 	type under struct {
 		kind *DeleteKind
@@ -1630,44 +1612,141 @@ func TestTakingDelete_anotherTenantsRow(t *testing.T) {
 				if variant.wantTheirsUnder {
 					want = append(want, toAny(tt.kind.theirs))
 				}
-				types := slices.Repeat([]reflect.Type{text}, len(kind.Key))
 
-				var counted int64
-				var paged []takenPageRow
-				err := NewSpannerClient(db).ExecuteFunc(ctx, func(ctx context.Context, txn ReadWriteTransaction) error {
-					spannerTxn, ok := txn.(*SpannerReadWriteTransaction)
-					if !ok {
-						return errors.Newf("the transaction is a %T, want Spanner's", txn)
-					}
-					query := &takenQuery{tree: &tree, key: tt.key}
-					levels, err := countLevels(ctx, spannerTxn.countRows, []countedKind{{kind: &tree.Taken[0], query: query}}, -1)
-					if err != nil {
-						return err
-					}
-					counted = levels.total(&tree.Taken[0])
-					statement, ok := query.page(&tree.Taken[0], 0, levels.deepest, nil, takenPageRows, 0)
-					if !ok {
-						return errors.New("page() wrote no read")
-					}
-					paged, err = spannerTxn.readPage(ctx, statement, types, 0)
-
-					return err
-				})
+				counted, got, err := readUnder(ctx, db, &tree, tt.key)
 				if err != nil {
 					t.Fatalf("NewSpannerClient().ExecuteFunc() error = %v", err)
 				}
 				if counted != int64(len(want)) {
 					t.Errorf("the count of the rows under the record = %d, want %d", counted, len(want))
 				}
-				got := make([][]any, 0, len(paged))
-				for _, row := range paged {
-					got = append(got, row.key)
-				}
 				if diff := cmp.Diff(want, got); diff != "" {
 					t.Errorf("the page of the rows under the record (-want +got):\n%s", diff)
 				}
 			})
 		}
+	}
+}
+
+// readUnder reads a kind's rows under the record with the key, over the emulator, as a
+// delete reads them: their count (countLevels, every level summed) and their first page
+// at level 0, each row's key. The tree takes the one kind.
+func readUnder(ctx context.Context, db *spanner.Client, tree *DeleteTree, key map[string]any) (counted int64, paged [][]any, err error) {
+	types := slices.Repeat([]reflect.Type{reflect.TypeFor[string]()}, len(tree.Taken[0].Key))
+	err = NewSpannerClient(db).ExecuteFunc(ctx, func(ctx context.Context, txn ReadWriteTransaction) error {
+		spannerTxn, ok := txn.(*SpannerReadWriteTransaction)
+		if !ok {
+			return errors.Newf("the transaction is a %T, want Spanner's", txn)
+		}
+		query := &takenQuery{tree: tree, key: key}
+		levels, err := countLevels(ctx, spannerTxn.countRows, []countedKind{{kind: &tree.Taken[0], query: query}}, -1)
+		if err != nil {
+			return err
+		}
+		counted = levels.total(&tree.Taken[0])
+		statement, ok := query.page(&tree.Taken[0], 0, levels.deepest, nil, takenPageRows, 0)
+		if !ok {
+			return errors.New("page() wrote no read")
+		}
+		rows, err := spannerTxn.readPage(ctx, statement, types, 0)
+		paged = make([][]any, 0, len(rows))
+		for _, row := range rows {
+			paged = append(paged, row.key)
+		}
+
+		return err
+	})
+
+	return counted, paged, err
+}
+
+// TestTakingDelete_tenantsOwnWay reads, over the emulator and on the rows of
+// TestTakingDelete_anotherTenantsRow, the rows under the tenant record of a kind one of
+// whose ways is its way to its tenant, which alone is written: the count and the page find
+// every row of the kind in the tenant and no row of another tenant that names the record,
+// for a kind that holds its tenant in a column and for one whose rows reach their tenant
+// through another table. They find what the union of the kind's ways found.
+func TestTakingDelete_tenantsOwnWay(t *testing.T) {
+	t.Parallel()
+
+	db := forkDatabase(t, "tenants-own-way")
+	ctx := context.Background()
+	if _, err := db.Apply(ctx, anotherTenantsRows()); err != nil {
+		t.Fatalf("spanner.Client.Apply() error = %v", err)
+	}
+	vaults := DeleteTree{Record: "Vaults", Words: DeleteWords{One: "vault", Many: "vaults"}, Key: []string{"Id"}, Tenant: &DomainBindingData{Column: "Id"}}
+
+	tests := []struct {
+		name string
+		kind DeleteKind
+		want [][]any
+	}{
+		{
+			name: "a kind with its tenant in a column, by its title or its creator",
+			kind: DeleteKind{
+				Resource: "ForkRows", Words: DeleteWords{One: "row", Many: "rows"}, Key: []string{"Id"}, Tenant: &DomainBindingData{Column: "CreatedBy"},
+				Paths: []DeletePath{
+					{{Columns: []string{"Title"}, Table: "Vaults", References: []string{"Id"}}},
+					{{Columns: []string{"CreatedBy"}, Table: "Vaults", References: []string{"Id"}}},
+				},
+			},
+			want: [][]any{{"f1"}, {"k1"}, {"ta"}, {"va"}},
+		},
+		{
+			name: "a kind through another table, by its title or through the row it reaches its tenant by",
+			kind: DeleteKind{
+				Resource: "TrackedForkRows", Words: DeleteWords{One: "tracked row", Many: "tracked rows"}, Key: []string{"Id"},
+				Tenant: &DomainBindingData{Column: "Id", Path: []BindingHop{{Table: "ForkRows", JoinColumn: "Id", Column: "CreatedBy"}}},
+				Paths: []DeletePath{
+					{{Columns: []string{"Title"}, Table: "Vaults", References: []string{"Id"}}},
+					{{Columns: []string{"Id"}, Table: "ForkRows", References: []string{"Id"}}, {Columns: []string{"CreatedBy"}, Table: "Vaults", References: []string{"Id"}}},
+				},
+			},
+			want: [][]any{{"ta"}, {"va"}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			tree := vaults
+			tree.Taken = []DeleteKind{tt.kind}
+			counted, paged, err := readUnder(ctx, db, &tree, map[string]any{"Id": "anvil"})
+			if err != nil {
+				t.Fatalf("reading the rows under the record: %v", err)
+			}
+			if counted != int64(len(tt.want)) {
+				t.Errorf("the count of the rows under the record = %d, want %d", counted, len(tt.want))
+			}
+			if diff := cmp.Diff(tt.want, paged); diff != "" {
+				t.Errorf("the page of the rows under the record (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// anotherTenantsRows are the rows TestTakingDelete_anotherTenantsRow reads: under the
+// record f1 and under the tenant record anvil, a row of anvil and a row of bastion of each
+// kind, and the rows a tracked row reaches its tenant through.
+func anotherTenantsRows() []*spanner.Mutation {
+	return []*spanner.Mutation{
+		// The record whose row is read for its tenant, and what is under it.
+		spanner.InsertMap("ForkRows", map[string]any{"Id": "f1", "Title": "record", "CreatedBy": "anvil"}),
+		spanner.InsertMap("SealedPairRows", map[string]any{"Vault": "anvil", "Shelf": "f1"}),
+		spanner.InsertMap("SealedPairRows", map[string]any{"Vault": "bastion", "Shelf": "f1"}),
+		spanner.InsertMap("TrackedForkRows", map[string]any{"Id": "ta", "Title": "f1"}),
+		spanner.InsertMap("TrackedForkRows", map[string]any{"Id": "tb", "Title": "f1"}),
+		// What is under the tenant record anvil.
+		spanner.InsertMap("ForkRows", map[string]any{"Id": "k1", "Title": "anvil", "CreatedBy": "anvil"}),
+		spanner.InsertMap("ForkRows", map[string]any{"Id": "k2", "Title": "anvil", "CreatedBy": "bastion"}),
+		spanner.InsertMap("TrackedForkRows", map[string]any{"Id": "va", "Title": "anvil"}),
+		spanner.InsertMap("TrackedForkRows", map[string]any{"Id": "vb", "Title": "anvil"}),
+		// The rows a tracked row reaches its tenant through, by its own key.
+		spanner.InsertMap("ForkRows", map[string]any{"Id": "ta", "Title": "way", "CreatedBy": "anvil"}),
+		spanner.InsertMap("ForkRows", map[string]any{"Id": "tb", "Title": "way", "CreatedBy": "bastion"}),
+		spanner.InsertMap("ForkRows", map[string]any{"Id": "va", "Title": "way", "CreatedBy": "anvil"}),
+		spanner.InsertMap("ForkRows", map[string]any{"Id": "vb", "Title": "way", "CreatedBy": "bastion"}),
 	}
 }
 

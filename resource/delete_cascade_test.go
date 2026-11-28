@@ -633,6 +633,48 @@ func Test_takenQuery(t *testing.T) {
 		t.Errorf("byTenant() of the relays =\n%s\nwant\n%s", statement.SQL, want)
 	}
 
+	// Under the tenant record, a kind nested under itself is read at level 0 by its way to
+	// its tenant alone, with no tenant's condition, and what level 1 finds is left out as
+	// before; at level 1 both ways are written, each with the tenant's condition.
+	sectors := &DeleteTree{Record: "Sectors", Key: []string{"Id"}, Tenant: &DomainBindingData{Column: "Id"}}
+	nested := DeleteKind{
+		Resource: "Relays", Words: DeleteWords{One: "relay", Many: "relays"}, Key: []string{"Id"}, Tenant: bySector,
+		Paths: []DeletePath{
+			{
+				{Columns: []string{"SectorId", "CaseNumber"}, Table: "Calls", References: []string{"SectorId", "CaseNumber"}},
+				{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+			},
+			{{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}}},
+		},
+		Within: []DeleteLink{{Columns: []string{"AnswersRelayId", "SectorId"}, Table: "Relays", References: []string{"Id", "SectorId"}}},
+	}
+	sectors.Taken = []DeleteKind{nested}
+	inSector := &takenQuery{tree: sectors, key: map[string]any{"Id": "anvil"}}
+	statement, ok = inSector.count(&sectors.Taken[0], 0, 1)
+	if !ok {
+		t.Fatal("count() of the relays at level 0 under the tenant record wrote no statement")
+	}
+	if want := "SELECT COUNT(*) FROM ((SELECT `Relays`.`Id` AS k1 FROM `Relays` WHERE `Relays`.`SectorId` = @d1) " +
+		"EXCEPT DISTINCT (SELECT `Relays`.`Id` AS k1 FROM `Calls` AS w1_2 JOIN `Relays` AS w1_1 ON w1_1.`SectorId` = w1_2.`SectorId` AND w1_1.`CaseNumber` = w1_2.`CaseNumber` " +
+		"JOIN `Relays` ON `Relays`.`AnswersRelayId` = w1_1.`Id` AND `Relays`.`SectorId` = w1_1.`SectorId` WHERE w1_2.`SectorId` = @d2 " +
+		"UNION ALL SELECT `Relays`.`Id` AS k1 FROM `Relays` AS w2_1 JOIN `Relays` ON `Relays`.`AnswersRelayId` = w2_1.`Id` AND `Relays`.`SectorId` = w2_1.`SectorId` " +
+		"WHERE w2_1.`SectorId` = @d3)) AS u"; statement.SQL != want {
+		t.Errorf("count() of the relays at level 0 under the tenant record =\n%s\nwant\n%s", statement.SQL, want)
+	}
+	if diff := cmp.Diff([]any{"anvil", "anvil", "anvil"}, statement.Args); diff != "" {
+		t.Errorf("count() of the relays at level 0 under the tenant record values (-want +got):\n%s", diff)
+	}
+	statement, ok = inSector.count(&sectors.Taken[0], 1, 1)
+	if !ok {
+		t.Fatal("count() of the relays at level 1 under the tenant record wrote no statement")
+	}
+	if want := "SELECT COUNT(*) FROM (SELECT `Relays`.`Id` AS k1 FROM `Calls` AS w0_2 JOIN `Relays` AS w0_1 ON w0_1.`SectorId` = w0_2.`SectorId` AND w0_1.`CaseNumber` = w0_2.`CaseNumber` " +
+		"JOIN `Relays` ON `Relays`.`AnswersRelayId` = w0_1.`Id` AND `Relays`.`SectorId` = w0_1.`SectorId` WHERE w0_2.`SectorId` = @d1 AND `Relays`.`SectorId` = @d2 " +
+		"UNION DISTINCT SELECT `Relays`.`Id` AS k1 FROM `Relays` AS w1_1 JOIN `Relays` ON `Relays`.`AnswersRelayId` = w1_1.`Id` AND `Relays`.`SectorId` = w1_1.`SectorId` " +
+		"WHERE w1_1.`SectorId` = @d3 AND `Relays`.`SectorId` = @d4) AS u"; statement.SQL != want {
+		t.Errorf("count() of the relays at level 1 under the tenant record =\n%s\nwant\n%s", statement.SQL, want)
+	}
+
 	// A page's statements start from the page's keys, bound once by name as rows, and join
 	// the first step of each way to them: a key of one column too.
 	ids := []struct{ C1 string }{{"t1"}, {"t2"}}

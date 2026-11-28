@@ -614,10 +614,14 @@ func TestRecordedDelete_seen(t *testing.T) {
 // written from the record's key down: the kind's own columns against the record's key; a
 // way of more than one step from the table its last step leaves, held to the key, joined
 // down through the rows between, nothing left out; and a way that ends on a column the
-// record's key does not hold from the record's own row. Where the kind's rows and the record are a tenant's, the count is of
-// the rows of the record's own tenant: the tenant its key holds, or the one its row
-// resolves to, against the tenant each row resolves to, by its column or through other
-// rows. A record or a kind that is no tenant's counts every row its ways put there.
+// record's key does not hold from the record's own row. Where the kind's rows and the
+// record are a tenant's, the count is of the rows of the record's own tenant: the tenant
+// its key holds, or the one its row resolves to, against the tenant each row resolves
+// to, by its column or through other rows. Under a record whose key holds its tenant,
+// where one of the kind's ways is its way to its tenant, that way alone is written, with
+// no tenant's condition: by the kind's own column, or through the table it reaches its
+// tenant by. A way whose last step references more than the tenant's column is not that
+// way. A record or a kind that is no tenant's counts every row its ways put there.
 func Test_newRowsUnderStatement(t *testing.T) {
 	t.Parallel()
 
@@ -627,6 +631,7 @@ func Test_newRowsUnderStatement(t *testing.T) {
 	sectors := &DeleteTree{Record: "Sectors", Key: []string{"Id"}, Tenant: &DomainBindingData{Column: "Id"}}
 	calls := &DeleteTree{Record: "Calls", Key: []string{"Id"}, Tenant: bySector}
 	wings := &DeleteTree{Record: "Wings", Key: []string{"Id"}, Tenant: bySector}
+	bySectorID := DeleteLink{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}}
 
 	tests := []struct {
 		name      string
@@ -768,6 +773,61 @@ func Test_newRowsUnderStatement(t *testing.T) {
 			wantArgs:  []any{"anvil", "anvil"},
 		},
 		{
+			name:      "the tenant record: a kind that holds its tenant in a column of its own is read by that column alone",
+			dbType:    SpannerDBType,
+			tree:      sectors,
+			kind:      DeleteKind{Resource: "Missions", Key: []string{"Id"}, Tenant: bySector, Paths: []DeletePath{{bySectorID}}},
+			recordKey: map[string]any{"Id": "anvil"},
+			wantSQL:   "SELECT COUNT(*) FROM (SELECT `Missions`.`Id` AS k1 FROM `Missions` WHERE `Missions`.`SectorId` = @d1) AS u",
+			wantArgs:  []any{"anvil"},
+		},
+		{
+			name:   "the tenant record: of two ways, the kind's way to its tenant alone is written",
+			dbType: SpannerDBType,
+			tree:   sectors,
+			kind: DeleteKind{Resource: "Missions", Key: []string{"Id"}, Tenant: bySector, Paths: []DeletePath{
+				{{Columns: []string{"HostSectorId"}, Table: "Sectors", References: []string{"Id"}}},
+				{bySectorID},
+			}},
+			recordKey: map[string]any{"Id": "anvil"},
+			wantSQL:   "SELECT COUNT(*) FROM (SELECT `Missions`.`Id` AS k1 FROM `Missions` WHERE `Missions`.`SectorId` = @d1) AS u",
+			wantArgs:  []any{"anvil"},
+		},
+		{
+			name:   "the tenant record: a kind that reaches its tenant through another table is read by that way alone",
+			dbType: SpannerDBType,
+			tree:   sectors,
+			kind: DeleteKind{Resource: "Squadrons", Key: []string{"Id"}, Tenant: byWing, Paths: []DeletePath{
+				{{Columns: []string{"PatrolWingId"}, Table: "Wings", References: []string{"Id"}}, bySectorID},
+				{{Columns: []string{"WingId"}, Table: "Wings", References: []string{"Id"}}, bySectorID},
+			}},
+			recordKey: map[string]any{"Id": "anvil"},
+			wantSQL:   "SELECT COUNT(*) FROM (SELECT `Squadrons`.`Id` AS k1 FROM `Wings` AS w0_1 JOIN `Squadrons` ON `Squadrons`.`WingId` = w0_1.`Id` WHERE w0_1.`SectorId` = @d1) AS u",
+			wantArgs:  []any{"anvil"},
+		},
+		{
+			name:      "the tenant record: a kind read by its tenant's column alone, on PostgreSQL",
+			dbType:    PostgresDBType,
+			tree:      sectors,
+			kind:      DeleteKind{Resource: "Missions", Key: []string{"Id"}, Tenant: bySector, Paths: []DeletePath{{bySectorID}}},
+			recordKey: map[string]any{"Id": "anvil"},
+			wantSQL:   `SELECT COUNT(*) FROM (SELECT "Missions"."Id" AS k1 FROM "Missions" WHERE "Missions"."SectorId" = $1) AS u`,
+			wantArgs:  []any{"anvil"},
+		},
+		{
+			// The last step references the record's tenant's column and another: it is not
+			// the kind's way to its tenant, and the tenant's condition stays.
+			name:   "a record keyed by its tenant: a way whose last step references more than the tenant's column keeps the tenant's condition",
+			dbType: SpannerDBType,
+			tree:   &DeleteTree{Record: "Wings", Key: []string{"SectorId", "Id"}, Tenant: bySector},
+			kind: DeleteKind{Resource: "Squadrons", Key: []string{"Id"}, Tenant: bySector, Paths: []DeletePath{
+				{{Columns: []string{"SectorId", "WingId"}, Table: "Wings", References: []string{"SectorId", "Id"}}},
+			}},
+			recordKey: map[string]any{"SectorId": "anvil", "Id": "w1"},
+			wantSQL:   "SELECT COUNT(*) FROM (SELECT `Squadrons`.`Id` AS k1 FROM `Squadrons` WHERE `Squadrons`.`SectorId` = @d1 AND `Squadrons`.`WingId` = @d2 AND `Squadrons`.`SectorId` = @d3) AS u",
+			wantArgs:  []any{"anvil", "w1", "anvil"},
+		},
+		{
 			name:      "a record that is no tenant's",
 			dbType:    SpannerDBType,
 			tree:      &DeleteTree{Record: "Calls", Key: []string{"Id"}},
@@ -807,6 +867,103 @@ func Test_newRowsUnderStatement(t *testing.T) {
 	statement := rowsUnderStatement{SQL: "SELECT 1", Args: []any{"h1", int64(2)}}.spannerStatement()
 	if diff := cmp.Diff(map[string]any{"d1": "h1", "d2": int64(2)}, statement.Params); diff != "" {
 		t.Errorf("spannerStatement() names its values mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// Test_tenantsWay holds which of a kind's ways is its way to its tenant under a record
+// whose key holds its tenant: the way that follows, column for column, the links the
+// kind's tenant is found by and ends on the record's tenant column, the first of two that
+// do. A kind or a record that is no tenant's, a record that reaches its tenant through
+// another row, a key without the tenant's column, a way one link longer or shorter, a link
+// of two columns, a link to another table than the tenant's way names and a last link
+// that references two columns have none.
+func Test_tenantsWay(t *testing.T) {
+	t.Parallel()
+
+	bySector := &DomainBindingData{Column: "SectorId"}
+	byWing := &DomainBindingData{Column: "WingId", Path: []BindingHop{{Table: "Wings", JoinColumn: "Id", Column: "SectorId"}}}
+	bySquadron := &DomainBindingData{Column: "SquadronId", Path: []BindingHop{
+		{Table: "Squadrons", JoinColumn: "Id", Column: "WingId"},
+		{Table: "Wings", JoinColumn: "Id", Column: "SectorId"},
+	}}
+	toSector := DeleteLink{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}}
+	toWing := DeleteLink{Columns: []string{"WingId"}, Table: "Wings", References: []string{"Id"}}
+	sectors := &DeleteTree{Record: "Sectors", Key: []string{"Id"}, Tenant: &DomainBindingData{Column: "Id"}}
+	inSector := map[string]any{"Id": "anvil"}
+
+	tests := []struct {
+		name      string
+		tree      *DeleteTree
+		tenant    *DomainBindingData
+		recordKey map[string]any
+		ways      []DeletePath
+		want      DeletePath
+	}{
+		{name: "a kind with no tenant", tree: sectors, recordKey: inSector, ways: []DeletePath{{toSector}}},
+		{name: "a record with no tenant", tree: &DeleteTree{Record: "Sectors", Key: []string{"Id"}}, tenant: bySector, recordKey: inSector, ways: []DeletePath{{toSector}}},
+		{
+			name:      "a record that reaches its tenant through another row",
+			tree:      &DeleteTree{Record: "Wings", Key: []string{"Id"}, Tenant: &DomainBindingData{Column: "HangarId", Path: []BindingHop{{Table: "Hangars", JoinColumn: "Id", Column: "SectorId"}}}},
+			tenant:    bySector,
+			recordKey: map[string]any{"Id": "w1", "HangarId": "h1"},
+			ways:      []DeletePath{{{Columns: []string{"SectorId"}, Table: "Wings", References: []string{"HangarId"}}}},
+		},
+		{
+			name:      "a key that does not hold the tenant's column",
+			tree:      &DeleteTree{Record: "Wings", Key: []string{"Id"}, Tenant: bySector},
+			tenant:    bySector,
+			recordKey: map[string]any{"Id": "w1"},
+			ways:      []DeletePath{{{Columns: []string{"SectorId"}, Table: "Wings", References: []string{"SectorId"}}}},
+		},
+		{
+			name: "a way one link longer than the tenant's way", tree: sectors, tenant: bySector, recordKey: inSector,
+			ways: []DeletePath{{{Columns: []string{"SectorId"}, Table: "Calls", References: []string{"Id"}}, toSector}},
+		},
+		{name: "a way one link shorter than the tenant's way", tree: sectors, tenant: byWing, recordKey: inSector, ways: []DeletePath{{{Columns: []string{"WingId"}, Table: "Sectors", References: []string{"Id"}}}}},
+		{
+			name: "a link of two columns", tree: sectors, tenant: byWing, recordKey: inSector,
+			ways: []DeletePath{{{Columns: []string{"WingId", "SectorId"}, Table: "Wings", References: []string{"Id", "SectorId"}}, toSector}},
+		},
+		{
+			name: "a link to the right column of another table than the tenant's way names", tree: sectors, tenant: byWing, recordKey: inSector,
+			ways: []DeletePath{{{Columns: []string{"WingId"}, Table: "Hangars", References: []string{"Id"}}, toSector}},
+		},
+		{
+			name:      "a last link that references two columns",
+			tree:      &DeleteTree{Record: "Wings", Key: []string{"SectorId", "Id"}, Tenant: bySector},
+			tenant:    bySector,
+			recordKey: map[string]any{"SectorId": "anvil", "Id": "w1"},
+			ways:      []DeletePath{{{Columns: []string{"SectorId", "WingId"}, Table: "Wings", References: []string{"SectorId", "Id"}}}},
+		},
+		{name: "the match, with no step between the row and its tenant", tree: sectors, tenant: bySector, recordKey: inSector, ways: []DeletePath{{toSector}}, want: DeletePath{toSector}},
+		{
+			name: "the match, with two steps between the row and its tenant", tree: sectors, tenant: bySquadron, recordKey: inSector,
+			ways: []DeletePath{{{Columns: []string{"SquadronId"}, Table: "Squadrons", References: []string{"Id"}}, toWing, toSector}},
+			want: DeletePath{{Columns: []string{"SquadronId"}, Table: "Squadrons", References: []string{"Id"}}, toWing, toSector},
+		},
+		{
+			name: "two matching ways: the first is answered", tree: sectors, tenant: byWing, recordKey: inSector,
+			ways: []DeletePath{
+				{{Columns: []string{"PatrolWingId"}, Table: "Wings", References: []string{"Id"}}, toSector},
+				{{Columns: []string{"WingId"}, Table: "Wings", References: []string{"Id"}, MayBeEmpty: true}, toSector},
+				{toWing, toSector},
+			},
+			want: DeletePath{{Columns: []string{"WingId"}, Table: "Wings", References: []string{"Id"}, MayBeEmpty: true}, toSector},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, ok := tenantsWay(tt.tree, &DeleteKind{Resource: "Rows", Key: []string{"Id"}, Tenant: tt.tenant}, tt.recordKey, tt.ways)
+			if ok != (tt.want != nil) {
+				t.Fatalf("tenantsWay() answered a way = %t, want %t", ok, tt.want != nil)
+			}
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("tenantsWay() (-want +got):\n%s", diff)
+			}
+		})
 	}
 }
 

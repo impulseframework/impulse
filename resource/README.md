@@ -2094,6 +2094,15 @@ with nothing gone where it cannot be made whole:
   follows, a step at a time, the foreign keys or interleaves that put the kind's rows
   under the record; under a page of a kind nested under itself it starts from the page's
   keys the same way. Nothing it sends starts from the kind's whole table.
+- Under the tenant record, a kind is read by its rows' own way to their tenant, where that
+  is one of the kind's ways up to the record. Every row of the kind in the tenant is
+  under the record, so the kind's other ways find nothing more and are not written. A
+  kind that holds its tenant's key in a column of its own is found by one read of the
+  rows that hold it. A kind that reaches its tenant through another table is found by a
+  look under each row of that table, whether or not anything is there: the delete of a
+  tenant with 8,000 projects and no tasks looks 8,000 times for a project's tasks. That
+  is what it costs to read nothing outside the record, and it grows with the record,
+  never with the table.
 
 The delete in code is Spanner's write path. The mock client holds no rows and takes none,
 and PostgreSQL has no write path.

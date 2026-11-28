@@ -235,6 +235,49 @@ func heldTenant(tree *DeleteTree, recordKey map[string]any) (value any, held boo
 	return value, held
 }
 
+// tenantsWay is the first of the ways, in their order, that is the kind's own way to its
+// tenant, under a record whose key holds its tenant (heldTenant): the way that leaves
+// the kind's row by the column its tenant is found by, follows each step of the way to
+// the tenant (DomainBindingData.Path) column for column, and ends on the record's column
+// that holds the tenant's key. Under such a record that way's rows are every row of the
+// kind in the record's tenant, each of them under the record, so the kind's other ways
+// find none it does not, and the way needs no tenant's condition beside it. ok is false
+// where the record's key does not hold its tenant, where the kind's rows are no tenant's,
+// and where no way is the kind's way to its tenant.
+func tenantsWay(tree *DeleteTree, kind *DeleteKind, recordKey map[string]any, ways []DeletePath) (way DeletePath, ok bool) {
+	if kind.Tenant == nil {
+		return nil, false
+	}
+	if _, held := heldTenant(tree, recordKey); !held {
+		return nil, false
+	}
+	for _, path := range ways {
+		if leadsToTenant(path, kind.Tenant, tree.Tenant.Column) {
+			return path, true
+		}
+	}
+
+	return nil, false
+}
+
+// leadsToTenant reports whether the path is the way to the tenant the binding names,
+// ending on the record's column that holds the tenant's key: one link more than the
+// binding's steps, the first leaving by the binding's column alone, each to the step's
+// table by its join column alone, the next leaving by the step's column alone, and the
+// last referencing the record's column alone.
+func leadsToTenant(path DeletePath, binding *DomainBindingData, column string) bool {
+	if len(path) != len(binding.Path)+1 || !slices.Equal(path[0].Columns, []string{binding.Column}) {
+		return false
+	}
+	for j, hop := range binding.Path {
+		if path[j].Table != hop.Table || !slices.Equal(path[j].References, []string{hop.JoinColumn}) || !slices.Equal(path[j+1].Columns, []string{hop.Column}) {
+			return false
+		}
+	}
+
+	return slices.Equal(path[len(path)-1].References, []string{column})
+}
+
 // tenantValues is the most values ofRecordsTenant adds to a statement about the kind's
 // rows: the record's key, and none where it writes no condition.
 func tenantValues(kind *DeleteKind, tree *DeleteTree, recordKey map[string]any) int {
@@ -448,17 +491,24 @@ func (w *rowsUnderWriter) named() map[string]any {
 // given key, by any of the kind's ways up to it (the path statement at level 0,
 // delete_cascade.go), each way written from the record's key down to the kind (wayRows),
 // the ways joined by a union that holds each row once, and, where the kind's rows and the
-// record are a tenant's, of the record's tenant alone (ofRecordsTenant). ok is false for
-// a kind with no way up to the record.
+// record are a tenant's, of the record's tenant alone (ofRecordsTenant). Under a record
+// whose key holds its tenant, where one of the kind's ways is its way to its tenant
+// (tenantsWay), that way alone is written, with no tenant's condition: it finds every row
+// of the kind in the tenant, and the other ways nothing more. ok is false for a kind with
+// no way up to the record.
 func newRowsUnderStatement(dbType DBType, tree *DeleteTree, kind *DeleteKind, recordKey map[string]any) (statement rowsUnderStatement, ok bool) {
 	ways := slices.DeleteFunc(slices.Clone(kind.Paths), func(path DeletePath) bool { return len(path) == 0 })
 	if len(ways) == 0 {
 		return rowsUnderStatement{}, false
 	}
+	tenant := true
+	if way, own := tenantsWay(tree, kind, recordKey, ways); own {
+		ways, tenant = []DeletePath{way}, false
+	}
 	w := &rowsUnderWriter{dbType: dbType}
 	selects := make([]string, 0, len(ways))
 	for _, path := range ways {
-		selects = append(selects, w.wayRows(strings.Join(w.keyColumns(kind), ", "), kind, path, tree, recordKey, nil, true))
+		selects = append(selects, w.wayRows(strings.Join(w.keyColumns(kind), ", "), kind, path, tree, recordKey, nil, tenant))
 	}
 	sql := "SELECT COUNT(*) FROM (" + strings.Join(selects, " UNION DISTINCT ") + ") AS u"
 

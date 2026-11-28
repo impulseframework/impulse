@@ -512,19 +512,29 @@ func (q *takenQuery) ways(kind *DeleteKind, level int) []DeletePath {
 // one level finds belongs to the deepest: below the deepest level, the rows the next
 // level's ways find are taken out (EXCEPT DISTINCT). A row that two levels find, with a
 // level between them that does not, is at both: it is counted twice, and deleted at the
-// deeper level first. columns is called once for each SELECT, so a list that reads a
-// row's tenant (rowTenant) names its steps anew in each. ok is false where the kind has
-// no way at the level.
+// deeper level first. From the record at level 0, under a record whose key holds its
+// tenant, where one of the level's ways is the kind's way to its tenant (tenantsWay),
+// the level's rows are that way's SELECT alone, with no tenant's condition: it finds every
+// row of the kind in the tenant, and the other ways nothing more. What the next level
+// finds is left out of it as from the union. columns is called once for each SELECT, so a
+// list that reads a row's tenant (rowTenant) names its steps anew in each. ok is false
+// where the kind has no way at the level.
 func (q *takenQuery) rows(w *rowsUnderWriter, kind *DeleteKind, level, deepest int, columns func() []string, all bool) (string, bool) {
 	ways := q.ways(kind, level)
 	if len(ways) == 0 {
 		return "", false
 	}
+	tenant := true
+	if q.under == nil && level == 0 {
+		if way, own := tenantsWay(q.tree, kind, q.key, ways); own {
+			ways, tenant = []DeletePath{way}, false
+		}
+	}
 	union := " UNION DISTINCT "
 	if all {
 		union = " UNION ALL "
 	}
-	rows := strings.Join(q.selects(w, kind, ways, columns, true), union)
+	rows := strings.Join(q.selects(w, kind, ways, columns, tenant), union)
 	if next := q.ways(kind, level+1); level < deepest && len(next) > 0 {
 		rows = "(" + rows + ") EXCEPT DISTINCT (" + strings.Join(q.selects(w, kind, next, columns, false), " UNION ALL ") + ")"
 	}
