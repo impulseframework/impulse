@@ -44,6 +44,7 @@ func (cascadeRows) columns(DBType) map[string]takenColumn {
 	return map[string]takenColumn{
 		"Id":        {field: "ID", typ: reflect.TypeFor[string]()},
 		"ProjectId": {field: "ProjectID", typ: reflect.TypeFor[string]()},
+		"Lane":      {field: "Lane", typ: reflect.TypeFor[*string]()},
 	}
 }
 
@@ -755,18 +756,64 @@ func Test_takenQuery(t *testing.T) {
 	if diff := cmp.Diff(map[string]any{"ids": keys}, statement.spannerStatement().Params); diff != "" {
 		t.Errorf("count() of the sections under a page of sections values (-want +got):\n%s", diff)
 	}
+	// A link that references part of the page's key is joined straight to the field that
+	// holds it.
+	noted := deepSectionsTree()
+	noted.Taken = append(noted.Taken, DeleteKind{
+		Resource: "CascadeNotes", Words: DeleteWords{One: "note", Many: "notes"}, Key: []string{"Id"},
+		Paths: []DeletePath{{
+			{Columns: []string{"SectionId"}, Table: "CascadeSections", References: []string{"Id"}},
+			{Columns: []string{"ProjectId"}, Table: "CascadeProjects", References: []string{"Id"}},
+		}},
+	})
+	underNoted := &takenQuery{tree: noted, key: map[string]any{"Id": "p1"}, under: &takenUnder{table: "CascadeSections", key: []string{"ProjectId", "Id"}, ids: keys}}
+	statement, ok = underNoted.count(&noted.Taken[1], 0, 0)
+	if !ok {
+		t.Fatal("count() of the notes under a page of sections wrote no statement")
+	}
+	if want := "SELECT COUNT(*) FROM (SELECT `CascadeNotes`.`Id` AS k1 FROM UNNEST(@ids) AS pg JOIN `CascadeNotes` ON `CascadeNotes`.`SectionId` = pg.C2) AS u"; statement.SQL != want {
+		t.Errorf("count() of the notes under a page of sections =\n%s\nwant\n%s", statement.SQL, want)
+	}
 
-	// A link to a column outside the key: the page's own row is read by the page's keys,
-	// and the step joined from there.
+	// A link to a column outside the key, on a page that carries nothing: the page's own
+	// row is read by the page's keys, and the step joined from there.
 	answers := deepRepliesTree()
 	underReplies := &takenQuery{tree: answers, key: map[string]any{"Id": "p1"}, under: &takenUnder{table: "CascadeReplies", key: []string{"Id"}, ids: []struct{ C1 string }{{"r1"}}}}
 	page, ok = underReplies.page(&answers.Taken[0], 0, 0, nil, takenPageRows, 0)
 	if !ok {
-		t.Fatal("page() of the replies under a page of replies wrote no read")
+		t.Fatal("page() of the replies under a page of replies that carries nothing wrote no read")
 	}
 	if want := "SELECT u.k1 FROM (SELECT `CascadeReplies`.`Id` AS k1 FROM UNNEST(@ids) AS pg JOIN `CascadeReplies` AS w0_r ON w0_r.`Id` = pg.C1 " +
 		"JOIN `CascadeReplies` ON `CascadeReplies`.`AnswersId` = w0_r.`Id` AND `CascadeReplies`.`Lane` = w0_r.`Lane`) AS u ORDER BY u.k1 LIMIT 1000"; page.SQL != want {
-		t.Errorf("page() of the replies under a page of replies =\n%s\nwant\n%s", page.SQL, want)
+		t.Errorf("page() of the replies under a page of replies that carries nothing =\n%s\nwant\n%s", page.SQL, want)
+	}
+	// The same link on a page that carries the column: joined straight to the page's
+	// fields, in their order.
+	carrying := &takenQuery{tree: answers, key: map[string]any{"Id": "p1"}, under: &takenUnder{
+		table: "CascadeReplies", key: []string{"Id"}, carried: []string{"Lane"}, ids: []struct{ C1, C2 string }{{"r1", "open"}},
+	}}
+	page, ok = carrying.page(&answers.Taken[0], 0, 0, nil, takenPageRows, 0)
+	if !ok {
+		t.Fatal("page() of the replies under a page of replies that carries their lane wrote no read")
+	}
+	if want := "SELECT u.k1 FROM (SELECT `CascadeReplies`.`Id` AS k1 FROM UNNEST(@ids) AS pg " +
+		"JOIN `CascadeReplies` ON `CascadeReplies`.`AnswersId` = pg.C1 AND `CascadeReplies`.`Lane` = pg.C2) AS u ORDER BY u.k1 LIMIT 1000"; page.SQL != want {
+		t.Errorf("page() of the replies under a page of replies that carries their lane =\n%s\nwant\n%s", page.SQL, want)
+	}
+	// A frontier's read takes, after each row's key, the columns its page carries; with
+	// none carried it is the page read with no terms.
+	fromRecord := &takenQuery{tree: answers, key: map[string]any{"Id": "p1"}}
+	page, ok = fromRecord.frontierPage(&answers.Taken[0], 0, 0, []string{"Lane"}, takenPageRows, 0)
+	if !ok {
+		t.Fatal("frontierPage() of the replies wrote no read")
+	}
+	if want := "SELECT u.k1, u.r1 FROM (SELECT `CascadeReplies`.`Id` AS k1, `CascadeReplies`.`Lane` AS r1 FROM `CascadeTasks` AS w0_1 " +
+		"JOIN `CascadeReplies` ON `CascadeReplies`.`TaskId` = w0_1.`Id` WHERE w0_1.`ProjectId` = @d1) AS u ORDER BY u.k1 LIMIT 1000"; page.SQL != want {
+		t.Errorf("frontierPage() of the replies =\n%s\nwant\n%s", page.SQL, want)
+	}
+	plain, _ := query.page(tasks, 1, 2, nil, takenPageRows, takenPageRows)
+	if frontier, ok := query.frontierPage(tasks, 1, 2, nil, takenPageRows, takenPageRows); !ok || frontier.SQL != plain.SQL {
+		t.Errorf("frontierPage() of the tasks carrying nothing = %q (written %t), want page()'s %q", frontier.SQL, ok, plain.SQL)
 	}
 }
 
@@ -775,7 +822,7 @@ func Test_takenQuery(t *testing.T) {
 func Test_pageKeys(t *testing.T) {
 	t.Parallel()
 
-	one, err := pageKeys([]takenPageRow{{key: []any{"t1"}}, {key: []any{"t2"}}})
+	one, _, err := pageKeys([]takenPageRow{{key: []any{"t1"}}, {key: []any{"t2"}}})
 	if err != nil {
 		t.Fatalf("pageKeys() of a key of one column error = %v", err)
 	}
@@ -784,7 +831,7 @@ func Test_pageKeys(t *testing.T) {
 	}{{"t1"}, {"t2"}}, one); diff != "" {
 		t.Errorf("pageKeys() of a key of one column (-want +got):\n%s", diff)
 	}
-	two, err := pageKeys([]takenPageRow{{key: []any{"p1", int64(1)}}, {key: []any{"p1", int64(2)}}})
+	two, _, err := pageKeys([]takenPageRow{{key: []any{"p1", int64(1)}}, {key: []any{"p1", int64(2)}}})
 	if err != nil {
 		t.Fatalf("pageKeys() of a key of two columns error = %v", err)
 	}
@@ -794,4 +841,51 @@ func Test_pageKeys(t *testing.T) {
 	}{{"p1", 1}, {"p1", 2}}, two); diff != "" {
 		t.Errorf("pageKeys() of a key of two columns (-want +got):\n%s", diff)
 	}
+
+	// A row's carried values follow its key; a pointer is bound as what it points to.
+	open, closed := "open", "closed"
+	carried, carries, err := pageKeys([]takenPageRow{{key: []any{"r1"}, carried: []any{&open}}, {key: []any{"r2"}, carried: []any{&closed}}})
+	if err != nil {
+		t.Fatalf("pageKeys() of a page that carries a column error = %v", err)
+	}
+	if !carries {
+		t.Error("pageKeys() of a page every row of which holds its carried value carries nothing, want its column carried")
+	}
+	if diff := cmp.Diff([]struct {
+		C1 string `spanner:"C1"`
+		C2 string `spanner:"C2"`
+	}{{"r1", "open"}, {"r2", "closed"}}, carried); diff != "" {
+		t.Errorf("pageKeys() of a page that carries a column (-want +got):\n%s", diff)
+	}
+
+	// A page one of whose rows has no value in a carried column carries nothing.
+	for _, empty := range []struct {
+		name  string
+		value any
+	}{
+		{name: "a nil pointer", value: (*string)(nil)},
+		{name: "a null", value: spanner.NullString{}},
+		{name: "a value whose encoder answers nil", value: nilEncoder{}},
+	} {
+		keys, carries, err := pageKeys([]takenPageRow{{key: []any{"r1"}, carried: []any{&open}}, {key: []any{"r2"}, carried: []any{empty.value}}})
+		if err != nil {
+			t.Fatalf("pageKeys() of a page with %s error = %v", empty.name, err)
+		}
+		if carries {
+			t.Errorf("pageKeys() of a page with %s carries its column, want nothing carried", empty.name)
+		}
+		if diff := cmp.Diff([]struct {
+			C1 string `spanner:"C1"`
+		}{{"r1"}, {"r2"}}, keys); diff != "" {
+			t.Errorf("pageKeys() of a page with %s (-want +got):\n%s", empty.name, diff)
+		}
+	}
+}
+
+// nilEncoder is a value whose encoder answers nil, as an empty value of a type of the
+// application's own may.
+type nilEncoder struct{}
+
+func (nilEncoder) EncodeSpanner() (any, error) {
+	return nil, nil
 }

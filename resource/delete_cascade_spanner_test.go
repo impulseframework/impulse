@@ -985,6 +985,17 @@ func TestTakingDelete_nestedToAnyDepth(t *testing.T) { //nolint:tparallel // the
 			name: "a reply under a reply by a column outside the key is counted to its end", tree: deepRepliesTree(), key: project("replied"), rows: cascadeRows{asks: asksEveryRow},
 			wantStatus: http.StatusPreconditionRequired, wantMessage: "Delete this project and everything under it: 25 replies. This can't be undone.",
 			wantAsked: "replied",
+			// Every reply's page carries its lane, so nothing under a page reads the page's
+			// rows again.
+			check: func(t *testing.T, run *cascadeRun, _ bool) {
+				t.Helper()
+
+				for _, sql := range run.statements {
+					if strings.Contains(sql, "FROM UNNEST(") && pagesOwnRow.MatchString(sql) {
+						t.Errorf("a statement from a page reads the page's own rows: %s", sql)
+					}
+				}
+			},
 		},
 		{
 			name: "a reply under a reply by a column outside the key is deleted, the deepest first", unasked: true, tree: deepRepliesTree(), key: project("replied"), everythingUnder: true,
@@ -1504,6 +1515,86 @@ func questionRecords(t *testing.T, err error) int64 {
 	}
 
 	return body.Records
+}
+
+// pagesOwnRow is the name a statement from a page reads the page's own row of the table
+// under (rowsUnderWriter.wayFromPage).
+var pagesOwnRow = regexp.MustCompile(` AS w[0-9]+_r\b`)
+
+// TestTakingDelete_underACarryingPage counts, over the emulator, the replies under a page
+// of replies made by hand, at the page's own level: a page every row of which holds its
+// lane carries it, and the replies are joined straight to the page's fields; a page with a
+// row that holds no lane carries nothing, and the replies are joined through the page's
+// own rows. Both count the reply that answers the page's reply in its lane, and neither
+// the one that answers it in another lane.
+func TestTakingDelete_underACarryingPage(t *testing.T) {
+	t.Parallel()
+
+	db := cascadeDatabase(t, "carrying-page")
+	ctx := context.Background()
+	if _, err := db.Apply(ctx, []*spanner.Mutation{
+		spanner.InsertMap("CascadeProjects", map[string]any{"Id": "replied"}),
+		spanner.InsertMap("CascadeTasks", map[string]any{"Id": "replied-t01", "ProjectId": "replied"}),
+		spanner.InsertMap("CascadeReplies", map[string]any{"Id": "replied-r01", "TaskId": "replied-t01", "Lane": "open"}),
+		spanner.InsertMap("CascadeReplies", map[string]any{"Id": "replied-r02", "AnswersId": "replied-r01", "Lane": "open"}),
+		spanner.InsertMap("CascadeReplies", map[string]any{"Id": "replied-r03", "AnswersId": "replied-r02", "Lane": "open"}),
+		spanner.InsertMap("CascadeReplies", map[string]any{"Id": "replied-other", "AnswersId": "replied-r01", "Lane": "closed"}),
+		spanner.InsertMap("CascadeReplies", map[string]any{"Id": "replied-x", "TaskId": "replied-t01"}),
+	}); err != nil {
+		t.Fatalf("spanner.Client.Apply() error = %v", err)
+	}
+	open := "open"
+	tree := deepRepliesTree()
+
+	tests := []struct {
+		name string
+		page []takenPageRow
+		// wantOwnRow says the statement reads the page's own rows (w0_r).
+		wantOwnRow bool
+	}{
+		{name: "a page that carries the lane", page: []takenPageRow{{key: []any{"replied-r01"}, carried: []any{&open}}}},
+		{
+			name:       "a page with a row that holds no lane carries nothing",
+			page:       []takenPageRow{{key: []any{"replied-r01"}, carried: []any{&open}}, {key: []any{"replied-x"}, carried: []any{(*string)(nil)}}},
+			wantOwnRow: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ids, carries, err := pageKeys(tt.page)
+			if err != nil {
+				t.Fatalf("pageKeys() error = %v", err)
+			}
+			under := &takenUnder{table: "CascadeReplies", key: []string{"Id"}, ids: ids}
+			if carries {
+				under.carried = []string{"Lane"}
+			}
+			statement, ok := (&takenQuery{tree: tree, key: map[string]any{"Id": "replied"}, under: under}).count(&tree.Taken[0], 0, 0)
+			if !ok {
+				t.Fatal("count() of the replies under the page wrote no statement")
+			}
+			if got := pagesOwnRow.MatchString(statement.SQL); got != tt.wantOwnRow {
+				t.Errorf("the count reads the page's own rows = %t, want %t: %s", got, tt.wantOwnRow, statement.SQL)
+			}
+			var counted int64
+			if err := NewSpannerClient(db).ExecuteFunc(ctx, func(ctx context.Context, txn ReadWriteTransaction) error {
+				spannerTxn, ok := txn.(*SpannerReadWriteTransaction)
+				if !ok {
+					return errors.Newf("the transaction is a %T, want Spanner's", txn)
+				}
+				counted, err = spannerTxn.countRows(ctx, statement)
+
+				return err
+			}); err != nil {
+				t.Fatalf("NewSpannerClient().ExecuteFunc() error = %v", err)
+			}
+			if counted != 1 {
+				t.Errorf("the replies under the page = %d, want 1: the one that answers it in its lane", counted)
+			}
+		})
+	}
 }
 
 // TestTakingDelete_anotherTenantsRow reads, over the emulator, the rows under a record of

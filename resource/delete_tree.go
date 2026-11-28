@@ -344,6 +344,41 @@ func (t *DeleteTree) nestingLinks(table string) []DeleteLink {
 	return links
 }
 
+// carriedColumns are the columns of the table outside its key that a link landing on
+// the table references, among what the record's delete reads: each step of the ways of
+// the kinds it takes and of the kinds that refuse it, and each link of a taken kind to its
+// own kind, whose Table is the table. Each is there once, in name order. A page of the
+// table's rows carries them after the key, so that what is under the page is found from
+// the page (takingDelete.frontier).
+func (t *DeleteTree) carriedColumns(table string, key []string) []string {
+	var columns []string
+	add := func(link DeleteLink) {
+		if link.Table != table {
+			return
+		}
+		for _, column := range link.References {
+			if !slices.Contains(key, column) && !slices.Contains(columns, column) {
+				columns = append(columns, column)
+			}
+		}
+	}
+	for _, kinds := range [][]DeleteKind{t.Taken, t.RefusedBy} {
+		for i := range kinds {
+			for _, path := range kinds[i].Paths {
+				for _, link := range path {
+					add(link)
+				}
+			}
+			for _, link := range kinds[i].Within {
+				add(link)
+			}
+		}
+	}
+	slices.Sort(columns)
+
+	return columns
+}
+
 // nestingPlace is a place on one of a kind's ways where links to a row of the same table
 // may stand: before the way's step at index at (after the last step where at is the
 // way's length), the links of the table the way stands on there (nestingLinks).

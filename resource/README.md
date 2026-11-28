@@ -2093,7 +2093,9 @@ with nothing gone where it cannot be made whole:
   count, a page of rows, a read of whether there is any) starts from the record's key and
   follows, a step at a time, the foreign keys or interleaves that put the kind's rows
   under the record; under a page of a kind nested under itself it starts from the page's
-  keys the same way. Nothing it sends starts from the kind's whole table.
+  rows the same way: a page holds each row's key and whichever other columns of the row
+  the rows under it name, so nothing under a page is found by reading the page's rows a
+  second time. Nothing it sends starts from the kind's whole table.
 - Under the tenant record, a kind is read by its rows' own way to their tenant, where that
   is one of the kind's ways up to the record. Every row of the kind in the tenant is
   under the record, so the kind's other ways find nothing more and are not written. A

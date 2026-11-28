@@ -363,11 +363,12 @@ func (w *rowsUnderWriter) wayFrom(path DeletePath, recordKey map[string]any, tab
 
 // wayFromPage writes one way from a page's rows (takenUnder) down to the kind's table
 // (read under its own name, table), whose last step lands on the page's table: the page's
-// keys (pg, bound under pageName) joined to the rows that hold them. Where the last step
-// references exactly the table's key, the step's columns are joined to the page's keys;
-// where it references a column outside the key, the page's own row of the table is read
-// (w<index>_r) by the page's keys, and the step is joined from there. The rows between
-// are joined as wayFrom joins them.
+// rows (pg, bound under pageName) joined to the rows under them. Where every column the
+// last step references is held by a field of the page's rows, the key's or a carried one
+// (takenUnder.field), the step's columns are joined straight to those fields (onPage);
+// where it references a column the page does not carry, the page's own row of the table
+// is read (w<index>_r) by the page's keys, and the step is joined from there. The rows
+// between are joined as wayFrom joins them.
 func (w *rowsUnderWriter) wayFromPage(path DeletePath, under *takenUnder, table string) string {
 	index := w.ways
 	w.ways++
@@ -375,8 +376,8 @@ func (w *rowsUnderWriter) wayFromPage(path DeletePath, under *takenUnder, table 
 	top := len(path) - 1
 	last := path[top]
 	from := "FROM UNNEST(@" + w.pageName() + ") AS pg"
-	if columns, ok := keyColumnsOf(last, under.key); ok {
-		from += " JOIN " + w.wayTable(path, index, table, top) + " ON " + w.inPage(w.wayRow(index, table, top), columns)
+	if on, ok := w.onPage(last, w.wayRow(index, table, top), under); ok {
+		from += " JOIN " + w.wayTable(path, index, table, top) + " ON " + on
 	} else {
 		row := fmt.Sprintf("w%d_r", index)
 		from += " JOIN " + w.quote(under.table) + " AS " + row + " ON " + w.inPage(row, under.key) +
@@ -430,23 +431,30 @@ func (w *rowsUnderWriter) linkOn(step DeleteLink, lower, upper string) string {
 	return strings.Join(conditions, " AND ")
 }
 
-// keyColumnsOf are the step's columns that hold the table's key, in the key's order,
-// where the step references exactly the key's columns; ok is false where it references
-// any other.
-func keyColumnsOf(step DeleteLink, key []string) (columns []string, ok bool) {
-	if len(step.References) != len(key) {
-		return nil, false
+// onPage is the condition that the row read as alias is under a row of the page by the
+// step: each of the step's columns of alias equal to the field of the page's rows that
+// holds the column it references (takenUnder.field), written in the order of the fields.
+// ok is false where a column the step references has no field.
+func (w *rowsUnderWriter) onPage(step DeleteLink, alias string, under *takenUnder) (string, bool) {
+	type joined struct {
+		column string
+		field  int
 	}
-	columns = make([]string, 0, len(key))
-	for _, column := range key {
-		at := slices.Index(step.References, column)
-		if at < 0 {
-			return nil, false
+	pairs := make([]joined, 0, len(step.Columns))
+	for i, column := range step.Columns {
+		field, ok := under.field(step.References[i])
+		if !ok {
+			return "", false
 		}
-		columns = append(columns, step.Columns[at])
+		pairs = append(pairs, joined{column: column, field: field})
+	}
+	slices.SortStableFunc(pairs, func(a, b joined) int { return a.field - b.field })
+	conditions := make([]string, 0, len(pairs))
+	for _, pair := range pairs {
+		conditions = append(conditions, fmt.Sprintf("%s.%s = pg.%s", alias, w.quote(pair.column), pageKeyField(pair.field)))
 	}
 
-	return columns, true
+	return strings.Join(conditions, " AND "), true
 }
 
 // inPage is the condition that the columns of the row read as alias, in the key's
