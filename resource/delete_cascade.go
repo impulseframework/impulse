@@ -390,13 +390,13 @@ func (p *PatchSet[Resource]) checkTaken(ctx context.Context, txn ReadWriteTransa
 // takenUnder is a page of rows of a table that nests, where a delete's
 // statements start from in place of the record: the rows a level of the delete could
 // still read, by their keys, when the database refused the next level's statement for its
-// joins. What is under them is read from their keys as what is under the record is read
-// from the record's.
+// joins. What is under them is read from what the page holds of each row, its key and the
+// columns it carries, as what is under the record is read from the record's key.
 type takenUnder struct {
 	// table is the table that nests, and key its key columns, in key order.
 	table string
 	key   []string
-	// ids are the page's keys as a statement binds them (pageKeys).
+	// ids are the page's rows as a statement binds them (pageKeys).
 	ids any
 	// crossed says the page's rows' own level was read by a start of another table, or by
 	// the record (DeleteTree.waysUnder).
@@ -404,54 +404,118 @@ type takenUnder struct {
 	// rows are the page's keys as read, one text for each row, for the check that no page
 	// is read inside itself (takingDelete.countFrom).
 	rows map[string]bool
+	// carried are the columns of the table outside its key that the page's rows hold
+	// after their key, in the order of their fields (DeleteTree.carriedColumns): a way
+	// whose last step references them is joined to the page's fields, and not to the
+	// page's own rows read again. It is empty where the page carries nothing.
+	carried []string
 }
 
 // withoutKeys is the page with its keys let go: what a branch keeps between the walks.
 func (u *takenUnder) withoutKeys() *takenUnder {
-	return &takenUnder{table: u.table, key: u.key, ids: nil, crossed: u.crossed, rows: nil}
+	return &takenUnder{table: u.table, key: u.key, ids: nil, crossed: u.crossed, rows: nil, carried: u.carried}
 }
 
-// pageKeys are the keys of a page's rows as a statement binds them: an array of rows,
-// each holding the row's key columns in key order in the fields C1, C2 and on
-// (pageKeyField), for a key of one column too. Each value is encoded as the Spanner client
-// encodes it in any statement (spanner.Encoder), and a value of a type of the
-// application's own over a plain one is the plain value.
-func pageKeys(rows []takenPageRow) (any, error) {
-	if len(rows) == 0 {
-		return nil, errors.New("a page of no rows has no keys")
+// field is the index of the field of the page's rows that holds the column of the page's
+// table: the key's column i at i, and the carried column j at the key's length and j
+// (pageKeyField names it). ok is false for a column the page's rows do not hold.
+func (u *takenUnder) field(column string) (index int, ok bool) {
+	if i := slices.Index(u.key, column); i >= 0 {
+		return i, true
 	}
+	if j := slices.Index(u.carried, column); j >= 0 {
+		return len(u.key) + j, true
+	}
+
+	return 0, false
+}
+
+// pageKeys are a page's rows as a statement binds them: an array of rows, each holding
+// the row's key columns in key order and then the values it carries (takenPageRow), in
+// the fields C1, C2 and on (pageKeyField), for a key of one column too. Each value is
+// encoded as the Spanner client encodes it in any statement (spanner.Encoder), a value
+// of a type of the application's own over a plain one is the plain value, and a carried
+// pointer is the value it points to. A page one of whose rows has no value in a carried
+// column (carriedValue) carries nothing: its keys alone are bound, and carries is false,
+// so no empty value is bound and each field has one type in every row. A key is never
+// empty.
+func pageKeys(rows []takenPageRow) (ids any, carries bool, err error) {
+	if len(rows) == 0 {
+		return nil, false, errors.New("a page of no rows has no keys")
+	}
+	carries = true
 	encoded := make([][]reflect.Value, 0, len(rows))
 	for _, row := range rows {
-		values := make([]reflect.Value, 0, len(row.key))
+		values := make([]reflect.Value, 0, len(row.key)+len(row.carried))
 		for _, value := range row.key {
 			plain, err := pageValue(value)
 			if err != nil {
-				return nil, err
+				return nil, false, err
+			}
+			values = append(values, reflect.ValueOf(plain))
+		}
+		for _, value := range row.carried {
+			plain, empty, err := carriedValue(value)
+			if err != nil {
+				return nil, false, err
+			}
+			if empty {
+				carries = false
 			}
 			values = append(values, reflect.ValueOf(plain))
 		}
 		encoded = append(encoded, values)
 	}
-	fields := make([]reflect.StructField, 0, len(encoded[0]))
-	for i, value := range encoded[0] {
+	width := len(rows[0].key) + len(rows[0].carried)
+	if !carries {
+		width = len(rows[0].key)
+	}
+	fields := make([]reflect.StructField, 0, width)
+	for i, value := range encoded[0][:width] {
 		name := pageKeyField(i)
 		fields = append(fields, reflect.StructField{Name: name, Type: value.Type(), Tag: reflect.StructTag(`spanner:"` + name + `"`)})
 	}
 	keyType := reflect.StructOf(fields)
-	ids := reflect.MakeSlice(reflect.SliceOf(keyType), 0, len(encoded))
+	bound := reflect.MakeSlice(reflect.SliceOf(keyType), 0, len(encoded))
 	for _, values := range encoded {
 		key := reflect.New(keyType).Elem()
-		for i, value := range values {
+		for i, value := range values[:width] {
 			key.Field(i).Set(value)
 		}
-		ids = reflect.Append(ids, key)
+		bound = reflect.Append(bound, key)
 	}
 
-	return ids.Interface(), nil
+	return bound.Interface(), carries, nil
 }
 
-// pageKeyField is the name of the field of a page's key that holds its key column at the
-// index, in key order: C1, C2 and on.
+// carriedValue is one value a page's row carries as a statement binds it (pageValue), a
+// pointer that is not nil as the value it points to. empty is true where the row has no
+// value there: a nil pointer, a value that says it is null itself (IsNull, as the Spanner
+// client's nullable types do), or one that encodes to nil.
+func carriedValue(value any) (plain any, empty bool, err error) {
+	v := reflect.ValueOf(value)
+	if !v.IsValid() {
+		return nil, true, nil
+	}
+	if v.Kind() == reflect.Pointer {
+		if v.IsNil() {
+			return nil, true, nil
+		}
+		value = v.Elem().Interface()
+	}
+	if null, ok := value.(interface{ IsNull() bool }); ok && null.IsNull() {
+		return nil, true, nil
+	}
+	plain, err = pageValue(value)
+	if err != nil {
+		return nil, false, err
+	}
+
+	return plain, plain == nil, nil
+}
+
+// pageKeyField is the name of the field of a page's rows at the index: C1, C2 and on,
+// the key's columns in key order first and the carried columns after them.
 func pageKeyField(index int) string {
 	return "C" + strconv.Itoa(index+1)
 }
@@ -512,19 +576,29 @@ func (q *takenQuery) ways(kind *DeleteKind, level int) []DeletePath {
 // one level finds belongs to the deepest: below the deepest level, the rows the next
 // level's ways find are taken out (EXCEPT DISTINCT). A row that two levels find, with a
 // level between them that does not, is at both: it is counted twice, and deleted at the
-// deeper level first. columns is called once for each SELECT, so a list that reads a
-// row's tenant (rowTenant) names its steps anew in each. ok is false where the kind has
-// no way at the level.
+// deeper level first. From the record at level 0, under a record whose key holds its
+// tenant, where one of the level's ways is the kind's way to its tenant (tenantsWay),
+// the level's rows are that way's SELECT alone, with no tenant's condition: it finds every
+// row of the kind in the tenant, and the other ways nothing more. What the next level
+// finds is left out of it as from the union. columns is called once for each SELECT, so a
+// list that reads a row's tenant (rowTenant) names its steps anew in each. ok is false
+// where the kind has no way at the level.
 func (q *takenQuery) rows(w *rowsUnderWriter, kind *DeleteKind, level, deepest int, columns func() []string, all bool) (string, bool) {
 	ways := q.ways(kind, level)
 	if len(ways) == 0 {
 		return "", false
 	}
+	tenant := true
+	if q.under == nil && level == 0 {
+		if way, own := tenantsWay(q.tree, kind, q.key, ways); own {
+			ways, tenant = []DeletePath{way}, false
+		}
+	}
 	union := " UNION DISTINCT "
 	if all {
 		union = " UNION ALL "
 	}
-	rows := strings.Join(q.selects(w, kind, ways, columns, true), union)
+	rows := strings.Join(q.selects(w, kind, ways, columns, tenant), union)
 	if next := q.ways(kind, level+1); level < deepest && len(next) > 0 {
 		rows = "(" + rows + ") EXCEPT DISTINCT (" + strings.Join(q.selects(w, kind, next, columns, false), " UNION ALL ") + ")"
 	}
@@ -588,6 +662,41 @@ func (q *takenQuery) page(kind *DeleteKind, level, deepest int, asks *takenAsks,
 		for i := range asks.terms {
 			read = append(read, fmt.Sprintf("u.a%d", i+1))
 		}
+	}
+	sql := fmt.Sprintf("SELECT %s FROM (%s) AS u ORDER BY %s LIMIT %d", strings.Join(read, ", "), rows, strings.Join(key, ", "), limit)
+	if offset > 0 {
+		sql += fmt.Sprintf(" OFFSET %d", offset)
+	}
+
+	return rowsUnderStatement{SQL: sql, Args: w.args, Named: w.named()}, true
+}
+
+// frontierPage is the read of one page of a cut start's frontier: page with no terms,
+// each row's key and then each of the carried columns of the kind's table, read as r1,
+// r2 and on, which the rows under the page name (DeleteTree.carriedColumns). With nothing
+// carried it is page's read.
+func (q *takenQuery) frontierPage(kind *DeleteKind, level, deepest int, carried []string, limit, offset int) (rowsUnderStatement, bool) {
+	w := &rowsUnderWriter{dbType: SpannerDBType}
+	table := w.quote(string(kind.Resource))
+	columns := func() []string {
+		list := w.keyColumns(kind)
+		for i, column := range carried {
+			list = append(list, fmt.Sprintf("%s.%s AS r%d", table, w.quote(column), i+1))
+		}
+
+		return list
+	}
+	rows, ok := q.rows(w, kind, level, deepest, columns, false)
+	if !ok {
+		return rowsUnderStatement{}, false
+	}
+	key := make([]string, 0, len(kind.Key))
+	for i := range kind.Key {
+		key = append(key, fmt.Sprintf("u.k%d", i+1))
+	}
+	read := slices.Clone(key)
+	for i := range carried {
+		read = append(read, fmt.Sprintf("u.r%d", i+1))
 	}
 	sql := fmt.Sprintf("SELECT %s FROM (%s) AS u ORDER BY %s LIMIT %d", strings.Join(read, ", "), rows, strings.Join(key, ", "), limit)
 	if offset > 0 {
@@ -808,10 +917,13 @@ func (c *levelCounts) kindRows(ctx context.Context, k countedKind, finds []int64
 }
 
 // takenPageRow is one row of a page: its key, column by column in key order, in the Go
-// types the kind's resource holds them in, and what the page's terms answered of it.
+// types the kind's resource holds them in, what the page's terms answered of it, and,
+// for a row of a frontier's page, the values of the columns the page carries after the
+// key (takingDelete.frontier). A row is told by its key alone (pageDigest).
 type takenPageRow struct {
 	key     []any
 	answers []spanner.NullBool
+	carried []any
 }
 
 // readPage reads the rows a page statement finds, through the transaction's reads
@@ -1244,10 +1356,13 @@ func (d *takingDelete) countFrom(ctx context.Context, count rowCounter, query *t
 // frontier calls each with every page of a cut start's frontier, in order: for each
 // taken kind whose table nests (DeleteTree.nestingLinks), in the description's order,
 // that may hold rows at the start's deepest level (takenStart.holds), those rows read by
-// their keys alone, in key
-// order, a page of takenPageRows at a time, each as the page a branch starts from
-// (takenUnder). A branch is crossed where the start it is opened from is not one of the
-// same table: the record, where the record's table is not the page's, or a page of
+// their keys and the columns of the table the rows under them name that the kind's
+// resource holds (DeleteTree.carriedColumns, frontierPage), in key order, a page of
+// takenPageRows at a time, each as the page a branch starts from (takenUnder): a row's
+// carried values are moved after its key (takenPageRow.carried), and the page carries
+// them where every row has a value for each (pageKeys). A page and its rows are told by
+// their keys alone. A branch is crossed where the start it is opened from is not one of
+// the same table: the record, where the record's table is not the page's, or a page of
 // another table. A page the database refuses for its joins at a level above 0 is a
 // levelRefused.
 func (d *takingDelete) frontier(ctx context.Context, start *takenStart, each func(kind *DeleteKind, page []takenPageRow, under *takenUnder) error) error {
@@ -1263,6 +1378,14 @@ func (d *takingDelete) frontier(ctx context.Context, start *takenStart, each fun
 		if err != nil {
 			return err
 		}
+		held := kind.Rows.columns(d.txn.DBType())
+		var carried []string
+		for _, column := range tree.carriedColumns(table, kind.Key) {
+			if field, ok := held[column]; ok {
+				carried = append(carried, column)
+				types = append(types, field.typ)
+			}
+		}
 		crossed := table != string(tree.Record)
 		if start.query.under != nil {
 			crossed = start.query.under.table != table
@@ -1272,7 +1395,7 @@ func (d *takingDelete) frontier(ctx context.Context, start *takenStart, each fun
 			pageRows = takenPageRows
 		}
 		for offset := 0; ; offset += pageRows {
-			statement, ok := start.query.page(kind, level, start.levels.below(), nil, pageRows, offset)
+			statement, ok := start.query.frontierPage(kind, level, start.levels.below(), carried, pageRows, offset)
 			if !ok {
 				break
 			}
@@ -1283,7 +1406,10 @@ func (d *takingDelete) frontier(ctx context.Context, start *takenStart, each fun
 			if len(page) == 0 {
 				break
 			}
-			ids, err := pageKeys(page)
+			for i := range page {
+				page[i].key, page[i].carried = page[i].key[:len(kind.Key)], page[i].key[len(kind.Key):]
+			}
+			ids, carries, err := pageKeys(page)
 			if err != nil {
 				return err
 			}
@@ -1291,7 +1417,11 @@ func (d *takingDelete) frontier(ctx context.Context, start *takenStart, each fun
 			for _, row := range page {
 				rows[fmt.Sprintf("%#v", row.key)] = true
 			}
-			if err := each(kind, page, &takenUnder{table: table, key: kind.Key, ids: ids, crossed: crossed, rows: rows}); err != nil {
+			under := &takenUnder{table: table, key: kind.Key, ids: ids, crossed: crossed, rows: rows, carried: nil}
+			if carries {
+				under.carried = carried
+			}
+			if err := each(kind, page, under); err != nil {
 				return err
 			}
 			if len(page) < pageRows {
@@ -1355,9 +1485,12 @@ func (d *takingDelete) walk(ctx context.Context, start *takenStart, each func(st
 // that asks anything of its rows, start by start, deepest level first and in the
 // description's order within a level (rowsAt, checkTaken); the count of each kind code
 // handed the delete (countAlso); and, where anything is under the record, each handed
-// kind's own check (TakenKind.Check), in the order handed. It answers how many rows are
-// under the record, the handed kinds' among them, and each handed kind's count. Both the
-// question and a save of a delete code told to take the rows ask it all.
+// kind's own check (TakenKind.Check), in the order handed. The rows are asked by the
+// second walk (walk), which reads a cut record's frontier pages again; it is made only
+// where a taken kind with rows under the record asks its rows anything, and with none
+// that does askAll goes from the grants to the handed kinds' counts. It answers how many
+// rows are under the record, the handed kinds' among them, and each handed kind's count.
+// Both the question and a save of a delete code told to take the rows ask it all.
 func (d *takingDelete) askAll(ctx context.Context, start *takenStart) (counted int64, handed []int64, err error) {
 	tree := d.query.tree
 	asks := make(map[*DeleteKind]*takenAsks, len(tree.Taken))
@@ -1378,23 +1511,25 @@ func (d *takingDelete) askAll(ctx context.Context, start *takenStart) (counted i
 		}
 		asks[kind] = kindAsks
 	}
-	if _, err := d.walk(ctx, start, func(at *takenStart) (bool, error) {
-		return false, d.eachLevel(at.levels, func(kind *DeleteKind, level int) error {
-			if !asks[kind].asksRows() {
-				return nil
-			}
-
-			return d.rowsAt(ctx, at.query, kind, level, at.levels.below(), asks[kind], func(taken takenDelete, answers []spanner.NullBool) error {
-				byRule, err := taken.row.checkTaken(ctx, d.txn, asks[kind], answers)
-				if err != nil {
-					return d.asked.refuseRow(ctx, kind, byRule, err)
+	if slices.ContainsFunc(slices.Collect(maps.Values(asks)), (*takenAsks).asksRows) {
+		if _, err := d.walk(ctx, start, func(at *takenStart) (bool, error) {
+			return false, d.eachLevel(at.levels, func(kind *DeleteKind, level int) error {
+				if !asks[kind].asksRows() {
+					return nil
 				}
 
-				return nil
+				return d.rowsAt(ctx, at.query, kind, level, at.levels.below(), asks[kind], func(taken takenDelete, answers []spanner.NullBool) error {
+					byRule, err := taken.row.checkTaken(ctx, d.txn, asks[kind], answers)
+					if err != nil {
+						return d.asked.refuseRow(ctx, kind, byRule, err)
+					}
+
+					return nil
+				})
 			})
-		})
-	}); err != nil {
-		return 0, nil, err
+		}); err != nil {
+			return 0, nil, err
+		}
 	}
 	handed, err = d.countAlso(ctx)
 	if err != nil {

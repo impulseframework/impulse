@@ -1928,18 +1928,21 @@ with nothing gone where it cannot be made whole:
   to itself repeated until a level finds nothing, and to any depth: where the database
   refuses a level's statement because it joins too many tables, the delete takes the rows
   of the last level it could read, a page of them at a time, and follows what is under
-  them from their keys as it follows what is under the record from the record's, as often
-  as it must. The library holds no number of its own for it. The question counts
-  everything under the record before anything goes, however deep, and a save deletes the
-  deepest rows first, as everywhere. Rows of a kind that sit under each other in a ring
-  are never found to end: the delete fails until the ring is broken. One ring is not
-  found at all: where every row of the ring also holds the record's own key, its rows are
-  at no level, so the question does not count them and the delete does not take them. The
-  save that takes the record is then refused by their foreign key to it, or, where they
-  have none, leaves them naming a record that is gone. A row belongs to the deepest level
-  that finds it, so a row is deleted before the row it is under. A row that two levels
-  find, with a level between them that does not find it, is counted at both, and the
-  question's count comes out high by it.
+  them from the page's rows as it follows what is under the record from its key, as often
+  as it must. The library holds no number of its own for it. What that costs grows with
+  the depth faster than with the rows: a level's statement follows every level above it
+  again, so a record whose rows sit twenty deep is asked about and deleted many times
+  slower than one with as many rows three deep. The question counts everything under the
+  record before anything goes, however deep, and a save deletes the deepest rows first,
+  as everywhere. Rows of a kind that sit under each other in a ring are never found to
+  end: the delete fails until the ring is broken. One ring is not found at all: where
+  every row of the ring also holds the record's own key, its rows are at no level, so the
+  question does not count them and the delete does not take them. The save that takes
+  the record is then refused by their foreign key to it, or, where they have none, leaves
+  them naming a record that is gone. A row belongs to the deepest level that finds it, so
+  a row is deleted before the row it is under. A row that two levels find, with a level
+  between them that does not find it, is counted at both, and the question's count comes
+  out high by it.
 - A save is filled to Spanner's 80,000 mutations by what each row costs as the service
   counts it: one for the delete and one for each index of the row's table; for a kind that
   keeps a change history, one more for each column its change record sets (eleven for a
@@ -2093,7 +2096,20 @@ with nothing gone where it cannot be made whole:
   count, a page of rows, a read of whether there is any) starts from the record's key and
   follows, a step at a time, the foreign keys or interleaves that put the kind's rows
   under the record; under a page of a kind nested under itself it starts from the page's
-  keys the same way. Nothing it sends starts from the kind's whole table.
+  rows the same way: a page holds each row's key and whichever other columns of the row
+  the rows under it name, so what is under a page is found without reading the page's
+  rows a second time. A page's rows are read again, by their keys, in two cases: where
+  one of its rows has no value in such a column, and for a column the kind's resource
+  holds no field for. Nothing it sends starts from the kind's whole table.
+- Under the tenant record, a kind is read by its rows' own way to their tenant, where that
+  is one of the kind's ways up to the record. Every row of the kind in the tenant is
+  under the record, so the kind's other ways find nothing more and are not written. A
+  kind that holds its tenant's key in a column of its own is found by one read of the
+  rows that hold it. A kind that reaches its tenant through another table is found by a
+  look under each row of that table, whether or not anything is there: the delete of a
+  tenant with 8,000 projects and no tasks looks 8,000 times for a project's tasks. That
+  is what it costs to read nothing outside the record, and it grows with the record,
+  never with the table.
 
 The delete in code is Spanner's write path. The mock client holds no rows and takes none,
 and PostgreSQL has no write path.

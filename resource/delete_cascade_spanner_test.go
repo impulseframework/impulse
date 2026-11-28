@@ -921,6 +921,23 @@ func TestTakingDelete_nestedToAnyDepth(t *testing.T) { //nolint:tparallel // the
 			wantAsked: "deep",
 		},
 		{
+			// The question asks no row, so it reads each page of the record's frontier once,
+			// where it counts what is under it, and not again.
+			name: "a chain of tasks that hold no project, of kinds that ask nothing of their rows, is counted to its end reading each frontier page once", tree: projectTree(), key: project("deep"), rows: cascadeRows{},
+			limitOnly:  true,
+			wantStatus: http.StatusPreconditionRequired, wantMessage: "Delete this project and everything under it: 25 tasks, 4 comments. This can't be undone.",
+			check: func(t *testing.T, run *cascadeRun, _ bool) {
+				t.Helper()
+
+				if len(run.asked) > 0 {
+					t.Errorf("the rows asked about = %v, want none", run.asked)
+				}
+				if run.pages != 6 {
+					t.Errorf("the question read %d page(s), want %d: each page of the frontier once", run.pages, 6)
+				}
+			},
+		},
+		{
 			name: "a chain of tasks that hold no project is deleted, every row once and the deepest first", unasked: true, tree: projectTree(), key: project("deep"), everythingUnder: true,
 			wantMade: "deep",
 		},
@@ -985,6 +1002,17 @@ func TestTakingDelete_nestedToAnyDepth(t *testing.T) { //nolint:tparallel // the
 			name: "a reply under a reply by a column outside the key is counted to its end", tree: deepRepliesTree(), key: project("replied"), rows: cascadeRows{asks: asksEveryRow},
 			wantStatus: http.StatusPreconditionRequired, wantMessage: "Delete this project and everything under it: 25 replies. This can't be undone.",
 			wantAsked: "replied",
+			// Every reply's page carries its lane, so nothing under a page reads the page's
+			// rows again.
+			check: func(t *testing.T, run *cascadeRun, _ bool) {
+				t.Helper()
+
+				for _, sql := range run.statements {
+					if strings.Contains(sql, "FROM UNNEST(") && pagesOwnRow.MatchString(sql) {
+						t.Errorf("a statement from a page reads the page's own rows: %s", sql)
+					}
+				}
+			},
 		},
 		{
 			name: "a reply under a reply by a column outside the key is deleted, the deepest first", unasked: true, tree: deepRepliesTree(), key: project("replied"), everythingUnder: true,
@@ -1506,6 +1534,86 @@ func questionRecords(t *testing.T, err error) int64 {
 	return body.Records
 }
 
+// pagesOwnRow is the name a statement from a page reads the page's own row of the table
+// under (rowsUnderWriter.wayFromPage).
+var pagesOwnRow = regexp.MustCompile(` AS w\d+_r\b`)
+
+// TestTakingDelete_underACarryingPage counts, over the emulator, the replies under a page
+// of replies made by hand, at the page's own level: a page every row of which holds its
+// lane carries it, and the replies are joined straight to the page's fields; a page with a
+// row that holds no lane carries nothing, and the replies are joined through the page's
+// own rows. Both count the reply that answers the page's reply in its lane, and neither
+// the one that answers it in another lane.
+func TestTakingDelete_underACarryingPage(t *testing.T) {
+	t.Parallel()
+
+	db := cascadeDatabase(t, "carrying-page")
+	ctx := context.Background()
+	if _, err := db.Apply(ctx, []*spanner.Mutation{
+		spanner.InsertMap("CascadeProjects", map[string]any{"Id": "replied"}),
+		spanner.InsertMap("CascadeTasks", map[string]any{"Id": "replied-t01", "ProjectId": "replied"}),
+		spanner.InsertMap("CascadeReplies", map[string]any{"Id": "replied-r01", "TaskId": "replied-t01", "Lane": "open"}),
+		spanner.InsertMap("CascadeReplies", map[string]any{"Id": "replied-r02", "AnswersId": "replied-r01", "Lane": "open"}),
+		spanner.InsertMap("CascadeReplies", map[string]any{"Id": "replied-r03", "AnswersId": "replied-r02", "Lane": "open"}),
+		spanner.InsertMap("CascadeReplies", map[string]any{"Id": "replied-other", "AnswersId": "replied-r01", "Lane": "closed"}),
+		spanner.InsertMap("CascadeReplies", map[string]any{"Id": "replied-x", "TaskId": "replied-t01"}),
+	}); err != nil {
+		t.Fatalf("spanner.Client.Apply() error = %v", err)
+	}
+	open := "open"
+	tree := deepRepliesTree()
+
+	tests := []struct {
+		name string
+		page []takenPageRow
+		// wantOwnRow says the statement reads the page's own rows (w0_r).
+		wantOwnRow bool
+	}{
+		{name: "a page that carries the lane", page: []takenPageRow{{key: []any{"replied-r01"}, carried: []any{&open}}}},
+		{
+			name:       "a page with a row that holds no lane carries nothing",
+			page:       []takenPageRow{{key: []any{"replied-r01"}, carried: []any{&open}}, {key: []any{"replied-x"}, carried: []any{(*string)(nil)}}},
+			wantOwnRow: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ids, carries, err := pageKeys(tt.page)
+			if err != nil {
+				t.Fatalf("pageKeys() error = %v", err)
+			}
+			under := &takenUnder{table: "CascadeReplies", key: []string{"Id"}, ids: ids}
+			if carries {
+				under.carried = []string{"Lane"}
+			}
+			statement, ok := (&takenQuery{tree: tree, key: map[string]any{"Id": "replied"}, under: under}).count(&tree.Taken[0], 0, 0)
+			if !ok {
+				t.Fatal("count() of the replies under the page wrote no statement")
+			}
+			if got := pagesOwnRow.MatchString(statement.SQL); got != tt.wantOwnRow {
+				t.Errorf("the count reads the page's own rows = %t, want %t: %s", got, tt.wantOwnRow, statement.SQL)
+			}
+			var counted int64
+			if err := NewSpannerClient(db).ExecuteFunc(ctx, func(ctx context.Context, txn ReadWriteTransaction) error {
+				spannerTxn, ok := txn.(*SpannerReadWriteTransaction)
+				if !ok {
+					return errors.Newf("the transaction is a %T, want Spanner's", txn)
+				}
+				counted, err = spannerTxn.countRows(ctx, statement)
+
+				return err
+			}); err != nil {
+				t.Fatalf("NewSpannerClient().ExecuteFunc() error = %v", err)
+			}
+			if counted != 1 {
+				t.Errorf("the replies under the page = %d, want 1: the one that answers it in its lane", counted)
+			}
+		})
+	}
+}
+
 // TestTakingDelete_anotherTenantsRow reads, over the emulator, the rows under a record of
 // a tenant where a row of the record's tenant and a row of another tenant both name it:
 // the count and the page of the kind's rows each find the first row alone. It holds for
@@ -1518,30 +1626,12 @@ func TestTakingDelete_anotherTenantsRow(t *testing.T) {
 
 	db := forkDatabase(t, "another-tenants-row")
 	ctx := context.Background()
-	if _, err := db.Apply(ctx, []*spanner.Mutation{
-		// The record whose row is read for its tenant, and what is under it.
-		spanner.InsertMap("ForkRows", map[string]any{"Id": "f1", "Title": "record", "CreatedBy": "anvil"}),
-		spanner.InsertMap("SealedPairRows", map[string]any{"Vault": "anvil", "Shelf": "f1"}),
-		spanner.InsertMap("SealedPairRows", map[string]any{"Vault": "bastion", "Shelf": "f1"}),
-		spanner.InsertMap("TrackedForkRows", map[string]any{"Id": "ta", "Title": "f1"}),
-		spanner.InsertMap("TrackedForkRows", map[string]any{"Id": "tb", "Title": "f1"}),
-		// What is under the tenant record anvil.
-		spanner.InsertMap("ForkRows", map[string]any{"Id": "k1", "Title": "anvil", "CreatedBy": "anvil"}),
-		spanner.InsertMap("ForkRows", map[string]any{"Id": "k2", "Title": "anvil", "CreatedBy": "bastion"}),
-		spanner.InsertMap("TrackedForkRows", map[string]any{"Id": "va", "Title": "anvil"}),
-		spanner.InsertMap("TrackedForkRows", map[string]any{"Id": "vb", "Title": "anvil"}),
-		// The rows a tracked row reaches its tenant through, by its own key.
-		spanner.InsertMap("ForkRows", map[string]any{"Id": "ta", "Title": "way", "CreatedBy": "anvil"}),
-		spanner.InsertMap("ForkRows", map[string]any{"Id": "tb", "Title": "way", "CreatedBy": "bastion"}),
-		spanner.InsertMap("ForkRows", map[string]any{"Id": "va", "Title": "way", "CreatedBy": "anvil"}),
-		spanner.InsertMap("ForkRows", map[string]any{"Id": "vb", "Title": "way", "CreatedBy": "bastion"}),
-	}); err != nil {
+	if _, err := db.Apply(ctx, anotherTenantsRows()); err != nil {
 		t.Fatalf("spanner.Client.Apply() error = %v", err)
 	}
 
 	byCreator := &DomainBindingData{Column: "CreatedBy"}
 	throughForkRows := &DomainBindingData{Column: "Id", Path: []BindingHop{{Table: "ForkRows", JoinColumn: "Id", Column: "CreatedBy"}}}
-	text := reflect.TypeFor[string]()
 
 	type under struct {
 		kind *DeleteKind
@@ -1630,44 +1720,141 @@ func TestTakingDelete_anotherTenantsRow(t *testing.T) {
 				if variant.wantTheirsUnder {
 					want = append(want, toAny(tt.kind.theirs))
 				}
-				types := slices.Repeat([]reflect.Type{text}, len(kind.Key))
 
-				var counted int64
-				var paged []takenPageRow
-				err := NewSpannerClient(db).ExecuteFunc(ctx, func(ctx context.Context, txn ReadWriteTransaction) error {
-					spannerTxn, ok := txn.(*SpannerReadWriteTransaction)
-					if !ok {
-						return errors.Newf("the transaction is a %T, want Spanner's", txn)
-					}
-					query := &takenQuery{tree: &tree, key: tt.key}
-					levels, err := countLevels(ctx, spannerTxn.countRows, []countedKind{{kind: &tree.Taken[0], query: query}}, -1)
-					if err != nil {
-						return err
-					}
-					counted = levels.total(&tree.Taken[0])
-					statement, ok := query.page(&tree.Taken[0], 0, levels.deepest, nil, takenPageRows, 0)
-					if !ok {
-						return errors.New("page() wrote no read")
-					}
-					paged, err = spannerTxn.readPage(ctx, statement, types, 0)
-
-					return err
-				})
+				counted, got, err := readUnder(ctx, db, &tree, tt.key)
 				if err != nil {
 					t.Fatalf("NewSpannerClient().ExecuteFunc() error = %v", err)
 				}
 				if counted != int64(len(want)) {
 					t.Errorf("the count of the rows under the record = %d, want %d", counted, len(want))
 				}
-				got := make([][]any, 0, len(paged))
-				for _, row := range paged {
-					got = append(got, row.key)
-				}
 				if diff := cmp.Diff(want, got); diff != "" {
 					t.Errorf("the page of the rows under the record (-want +got):\n%s", diff)
 				}
 			})
 		}
+	}
+}
+
+// readUnder reads a kind's rows under the record with the key, over the emulator, as a
+// delete reads them: their count (countLevels, every level summed) and their first page
+// at level 0, each row's key. The tree takes the one kind.
+func readUnder(ctx context.Context, db *spanner.Client, tree *DeleteTree, key map[string]any) (counted int64, paged [][]any, err error) {
+	types := slices.Repeat([]reflect.Type{reflect.TypeFor[string]()}, len(tree.Taken[0].Key))
+	err = NewSpannerClient(db).ExecuteFunc(ctx, func(ctx context.Context, txn ReadWriteTransaction) error {
+		spannerTxn, ok := txn.(*SpannerReadWriteTransaction)
+		if !ok {
+			return errors.Newf("the transaction is a %T, want Spanner's", txn)
+		}
+		query := &takenQuery{tree: tree, key: key}
+		levels, err := countLevels(ctx, spannerTxn.countRows, []countedKind{{kind: &tree.Taken[0], query: query}}, -1)
+		if err != nil {
+			return err
+		}
+		counted = levels.total(&tree.Taken[0])
+		statement, ok := query.page(&tree.Taken[0], 0, levels.deepest, nil, takenPageRows, 0)
+		if !ok {
+			return errors.New("page() wrote no read")
+		}
+		rows, err := spannerTxn.readPage(ctx, statement, types, 0)
+		paged = make([][]any, 0, len(rows))
+		for _, row := range rows {
+			paged = append(paged, row.key)
+		}
+
+		return err
+	})
+
+	return counted, paged, err
+}
+
+// TestTakingDelete_tenantsOwnWay reads, over the emulator and on the rows of
+// TestTakingDelete_anotherTenantsRow, the rows under the tenant record of a kind one of
+// whose ways is its way to its tenant, which alone is written: the count and the page find
+// every row of the kind in the tenant and no row of another tenant that names the record,
+// for a kind that holds its tenant in a column and for one whose rows reach their tenant
+// through another table. They find what the union of the kind's ways found.
+func TestTakingDelete_tenantsOwnWay(t *testing.T) {
+	t.Parallel()
+
+	db := forkDatabase(t, "tenants-own-way")
+	ctx := context.Background()
+	if _, err := db.Apply(ctx, anotherTenantsRows()); err != nil {
+		t.Fatalf("spanner.Client.Apply() error = %v", err)
+	}
+	vaults := DeleteTree{Record: "Vaults", Words: DeleteWords{One: "vault", Many: "vaults"}, Key: []string{"Id"}, Tenant: &DomainBindingData{Column: "Id"}}
+
+	tests := []struct {
+		name string
+		kind DeleteKind
+		want [][]any
+	}{
+		{
+			name: "a kind with its tenant in a column, by its title or its creator",
+			kind: DeleteKind{
+				Resource: "ForkRows", Words: DeleteWords{One: "row", Many: "rows"}, Key: []string{"Id"}, Tenant: &DomainBindingData{Column: "CreatedBy"},
+				Paths: []DeletePath{
+					{{Columns: []string{"Title"}, Table: "Vaults", References: []string{"Id"}}},
+					{{Columns: []string{"CreatedBy"}, Table: "Vaults", References: []string{"Id"}}},
+				},
+			},
+			want: [][]any{{"f1"}, {"k1"}, {"ta"}, {"va"}},
+		},
+		{
+			name: "a kind through another table, by its title or through the row it reaches its tenant by",
+			kind: DeleteKind{
+				Resource: "TrackedForkRows", Words: DeleteWords{One: "tracked row", Many: "tracked rows"}, Key: []string{"Id"},
+				Tenant: &DomainBindingData{Column: "Id", Path: []BindingHop{{Table: "ForkRows", JoinColumn: "Id", Column: "CreatedBy"}}},
+				Paths: []DeletePath{
+					{{Columns: []string{"Title"}, Table: "Vaults", References: []string{"Id"}}},
+					{{Columns: []string{"Id"}, Table: "ForkRows", References: []string{"Id"}}, {Columns: []string{"CreatedBy"}, Table: "Vaults", References: []string{"Id"}}},
+				},
+			},
+			want: [][]any{{"ta"}, {"va"}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			tree := vaults
+			tree.Taken = []DeleteKind{tt.kind}
+			counted, paged, err := readUnder(ctx, db, &tree, map[string]any{"Id": "anvil"})
+			if err != nil {
+				t.Fatalf("reading the rows under the record: %v", err)
+			}
+			if counted != int64(len(tt.want)) {
+				t.Errorf("the count of the rows under the record = %d, want %d", counted, len(tt.want))
+			}
+			if diff := cmp.Diff(tt.want, paged); diff != "" {
+				t.Errorf("the page of the rows under the record (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// anotherTenantsRows are the rows TestTakingDelete_anotherTenantsRow reads: under the
+// record f1 and under the tenant record anvil, a row of anvil and a row of bastion of each
+// kind, and the rows a tracked row reaches its tenant through.
+func anotherTenantsRows() []*spanner.Mutation {
+	return []*spanner.Mutation{
+		// The record whose row is read for its tenant, and what is under it.
+		spanner.InsertMap("ForkRows", map[string]any{"Id": "f1", "Title": "record", "CreatedBy": "anvil"}),
+		spanner.InsertMap("SealedPairRows", map[string]any{"Vault": "anvil", "Shelf": "f1"}),
+		spanner.InsertMap("SealedPairRows", map[string]any{"Vault": "bastion", "Shelf": "f1"}),
+		spanner.InsertMap("TrackedForkRows", map[string]any{"Id": "ta", "Title": "f1"}),
+		spanner.InsertMap("TrackedForkRows", map[string]any{"Id": "tb", "Title": "f1"}),
+		// What is under the tenant record anvil.
+		spanner.InsertMap("ForkRows", map[string]any{"Id": "k1", "Title": "anvil", "CreatedBy": "anvil"}),
+		spanner.InsertMap("ForkRows", map[string]any{"Id": "k2", "Title": "anvil", "CreatedBy": "bastion"}),
+		spanner.InsertMap("TrackedForkRows", map[string]any{"Id": "va", "Title": "anvil"}),
+		spanner.InsertMap("TrackedForkRows", map[string]any{"Id": "vb", "Title": "anvil"}),
+		// The rows a tracked row reaches its tenant through, by its own key.
+		spanner.InsertMap("ForkRows", map[string]any{"Id": "ta", "Title": "way", "CreatedBy": "anvil"}),
+		spanner.InsertMap("ForkRows", map[string]any{"Id": "tb", "Title": "way", "CreatedBy": "bastion"}),
+		spanner.InsertMap("ForkRows", map[string]any{"Id": "va", "Title": "way", "CreatedBy": "anvil"}),
+		spanner.InsertMap("ForkRows", map[string]any{"Id": "vb", "Title": "way", "CreatedBy": "bastion"}),
 	}
 }
 

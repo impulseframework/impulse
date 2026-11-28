@@ -294,3 +294,52 @@ func TestDeleteTree_waysUnder(t *testing.T) {
 		})
 	}
 }
+
+// TestDeleteTree_carriedColumns holds the columns a page of a table carries after its key:
+// those outside the key that a link landing on the table references, from the taken
+// kinds' ways and their links to their own kind and from the refusing kinds' ways, each
+// once, in name order. A table every link lands on by its key carries none.
+func TestDeleteTree_carriedColumns(t *testing.T) {
+	t.Parallel()
+
+	twice := deepRepliesTree()
+	twice.Taken = append(twice.Taken, DeleteKind{
+		Resource: "CascadeReactions", Words: DeleteWords{One: "reaction", Many: "reactions"}, Key: []string{"Id"},
+		Paths: []DeletePath{{
+			{Columns: []string{"ReplyId", "Lane"}, Table: "CascadeReplies", References: []string{"Id", "Lane"}},
+			{Columns: []string{"TaskId"}, Table: "CascadeTasks", References: []string{"Id"}},
+			{Columns: []string{"ProjectId"}, Table: "CascadeProjects", References: []string{"Id"}},
+		}},
+	})
+	refused := projectTree()
+	refused.RefusedBy = []DeleteKind{{
+		Resource: "CascadeInvoices", Words: DeleteWords{One: "invoice", Many: "invoices"}, Key: []string{"Id"},
+		Paths: []DeletePath{{
+			{Columns: []string{"TaskTitle"}, Table: "CascadeTasks", References: []string{"Title"}},
+			{Columns: []string{"ProjectId"}, Table: "CascadeProjects", References: []string{"Id"}},
+		}},
+	}}
+
+	tests := []struct {
+		name  string
+		tree  *DeleteTree
+		table string
+		key   []string
+		want  []string
+	}{
+		{name: "replies, by the lane a reply answers in", tree: deepRepliesTree(), table: "CascadeReplies", key: []string{"Id"}, want: []string{"Lane"}},
+		{name: "sections, every link by the key", tree: deepSectionsTree(), table: "CascadeSections", key: []string{"ProjectId", "Id"}},
+		{name: "tasks, every link by the key", tree: projectTree(), table: "CascadeTasks", key: []string{"Id"}},
+		{name: "a column two links reference is there once", tree: twice, table: "CascadeReplies", key: []string{"Id"}, want: []string{"Lane"}},
+		{name: "a refusing kind's step counts", tree: refused, table: "CascadeTasks", key: []string{"Id"}, want: []string{"Title"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if diff := cmp.Diff(tt.want, tt.tree.carriedColumns(tt.table, tt.key)); diff != "" {
+				t.Errorf("carriedColumns() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}

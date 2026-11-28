@@ -235,6 +235,49 @@ func heldTenant(tree *DeleteTree, recordKey map[string]any) (value any, held boo
 	return value, held
 }
 
+// tenantsWay is the first of the ways, in their order, that is the kind's own way to its
+// tenant, under a record whose key holds its tenant (heldTenant): the way that leaves
+// the kind's row by the column its tenant is found by, follows each step of the way to
+// the tenant (DomainBindingData.Path) column for column, and ends on the record's column
+// that holds the tenant's key. Under such a record that way's rows are every row of the
+// kind in the record's tenant, each of them under the record, so the kind's other ways
+// find none it does not, and the way needs no tenant's condition beside it. ok is false
+// where the record's key does not hold its tenant, where the kind's rows are no tenant's,
+// and where no way is the kind's way to its tenant.
+func tenantsWay(tree *DeleteTree, kind *DeleteKind, recordKey map[string]any, ways []DeletePath) (way DeletePath, ok bool) {
+	if kind.Tenant == nil {
+		return nil, false
+	}
+	if _, held := heldTenant(tree, recordKey); !held {
+		return nil, false
+	}
+	for _, path := range ways {
+		if leadsToTenant(path, kind.Tenant, tree.Tenant.Column) {
+			return path, true
+		}
+	}
+
+	return nil, false
+}
+
+// leadsToTenant reports whether the path is the way to the tenant the binding names,
+// ending on the record's column that holds the tenant's key: one link more than the
+// binding's steps, the first leaving by the binding's column alone, each to the step's
+// table by its join column alone, the next leaving by the step's column alone, and the
+// last referencing the record's column alone.
+func leadsToTenant(path DeletePath, binding *DomainBindingData, column string) bool {
+	if len(path) != len(binding.Path)+1 || !slices.Equal(path[0].Columns, []string{binding.Column}) {
+		return false
+	}
+	for j, hop := range binding.Path {
+		if path[j].Table != hop.Table || !slices.Equal(path[j].References, []string{hop.JoinColumn}) || !slices.Equal(path[j+1].Columns, []string{hop.Column}) {
+			return false
+		}
+	}
+
+	return slices.Equal(path[len(path)-1].References, []string{column})
+}
+
 // tenantValues is the most values ofRecordsTenant adds to a statement about the kind's
 // rows: the record's key, and none where it writes no condition.
 func tenantValues(kind *DeleteKind, tree *DeleteTree, recordKey map[string]any) int {
@@ -320,11 +363,12 @@ func (w *rowsUnderWriter) wayFrom(path DeletePath, recordKey map[string]any, tab
 
 // wayFromPage writes one way from a page's rows (takenUnder) down to the kind's table
 // (read under its own name, table), whose last step lands on the page's table: the page's
-// keys (pg, bound under pageName) joined to the rows that hold them. Where the last step
-// references exactly the table's key, the step's columns are joined to the page's keys;
-// where it references a column outside the key, the page's own row of the table is read
-// (w<index>_r) by the page's keys, and the step is joined from there. The rows between
-// are joined as wayFrom joins them.
+// rows (pg, bound under pageName) joined to the rows under them. Where every column the
+// last step references is held by a field of the page's rows, the key's or a carried one
+// (takenUnder.field), the step's columns are joined straight to those fields (onPage);
+// where it references a column the page does not carry, the page's own row of the table
+// is read (w<index>_r) by the page's keys, and the step is joined from there. The rows
+// between are joined as wayFrom joins them.
 func (w *rowsUnderWriter) wayFromPage(path DeletePath, under *takenUnder, table string) string {
 	index := w.ways
 	w.ways++
@@ -332,8 +376,8 @@ func (w *rowsUnderWriter) wayFromPage(path DeletePath, under *takenUnder, table 
 	top := len(path) - 1
 	last := path[top]
 	from := "FROM UNNEST(@" + w.pageName() + ") AS pg"
-	if columns, ok := keyColumnsOf(last, under.key); ok {
-		from += " JOIN " + w.wayTable(path, index, table, top) + " ON " + w.inPage(w.wayRow(index, table, top), columns)
+	if on, ok := w.onPage(last, w.wayRow(index, table, top), under); ok {
+		from += " JOIN " + w.wayTable(path, index, table, top) + " ON " + on
 	} else {
 		row := fmt.Sprintf("w%d_r", index)
 		from += " JOIN " + w.quote(under.table) + " AS " + row + " ON " + w.inPage(row, under.key) +
@@ -387,23 +431,30 @@ func (w *rowsUnderWriter) linkOn(step DeleteLink, lower, upper string) string {
 	return strings.Join(conditions, " AND ")
 }
 
-// keyColumnsOf are the step's columns that hold the table's key, in the key's order,
-// where the step references exactly the key's columns; ok is false where it references
-// any other.
-func keyColumnsOf(step DeleteLink, key []string) (columns []string, ok bool) {
-	if len(step.References) != len(key) {
-		return nil, false
+// onPage is the condition that the row read as alias is under a row of the page by the
+// step: each of the step's columns of alias equal to the field of the page's rows that
+// holds the column it references (takenUnder.field), written in the order of the fields.
+// ok is false where a column the step references has no field.
+func (w *rowsUnderWriter) onPage(step DeleteLink, alias string, under *takenUnder) (string, bool) {
+	type joined struct {
+		column string
+		field  int
 	}
-	columns = make([]string, 0, len(key))
-	for _, column := range key {
-		at := slices.Index(step.References, column)
-		if at < 0 {
-			return nil, false
+	pairs := make([]joined, 0, len(step.Columns))
+	for i, column := range step.Columns {
+		field, ok := under.field(step.References[i])
+		if !ok {
+			return "", false
 		}
-		columns = append(columns, step.Columns[at])
+		pairs = append(pairs, joined{column: column, field: field})
+	}
+	slices.SortStableFunc(pairs, func(a, b joined) int { return a.field - b.field })
+	conditions := make([]string, 0, len(pairs))
+	for _, pair := range pairs {
+		conditions = append(conditions, fmt.Sprintf("%s.%s = pg.%s", alias, w.quote(pair.column), pageKeyField(pair.field)))
 	}
 
-	return columns, true
+	return strings.Join(conditions, " AND "), true
 }
 
 // inPage is the condition that the columns of the row read as alias, in the key's
@@ -448,17 +499,24 @@ func (w *rowsUnderWriter) named() map[string]any {
 // given key, by any of the kind's ways up to it (the path statement at level 0,
 // delete_cascade.go), each way written from the record's key down to the kind (wayRows),
 // the ways joined by a union that holds each row once, and, where the kind's rows and the
-// record are a tenant's, of the record's tenant alone (ofRecordsTenant). ok is false for
-// a kind with no way up to the record.
+// record are a tenant's, of the record's tenant alone (ofRecordsTenant). Under a record
+// whose key holds its tenant, where one of the kind's ways is its way to its tenant
+// (tenantsWay), that way alone is written, with no tenant's condition: it finds every row
+// of the kind in the tenant, and the other ways nothing more. ok is false for a kind with
+// no way up to the record.
 func newRowsUnderStatement(dbType DBType, tree *DeleteTree, kind *DeleteKind, recordKey map[string]any) (statement rowsUnderStatement, ok bool) {
 	ways := slices.DeleteFunc(slices.Clone(kind.Paths), func(path DeletePath) bool { return len(path) == 0 })
 	if len(ways) == 0 {
 		return rowsUnderStatement{}, false
 	}
+	tenant := true
+	if way, own := tenantsWay(tree, kind, recordKey, ways); own {
+		ways, tenant = []DeletePath{way}, false
+	}
 	w := &rowsUnderWriter{dbType: dbType}
 	selects := make([]string, 0, len(ways))
 	for _, path := range ways {
-		selects = append(selects, w.wayRows(strings.Join(w.keyColumns(kind), ", "), kind, path, tree, recordKey, nil, true))
+		selects = append(selects, w.wayRows(strings.Join(w.keyColumns(kind), ", "), kind, path, tree, recordKey, nil, tenant))
 	}
 	sql := "SELECT COUNT(*) FROM (" + strings.Join(selects, " UNION DISTINCT ") + ") AS u"
 
