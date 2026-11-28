@@ -371,8 +371,8 @@ func (ranTwice) ExecuteFunc(ctx context.Context, f func(ctx context.Context, txn
 	return fakeDatabase{}.ExecuteFunc(ctx, f)
 }
 
-// ExecuteDeleteFunc is ExecuteFunc whatever asks says.
-func (d ranTwice) ExecuteDeleteFunc(ctx context.Context, _ bool, f func(ctx context.Context, txn resource.ReadWriteTransaction) error) error {
+// ExecuteDeleteFunc is ExecuteFunc whatever run says.
+func (d ranTwice) ExecuteDeleteFunc(ctx context.Context, _ resource.DeleteRun, f func(ctx context.Context, txn resource.ReadWriteTransaction) error) error {
 	return d.ExecuteFunc(ctx, f)
 }
 

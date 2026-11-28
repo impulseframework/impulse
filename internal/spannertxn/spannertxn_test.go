@@ -22,9 +22,10 @@ import (
 // The functions of the module that open a Spanner read-write transaction themselves, each
 // with why it may: every other one must call Serializable.
 var opensItselfAllowed = map[string]string{
-	"internal/spannertxn/spannertxn.go: Serializable": "the one opener, which names the level",
-	"spxscan/spxapi/api.go: UpdateAndGet":             "the caller's statement on the caller's runner, at the caller's level",
-	"spxscan/spxapi/api.go: UpdateAndSelect":          "the caller's statement on the caller's runner, at the caller's level",
+	"internal/spannertxn/spannertxn.go: Serializable":   "the one opener, which names the level",
+	"internal/spannertxn/spannertxn.go: RepeatableRead": "the opener of a delete's save, which names the level",
+	"spxscan/spxapi/api.go: UpdateAndGet":               "the caller's statement on the caller's runner, at the caller's level",
+	"spxscan/spxapi/api.go: UpdateAndSelect":            "the caller's statement on the caller's runner, at the caller's level",
 }
 
 // The words a file must hold for its parse to be worth the time: every call

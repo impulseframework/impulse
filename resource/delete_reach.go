@@ -22,25 +22,26 @@ type tenantRows struct {
 }
 
 // byTenant is the count of the kind's rows at the level, below the deepest level, by
-// their tenant: the rows under the condition the level's count is written with
-// (condition), each tenant read as text as the roster reads a tenant's key, one row of
-// the answer for each tenant and one, NULL, for the rows of no tenant. ok is false where
-// the kind is not counted there, and for a kind whose rows are no tenant's.
+// their tenant: the rows the level's count reads (takenQuery.rows), each tenant read as
+// text as the roster reads a tenant's key, one row of the answer for each tenant and one,
+// NULL, for the rows of no tenant. ok is false where the kind is not counted there, and
+// for a kind whose rows are no tenant's.
 func (q *takenQuery) byTenant(kind *DeleteKind, level, deepest int) (rowsUnderStatement, bool) {
 	if kind.Tenant == nil {
 		return rowsUnderStatement{}, false
 	}
 	w := &rowsUnderWriter{dbType: SpannerDBType}
-	condition, ok := q.condition(w, kind, level, deepest)
+	columns := func() []string {
+		tenant := w.rowTenant(w.quote(string(kind.Resource))+".", kind.Tenant)
+
+		return append(w.keyColumns(kind), fmt.Sprintf("CAST(%s AS %s) AS tenant", tenant, columnTypeString))
+	}
+	rows, ok := q.rows(w, kind, level, deepest, columns, false)
 	if !ok {
 		return rowsUnderStatement{}, false
 	}
-	outer := w.quote(string(kind.Resource))
-	tenant := w.rowTenant(outer+".", kind.Tenant)
-	sql := fmt.Sprintf("SELECT tenant, COUNT(*) FROM (SELECT CAST(%s AS %s) AS tenant FROM %s WHERE %s) GROUP BY tenant",
-		tenant, columnTypeString, outer, condition)
 
-	return rowsUnderStatement{SQL: sql, Args: w.args, Named: w.named()}, true
+	return rowsUnderStatement{SQL: "SELECT u.tenant, COUNT(*) FROM (" + rows + ") AS u GROUP BY u.tenant", Args: w.args, Named: w.named()}, true
 }
 
 // countByTenant runs one statement that counts a kind's rows by their tenant through the

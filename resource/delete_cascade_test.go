@@ -30,8 +30,8 @@ type cascadeRows struct {
 	asks  *takenAsks
 	asked *[]string
 	made  *[]string
-	// onAsked is called with each row's name as the row is asked; nil calls nothing.
-	onAsked func(name string)
+	// onMade is called with each row's name as the row is buffered; nil calls nothing.
+	onMade func(name string)
 }
 
 // cascadeRefusal is what a row's check answers.
@@ -56,7 +56,7 @@ func (r cascadeRows) row(fields []accesstypes.Field, values []any, caller *Calle
 	if !caller.IsZero() {
 		who = "armed"
 	}
-	row := &cascadeRow{name: strings.Join(name, ",") + " " + who, asked: r.asked, made: r.made, onAsked: r.onAsked}
+	row := &cascadeRow{name: strings.Join(name, ",") + " " + who, asked: r.asked, made: r.made, onMade: r.onMade}
 	if refusal, ok := r.refused[fmt.Sprint(values...)]; ok {
 		row.refusal = refusal
 	}
@@ -98,15 +98,12 @@ type cascadeRow struct {
 	refusal cascadeRefusal
 	asked   *[]string
 	made    *[]string
-	onAsked func(name string)
+	onMade  func(name string)
 }
 
 func (r *cascadeRow) checkTaken(_ context.Context, _ ReadWriteTransaction, _ *takenAsks, answers []spanner.NullBool) (byRule bool, err error) {
 	if r.asked != nil {
 		*r.asked = append(*r.asked, r.name)
-	}
-	if r.onAsked != nil {
-		r.onAsked(r.name)
 	}
 	if r.refusal.err != nil {
 		return r.refusal.byRule, r.refusal.err
@@ -122,6 +119,9 @@ func (r *cascadeRow) checkTaken(_ context.Context, _ ReadWriteTransaction, _ *ta
 
 func (r *cascadeRow) bufferTaken(context.Context, ReadWriteTransaction, ...eventsource.EventSource) error {
 	*r.made = append(*r.made, r.name)
+	if r.onMade != nil {
+		r.onMade(r.name)
+	}
 
 	return nil
 }
@@ -517,12 +517,16 @@ func TestDecoder_readsWhatARemoveSays(t *testing.T) {
 	}
 }
 
-// Test_takenQuery pins a kind's path statement as Spanner takes it: the kind's rows read
-// under their table's name, under the record by the kind's ways at the level; a kind
-// three steps under the record names no row above it, only the record's key; above level
-// 0 the rows the record's key reaches by a declared way are left to level 0; and a page
-// reads each row's key and the answers asked of it, in key order, after the rows of the
-// pages before it.
+// Test_takenQuery pins a kind's path statement as Spanner takes it: the keys of the
+// kind's rows, read under their table's name, one SELECT for each of the kind's ways at
+// the level, each written from the record's key, or the page's keys, down to the kind; a
+// kind three steps under the record starts from the table under the record, held to the
+// record's key; above level 0 the rows the record's key reaches by a declared way are left
+// to level 0, and below the deepest level the next level's rows are taken out (EXCEPT
+// DISTINCT); a page reads each row's key and the answers asked of it, in key order, after
+// the rows of the pages before it; a read of whether there is a row joins its ways by
+// UNION ALL and stops at the first; and the count by tenant reads each row's tenant. A
+// page's keys are bound as rows, for a key of one column too.
 func Test_takenQuery(t *testing.T) {
 	t.Parallel()
 
@@ -544,8 +548,8 @@ func Test_takenQuery(t *testing.T) {
 	if !ok {
 		t.Fatal("count() of the replies wrote no statement")
 	}
-	if want := "SELECT COUNT(*) FROM `CascadeReplies` WHERE (EXISTS (SELECT 1 FROM `CascadeComments` AS w0_1, `CascadeTasks` AS w0_2 " +
-		"WHERE w0_1.`Id` = `CascadeReplies`.`CommentId` AND w0_2.`Id` = w0_1.`TaskId` AND w0_2.`ProjectId` = @d1))"; statement.SQL != want {
+	if want := "SELECT COUNT(*) FROM (SELECT `CascadeReplies`.`Id` AS k1 FROM `CascadeTasks` AS w0_2 JOIN `CascadeComments` AS w0_1 ON w0_1.`TaskId` = w0_2.`Id` " +
+		"JOIN `CascadeReplies` ON `CascadeReplies`.`CommentId` = w0_1.`Id` WHERE w0_2.`ProjectId` = @d1) AS u"; statement.SQL != want {
 		t.Errorf("count() of the replies =\n%s\nwant\n%s", statement.SQL, want)
 	}
 	if diff := cmp.Diff([]any{"p1"}, statement.Args); diff != "" {
@@ -560,31 +564,33 @@ func Test_takenQuery(t *testing.T) {
 	if !ok {
 		t.Fatal("page() of the tasks at level 1 wrote no read")
 	}
-	if want := "SELECT `CascadeTasks`.`Id`, (CascadeTasks.Title != @_c1) AS a1 FROM `CascadeTasks` " +
-		"WHERE (EXISTS (SELECT 1 FROM `CascadeTasks` AS w0_1 WHERE w0_1.`Id` = `CascadeTasks`.`ParentTaskId` AND w0_1.`ProjectId` = @d1)) " +
-		"AND NOT COALESCE((EXISTS (SELECT 1 FROM `CascadeTasks` AS w1_1, `CascadeTasks` AS w1_2 WHERE w1_1.`Id` = `CascadeTasks`.`ParentTaskId` " +
-		"AND w1_2.`Id` = w1_1.`ParentTaskId` AND w1_2.`ProjectId` = @d2)), FALSE) ORDER BY `CascadeTasks`.`Id` LIMIT 1000 OFFSET 1000"; page.SQL != want {
+	if want := "SELECT u.k1, u.a1 FROM ((SELECT `CascadeTasks`.`Id` AS k1, (CascadeTasks.Title != @_c1) AS a1 FROM `CascadeTasks` AS w0_1 " +
+		"JOIN `CascadeTasks` ON `CascadeTasks`.`ParentTaskId` = w0_1.`Id` WHERE w0_1.`ProjectId` = @d1) " +
+		"EXCEPT DISTINCT (SELECT `CascadeTasks`.`Id` AS k1, (CascadeTasks.Title != @_c1) AS a1 FROM `CascadeTasks` AS w1_2 " +
+		"JOIN `CascadeTasks` AS w1_1 ON w1_1.`ParentTaskId` = w1_2.`Id` JOIN `CascadeTasks` ON `CascadeTasks`.`ParentTaskId` = w1_1.`Id` " +
+		"WHERE w1_2.`ProjectId` = @d2)) AS u ORDER BY u.k1 LIMIT 1000 OFFSET 1000"; page.SQL != want {
 		t.Errorf("page() of the tasks at level 1 =\n%s\nwant\n%s", page.SQL, want)
 	}
 	if diff := cmp.Diff(map[string]any{"_c1": "secret", "d1": "p1", "d2": "p1"}, page.spannerStatement().Params); diff != "" {
 		t.Errorf("page() of the tasks at level 1 values (-want +got):\n%s", diff)
 	}
-	if page, ok := query.page(tasks, 2, 2, nil, takenPageRows, 0); !ok || strings.Contains(page.SQL, "NOT") {
+	if page, ok := query.page(tasks, 2, 2, nil, takenPageRows, 0); !ok || strings.Contains(page.SQL, "EXCEPT") {
 		t.Errorf("page() of the tasks at the deepest level = %q (written %t), want a read that leaves nothing out", page.SQL, ok)
 	}
 	statement, ok = query.count(tasks, 0, 2)
 	if !ok {
 		t.Fatal("count() of the tasks at level 0 wrote no statement")
 	}
-	if want := "SELECT COUNT(*) FROM `CascadeTasks` WHERE ((`CascadeTasks`.`ProjectId` = @d1)) " +
-		"AND NOT COALESCE((EXISTS (SELECT 1 FROM `CascadeTasks` AS w1_1 WHERE w1_1.`Id` = `CascadeTasks`.`ParentTaskId` AND w1_1.`ProjectId` = @d2)), FALSE)"; statement.SQL != want {
+	if want := "SELECT COUNT(*) FROM ((SELECT `CascadeTasks`.`Id` AS k1 FROM `CascadeTasks` WHERE `CascadeTasks`.`ProjectId` = @d1) " +
+		"EXCEPT DISTINCT (SELECT `CascadeTasks`.`Id` AS k1 FROM `CascadeTasks` AS w1_1 JOIN `CascadeTasks` ON `CascadeTasks`.`ParentTaskId` = w1_1.`Id` " +
+		"WHERE w1_1.`ProjectId` = @d2)) AS u"; statement.SQL != want {
 		t.Errorf("count() of the tasks at level 0 =\n%s\nwant\n%s", statement.SQL, want)
 	}
-	if statement, ok := query.count(tasks, 0, 0); !ok || strings.Contains(statement.SQL, "NOT") {
+	if statement, ok := query.count(tasks, 0, 0); !ok || strings.Contains(statement.SQL, "EXCEPT") {
 		t.Errorf("count() of the tasks at level 0 with the deepest level 0 = %q (written %t), want a count that leaves nothing out", statement.SQL, ok)
 	}
 	for _, deepest := range []int{0, 2} {
-		if statement, ok := query.count(labels, 0, deepest); !ok || strings.Contains(statement.SQL, "NOT") {
+		if statement, ok := query.count(labels, 0, deepest); !ok || strings.Contains(statement.SQL, "EXCEPT") {
 			t.Errorf("count() of the labels at level 0 with the deepest level %d = %q (written %t), want a count that leaves nothing out", deepest, statement.SQL, ok)
 		}
 	}
@@ -592,16 +598,52 @@ func Test_takenQuery(t *testing.T) {
 		t.Error("count() of the labels at level 1 wrote a statement, want none: no way of theirs has a place for a link to a row of the same table")
 	}
 
-	// A page's statements compare the last step of each way with the page's keys, bound
-	// once by name: a key of one column against the keys themselves.
-	ids := []string{"t1", "t2"}
+	// A read of whether there is a row joins the ways by UNION ALL, and stops at the first.
+	invoices := DeleteKind{
+		Resource: "CascadeInvoices", Words: DeleteWords{One: "invoice", Many: "invoices"}, Key: []string{"Id"},
+		Paths: []DeletePath{
+			{{Columns: []string{"TaskId"}, Table: "CascadeTasks", References: []string{"Id"}}, {Columns: []string{"ProjectId"}, Table: "CascadeProjects", References: []string{"Id"}}},
+			{{Columns: []string{"CheckedTaskId"}, Table: "CascadeTasks", References: []string{"Id"}}, {Columns: []string{"ProjectId"}, Table: "CascadeProjects", References: []string{"Id"}}},
+		},
+	}
+	statement, ok = query.exists(&invoices, 0, 0)
+	if !ok {
+		t.Fatal("exists() of the invoices wrote no read")
+	}
+	if want := "SELECT COUNT(*) FROM (SELECT 1 FROM (SELECT `CascadeInvoices`.`Id` AS k1 FROM `CascadeTasks` AS w0_1 " +
+		"JOIN `CascadeInvoices` ON `CascadeInvoices`.`TaskId` = w0_1.`Id` WHERE w0_1.`ProjectId` = @d1 " +
+		"UNION ALL SELECT `CascadeInvoices`.`Id` AS k1 FROM `CascadeTasks` AS w1_1 " +
+		"JOIN `CascadeInvoices` ON `CascadeInvoices`.`CheckedTaskId` = w1_1.`Id` WHERE w1_1.`ProjectId` = @d2) AS u LIMIT 1)"; statement.SQL != want {
+		t.Errorf("exists() of the invoices =\n%s\nwant\n%s", statement.SQL, want)
+	}
+
+	// The count by tenant reads each row's tenant as text beside its key.
+	bySector := &DomainBindingData{Column: "SectorId"}
+	calls := &DeleteTree{Record: "Calls", Key: []string{"Id"}}
+	relays := DeleteKind{
+		Resource: "Relays", Words: DeleteWords{One: "relay", Many: "relays"}, Key: []string{"Id"}, Tenant: bySector,
+		Paths: []DeletePath{{{Columns: []string{"CaseNumber"}, Table: "Calls", References: []string{"CaseNumber"}}}},
+	}
+	statement, ok = (&takenQuery{tree: calls, key: map[string]any{"Id": "c1"}}).byTenant(&relays, 0, 0)
+	if !ok {
+		t.Fatal("byTenant() of the relays wrote no statement")
+	}
+	if want := "SELECT u.tenant, COUNT(*) FROM (SELECT `Relays`.`Id` AS k1, CAST(`Relays`.`SectorId` AS STRING) AS tenant " +
+		"FROM `Calls` AS w0_r JOIN `Relays` ON `Relays`.`CaseNumber` = w0_r.`CaseNumber` WHERE w0_r.`Id` = @d1) AS u GROUP BY u.tenant"; statement.SQL != want {
+		t.Errorf("byTenant() of the relays =\n%s\nwant\n%s", statement.SQL, want)
+	}
+
+	// A page's statements start from the page's keys, bound once by name as rows, and join
+	// the first step of each way to them: a key of one column too.
+	ids := []struct{ C1 string }{{"t1"}, {"t2"}}
 	underTasks := &takenQuery{tree: tree, key: map[string]any{"Id": "p1"}, under: &takenUnder{table: "CascadeTasks", key: []string{"Id"}, ids: ids}}
 	statement, ok = underTasks.count(tasks, 0, 1)
 	if !ok {
 		t.Fatal("count() of the tasks under a page of tasks wrote no statement")
 	}
-	if want := "SELECT COUNT(*) FROM `CascadeTasks` WHERE ((`CascadeTasks`.`ParentTaskId` IN UNNEST(@ids))) " +
-		"AND NOT COALESCE((EXISTS (SELECT 1 FROM `CascadeTasks` AS w1_1 WHERE w1_1.`Id` = `CascadeTasks`.`ParentTaskId` AND w1_1.`ParentTaskId` IN UNNEST(@ids))), FALSE)"; statement.SQL != want {
+	if want := "SELECT COUNT(*) FROM ((SELECT `CascadeTasks`.`Id` AS k1 FROM UNNEST(@ids) AS pg JOIN `CascadeTasks` ON `CascadeTasks`.`ParentTaskId` = pg.C1) " +
+		"EXCEPT DISTINCT (SELECT `CascadeTasks`.`Id` AS k1 FROM UNNEST(@ids) AS pg JOIN `CascadeTasks` AS w1_1 ON w1_1.`ParentTaskId` = pg.C1 " +
+		"JOIN `CascadeTasks` ON `CascadeTasks`.`ParentTaskId` = w1_1.`Id`)) AS u"; statement.SQL != want {
 		t.Errorf("count() of the tasks under a page of tasks =\n%s\nwant\n%s", statement.SQL, want)
 	}
 	if diff := cmp.Diff(map[string]any{"ids": ids}, statement.spannerStatement().Params); diff != "" {
@@ -612,16 +654,16 @@ func Test_takenQuery(t *testing.T) {
 	if !ok {
 		t.Fatal("count() of the comments under a page of tasks wrote no statement")
 	}
-	if want := "SELECT COUNT(*) FROM `CascadeComments` WHERE ((`CascadeComments`.`TaskId` IN UNNEST(@ids)))"; statement.SQL != want {
+	if want := "SELECT COUNT(*) FROM (SELECT `CascadeComments`.`Id` AS k1 FROM UNNEST(@ids) AS pg JOIN `CascadeComments` ON `CascadeComments`.`TaskId` = pg.C1) AS u"; statement.SQL != want {
 		t.Errorf("count() of the comments under a page of tasks =\n%s\nwant\n%s", statement.SQL, want)
 	}
 	page, ok = underTasks.page(tasks, 1, 1, asks, takenPageRows, 0)
 	if !ok {
 		t.Fatal("page() of the tasks under a page of tasks wrote no read")
 	}
-	if want := "SELECT `CascadeTasks`.`Id`, (CascadeTasks.Title != @_c1) AS a1 FROM `CascadeTasks` " +
-		"WHERE (EXISTS (SELECT 1 FROM `CascadeTasks` AS w0_1 WHERE w0_1.`Id` = `CascadeTasks`.`ParentTaskId` AND w0_1.`ParentTaskId` IN UNNEST(@ids))) " +
-		"ORDER BY `CascadeTasks`.`Id` LIMIT 1000"; page.SQL != want {
+	if want := "SELECT u.k1, u.a1 FROM (SELECT `CascadeTasks`.`Id` AS k1, (CascadeTasks.Title != @_c1) AS a1 FROM UNNEST(@ids) AS pg " +
+		"JOIN `CascadeTasks` AS w0_1 ON w0_1.`ParentTaskId` = pg.C1 JOIN `CascadeTasks` ON `CascadeTasks`.`ParentTaskId` = w0_1.`Id`) AS u " +
+		"ORDER BY u.k1 LIMIT 1000"; page.SQL != want {
 		t.Errorf("page() of the tasks under a page of tasks =\n%s\nwant\n%s", page.SQL, want)
 	}
 	if diff := cmp.Diff(map[string]any{"_c1": "secret", "ids": ids}, page.spannerStatement().Params); diff != "" {
@@ -637,7 +679,8 @@ func Test_takenQuery(t *testing.T) {
 	if !ok {
 		t.Fatal("count() of the comments at level 1 under a crossed page wrote no statement")
 	}
-	if want := "SELECT COUNT(*) FROM `CascadeComments` WHERE (EXISTS (SELECT 1 FROM `CascadeTasks` AS w0_1 WHERE w0_1.`Id` = `CascadeComments`.`TaskId` AND w0_1.`ParentTaskId` IN UNNEST(@ids)))"; statement.SQL != want {
+	if want := "SELECT COUNT(*) FROM (SELECT `CascadeComments`.`Id` AS k1 FROM UNNEST(@ids) AS pg JOIN `CascadeTasks` AS w0_1 ON w0_1.`ParentTaskId` = pg.C1 " +
+		"JOIN `CascadeComments` ON `CascadeComments`.`TaskId` = w0_1.`Id`) AS u"; statement.SQL != want {
 		t.Errorf("count() of the comments at level 1 under a crossed page =\n%s\nwant\n%s", statement.SQL, want)
 	}
 	// Where a page's terms name a value ids, the page's keys take another name.
@@ -646,15 +689,16 @@ func Test_takenQuery(t *testing.T) {
 	if !ok {
 		t.Fatal("page() of the tasks with a term that names ids wrote no read")
 	}
-	if want := "SELECT `CascadeTasks`.`Id`, (CascadeTasks.Title != @ids) AS a1 FROM `CascadeTasks` WHERE ((`CascadeTasks`.`ParentTaskId` IN UNNEST(@ids2))) ORDER BY `CascadeTasks`.`Id` LIMIT 1000"; page.SQL != want {
+	if want := "SELECT u.k1, u.a1 FROM (SELECT `CascadeTasks`.`Id` AS k1, (CascadeTasks.Title != @ids) AS a1 FROM UNNEST(@ids2) AS pg " +
+		"JOIN `CascadeTasks` ON `CascadeTasks`.`ParentTaskId` = pg.C1) AS u ORDER BY u.k1 LIMIT 1000"; page.SQL != want {
 		t.Errorf("page() of the tasks with a term that names ids =\n%s\nwant\n%s", page.SQL, want)
 	}
 	if diff := cmp.Diff(map[string]any{"ids": "secret", "ids2": ids}, page.spannerStatement().Params); diff != "" {
 		t.Errorf("page() of the tasks with a term that names ids values (-want +got):\n%s", diff)
 	}
 
-	// A key of several columns: the step's columns, in the key's order, as one value
-	// against the page's keys as rows.
+	// A key of several columns: the step's columns, in the key's order, each joined to the
+	// field of the page's keys that holds it.
 	sections := deepSectionsTree()
 	keys := []struct{ C1, C2 string }{{"p1", "s1"}}
 	underSections := &takenQuery{tree: sections, key: map[string]any{"Id": "p1"}, under: &takenUnder{table: "CascadeSections", key: []string{"ProjectId", "Id"}, ids: keys}}
@@ -662,24 +706,50 @@ func Test_takenQuery(t *testing.T) {
 	if !ok {
 		t.Fatal("count() of the sections under a page of sections wrote no statement")
 	}
-	if want := "SELECT COUNT(*) FROM `CascadeSections` WHERE ((STRUCT(`CascadeSections`.`ProjectId` AS C1, `CascadeSections`.`ParentId` AS C2) IN UNNEST(@ids)))"; statement.SQL != want {
+	if want := "SELECT COUNT(*) FROM (SELECT `CascadeSections`.`ProjectId` AS k1, `CascadeSections`.`Id` AS k2 FROM UNNEST(@ids) AS pg " +
+		"JOIN `CascadeSections` ON `CascadeSections`.`ProjectId` = pg.C1 AND `CascadeSections`.`ParentId` = pg.C2) AS u"; statement.SQL != want {
 		t.Errorf("count() of the sections under a page of sections =\n%s\nwant\n%s", statement.SQL, want)
 	}
 	if diff := cmp.Diff(map[string]any{"ids": keys}, statement.spannerStatement().Params); diff != "" {
 		t.Errorf("count() of the sections under a page of sections values (-want +got):\n%s", diff)
 	}
 
-	// A link to a column outside the key: the page's own row is read, and its key
-	// compared with the page's.
+	// A link to a column outside the key: the page's own row is read by the page's keys,
+	// and the step joined from there.
 	answers := deepRepliesTree()
-	underReplies := &takenQuery{tree: answers, key: map[string]any{"Id": "p1"}, under: &takenUnder{table: "CascadeReplies", key: []string{"Id"}, ids: []string{"r1"}}}
+	underReplies := &takenQuery{tree: answers, key: map[string]any{"Id": "p1"}, under: &takenUnder{table: "CascadeReplies", key: []string{"Id"}, ids: []struct{ C1 string }{{"r1"}}}}
 	page, ok = underReplies.page(&answers.Taken[0], 0, 0, nil, takenPageRows, 0)
 	if !ok {
 		t.Fatal("page() of the replies under a page of replies wrote no read")
 	}
-	if want := "SELECT `CascadeReplies`.`Id` FROM `CascadeReplies` WHERE (EXISTS (SELECT 1 FROM `CascadeReplies` AS w0_r " +
-		"WHERE `CascadeReplies`.`AnswersId` = w0_r.`Id` AND `CascadeReplies`.`Lane` = w0_r.`Lane` AND w0_r.`Id` IN UNNEST(@ids))) " +
-		"ORDER BY `CascadeReplies`.`Id` LIMIT 1000"; page.SQL != want {
+	if want := "SELECT u.k1 FROM (SELECT `CascadeReplies`.`Id` AS k1 FROM UNNEST(@ids) AS pg JOIN `CascadeReplies` AS w0_r ON w0_r.`Id` = pg.C1 " +
+		"JOIN `CascadeReplies` ON `CascadeReplies`.`AnswersId` = w0_r.`Id` AND `CascadeReplies`.`Lane` = w0_r.`Lane`) AS u ORDER BY u.k1 LIMIT 1000"; page.SQL != want {
 		t.Errorf("page() of the replies under a page of replies =\n%s\nwant\n%s", page.SQL, want)
+	}
+}
+
+// Test_pageKeys holds a page's keys as a statement binds them: rows, each with a field for
+// each key column in key order (C1, C2 and on), for a key of one column too.
+func Test_pageKeys(t *testing.T) {
+	t.Parallel()
+
+	one, err := pageKeys([]takenPageRow{{key: []any{"t1"}}, {key: []any{"t2"}}})
+	if err != nil {
+		t.Fatalf("pageKeys() of a key of one column error = %v", err)
+	}
+	if diff := cmp.Diff([]struct {
+		C1 string `spanner:"C1"`
+	}{{"t1"}, {"t2"}}, one); diff != "" {
+		t.Errorf("pageKeys() of a key of one column (-want +got):\n%s", diff)
+	}
+	two, err := pageKeys([]takenPageRow{{key: []any{"p1", int64(1)}}, {key: []any{"p1", int64(2)}}})
+	if err != nil {
+		t.Fatalf("pageKeys() of a key of two columns error = %v", err)
+	}
+	if diff := cmp.Diff([]struct {
+		C1 string `spanner:"C1"`
+		C2 int64  `spanner:"C2"`
+	}{{"p1", 1}, {"p1", 2}}, two); diff != "" {
+		t.Errorf("pageKeys() of a key of two columns (-want +got):\n%s", diff)
 	}
 }

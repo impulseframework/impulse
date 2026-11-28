@@ -3953,8 +3953,10 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 
 		// A remove that does not bring the token its question gave asks first: the request
 		// is then run with no read-write transaction open, and one is opened only where
-		// there was nothing to ask (resource.Executor.ExecuteDeleteFunc).
-		asks, err := resource.RemovesAsk(r)
+		// there was nothing to ask. A request that holds nothing but removes that bring
+		// their tokens is a save of a delete, and its transaction is opened at repeatable
+		// read (resource.Executor.ExecuteDeleteFunc).
+		deleteRun, err := resource.DeleteRunOf(r)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
@@ -3963,7 +3965,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 		// The rows the transaction writes are collected for the live pages, published
 		// once the commit lands and before the answer.
 		ctx, touched := resource.CollectTouchedRows(ctx)
-		if err := {{ .ReceiverName }}.ResourceClient().{{ if .Resource.TakesRowsUnder }}ExecuteDeleteFunc(ctx, asks, {{ else }}ExecuteFunc(ctx, {{ end }}func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		if err := {{ .ReceiverName }}.ResourceClient().{{ if .Resource.TakesRowsUnder }}ExecuteDeleteFunc(ctx, deleteRun, {{ else }}ExecuteFunc(ctx, {{ end }}func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 			{{- if $PrimaryKeyIsGeneratedUUID }}
 			resp = response{}
 			{{- end }}
@@ -4224,8 +4226,10 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 
 		// A remove that does not bring the token its question gave asks first: the request
 		// is then run with no read-write transaction open, and one is opened only where
-		// there was nothing to ask (resource.Executor.ExecuteDeleteFunc).
-		asks, err := resource.RemovesAsk(r)
+		// there was nothing to ask. A request that holds nothing but removes that bring
+		// their tokens is a save of a delete, and its transaction is opened at repeatable
+		// read (resource.Executor.ExecuteDeleteFunc).
+		deleteRun, err := resource.DeleteRunOf(r)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
@@ -4235,7 +4239,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 		// once the commit lands and before the answer, each under the domain its
 		// operation was decoded in.
 		ctx, touched := resource.CollectTouchedRows(ctx)
-		if err := {{ .ReceiverName }}.ResourceClient().{{ if .TakesRowsUnder }}ExecuteDeleteFunc(ctx, asks, {{ else }}ExecuteFunc(ctx, {{ end }}func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		if err := {{ .ReceiverName }}.ResourceClient().{{ if .TakesRowsUnder }}ExecuteDeleteFunc(ctx, deleteRun, {{ else }}ExecuteFunc(ctx, {{ end }}func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 			resp = response{}
 			{{- if .HasTenant }}
 			tenantsWritten = false
@@ -6513,7 +6517,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .RPCMethod.Name }}() http.
 			if err != nil {
 				return httpio.NewEncoder(w).ClientMessage(ctx, err)
 			}
-			if err := {{ $.ReceiverName }}.ResourceClient().{{ if .RPCMethod.DeleteToken }}ExecuteDeleteFunc(ctx, p.{{ .RPCMethod.DeleteToken }} == "", {{ else }}ExecuteFunc(ctx, {{ end }}func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+			if err := {{ $.ReceiverName }}.ResourceClient().{{ if .RPCMethod.DeleteToken }}ExecuteDeleteFunc(ctx, resource.DeleteRunOfToken(p.{{ .RPCMethod.DeleteToken }}), {{ else }}ExecuteFunc(ctx, {{ end }}func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 				{{- template "rpcTargetFrame" $ }}
 				{{- template "rpcReadWarning" $ }}
 				{{- if .RPCMethod.Answers -}}

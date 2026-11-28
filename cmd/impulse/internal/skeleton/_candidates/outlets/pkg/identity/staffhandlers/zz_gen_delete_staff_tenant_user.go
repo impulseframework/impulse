@@ -91,7 +91,7 @@ func (h *Handlers) DeleteStaffTenantUser() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		if err := h.ResourceClient().ExecuteDeleteFunc(ctx, p.Token == "", func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		if err := h.ResourceClient().ExecuteDeleteFunc(ctx, resource.DeleteRunOfToken(p.Token), func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 			// Declared target: a row of the StaffTenantUser view.
 			// A view's row is one row of its query, and its key names a row in
 			// each tenant that holds one, so the gate locates it by the key

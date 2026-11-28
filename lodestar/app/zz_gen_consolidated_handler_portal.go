@@ -99,8 +99,10 @@ func (a *App) PatchPortalResources() http.HandlerFunc {
 
 		// A remove that does not bring the token its question gave asks first: the request
 		// is then run with no read-write transaction open, and one is opened only where
-		// there was nothing to ask (resource.Executor.ExecuteDeleteFunc).
-		asks, err := resource.RemovesAsk(r)
+		// there was nothing to ask. A request that holds nothing but removes that bring
+		// their tokens is a save of a delete, and its transaction is opened at repeatable
+		// read (resource.Executor.ExecuteDeleteFunc).
+		deleteRun, err := resource.DeleteRunOf(r)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
@@ -109,7 +111,7 @@ func (a *App) PatchPortalResources() http.HandlerFunc {
 		// once the commit lands and before the answer, each under the domain its
 		// operation was decoded in.
 		ctx, touched := resource.CollectTouchedRows(ctx)
-		if err := a.ResourceClient().ExecuteDeleteFunc(ctx, asks, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		if err := a.ResourceClient().ExecuteDeleteFunc(ctx, deleteRun, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 			resp = response{}
 			left = nil
 			r, err := resource.CloneRequest(r)

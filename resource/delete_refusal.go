@@ -140,7 +140,7 @@ func (s rowsUnderStatement) spannerStatement() spanner.Statement {
 	return spanner.Statement{SQL: s.SQL, Params: params}
 }
 
-// rowsUnderWriter renders one count statement for a database type.
+// rowsUnderWriter renders one statement about a kind's rows for a database type.
 type rowsUnderWriter struct {
 	dbType DBType
 	args   []any
@@ -150,15 +150,15 @@ type rowsUnderWriter struct {
 	// ways counts the ways up to the record written, so the rows between on each are
 	// read under names of their own.
 	ways int
-	// page is the page whose keys a way compared with (inPage), nil where none did: its
-	// keys are bound under pageName (named).
+	// page is the page whose keys a way started from (wayFromPage), nil where none did:
+	// its keys are bound under pageName (named).
 	page *takenUnder
 	// given are the values the statement names by name besides a page's keys (the values
 	// a page's terms name, takenAsks.params).
 	given map[string]any
 }
 
-// pageIDs is the name a statement binds a page's keys under (inPage), where the
+// pageIDs is the name a statement binds a page's keys under (wayFromPage), where the
 // statement's other named values do not hold it (pageName).
 const pageIDs = "ids"
 
@@ -245,89 +245,146 @@ func tenantValues(kind *DeleteKind, tree *DeleteTree, recordKey map[string]any) 
 	return max(1, len(recordKey))
 }
 
-// way is the condition that a row of the kind, read under the name outer (its table's),
-// is under the record by one path. A path of one step compares the row's own columns
-// with the record's key. A longer one asks for the rows between, each joined to the one
-// before it, the last holding the record's key. A last step that references a column
-// outside the record's key (a foreign key to other columns of the record's table) asks
-// for the record's own row too, found by its key, and compares with the column there.
-func (w *rowsUnderWriter) way(path DeletePath, recordKey map[string]any, outer string) string {
+// wayRows is one way's SELECT of the kind's rows, each read as columns says: the way
+// written from where it starts down to the kind (wayFrom, or wayFromPage where under is a
+// page), its conditions, and, where tenant is set, the condition that the row is of the
+// record's tenant (ofRecordsTenant). The kind's table is read under its own name.
+func (w *rowsUnderWriter) wayRows(columns string, kind *DeleteKind, path DeletePath, tree *DeleteTree, recordKey map[string]any, under *takenUnder, tenant bool) string {
+	table := w.quote(string(kind.Resource))
+	var (
+		from       string
+		conditions []string
+	)
+	if under == nil {
+		from, conditions = w.wayFrom(path, recordKey, table)
+	} else {
+		from = w.wayFromPage(path, under, table)
+	}
+	if tenant {
+		if condition := w.ofRecordsTenant(table+".", kind, tree, recordKey); condition != "" {
+			conditions = append(conditions, strings.TrimPrefix(condition, " AND "))
+		}
+	}
+	sql := "SELECT " + columns + " " + from
+	if len(conditions) > 0 {
+		sql += " WHERE " + strings.Join(conditions, " AND ")
+	}
+
+	return sql
+}
+
+// keyColumns is the list of a SELECT of the kind's rows that reads each row's key: its
+// key columns, in key order, as k1, k2 and on.
+func (w *rowsUnderWriter) keyColumns(kind *DeleteKind) []string {
+	table := w.quote(string(kind.Resource))
+	columns := make([]string, 0, len(kind.Key))
+	for i, column := range kind.Key {
+		columns = append(columns, fmt.Sprintf("%s.%s AS k%d", table, w.quote(column), i+1))
+	}
+
+	return columns
+}
+
+// wayFrom writes one way from the record down to the kind's table (read under its own
+// name, table): the FROM, and the conditions that hold its top to the record's key. A way
+// whose last step references only columns the key holds starts from the table that step
+// leaves, whose step columns are held to the key's values. A last step that references a
+// column outside the key (a foreign key to other columns of the record's table) starts
+// from the record's own row (w<index>_r), held to the key, and joins the step from there.
+// Each row between is read under a name of its own (w<index>_<step>) and joined to the
+// one above it by the step that leads up from it.
+func (w *rowsUnderWriter) wayFrom(path DeletePath, recordKey map[string]any, table string) (from string, conditions []string) {
 	index := w.ways
 	w.ways++
-	last := path[len(path)-1]
-	tables, conditions, alias := w.stepsBefore(path, index, outer)
+	top := len(path) - 1
+	last := path[top]
 	if slices.ContainsFunc(last.References, func(column string) bool {
 		_, held := recordKey[column]
 
 		return !held
 	}) {
 		record := fmt.Sprintf("w%d_r", index)
-		tables = append(tables, fmt.Sprintf("%s AS %s", w.quote(last.Table), record))
-		for i, column := range last.Columns {
-			conditions = append(conditions, fmt.Sprintf("%s.%s = %s.%s", alias, w.quote(column), record, w.quote(last.References[i])))
-		}
+		from = fmt.Sprintf("FROM %s AS %s JOIN %s ON %s", w.quote(last.Table), record, w.wayTable(path, index, table, top), w.linkOn(last, w.wayRow(index, table, top), record))
 		for _, column := range slices.Sorted(maps.Keys(recordKey)) {
 			conditions = append(conditions, fmt.Sprintf("%s.%s = %s", record, w.quote(column), w.value(recordKey[column])))
 		}
 	} else {
+		from = "FROM " + w.wayTable(path, index, table, top)
 		for i, column := range last.Columns {
-			conditions = append(conditions, fmt.Sprintf("%s.%s = %s", alias, w.quote(column), w.value(recordKey[last.References[i]])))
+			conditions = append(conditions, fmt.Sprintf("%s.%s = %s", w.wayRow(index, table, top), w.quote(column), w.value(recordKey[last.References[i]])))
 		}
 	}
-	if len(tables) == 0 {
-		return "(" + strings.Join(conditions, " AND ") + ")"
-	}
 
-	return fmt.Sprintf("EXISTS (SELECT 1 FROM %s WHERE %s)", strings.Join(tables, ", "), strings.Join(conditions, " AND "))
+	return from + w.joinsDown(path, index, table, top), conditions
 }
 
-// stepsBefore writes the steps of the path before its last, as way and wayUnder write
-// them: each row between read under a name of its own (w<index>_<step>) and joined to the
-// one before it, the first to the row read under the name outer. It answers the tables
-// read, the conditions that join them, and the name of the row the last step is taken
-// from.
-func (w *rowsUnderWriter) stepsBefore(path DeletePath, index int, outer string) (tables, conditions []string, alias string) {
-	tables = make([]string, 0, len(path))
-	alias = outer
-	for step, link := range path[:len(path)-1] {
-		next := fmt.Sprintf("w%d_%d", index, step+1)
-		tables = append(tables, fmt.Sprintf("%s AS %s", w.quote(link.Table), next))
-		for i, column := range link.Columns {
-			conditions = append(conditions, fmt.Sprintf("%s.%s = %s.%s", next, w.quote(link.References[i]), alias, w.quote(column)))
-		}
-		alias = next
-	}
-
-	return tables, conditions, alias
-}
-
-// wayUnder is the condition that a row of the kind, read under the name outer, is under
-// a row of a page (takenUnder) by one way, whose last step lands on the page's table.
-// The steps before the last are written as way writes them. The last is compared with
-// the page's rows: where it references exactly the table's key, its columns are compared
-// with the page's keys (inPage); where it references a column outside the key, the
-// page's own row of the table is read (w<index>_r), the step's columns are compared with
-// that row's, and that row's key with the page's keys.
-func (w *rowsUnderWriter) wayUnder(path DeletePath, under *takenUnder, outer string) string {
+// wayFromPage writes one way from a page's rows (takenUnder) down to the kind's table
+// (read under its own name, table), whose last step lands on the page's table: the page's
+// keys (pg, bound under pageName) joined to the rows that hold them. Where the last step
+// references exactly the table's key, the step's columns are joined to the page's keys;
+// where it references a column outside the key, the page's own row of the table is read
+// (w<index>_r) by the page's keys, and the step is joined from there. The rows between
+// are joined as wayFrom joins them.
+func (w *rowsUnderWriter) wayFromPage(path DeletePath, under *takenUnder, table string) string {
 	index := w.ways
 	w.ways++
-	last := path[len(path)-1]
-	tables, conditions, alias := w.stepsBefore(path, index, outer)
+	w.page = under
+	top := len(path) - 1
+	last := path[top]
+	from := "FROM UNNEST(@" + w.pageName() + ") AS pg"
 	if columns, ok := keyColumnsOf(last, under.key); ok {
-		conditions = append(conditions, w.inPage(alias, columns, under))
+		from += " JOIN " + w.wayTable(path, index, table, top) + " ON " + w.inPage(w.wayRow(index, table, top), columns)
 	} else {
 		row := fmt.Sprintf("w%d_r", index)
-		tables = append(tables, fmt.Sprintf("%s AS %s", w.quote(last.Table), row))
-		for i, column := range last.Columns {
-			conditions = append(conditions, fmt.Sprintf("%s.%s = %s.%s", alias, w.quote(column), row, w.quote(last.References[i])))
-		}
-		conditions = append(conditions, w.inPage(row, under.key, under))
-	}
-	if len(tables) == 0 {
-		return "(" + strings.Join(conditions, " AND ") + ")"
+		from += " JOIN " + w.quote(under.table) + " AS " + row + " ON " + w.inPage(row, under.key) +
+			" JOIN " + w.wayTable(path, index, table, top) + " ON " + w.linkOn(last, w.wayRow(index, table, top), row)
 	}
 
-	return fmt.Sprintf("EXISTS (SELECT 1 FROM %s WHERE %s)", strings.Join(tables, ", "), strings.Join(conditions, " AND "))
+	return from + w.joinsDown(path, index, table, top)
+}
+
+// wayRow is the name a way reads the row at the step under: the kind's table's own name
+// at step 0, and w<index>_<step> above it.
+func (w *rowsUnderWriter) wayRow(index int, table string, step int) string {
+	if step == 0 {
+		return table
+	}
+
+	return fmt.Sprintf("w%d_%d", index, step)
+}
+
+// wayTable is the table a way reads at the step, as a FROM or a JOIN names it: the kind's
+// table at step 0, and the table the step before leads to, under its name (wayRow),
+// above it.
+func (w *rowsUnderWriter) wayTable(path DeletePath, index int, table string, step int) string {
+	if step == 0 {
+		return table
+	}
+
+	return w.quote(path[step-1].Table) + " AS " + w.wayRow(index, table, step)
+}
+
+// joinsDown joins the rows of a way below the step, from the one under it down to the
+// kind's table, each by the step that leads up from it.
+func (w *rowsUnderWriter) joinsDown(path DeletePath, index int, table string, step int) string {
+	var joins strings.Builder
+	for below := step - 1; below >= 0; below-- {
+		joins.WriteString(" JOIN " + w.wayTable(path, index, table, below) + " ON " + w.linkOn(path[below], w.wayRow(index, table, below), w.wayRow(index, table, below+1)))
+	}
+
+	return joins.String()
+}
+
+// linkOn is the condition that the row read as lower is under the row read as upper by
+// the step: each of the step's columns of lower equal to the column it references of
+// upper, in the step's order.
+func (w *rowsUnderWriter) linkOn(step DeleteLink, lower, upper string) string {
+	conditions := make([]string, 0, len(step.Columns))
+	for i, column := range step.Columns {
+		conditions = append(conditions, fmt.Sprintf("%s.%s = %s.%s", lower, w.quote(column), upper, w.quote(step.References[i])))
+	}
+
+	return strings.Join(conditions, " AND ")
 }
 
 // keyColumnsOf are the step's columns that hold the table's key, in the key's order,
@@ -349,23 +406,16 @@ func keyColumnsOf(step DeleteLink, key []string) (columns []string, ok bool) {
 	return columns, true
 }
 
-// inPage is the condition that the columns of the row read under the name alias, in the
-// key's order, hold the key of one of the page's rows: the one column against the
-// page's keys, or the columns as one value against the page's keys as rows. The page's
-// keys are bound once a statement, under pageIDs.
-func (w *rowsUnderWriter) inPage(alias string, columns []string, under *takenUnder) string {
-	w.page = under
-	if len(columns) == 1 {
-		return alias + "." + w.quote(columns[0]) + " IN UNNEST(@" + w.pageName() + ")"
-	}
-	// The value's fields are named as the page's keys name theirs (pageKeys): the
-	// emulator compares the two only where the names match.
-	spelled := make([]string, 0, len(columns))
+// inPage is the condition that the columns of the row read as alias, in the key's
+// order, hold the key of the page's row pg: each against the field of the page's keys
+// that holds the key column at its place (pageKeyField).
+func (w *rowsUnderWriter) inPage(alias string, columns []string) string {
+	conditions := make([]string, 0, len(columns))
 	for i, column := range columns {
-		spelled = append(spelled, fmt.Sprintf("%s.%s AS %s", alias, w.quote(column), pageKeyField(i)))
+		conditions = append(conditions, fmt.Sprintf("%s.%s = pg.%s", alias, w.quote(column), pageKeyField(i)))
 	}
 
-	return "STRUCT(" + strings.Join(spelled, ", ") + ") IN UNNEST(@" + w.pageName() + ")"
+	return strings.Join(conditions, " AND ")
 }
 
 // pageName is the name the statement binds a page's keys under: pageIDs, or, where the
@@ -382,7 +432,7 @@ func (w *rowsUnderWriter) pageName() string {
 }
 
 // named is the values the statement names by name: the given ones, and the page's keys
-// under pageName where a way compared with them (inPage).
+// under pageName where a way started from them (wayFromPage).
 func (w *rowsUnderWriter) named() map[string]any {
 	if w.page == nil {
 		return w.given
@@ -394,31 +444,23 @@ func (w *rowsUnderWriter) named() map[string]any {
 	return named
 }
 
-// anyWay is the condition that a row of the kind, read under the name outer, is under
-// the record by one of the ways.
-func (w *rowsUnderWriter) anyWay(ways []DeletePath, recordKey map[string]any, outer string) string {
-	conditions := make([]string, 0, len(ways))
-	for _, path := range ways {
-		conditions = append(conditions, w.way(path, recordKey, outer))
-	}
-
-	return "(" + strings.Join(conditions, " OR ") + ")"
-}
-
 // newRowsUnderStatement renders the count of a kind's rows under the record with the
 // given key, by any of the kind's ways up to it (the path statement at level 0,
-// delete_cascade.go), the kind's rows read under their table's name, and, where the
-// kind's rows and the record are a tenant's, of the record's tenant alone
-// (ofRecordsTenant). ok is false for a kind with no way up to the record.
+// delete_cascade.go), each way written from the record's key down to the kind (wayRows),
+// the ways joined by a union that holds each row once, and, where the kind's rows and the
+// record are a tenant's, of the record's tenant alone (ofRecordsTenant). ok is false for
+// a kind with no way up to the record.
 func newRowsUnderStatement(dbType DBType, tree *DeleteTree, kind *DeleteKind, recordKey map[string]any) (statement rowsUnderStatement, ok bool) {
 	ways := slices.DeleteFunc(slices.Clone(kind.Paths), func(path DeletePath) bool { return len(path) == 0 })
 	if len(ways) == 0 {
 		return rowsUnderStatement{}, false
 	}
 	w := &rowsUnderWriter{dbType: dbType}
-	outer := w.quote(string(kind.Resource))
-	sql := fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE %s%s",
-		outer, w.anyWay(ways, recordKey, outer), w.ofRecordsTenant(outer+".", kind, tree, recordKey))
+	selects := make([]string, 0, len(ways))
+	for _, path := range ways {
+		selects = append(selects, w.wayRows(strings.Join(w.keyColumns(kind), ", "), kind, path, tree, recordKey, nil, true))
+	}
+	sql := "SELECT COUNT(*) FROM (" + strings.Join(selects, " UNION DISTINCT ") + ") AS u"
 
 	return rowsUnderStatement{SQL: sql, Args: w.args}, true
 }

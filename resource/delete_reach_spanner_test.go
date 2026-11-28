@@ -373,7 +373,7 @@ func TestTakingDelete_reachStatements(t *testing.T) {
 	}
 	var byTenant []string
 	for _, sql := range run.statements {
-		if strings.Contains(sql, "GROUP BY tenant") {
+		if strings.Contains(sql, "GROUP BY u.tenant") {
 			byTenant = append(byTenant, sql)
 		}
 	}

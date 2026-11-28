@@ -610,13 +610,17 @@ func TestPatchSet_deleteTaken_roundsNestedToAnyDepth(t *testing.T) {
 
 		db := chains(t, "late", 9)
 
-		// The record reads four levels; its own pages are refused, so the save takes the 15
-		// tasks under its frontier and stops at its deepest level.
+		// The record reads four levels; its own pages are refused, so the save takes the tasks
+		// under its frontier and stops at its deepest level. The save finds its bottom as a
+		// save on a token does: a one-row read of the comments three levels down joins too
+		// many tables, so the record is cut at its second level, and the 18 tasks under the
+		// three tasks there are taken.
 		recordsPages := func(sql string) error {
 			if err := limit(sql); err != nil {
 				return err
 			}
-			if strings.HasPrefix(sql, "SELECT `CascadeTasks`.`Id` FROM") && !strings.Contains(sql, "UNNEST") && !strings.HasSuffix(sql, fmt.Sprintf("LIMIT %d", takenPageRows)) {
+			tasksPage := strings.HasPrefix(sql, "SELECT u.k1 FROM (SELECT `CascadeTasks`.`Id` AS k1 FROM") || strings.HasPrefix(sql, "SELECT u.k1 FROM ((SELECT `CascadeTasks`.`Id` AS k1 FROM")
+			if tasksPage && !strings.Contains(sql, "UNNEST") && !strings.HasSuffix(sql, fmt.Sprintf("LIMIT %d", takenPageRows)) {
 				return limit(strings.Repeat(" AS w", 9))
 			}
 
@@ -626,11 +630,11 @@ func TestPatchSet_deleteTaken_roundsNestedToAnyDepth(t *testing.T) {
 		if err != nil {
 			t.Fatalf("the refused round's error = %v, want none", err)
 		}
-		if diff := cmp.Diff(&DeleteLeft{Deleted: 15}, left); diff != "" {
+		if diff := cmp.Diff(&DeleteLeft{Deleted: 18}, left); diff != "" {
 			t.Errorf("the refused round's DeleteLeft() (-want +got):\n%s", diff)
 		}
-		if state := readRoundState(t, db, "late"); !state.record || state.tasks != 12 {
-			t.Errorf("after the refused round the record is there = %t with %d tasks, want it there with 12", state.record, state.tasks)
+		if state := readRoundState(t, db, "late"); !state.record || state.tasks != 9 {
+			t.Errorf("after the refused round the record is there = %t with %d tasks, want it there with 9", state.record, state.tasks)
 		}
 		if got := orphans(t, db, "late"); got != 0 {
 			t.Errorf("after the refused round %d task(s) left name a task that is gone", got)
@@ -750,10 +754,11 @@ func deleteSave[R Resourcer](t *testing.T, db *spanner.Client, id string, limit 
 // limit (below zero), and with the default, it goes in one save. A handed kind that asks
 // DeleteSaveOver between its rows takes one a save at the same limit. A save whose time
 // has passed before its first row takes the first page it reads rows from whole, on
-// code's word and asking nothing alike. A save that reaches its first row within its time
-// is ended by its time inside that page, and so is a page read after the first: no more
-// of its rows is asked, and none is buffered once the save is over; nor is a page read
-// after the first taken whole where it comes back with the time passed. A delete buffered
+// code's word and asking nothing alike, a save on code's word having asked every row
+// before it. A save that reaches its first row within its time is ended by its time inside
+// that page, and so is a page read after the first: none of its rows is buffered once the
+// save is over; nor is a page read after the first taken whole where it comes back with
+// the time passed. A delete buffered
 // inside a save, on the context a handed kind's Take is handed, runs on that save's
 // clock: it takes its first page and says rows are left, where a clock of its own would
 // have let it take all five and the project. The default limit is pinned.
@@ -864,14 +869,14 @@ func TestPatchSet_deleteTaken_saveTime(t *testing.T) {
 		}
 	})
 
-	t.Run("a save on code's word at a limit of one nanosecond asks and takes the first page it reads rows from, and leaves the next page to the next save", func(t *testing.T) {
+	t.Run("a save on code's word at a limit of one nanosecond asks every row and takes the first page it reads rows from, and leaves the next page to the next save", func(t *testing.T) {
 		t.Parallel()
 
 		run := runTakingRefused(t, db, projectTree(), map[string]any{"Id": "asked"}, cascadeRows{asks: &takenAsks{question: true}}, true, 0, nil, takingHow{limit: time.Nanosecond})
 		if run.err != nil {
 			t.Fatalf("the save's error = %v", run.err)
 		}
-		if diff := cmp.Diff([]string{"ID=asked-4 trusted", "ID=asked-5 trusted"}, run.asked); diff != "" {
+		if diff := cmp.Diff([]string{"ID=asked-4 trusted", "ID=asked-5 trusted", "ID=asked-1 trusted", "ID=asked-2 trusted", "ID=asked-3 trusted"}, run.asked); diff != "" {
 			t.Errorf("the rows the save asked about (-want +got):\n%s", diff)
 		}
 		if diff := cmp.Diff([]string{"ID=asked-4 trusted", "ID=asked-5 trusted"}, run.made); diff != "" {
@@ -904,7 +909,7 @@ func TestPatchSet_deleteTaken_saveTime(t *testing.T) {
 		if run.err != nil {
 			t.Fatalf("the save's error = %v", run.err)
 		}
-		if diff := cmp.Diff([]string{"ID=asked-4 trusted"}, run.asked); diff != "" {
+		if diff := cmp.Diff([]string{"ID=asked-4 trusted", "ID=asked-5 trusted", "ID=asked-1 trusted", "ID=asked-2 trusted", "ID=asked-3 trusted"}, run.asked); diff != "" {
 			t.Errorf("the rows the save asked about (-want +got):\n%s", diff)
 		}
 		if diff := cmp.Diff([]string{"ID=asked-4 trusted"}, run.made); diff != "" {
@@ -922,10 +927,10 @@ func TestPatchSet_deleteTaken_saveTime(t *testing.T) {
 		if run.err != nil {
 			t.Fatalf("the save's error = %v", run.err)
 		}
-		if diff := cmp.Diff([]string{"ID=asked-4 trusted", "ID=asked-5 trusted", "ID=asked-1 trusted"}, run.asked); diff != "" {
+		if diff := cmp.Diff([]string{"ID=asked-4 trusted", "ID=asked-5 trusted", "ID=asked-1 trusted", "ID=asked-2 trusted", "ID=asked-3 trusted"}, run.asked); diff != "" {
 			t.Errorf("the rows the save asked about (-want +got):\n%s", diff)
 		}
-		if diff := cmp.Diff([]string{"ID=asked-4 trusted", "ID=asked-5 trusted"}, run.made); diff != "" {
+		if diff := cmp.Diff([]string{"ID=asked-4 trusted", "ID=asked-5 trusted", "ID=asked-1 trusted"}, run.made); diff != "" {
 			t.Errorf("the rows the save deleted (-want +got):\n%s", diff)
 		}
 		if run.round == nil || run.round.finished {
@@ -936,11 +941,11 @@ func TestPatchSet_deleteTaken_saveTime(t *testing.T) {
 	t.Run("a page read after the first that comes back with the time passed is not taken whole", func(t *testing.T) {
 		t.Parallel()
 
-		run := runTakingRefused(t, db, projectTree(), map[string]any{"Id": "asked"}, cascadeRows{asks: &takenAsks{question: true}}, true, 0, nil, takingHow{passesAtPage: 2})
+		run := runTakingRefused(t, db, projectTree(), map[string]any{"Id": "asked"}, cascadeRows{asks: &takenAsks{question: true}}, true, 0, nil, takingHow{passesAtPage: 4})
 		if run.err != nil {
 			t.Fatalf("the save's error = %v", run.err)
 		}
-		if diff := cmp.Diff([]string{"ID=asked-4 trusted", "ID=asked-5 trusted", "ID=asked-1 trusted"}, run.asked); diff != "" {
+		if diff := cmp.Diff([]string{"ID=asked-4 trusted", "ID=asked-5 trusted", "ID=asked-1 trusted", "ID=asked-2 trusted", "ID=asked-3 trusted"}, run.asked); diff != "" {
 			t.Errorf("the rows the save asked about (-want +got):\n%s", diff)
 		}
 		if diff := cmp.Diff([]string{"ID=asked-4 trusted", "ID=asked-5 trusted"}, run.made); diff != "" {
@@ -973,8 +978,8 @@ func TestPatchSet_deleteTaken_saveTime(t *testing.T) {
 	t.Run("the default limit is pinned", func(t *testing.T) {
 		t.Parallel()
 
-		// The number is provisional: it is to be chosen from measurements of large deletes
-		// on the real service, and changes only on purpose.
+		// The number was chosen from measurements of large deletes on the real service, and
+		// changes only on purpose.
 		if DefaultDeleteSaveTime != 30*time.Second {
 			t.Errorf("DefaultDeleteSaveTime = %s, want 30s", DefaultDeleteSaveTime)
 		}

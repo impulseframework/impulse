@@ -2034,21 +2034,22 @@ with nothing gone where it cannot be made whole:
   the delete does not take, the rows beyond the reach of whoever deletes, the caller's
   grant on each kind, each row's tenant, the grant's conditions and the row's delete rule)
   before it gave the token. A kind handed to the delete in code (`PatchSet.DeleteAlso`)
-  has its `Take` called by every such save and its `Count` and `Check` by the question
-  alone.
-- A delete made in code brings no token, and every save of it asks everything again. Code
-  that deletes outside a request says `WithEverythingUnder()`
+  has its `Take` called by every save, and its `Count` and `Check` by the question and by
+  each save of a delete made in code (the next bullet).
+- A delete made in code brings no token, and every save of it asks everything again.
+  Code that deletes outside a request says `WithEverythingUnder()`
   (`PatchSet.DeleteEverythingUnder`): a job in a transaction of its own, an RPC method of
-  the application's that deletes a record in its own code, the library's own delete of an
-  account or a group that goes with its tenant. Nobody was asked a question for such a
-  delete, so each save does what the question does before it takes a row: it counts
-  everything under the record, refuses over a row of a refusing kind, over a row the
-  delete does not take and over a row beyond the caller's reach, asks the caller's grant
-  on each kind, and asks each row it takes (its tenant, the grant's conditions, its delete
-  rule). A row that starts to refuse between two saves stops the delete at the next one.
-  Such a save is slower than one on a token by all of that, and the counting runs inside
-  its time limit: a job with no request deadline to keep sets the limit below zero on its
-  client (`resource.WithDeleteSaveTime`).
+  the application's that deletes a record in its own code, the library's own delete of
+  an account or a group that goes with its tenant. Nobody was asked a question for such a
+  delete, so each save first does all that the question does: it counts everything under
+  the record, refuses over a row of a refusing kind, over a row the delete does not take
+  and over a row beyond the caller's reach, asks the caller's grant on each kind, and
+  asks every row still under the record (its tenant, the grant's conditions, its delete
+  rule), not only the rows it is about to take. Only then does it take its rows, as a
+  save on a token does. So a save takes nothing while any row under the record refuses.
+  Such a save is slower than one on a token by the question's own time, which runs
+  inside its time limit: a job with no request deadline to keep sets the limit below
+  zero on its client (`resource.WithDeleteSaveTime`).
 - The rows are checked as the person the record's delete is armed against, and the
   sentences are written for that person, as the count of the part before is. A trusted
   delete (a patch that is not armed) checks no grant, runs each kind's rule, and is told
@@ -2069,9 +2070,30 @@ with nothing gone where it cannot be made whole:
   what is deleted in real use: a record is closed long before it is deleted, or was made
   by mistake and never used. A delete rule (`@validateDeleteType`) the question asks of
   a row is handed a transaction that reads at the question's moment, and nothing it
-  buffers is written. In code, `Client.ExecuteDeleteFunc` runs a function this way; a
-  delete buffered in a transaction opened another way (`ExecuteFunc`, `Apply`,
-  `resource.NewSpannerReadWriteTransaction`) asks inside that transaction.
+  buffers is written. In code, `Client.ExecuteDeleteFunc` with `resource.DeleteRunAsks`
+  runs a function this way; a delete buffered in a transaction opened another way
+  (`ExecuteFunc`, `Apply`, `resource.NewSpannerReadWriteTransaction`) asks inside that
+  transaction.
+- A save on a token runs at Spanner's repeatable read isolation level. A request that
+  holds nothing but removes that bring their tokens is opened that way
+  (`resource.DeleteRunOf` reads it from the body, and `Client.ExecuteDeleteFunc` takes
+  it). What the save reads is then not locked: a write anywhere else in the application,
+  in another tenant or in a table the delete also reads, does not wait for the save.
+  Spanner still aborts the save where another transaction wrote a row the save writes,
+  and a foreign key still refuses a commit that would leave a row naming a deleted one.
+  Every other transaction of the library stays serializable. A delete of a record with
+  nothing under it is among them, but for one case. The level is fixed when the
+  transaction is opened, from the request's body, before any token is read: a request of
+  nothing but removes that bring tokens is opened at repeatable read whatever its
+  removes take. So a remove in it of a record whose delete takes no rows with it runs at
+  that level too, as the delete of one row, and its token is never read. A question
+  gives a token only for a record with rows under it, so only a request written by hand
+  holds such a remove.
+- A delete reads only the rows under its record. Each statement it sends about a kind (a
+  count, a page of rows, a read of whether there is any) starts from the record's key and
+  follows, a step at a time, the foreign keys or interleaves that put the kind's rows
+  under the record; under a page of a kind nested under itself it starts from the page's
+  keys the same way. Nothing it sends starts from the kind's whole table.
 
 The delete in code is Spanner's write path. The mock client holds no rows and takes none,
 and PostgreSQL has no write path.

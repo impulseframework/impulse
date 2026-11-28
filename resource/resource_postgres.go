@@ -68,7 +68,7 @@ func (c *PostgresClient) ExecuteFunc(_ context.Context, _ func(ctx context.Conte
 }
 
 // ExecuteDeleteFunc panics, as ExecuteFunc does: PostgreSQL has no write path.
-func (c *PostgresClient) ExecuteDeleteFunc(_ context.Context, _ bool, _ func(ctx context.Context, _ ReadWriteTransaction) error) error {
+func (c *PostgresClient) ExecuteDeleteFunc(_ context.Context, _ DeleteRun, _ func(ctx context.Context, _ ReadWriteTransaction) error) error {
 	panic("ExecuteDeleteFunc() not implemented for PostgresClient")
 }
 
