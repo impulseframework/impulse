@@ -772,10 +772,10 @@ func (p *PatchSet[Resource]) checkDelete(ctx context.Context, txn ReadWriteTrans
 // everything under it: 2 client contacts. This can't be undone." It changes nothing for a
 // record that lists no rows to take. It is code's word, for a delete made outside a
 // request or inside another delete, and nobody was asked a question for it: every save of
-// such a delete asks everything the question asks (the counts, the refusals, each kind's
-// grant) before it takes a row, and asks each row it takes. A request's remove says
-// "everythingUnder": true with the token its question gave, and goes on the token
-// (DeleteWithToken).
+// such a delete first asks everything the question asks (the counts, the refusals, each
+// kind's grant, and every row still under the record), and then takes its rows as a save
+// on a token does. A request's remove says "everythingUnder": true with the token its
+// question gave, and goes on the token (DeleteWithToken).
 func (p *PatchSet[Resource]) DeleteEverythingUnder() *PatchSet[Resource] {
 	p.everythingUnder = true
 

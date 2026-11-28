@@ -2034,21 +2034,22 @@ with nothing gone where it cannot be made whole:
   the delete does not take, the rows beyond the reach of whoever deletes, the caller's
   grant on each kind, each row's tenant, the grant's conditions and the row's delete rule)
   before it gave the token. A kind handed to the delete in code (`PatchSet.DeleteAlso`)
-  has its `Take` called by every such save and its `Count` and `Check` by the question
-  alone.
-- A delete made in code brings no token, and every save of it asks everything again. Code
-  that deletes outside a request says `WithEverythingUnder()`
+  has its `Take` called by every save, and its `Count` and `Check` by the question and by
+  each save of a delete made in code (the next bullet).
+- A delete made in code brings no token, and every save of it asks everything again.
+  Code that deletes outside a request says `WithEverythingUnder()`
   (`PatchSet.DeleteEverythingUnder`): a job in a transaction of its own, an RPC method of
-  the application's that deletes a record in its own code, the library's own delete of an
-  account or a group that goes with its tenant. Nobody was asked a question for such a
-  delete, so each save does what the question does before it takes a row: it counts
-  everything under the record, refuses over a row of a refusing kind, over a row the
-  delete does not take and over a row beyond the caller's reach, asks the caller's grant
-  on each kind, and asks each row it takes (its tenant, the grant's conditions, its delete
-  rule). A row that starts to refuse between two saves stops the delete at the next one.
-  Such a save is slower than one on a token by all of that, and the counting runs inside
-  its time limit: a job with no request deadline to keep sets the limit below zero on its
-  client (`resource.WithDeleteSaveTime`).
+  the application's that deletes a record in its own code, the library's own delete of
+  an account or a group that goes with its tenant. Nobody was asked a question for such a
+  delete, so each save first does all that the question does: it counts everything under
+  the record, refuses over a row of a refusing kind, over a row the delete does not take
+  and over a row beyond the caller's reach, asks the caller's grant on each kind, and
+  asks every row still under the record (its tenant, the grant's conditions, its delete
+  rule), not only the rows it is about to take. Only then does it take its rows, as a
+  save on a token does. So a save takes nothing while any row under the record refuses.
+  Such a save is slower than one on a token by the question's own time, which runs
+  inside its time limit: a job with no request deadline to keep sets the limit below
+  zero on its client (`resource.WithDeleteSaveTime`).
 - The rows are checked as the person the record's delete is armed against, and the
   sentences are written for that person, as the count of the part before is. A trusted
   delete (a patch that is not armed) checks no grant, runs each kind's rule, and is told

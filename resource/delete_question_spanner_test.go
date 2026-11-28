@@ -341,7 +341,7 @@ func TestExecuteDeleteFunc_asksFirst(t *testing.T) {
 	rule, calls, _ = where(kind)
 	check(name, runs, []string{"read-only", "in the save"}, "where each run of the function read")
 	check(name, rule, []string{"in the save", "in the save"}, "where the rule read")
-	check(name, calls, []string{"Count in the save", "Take in the save"}, "where the kind read")
+	check(name, calls, []string{"Count in the save", "Check in the save", "Take in the save"}, "where the kind read")
 	standing(name, "takes", gone)
 
 	// 5. Another patch beside the delete.
@@ -897,7 +897,8 @@ func TestExecuteDeleteFunc_token(t *testing.T) { //nolint:maintidx // one case a
 			}
 			check(name, got-counted, 1, fmt.Sprintf("the handed kind's counts in save %d", save))
 			if save < 3 {
-				check(name, len(tokenRule.noted()), 1, fmt.Sprintf("the times the rule was asked in save %d", save))
+				// Each save asks every task still under the project: two, then one.
+				check(name, len(tokenRule.noted()), 3-save, fmt.Sprintf("the times the rule was asked in save %d", save))
 			}
 		}
 		check(name, readRoundState(t, db, tt.project), gone, "the project")
